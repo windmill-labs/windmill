@@ -60,7 +60,6 @@
 <PanelSection title="Runnables">
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
-			<div class="text-sm font-semibold truncate mb-1"> Inline scripts </div>
 			<div class="flex flex-col gap-2 w-full">
 				{#if runnables.inline.length > 0}
 					<div class="flex gap-1 flex-col">
@@ -93,6 +92,32 @@
 						{/each}
 					</div>
 				{/if}
+				{#each runnables.imported as { name, id, transformer }, index (index)}
+					<button
+						id={PREFIX + id}
+						class="panel-item
+						{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+						on:click={() => selectScript(id)}
+					>
+						<span class="text-2xs truncate">{name}</span>
+						<Badge color="dark-indigo">{id}</Badge>
+					</button>
+					{#if transformer}
+						<div class="w-full pl-4">
+							<button
+								id={PREFIX + id + '_transformer'}
+								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+{$selectedComponentInEditor === id + '_transformer'
+									? 'border-blue-500 bg-blue-100'
+									: 'hover:bg-blue-50'}"
+								on:click={() => selectScript(id + '_transformer')}
+							>
+								<span class="text-2xs truncate">Transformer</span>
+							</button>
+						</div>
+					{/if}
+				{/each}
+
 				{#if $app.unusedInlineScripts?.length > 0}
 					<div class="flex gap-1 flex-col">
 						{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
@@ -110,49 +135,14 @@
 					</div>
 				{/if}
 				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0}
-					<div class="text-xs text-gray-500">No inline scripts</div>
-				{/if}
-			</div>
-		</div>
-
-		<div>
-			<div class="text-sm font-semibold truncate mb-1"> Workspace/Hub </div>
-			<div class="flex flex-col gap-1 w-full">
-				{#if runnables.imported.length > 0}
-					{#each runnables.imported as { name, id, transformer }, index (index)}
-						<button
-							id={PREFIX + id}
-							class="panel-item
-								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectScript(id)}
-						>
-							<span class="text-2xs truncate">{name}</span>
-							<Badge color="dark-indigo">{id}</Badge>
-						</button>
-						{#if transformer}
-							<div class="w-full pl-4">
-								<button
-									id={PREFIX + id + '_transformer'}
-									class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
-	{$selectedComponentInEditor === id + '_transformer'
-										? 'border-blue-500 bg-blue-100'
-										: 'hover:bg-blue-50'}"
-									on:click={() => selectScript(id + '_transformer')}
-								>
-									<span class="text-2xs truncate">Transformer</span>
-								</button>
-							</div>
-						{/if}
-					{/each}
-				{:else}
-					<div class="text-xs text-gray-500">No imported scripts/flows</div>
+					<div class="text-xs text-gray-500">No scripts/flows</div>
 				{/if}
 			</div>
 		</div>
 
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
-				<div class="text-sm font-semibold truncate">
+				<div class="text-xs text-gray-600 font-semibold truncate">
 					Background scripts
 					<Tooltip class="mb-0.5">
 						Background scripts are triggered upon global refresh or when their input changes. The

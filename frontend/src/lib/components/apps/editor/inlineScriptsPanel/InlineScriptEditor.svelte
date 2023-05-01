@@ -3,7 +3,7 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
-	import { CornerDownLeft, Loader2, Maximize2, Trash2 } from 'lucide-svelte'
+	import { Loader2, Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -161,9 +161,9 @@
 					<div class="flex flex-row gap-1 items-center">
 						Format
 
-						<div class="flex flex-row items-center gap-1">
-							<Kbd>{getModifierKey()}</Kbd>
-							<Kbd>S</Kbd>
+						<div class="flex flex-row items-center">
+							<Kbd small>{getModifierKey()}</Kbd>
+							<Kbd small>S</Kbd>
 						</div>
 					</div>
 				</Button>
@@ -189,13 +189,9 @@
 							<div class="flex flex-row gap-1 items-center">
 								Run
 
-								<div class="flex flex-row items-center gap-1">
-									<Kbd>{getModifierKey()}</Kbd>
-									<Kbd>
-										<div class="h-4 flex items-center justify-center">
-											<CornerDownLeft size={10} />
-										</div>
-									</Kbd>
+								<div class="flex flex-row items-center">
+									<Kbd small>{getModifierKey()}</Kbd>
+									<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 								</div>
 							</div>
 						</Button>
