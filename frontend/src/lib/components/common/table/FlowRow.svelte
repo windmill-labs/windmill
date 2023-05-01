@@ -24,15 +24,16 @@
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 
-	export let flow: Flow & { canWrite: boolean }
+	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 
-	let { summary, path, extra_perms, canWrite, workspace_id, archived } = flow
+	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
 	const dispatch = createEventDispatcher()
 
@@ -72,9 +73,11 @@
 	{summary}
 	{starred}
 	on:change
+	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
 
 		{#if archived}
 			<Badge color="red" baseClass="border">archived</Badge>
@@ -110,31 +113,52 @@
 				{/if}
 			{/if}
 
-			<Button
-				href="/flows/get/{path}?workspace={$workspaceStore}"
-				color="light"
-				variant="border"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				Detail
-			</Button>
-			<Button
-				href="/flows/run/{path}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				endIcon={{ icon: faPlay }}
-			>
-				Run
-			</Button>
+			{#if !draft_only}
+				<Button
+					href="/flows/get/{path}?workspace={$workspaceStore}"
+					color="light"
+					variant="border"
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faEye }}
+				>
+					Detail
+				</Button>
+				<Button
+					href="/flows/run/{path}"
+					color="dark"
+					size="xs"
+					spacingSize="md"
+					endIcon={{ icon: faPlay }}
+				>
+					Run
+				</Button>
+			{/if}
 		</span>
 
 		<Dropdown
 			placement="bottom-end"
 			dropdownItems={() => {
 				let owner = isOwner(path, $userStore, $workspaceStore)
+				if (draft_only) {
+					return [
+						{
+							displayName: 'Delete',
+							icon: faTrashAlt,
+							action: (event) => {
+								if (event?.shiftKey) {
+									deleteFlow(path)
+								} else {
+									deleteConfirmedCallback = () => {
+										deleteFlow(path)
+									}
+								}
+							},
+							type: 'delete',
+							disabled: !owner
+						}
+					]
+				}
 				return [
 					{
 						displayName: 'View flow',

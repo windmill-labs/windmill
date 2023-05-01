@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Script, ScriptService } from '$lib/gen'
+	import { NewScript, Script, ScriptService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
@@ -19,7 +19,7 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 
-	let script: Script =
+	let script: NewScript =
 		initialState != undefined
 			? decodeState(initialState)
 			: {
@@ -28,10 +28,6 @@
 					summary: '',
 					content: '',
 					schema: schema,
-					created_by: '',
-					created_at: '',
-					archived: false,
-					deleted: false,
 					is_template: false,
 					extra_perms: {},
 					language: 'deno',

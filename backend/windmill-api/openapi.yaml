@@ -2125,6 +2125,41 @@ paths:
                 items:
                   type: string
 
+
+  /w/{workspace}/drafts/create:
+    post:
+      summary: create draft
+      operationId: createDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                typ:
+                  type: string
+                  enum: ["flow", "script", "app"]
+                value: {}
+              required:
+                - path
+                - typ
+                - enum
+      responses:
+        "201":
+          description: draft created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script
@@ -2139,40 +2174,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                parent_hash:
-                  type: string
-                summary:
-                  type: string
-                description:
-                  type: string
-                content:
-                  type: string
-                schema:
-                  type: object
-                is_template:
-                  type: boolean
-                lock:
-                  type: array
-                  items:
-                    type: string
-                language:
-                  type: string
-                  enum: [python3, deno, go, bash]
-                kind:
-                  type: string
-                  enum: [script, failure, trigger, command, approval]
-                tag:
-                  type: string
-              required:
-                - path
-                - summary
-                - description
-                - content
-                - language
+              $ref: "#/components/schemas/NewScript"
+
       responses:
         "201":
           description: script created
@@ -2365,6 +2368,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/get/draft/{path}:
+    get:
+      summary: get script by path with draft
+      operationId: getScriptByPathWithDraft
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/NewScript"
+                  - type: object
+                    properties:
+                      draft:
+                        $ref: "#/components/schemas/NewScript"
+                      hash:
+                        type: string
+                    required:
+                      - hash
+
+
 
   /w/{workspace}/scripts/raw/p/{path}:
     get:
@@ -2681,7 +2712,14 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Flow"
+                  allOf:
+                    - $ref: "#/components/schemas/Flow"
+                    - type: object
+                      properties:
+                        has_draft:
+                          type: boolean
+                        draft_only:
+                          type: boolean
 
   /w/{workspace}/flows/get/{path}:
     get:
@@ -2699,6 +2737,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/get/draft/{path}:
+    get:
+      summary: get flow by path with draft
+      operationId: getFlowByPathWithDraft
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details with draft
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Flow"
+                  - type: object
+                    properties:
+                      draft:
+                        $ref: "#/components/schemas/Flow"
+
+
 
   /w/{workspace}/flows/exists/{path}:
     get:
@@ -5026,6 +5088,10 @@ components:
           type: boolean
         tag:
           type: string
+        has_draft:
+          type: boolean
+        draft_only:
+          type: boolean
       required:
         - hash
         - path
@@ -5042,6 +5108,43 @@ components:
         - kind
         - starred
 
+    NewScript:
+      type: object
+      properties:
+        path:
+          type: string
+        parent_hash:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        content:
+          type: string
+        schema:
+          type: object
+        is_template:
+          type: boolean
+        lock:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+          enum: [python3, deno, go, bash]
+        kind:
+          type: string
+          enum: [script, failure, trigger, command, approval]
+        tag:
+          type: string
+        draft_only:
+          type: boolean
+      required:
+        - path
+        - summary
+        - description
+        - content
+        - language
     ScriptArgs:
       type: object
       additionalProperties: {}
@@ -6052,6 +6155,8 @@ components:
         additionalProperties:
           type: boolean
         starred:
+          type: boolean
+        draft_only:
           type: boolean
       required:
         - path

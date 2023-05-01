@@ -71,7 +71,7 @@
 						{`Mode: ${$propPickerConfig?.insertionMode}`}
 					</Badge>
 				{:else}
-					<Badge large color="blue">&leftarrow; Edit or link an input</Badge>
+					<Badge large color="blue">&leftarrow; Edit or connect an input</Badge>
 				{/if}
 			</div>
 		{/if}

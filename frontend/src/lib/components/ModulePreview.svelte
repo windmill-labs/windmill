@@ -80,16 +80,18 @@
 			>
 		{/if}
 
-		{#if testIsLoading}
-			<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="sm">
-				<Loader2 size={16} class="animate-spin mr-1" />
-				Cancel
-			</Button>
-		{:else}
-			<Button btnClasses="w-full truncate" size="sm" on:click={() => runTest(stepArgs)}
-				>Run&nbsp;<Kbd>{getModifierKey()}</Kbd>+<Kbd>Enter</Kbd></Button
-			>
-		{/if}
+		<div class="w-full justify-center flex">
+			{#if testIsLoading}
+				<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red">
+					<Loader2 size={16} class="animate-spin mr-1" />
+					Cancel
+				</Button>
+			{:else}
+				<Button color="dark" btnClasses="truncate" size="sm" on:click={() => runTest(stepArgs)}
+					>Run&nbsp;<Kbd small>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd></Button
+				>
+			{/if}
+		</div>
 
 		<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
 	</Pane>

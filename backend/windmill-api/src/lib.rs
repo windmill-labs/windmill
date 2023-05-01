@@ -33,6 +33,7 @@ mod apps;
 mod audit;
 mod capture;
 mod db;
+mod drafts;
 mod favorite;
 mod flows;
 mod folders;
@@ -134,6 +135,7 @@ pub async fn run_server(
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
+                        .nest("/drafts", drafts::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),

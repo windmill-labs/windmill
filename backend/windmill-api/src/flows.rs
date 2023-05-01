@@ -19,7 +19,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{Postgres, Transaction};
@@ -29,6 +29,7 @@ use windmill_common::{
     flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
+    scripts::Schema,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
@@ -43,6 +44,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/delete/*path", delete(delete_flow_by_path))
         .route("/get/*path", get(get_flow_by_path))
+        .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
 }
@@ -73,12 +75,19 @@ async fn list_flows(
             "archived",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
+            "draft.path IS NOT NULL as has_draft",
+            "draft_only"
         ])
         .left()
         .join("favorite")
         .on(
             "favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
+        )
+        .left()
+        .join("draft")
+        .on(
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("edited_at", lq.order_desc.unwrap_or(true))
@@ -194,7 +203,7 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema, dependency_job) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL)",
+         schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, true)",
         w_id,
         nf.path,
         nf.summary,
@@ -202,6 +211,14 @@ async fn create_flow(
         nf.value,
         &authed.username,
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+        nf.path,
+        &w_id
     )
     .execute(&mut tx)
     .await?;
@@ -310,7 +327,7 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6::text::json, dependency_job = NULL WHERE path = $7 AND workspace_id = $8",
+         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
         nf.description,
@@ -329,55 +346,62 @@ async fn update_flow(
         if !authed.is_admin {
             require_owner_of_path(&authed, flow_path)?;
         }
+    }
 
-        let mut schedulables: Vec<Schedule> = sqlx::query_as!(
-            Schedule,
-                "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
-                nf.path,
-                flow_path,
-                w_id,
-            )
-            .fetch_all(&mut tx)
-            .await?;
-
-        let schedule = sqlx::query_as!(Schedule,
-            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+    let mut schedulables: Vec<Schedule> = sqlx::query_as!(
+        Schedule,
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
             nf.path,
             flow_path,
             w_id,
         )
-        .fetch_optional(&mut tx)
+        .fetch_all(&mut tx)
         .await?;
 
-        if let Some(schedule) = schedule {
-            schedulables.push(schedule);
-        }
+    let schedule = sqlx::query_as!(Schedule,
+        "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+        nf.path,
+        flow_path,
+        w_id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
 
-        for schedule in schedulables.into_iter() {
-            // TODO: Why is this in the loop in the first place? Seems like it's just doing nothing after the first iteration? Should this use schedule.path?
-            clear_schedule(tx.transaction_mut(), flow_path, true).await?;
-
-            if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule).await?;
-            }
-        }
-
-        audit_log(
-            &mut tx,
-            &authed.username,
-            "flows.update",
-            ActionKind::Create,
-            &w_id,
-            Some(&nf.path.to_string()),
-            Some(
-                [Some(("flow", nf.path.as_str()))]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-            ),
-        )
-        .await?;
+    if let Some(schedule) = schedule {
+        schedulables.push(schedule);
     }
+
+    for schedule in schedulables.into_iter() {
+        clear_schedule(tx.transaction_mut(), &schedule.path, true).await?;
+
+        if schedule.enabled {
+            tx = push_scheduled_job(tx, schedule).await?;
+        }
+    }
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+        flow_path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "flows.update",
+        ActionKind::Create,
+        &w_id,
+        Some(&nf.path.to_string()),
+        Some(
+            [Some(("flow", nf.path.as_str()))]
+                .into_iter()
+                .flatten()
+                .collect(),
+        ),
+    )
+    .await?;
 
     webhook.send_message(
         w_id.clone(),
@@ -441,6 +465,43 @@ async fn get_flow_by_path(
             .bind(w_id)
             .fetch_optional(&mut tx)
             .await?;
+    tx.commit().await?;
+
+    let flow = not_found_if_none(flow_o, "Flow", path)?;
+    Ok(Json(flow))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWDraft {
+    pub path: String,
+    pub summary: String,
+    pub description: String,
+    pub schema: Option<Schema>,
+    pub value: serde_json::Value,
+    pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
+}
+
+async fn get_flow_by_path_w_draft(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<FlowWDraft> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let flow_o = sqlx::query_as::<_, FlowWDraft>(
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft FROM flow  LEFT JOIN draft ON 
+        flow.path = draft.path AND flow.workspace_id = draft.workspace_id AND draft.typ = 'flow' 
+        WHERE flow.path = $1 AND flow.workspace_id = $2",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut tx)
+    .await?;
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;

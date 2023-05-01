@@ -64,10 +64,7 @@
 
 		scripts = loadedScripts.map((script: Script) => {
 			return {
-				canWrite:
-					canWrite(script.path, script.extra_perms, $userStore) &&
-					script.workspace_id == $workspaceStore &&
-					!$userStore?.operator,
+				canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
 				...script
 			}
 		})

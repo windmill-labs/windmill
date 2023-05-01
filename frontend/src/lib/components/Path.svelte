@@ -312,8 +312,8 @@
 					<label class="block grow w-48">
 						<span class="text-gray-700 text-sm"
 							>Folder <Tooltip
-							documentationLink="https://docs.windmill.dev/docs/core_concepts/groups_and_folders"
-							>Read and write permissions are given to groups and users at the folder level and
+								documentationLink="https://docs.windmill.dev/docs/core_concepts/groups_and_folders"
+								>Read and write permissions are given to groups and users at the folder level and
 								shared by all items inside the folder.</Tooltip
 							></span
 						>

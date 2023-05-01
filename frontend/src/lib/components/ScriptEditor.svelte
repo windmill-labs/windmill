@@ -13,7 +13,7 @@
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -102,6 +102,8 @@
 		loadPastTests()
 	})
 
+	const dispatch = createEventDispatcher()
+
 	function asKind(str: string | undefined) {
 		return str as 'script' | 'approval' | 'trigger' | undefined
 	}
@@ -169,6 +171,7 @@
 								console.error('Could not save last_save to local storage', e)
 							}
 							lastSave = code
+							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
 						lang={scriptLangToEditorLang(lang)}
@@ -180,7 +183,7 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				<div class="px-2 w-full border-b py-1">
+				<div class="flex justify-center pt-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
@@ -194,6 +197,7 @@
 						</Button>
 					{:else}
 						<Button
+							color="dark"
 							on:click={runTest}
 							btnClasses="w-full"
 							size="xs"
@@ -205,7 +209,7 @@
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test <Kbd class="ml-4 text-5xs -my-0.5">Ctrl+Enter</Kbd>
+								Test&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>Enter</Kbd>
 							{/if}
 						</Button>
 					{/if}

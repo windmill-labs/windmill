@@ -67,7 +67,7 @@
 								</span>
 							</label>
 							<Slider text="How to trigger flows?">
-								<div class="text-sm text-gray-600 border p-4">
+								<div class="text-sm text-gray-600 border p-4 mb-20">
 									On-demand:
 									<ul class="pt-4">
 										<li>

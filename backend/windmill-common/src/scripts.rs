@@ -137,28 +137,27 @@ pub struct Script {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct ListableScript {
-    pub workspace_id: String,
     pub hash: ScriptHash,
     pub path: String,
-    pub parent_hashes: Option<ScriptHashes>,
     pub summary: String,
-    pub description: String,
-    pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
-    pub deleted: bool,
-    pub is_template: bool,
     pub extra_perms: serde_json::Value,
-    pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
-    pub kind: ScriptKind,
     pub starred: bool,
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_draft: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
+    pub has_deploy_errors: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -189,6 +188,7 @@ pub struct NewScript {
     pub language: ScriptLang,
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Deserialize)]

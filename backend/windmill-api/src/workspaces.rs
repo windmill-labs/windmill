@@ -1165,6 +1165,8 @@ where
                 "edited_at",
                 "edited_by",
                 "archived",
+                "has_draft",
+                "draft_only",
             ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
