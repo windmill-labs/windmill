@@ -16,6 +16,7 @@
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 	import { selectId } from '../../editor/appUtils'
+	import { isFrontend } from '../../editor/settingsPanel/script/utils'
 
 	// Component props
 	export let id: string
@@ -96,12 +97,23 @@
 		testJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
-	$: refreshOn =
-		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+	function isRefreshEnabled(): boolean {
+		if (autoRefresh) {
+			return true
+		}
+
+		if (isFrontend(runnable)) {
+			const refreshOn =
+				runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+			return recomputeOnInputChanged && refreshOn.length > 0
+		} else {
+			return recomputeOnInputChanged
+		}
+	}
 
 	function refreshIfAutoRefresh(_src: string) {
-		const refreshEnabled =
-			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
+		const refreshEnabled = isRefreshEnabled()
+
 		if (refreshEnabled && $initialized.initialized) {
 			setDebouncedExecute()
 		}
