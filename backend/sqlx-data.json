@@ -1531,6 +1531,25 @@
     },
     "query": "DELETE FROM schedule WHERE workspace_id = $1"
   },
+  "3c842974773d6ca934722ba16f73c4d7821a447d8c75f2394bcbe397de3cc01b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          "Varchar",
+          "Text",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8)"
+  },
   "3cd8dd59567bcd1d2b6babfbb995be97cd20a0f299a7fd8fa163dc3af388603d": {
     "describe": {
       "columns": [],
@@ -2660,24 +2679,6 @@
     },
     "query": "SELECT policy from app WHERE path = $1 AND workspace_id = $2"
   },
-  "6e8182e167b09a0f9800d5e5988d4dd027c49ad6e14d2665dfdf93c46cb54434": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, true)"
-  },
   "701f215eb14ba67a79afea15d7effc0dd394ba6c4a72c95d4560c5a377015d4e": {
     "describe": {
       "columns": [],
@@ -2839,6 +2840,30 @@
       }
     },
     "query": "select tag from script where hash = $1 AND workspace_id = $2"
+  },
+  "75e880f9d9fbda36c2314706923cef36e4667d930fb8ee1876dd9ce1c92396b2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO app\n            (workspace_id, path, summary, policy, versions, draft_only)\n            VALUES ($1, $2, $3, $4, '{}', $5) RETURNING id"
   },
   "765c18d77412cbb4474f4074d583b9b44681f3b9f58754662ac07a3a3470a3c5": {
     "describe": {
@@ -4174,29 +4199,6 @@
       }
     },
     "query": "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1"
-  },
-  "9def921a0b697e4cbcb6ad88196ff6f66358f3b819aaf4e279596ccfc433fa92": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "INSERT INTO app\n            (workspace_id, path, summary, policy, versions)\n            VALUES ($1, $2, $3, $4, '{}') RETURNING id"
   },
   "9e103fb8405089e361d0528d34e166b3098cc0f7abecbef3b498cca86e74a285": {
     "describe": {
@@ -6389,6 +6391,87 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2"
+  },
+  "f07e4fb9d3b346c6c0a93133d428691a2e17a0c7eef5c593732ad7297d366ad4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "versions",
+          "ordinal": 3,
+          "type_info": "Int8Array"
+        },
+        {
+          "name": "policy",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "value",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "draft_only",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "draft?",
+          "ordinal": 10,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by,\n        app.draft_only, draft.value as \"draft?\"\n        from app\n        INNER JOIN app_version ON\n        app_version.id = app.versions[array_upper(app.versions, 1)]\n        LEFT JOIN draft ON \n        app.path = draft.path AND app.workspace_id = draft.workspace_id AND draft.typ = 'app' \n        WHERE app.path = $1 AND app.workspace_id = $2"
   },
   "f2485c69b3ab6bec11c4e1eac2934d6e49f83b71a72fe74eba7b49abc225df7c": {
     "describe": {

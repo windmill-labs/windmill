@@ -43,6 +43,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/get/p/*path", get(get_app))
+        .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
         .route("/exists/*path", get(exists_app))
@@ -74,6 +75,9 @@ pub struct ListableApp {
     pub execution_mode: String,
     pub starred: bool,
     pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub has_draft: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -96,6 +100,23 @@ pub struct AppWithLastVersion {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AppWithLastVersionAndDraft {
+    pub id: i64,
+    pub path: String,
+    pub summary: String,
+    pub policy: serde_json::Value,
+    pub versions: Vec<i64>,
+    pub value: serde_json::Value,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
 }
 
 pub type StaticFields = Map<String, Value>;
@@ -126,6 +147,7 @@ pub struct CreateApp {
     pub summary: String,
     pub value: serde_json::Value,
     pub policy: Policy,
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +178,8 @@ async fn list_apps(
             "app_version.created_at as edited_at",
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
+            "draft.path IS NOT NULL as has_draft",
+            "draft_only"
         ])
         .left()
         .join("favorite")
@@ -167,6 +191,11 @@ async fn list_apps(
         .join("app_version")
         .on(
             "app_version.id = versions[array_upper(versions, 1)]"
+        )
+        .left()
+        .join("draft")
+        .on(
+            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
@@ -204,6 +233,37 @@ async fn get_app(
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    let app = not_found_if_none(app_o, "App", path)?;
+    Ok(Json(app))
+}
+
+async fn get_app_w_draft(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<AppWithLastVersionAndDraft> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let app_o = sqlx::query_as!(
+        AppWithLastVersionAndDraft,
+        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        app.extra_perms, app_version.value, 
+        app_version.created_at, app_version.created_by,
+        app.draft_only, draft.value as "draft?"
+        from app
+        INNER JOIN app_version ON
+        app_version.id = app.versions[array_upper(app.versions, 1)]
+        LEFT JOIN draft ON 
+        app.path = draft.path AND app.workspace_id = draft.workspace_id AND draft.typ = 'app' 
+        WHERE app.path = $1 AND app.workspace_id = $2"#,
         path.to_owned(),
         &w_id
     )
@@ -324,14 +384,23 @@ async fn create_app(
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
     }
 
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        &app.path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions)
-            VALUES ($1, $2, $3, $4, '{}') RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only)
+            VALUES ($1, $2, $3, $4, '{}', $5) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
+        app.draft_only,
     )
     .fetch_one(&mut tx)
     .await?;
@@ -412,6 +481,14 @@ async fn delete_app(
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
         "DELETE FROM app WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
@@ -455,6 +532,7 @@ async fn update_app(
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
+        sqlb.set("draft_only", "NULL");
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;

@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
-	$: app = undefined as AppWithLastVersion | undefined
+	let app = undefined as (AppWithLastVersion & { draft_only?: boolean }) | undefined
 
 	let redraw = 0
 	let path = $page.params.path
@@ -27,19 +27,19 @@
 	}
 
 	async function loadApp(): Promise<void> {
-		app = await AppService.getAppByPath({
+		const app_w_draft = await AppService.getAppByPathWithDraft({
 			path,
 			workspace: $workspaceStore!
 		})
 
-		const tempValue = app.value
+		const tempValue = app_w_draft.value
 
 		const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
 		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 		if (stateLoadedFromUrl) {
 			const actions: ToastAction[] = []
-			if (JSON.stringify(app.value) !== JSON.stringify(stateLoadedFromUrl)) {
+			if (JSON.stringify(app_w_draft.value) !== JSON.stringify(stateLoadedFromUrl)) {
 				actions.push({
 					label: 'Load from last save instead',
 					callback: () => {
@@ -48,8 +48,28 @@
 				})
 			}
 
-			sendUserToast('App restored from draft', false, actions)
-			app.value = stateLoadedFromUrl
+			sendUserToast('App restored from ephemeral autosave', false, actions)
+			app_w_draft.value = stateLoadedFromUrl
+			app = app_w_draft
+		} else if (app_w_draft.draft) {
+			app = {
+				...app_w_draft,
+				value: app_w_draft.draft
+			}
+			if (!app_w_draft.draft_only) {
+				sendUserToast('flow loaded from latest saved draft', false, [
+					{
+						label: 'Ignore draft and load from latest deployed version',
+						callback: () => {
+							stateLoadedFromUrl = undefined
+							app = app_w_draft
+							redraw++
+						}
+					}
+				])
+			}
+		} else {
+			app = app_w_draft
 		}
 		$dirtyStore = false
 	}

@@ -66,7 +66,6 @@
 							callback: () => {
 								stateLoadedFromUrl = undefined
 								nobackenddraft = true
-								goto(`/flows/edit/${flow!.path}`)
 								loadFlow()
 							}
 						}

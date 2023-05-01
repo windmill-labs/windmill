@@ -203,7 +203,7 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, true)",
+         schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8)",
         w_id,
         nf.path,
         nf.summary,
@@ -211,6 +211,7 @@ async fn create_flow(
         nf.value,
         &authed.username,
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
+        nf.draft_only
     )
     .execute(&mut tx)
     .await?;
@@ -494,7 +495,8 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft FROM flow  LEFT JOIN draft ON 
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft FROM flow
+        LEFT JOIN draft ON 
         flow.path = draft.path AND flow.workspace_id = draft.workspace_id AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",
     )
@@ -577,6 +579,14 @@ async fn delete_flow_by_path(
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+        path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
 
     sqlx::query!(
         "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Badge, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent, Kbd, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -14,7 +14,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, Job, Policy } from '$lib/gen'
+	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { workspaceStore } from '$lib/stores'
 	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
@@ -47,6 +47,8 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	async function hash(message) {
 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -74,7 +76,8 @@
 
 	const loading = {
 		publish: false,
-		save: false
+		save: false,
+		saveDraft: false
 	}
 
 	$: if ($openDebugRun == undefined) {
@@ -92,13 +95,17 @@
 	let pathError: string | undefined = undefined
 	let appExport: AppExportButton
 
+	let draftDrawerOpen = false
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
-	let publishDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
+	}
+
+	function closeDraftDrawer() {
+		draftDrawerOpen = false
 	}
 
 	function collectStaticFields(
@@ -159,11 +166,29 @@
 					policy
 				}
 			})
+			$dirtyStore = false
 			closeSaveDrawer()
+			sendUserToast('App deployed successfully')
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
+	}
+
+	async function updateApp(path: string) {
+		await computeTriggerables()
+		await AppService.updateApp({
+			workspace: $workspaceStore!,
+			path: $page.params.path,
+			requestBody: {
+				value: $app!,
+				summary: $summary,
+				policy
+			}
+		})
+		$dirtyStore = false
+		closeSaveDrawer()
+		sendUserToast('App deployed successfully')
 	}
 
 	let secretUrl: string | undefined = undefined
@@ -192,26 +217,62 @@
 
 	async function save() {
 		$dirtyStore = false
-		if ($page.params.path == undefined) {
-			saveDrawerOpen = true
-			return
-		}
-		loading.save = true
+		saveDrawerOpen = true
+		return
+	}
+
+	async function saveInitialDraft() {
+		await computeTriggerables()
 		try {
-			await computeTriggerables()
-			await AppService.updateApp({
+			await AppService.createApp({
 				workspace: $workspaceStore!,
-				path: $page.params.path,
 				requestBody: {
-					value: $app!,
+					value: $app,
+					path: newPath,
 					summary: $summary,
-					policy
+					policy,
+					draft_only: true
 				}
 			})
-			sendUserToast('App saved')
-			loading.save = false
+			await DraftService.createDraft({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: newPath,
+					typ: 'app',
+					value: $app!
+				}
+			})
+			draftDrawerOpen = false
+			$dirtyStore = false
+			goto(`/apps/edit/${newPath}`)
 		} catch (e) {
-			loading.save = false
+			sendUserToast('Error saving initial draft', e)
+		}
+		draftDrawerOpen = false
+	}
+
+	async function saveDraft() {
+		$dirtyStore = false
+		if ($page.params.path == undefined) {
+			draftDrawerOpen = true
+			return
+		}
+		loading.saveDraft = true
+		try {
+			await computeTriggerables()
+			$dirtyStore = false
+			await DraftService.createDraft({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: $page.params.path,
+					typ: 'app',
+					value: $app!
+				}
+			})
+			sendUserToast('Draft saved')
+			loading.saveDraft = false
+		} catch (e) {
+			loading.saveDraft = false
 			throw e
 		}
 	}
@@ -259,7 +320,7 @@
 				break
 			case 's':
 				if (event.ctrlKey || event.metaKey) {
-					save()
+					saveDraft()
 					event.preventDefault()
 				}
 				break
@@ -290,8 +351,48 @@
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 
+<UnsavedConfirmationModal />
+
+{#if appPath == ''}
+	<Drawer bind:open={draftDrawerOpen} size="800px">
+		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
+			<Alert title="Require path" type="info">
+				Choose a path to save the initial draft of the app.
+			</Alert>
+			<div class="py-2" />
+			<Path
+				bind:error={pathError}
+				bind:path={newPath}
+				initialPath=""
+				namePlaceholder="app"
+				kind="app"
+			/>
+			<div class="py-4" />
+
+			<h3>Summary</h3>
+			<div class="w-full pt-2">
+				<input
+					type="text"
+					placeholder="App summary"
+					class="text-sm w-full font-semibold"
+					bind:value={$summary}
+				/>
+			</div>
+
+			<div slot="actions">
+				<Button
+					startIcon={{ icon: faSave }}
+					disabled={pathError != ''}
+					on:click={() => saveInitialDraft()}
+				>
+					Save initial draft
+				</Button>
+			</div>
+		</DrawerContent>
+	</Drawer>
+{/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
-	<DrawerContent title="Create an App" on:close={() => closeSaveDrawer()}>
+	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		<Path
 			bind:error={pathError}
 			bind:path={newPath}
@@ -300,15 +401,91 @@
 			kind="app"
 		/>
 
+		<div class="py-4" />
+
+		<h3>Summary</h3>
+		<div class="w-full pt-2">
+			<input
+				type="text"
+				placeholder="App summary"
+				class="text-sm w-full font-semibold"
+				bind:value={$summary}
+			/>
+		</div>
+
 		<div slot="actions">
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}
-				on:click={() => createApp(newPath)}
+				on:click={() => {
+					if (appPath == '') {
+						createApp(newPath)
+					} else {
+						updateApp(newPath)
+					}
+				}}
 			>
-				Create app
+				Deploy
 			</Button>
 		</div>
+		<div class="py-2" />
+		{#if appPath == ''}
+			<Alert title="Require saving" type="error">
+				Save this app once before you can publish it
+			</Alert>
+		{:else}
+			<Alert title="App executed on behalf of you">
+				A viewer of the app will execute the runnables of the app on behalf of the publisher (you).
+				<Tooltip>
+					This is to ensure that all resources/runnable available at time of creating the app would
+					prevent the good execution of the app. To guarantee tight security, a policy is computed
+					at time of deployment of the app which only allow the scripts/flows referred to in the app
+					to be called on behalf of, and the resources are passed by reference so that their actual
+					value is . Furthermore, static parameters are not overridable. Hence, users will only be
+					able to use the app as intended by the publisher without risk for leaking resources not
+					used in the app.
+				</Tooltip>
+			</Alert>
+			<div class="mt-4" />
+			<Toggle
+				options={{
+					left: `Require read-access`,
+					right: `Publish publicly for anyone knowing the secret url`
+				}}
+				checked={policy.execution_mode == 'anonymous'}
+				on:change={(e) => {
+					policy.execution_mode = e.detail
+						? Policy.execution_mode.ANONYMOUS
+						: Policy.execution_mode.PUBLISHER
+					setPublishState()
+				}}
+			/>
+
+			{#if policy.execution_mode == 'anonymous' && secretUrl}
+				{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
+				{@const href = $page.url.protocol + '//' + url}
+				<div class="my-6 box">
+					Public url:
+					<a
+						on:click={(e) => {
+							e.preventDefault()
+							copyToClipboard(href)
+						}}
+						{href}
+						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+					>
+						{url}
+						<span class="text-gray-700 ml-2">
+							<Icon data={faClipboard} />
+						</span>
+					</a>
+				</div>
+
+				<Alert type="info" title="Only latest saved app is publicly available">
+					Once made public, you will still need to deploy the app to make visible the latest changes
+				</Alert>
+			{/if}
+		{/if}
 	</DrawerContent>
 </Drawer>
 
@@ -442,66 +619,6 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={publishDrawerOpen} size="800px">
-	<DrawerContent title="Publish an App" on:close={() => (publishDrawerOpen = false)}>
-		{#if appPath == ''}
-			<Alert title="Require saving" type="error">
-				Save this app once before you can publish it
-			</Alert>
-		{:else}
-			<Alert title="App executed on behalf of publisher">
-				A viewer of the app will execute the runnables of the app on behalf of the publisher
-				avoiding the risk that a resource or script would not be available to the viewer. To
-				guarantee tight security, a policy is computed at time of saving of the app which only allow
-				the scripts/flows referred to in the app to be called on behalf of. Furthermore, static
-				parameters are not overridable. Hence, users will only be able to use the app as intended by
-				the publisher without risk for leaking resources not used in the app.
-			</Alert>
-			<div class="mt-4" />
-			<Toggle
-				options={{
-					left: `Require read-access`,
-					right: `Publish publicly for anyone knowing the secret url`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail
-						? Policy.execution_mode.ANONYMOUS
-						: Policy.execution_mode.PUBLISHER
-					setPublishState()
-				}}
-			/>
-
-			{#if policy.execution_mode == 'anonymous' && secretUrl}
-				{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
-				{@const href = $page.url.protocol + '//' + url}
-				<div class="my-6 box">
-					Public url:
-					<a
-						on:click={(e) => {
-							e.preventDefault()
-							copyToClipboard(href)
-						}}
-						{href}
-						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-					>
-						{url}
-						<span class="text-gray-700 ml-2">
-							<Icon data={faClipboard} />
-						</span>
-					</a>
-				</div>
-
-				<Alert type="info" title="Only show latest saved app">
-					Once made public, you will still need to save the app to make visible the latest changes
-				</Alert>
-			{/if}
-		{/if}
-
-		<div />
-	</DrawerContent>
-</Drawer>
-
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible"
 >
@@ -607,42 +724,27 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-
 		<PreviewToggle loading={loading.save} />
-		{#if appPath == ''}
-			<Button
-				loading={loading.save}
-				startIcon={{ icon: faSave }}
-				on:click={save}
-				color="dark"
-				size="xs"
-			>
-				<span class="hidden md:inline">Save</span>
-			</Button>
-		{:else}
-			<Button
-				loading={loading.save}
-				startIcon={{ icon: faSave }}
-				on:click={save}
-				color="dark"
-				size="xs"
-				dropdownItems={[
-					{
-						label: 'Fork',
-						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
+		<Button loading={loading.save} startIcon={{ icon: faSave }} on:click={saveDraft} size="xs">
+			Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+		</Button>
+		<Button
+			loading={loading.save}
+			startIcon={{ icon: faSave }}
+			on:click={save}
+			size="xs"
+			dropdownItems={appPath != ''
+				? () => [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/apps/add?template=${appPath}`)
+							}
 						}
-					},
-					{
-						label: 'Publish',
-						onClick: () => {
-							publishDrawerOpen = true
-						}
-					}
-				]}
-			>
-				Save
-			</Button>
-		{/if}
+				  ]
+				: undefined}
+		>
+			Deploy
+		</Button>
 	</div>
 </div>

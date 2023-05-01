@@ -68,7 +68,8 @@
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
-						schema: flow.schema
+						schema: flow.schema,
+						draft_only: true
 					}
 				})
 			}

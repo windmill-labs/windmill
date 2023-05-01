@@ -437,8 +437,8 @@
 						startIcon={{ icon: faSave }}
 						on:click={() => saveDraft()}
 					>
-						Save draft&nbsp;<Kbd>{getModifierKey()}</Kbd>
-						<Kbd>S</Kbd>
+						Save draft&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+						<Kbd small>S</Kbd>
 					</Button>
 					<Button
 						loading={loadingSave}
