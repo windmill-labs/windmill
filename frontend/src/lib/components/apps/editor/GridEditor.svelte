@@ -129,7 +129,7 @@
 				name={script.name}
 				fields={script.fields}
 				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
-				autoRefresh={script.autoRefresh ?? false}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
 	{/each}

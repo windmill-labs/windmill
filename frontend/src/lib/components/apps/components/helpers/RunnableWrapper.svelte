@@ -42,7 +42,6 @@
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
-	export let triggerable: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -61,7 +60,7 @@
 	})
 
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
-	$: if (triggerable && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
+	$: if (!autoRefresh && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
 		componentInput.autoRefresh = false
 		componentInput.recomputeOnInputChanged = false
 	}
@@ -79,7 +78,6 @@
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
 		}
 		if (!doOnSuccess) return
-
 		if (doOnSuccess.selected == 'none') return
 
 		if (doOnSuccess.selected == 'setTab') {
@@ -124,10 +122,9 @@
 		bind:result
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
-		autoRefresh={componentInput.autoRefresh === undefined
-			? autoRefresh
-			: componentInput.autoRefresh}
+		{autoRefresh}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
+		recomputableByRefreshButton={componentInput.autoRefresh}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}

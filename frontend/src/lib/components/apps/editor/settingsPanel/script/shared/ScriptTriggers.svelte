@@ -20,7 +20,8 @@
 			? inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
 			: []
 		: dependencies
-	$: hasNoTriggers = triggerEvents.length === 0 && changeEvents.length === 0
+	$: hasNoTriggers =
+		triggerEvents.length === 0 && (changeEvents.length === 0 || !shoudlDisplayChangeEvents)
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
