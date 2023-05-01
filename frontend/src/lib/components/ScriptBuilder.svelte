@@ -193,6 +193,7 @@
 				requestBody: { path: script.path, typ: 'script', value: script }
 			})
 			if (initialPath == '') {
+				$dirtyStore = false
 				goto(`/scripts/edit/${script.path}`)
 			}
 			sendUserToast('Saved as draft')
