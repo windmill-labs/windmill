@@ -81,7 +81,7 @@
 		"d3-zoom": "^3.0.0",
 		"date-fns": "^2.29.3",
 		"fast-equals": "^4.0.3",
-		"highlight.js": "^11.7.0",
+		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.176.0",
 		"monaco-editor": "0.36.1",
