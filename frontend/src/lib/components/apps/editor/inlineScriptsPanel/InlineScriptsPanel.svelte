@@ -87,6 +87,7 @@
 									$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
 								}
 							}}
+							cancelable={false}
 						/>
 					{/if}
 				{/key}

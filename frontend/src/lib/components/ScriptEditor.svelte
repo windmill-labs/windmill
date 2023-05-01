@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -209,7 +209,8 @@
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>Enter</Kbd>
+								Test&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 							{/if}
 						</Button>
 					{/if}

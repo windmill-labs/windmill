@@ -9,6 +9,7 @@
 	} from '../../inputType'
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
+	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let id: string
 	export let name: string
@@ -34,21 +35,25 @@
 	})
 </script>
 
-<RunnableComponent
-	render={false}
-	{id}
-	{fields}
-	{autoRefresh}
-	bind:result
-	transformer={undefined}
-	{recomputeOnInputChanged}
-	runnable={{
-		name,
-		inlineScript,
-		type: 'runnableByName'
-	}}
-	wrapperClass="hidden"
-	{outputs}
->
-	<slot />
-</RunnableComponent>
+{#if inlineScript}
+	<RunnableComponent
+		render={false}
+		{id}
+		{fields}
+		{autoRefresh}
+		bind:result
+		transformer={undefined}
+		{recomputeOnInputChanged}
+		runnable={{
+			name,
+			inlineScript,
+			type: 'runnableByName'
+		}}
+		wrapperClass="hidden"
+		{outputs}
+	>
+		<slot />
+	</RunnableComponent>
+{:else}
+	<InitializeComponent {id} />
+{/if}
