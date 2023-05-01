@@ -153,6 +153,7 @@
 				}
 			}
 			loadingSave = false
+			$dirtyStore = false
 			goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
