@@ -17,15 +17,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 
-	export let app: ListableApp & { canWrite: boolean }
+	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 
-	let { summary, path, extra_perms, canWrite, workspace_id } = app
+	let { summary, path, extra_perms, canWrite, workspace_id, has_draft, draft_only } = app
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -39,8 +40,11 @@
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{starred}
 	on:change
+	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
+		<DraftBadge {has_draft} {draft_only} />
+
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
@@ -85,56 +89,79 @@
 		</span>
 		<Dropdown
 			placement="bottom-end"
-			dropdownItems={[
-				{
-					displayName: 'View',
-					icon: faEye,
-					href: `/apps/get/${path}`
-				},
-				{
-					displayName: 'Edit',
-					icon: faPen,
-					href: `/apps/edit/${path}?nodraft=true`,
-					disabled: !canWrite
-				},
-				{
-					displayName: 'Duplicate/Fork',
-					icon: faCodeFork,
-					href: `/apps/add?template=${path}`
-				},
-				{
-					displayName: 'Move/Rename',
-					icon: faFileExport,
-					action: () => {
-						moveDrawer.openDrawer(path, summary, 'app')
+			dropdownItems={() => {
+				if (draft_only) {
+					return [
+						{
+							displayName: 'Delete',
+							icon: faTrashAlt,
+							action: async (event) => {
+								if (event?.shiftKey) {
+									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									dispatch('change')
+								} else {
+									deleteConfirmedCallback = async () => {
+										await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+										dispatch('change')
+									}
+								}
+							},
+							type: 'delete',
+							disabled: !canWrite
+						}
+					]
+				}
+				return [
+					{
+						displayName: 'View',
+						icon: faEye,
+						href: `/apps/get/${path}`
 					},
-					disabled: !canWrite
-				},
-				{
-					displayName: canWrite ? 'Share' : 'See Permissions',
-					icon: faShare,
-					action: () => {
-						shareModal.openDrawer && shareModal.openDrawer(path, 'app')
-					}
-				},
-				{
-					displayName: 'Delete',
-					icon: faTrashAlt,
-					action: async (event) => {
-						if (event?.shiftKey) {
-							await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
-							dispatch('change')
-						} else {
-							deleteConfirmedCallback = async () => {
-								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
-								dispatch('change')
-							}
+					{
+						displayName: 'Edit',
+						icon: faPen,
+						href: `/apps/edit/${path}?nodraft=true`,
+						disabled: !canWrite
+					},
+					{
+						displayName: 'Duplicate/Fork',
+						icon: faCodeFork,
+						href: `/apps/add?template=${path}`
+					},
+					{
+						displayName: 'Move/Rename',
+						icon: faFileExport,
+						action: () => {
+							moveDrawer.openDrawer(path, summary, 'app')
+						},
+						disabled: !canWrite
+					},
+					{
+						displayName: canWrite ? 'Share' : 'See Permissions',
+						icon: faShare,
+						action: () => {
+							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 						}
 					},
-					type: 'delete',
-					disabled: !canWrite
-				}
-			]}
+					{
+						displayName: 'Delete',
+						icon: faTrashAlt,
+						action: async (event) => {
+							if (event?.shiftKey) {
+								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+								dispatch('change')
+							} else {
+								deleteConfirmedCallback = async () => {
+									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									dispatch('change')
+								}
+							}
+						},
+						type: 'delete',
+						disabled: !canWrite
+					}
+				]
+			}}
 		/>
 	</svelte:fragment>
 </Row>

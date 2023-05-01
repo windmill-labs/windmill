@@ -88,7 +88,7 @@
 		runnableComponents: writable({}),
 		appPath: path,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveDraft(),
+		onchange: () => saveFrontendDraft(),
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
@@ -114,9 +114,9 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 
-	$: $appStore && saveDraft()
+	$: $appStore && saveFrontendDraft()
 
-	function saveDraft() {
+	function saveFrontendDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
 			try {

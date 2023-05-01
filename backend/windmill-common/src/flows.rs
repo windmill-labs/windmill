@@ -62,6 +62,7 @@ pub struct NewFlow {
     pub description: String,
     pub value: serde_json::Value,
     pub schema: Option<Schema>,
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

@@ -135,7 +135,7 @@
 					href="https://github.com/windmill-labs/windmill/tree/main/cli"
 					color="light"
 					size="xs"
-					btnClasses="mr-1 hidden md:block"
+					btnClasses="mr-1 hidden lg:block"
 					startIcon={{
 						icon: faGithub
 					}}

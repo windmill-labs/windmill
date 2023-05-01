@@ -6,6 +6,7 @@ use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
 use tokio::sync::RwLock;
 use windmill_api::jobs::{CompletedJob, Job};
+use windmill_api_client::types::CreateFlowBody;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -2442,9 +2443,12 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     client
         .create_flow(
             "test-workspace",
-            &windmill_api_client::types::OpenFlowWPath {
-                open_flow: flow,
-                path: "g/all/flow_lock_all".to_owned(),
+            &CreateFlowBody {
+                open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
+                    open_flow: flow,
+                    path: "g/all/flow_lock_all".to_owned(),
+                },
+                draft_only: None,
             },
         )
         .await
