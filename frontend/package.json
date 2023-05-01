@@ -18,7 +18,7 @@
 		"@playwright/test": "^1.32.3",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
-		"@sveltejs/kit": "^1.15.6",
+		"@sveltejs/kit": "^1.15.9",
 		"@sveltejs/package": "^2.0.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
@@ -97,7 +97,7 @@
 		"vscode-ws-jsonrpc": "3.0.0"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.15.6",
+		"@sveltejs/kit": "^1.15.9",
 		"svelte": "^3.55.1"
 	},
 	"exports": {
