@@ -407,6 +407,7 @@
 					size="xs"
 					startIcon={{ icon: faSave }}
 					on:click={() => saveFlow()}
+					dropdownItems={initialPath != '' ? dropdownItems : undefined}
 				>
 					Deploy
 				</Button>
