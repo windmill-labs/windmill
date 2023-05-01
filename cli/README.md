@@ -3,6 +3,8 @@
 A simple CLI allowing interactions with windmill from the command line.
 ![](./vhs/output/setup.gif)
 
+You can find more information in [Windmill Docs](https://docs.windmill.dev/docs/advanced/cli)
+
 ## Installation
 
 Install the `wmill` CLI tool using
@@ -18,10 +20,13 @@ workspace settings.
 ## Running Flows & Scripts
 
 Run a script or flow using `wmill flow/script run u/username/path/to/script` and
-pass any inputs using `--input/-i <name>=<value>` curl-style syntax using
-`-i @-` for stdin or `-i @<filename>` is also supported
+pass any inputs using `--data` +  Inputs specified as a JSON string or a file using `@ <filename>` or stdin using @-.
+
+Curl-style syntax using `-d @-` for stdin or `-d @<filename>` is also supported.
 
 Flow Steps and Logs will be streamed during execution automatically.
+
+![CLI input example](./vhs/output/cli_inputs_example.png)
 
 ## Pushing Resources, Scripts & More
 
