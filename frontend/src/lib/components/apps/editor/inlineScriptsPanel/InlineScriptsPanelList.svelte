@@ -134,7 +134,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0}
+				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
 					<div class="text-xs text-gray-500">No scripts/flows</div>
 				{/if}
 			</div>
