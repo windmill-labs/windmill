@@ -22,11 +22,9 @@
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
 	<h2>
 		Early stop/Break
-		<Tooltip>
+		<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/early_stop">
 			If defined, at the end of the step, the predicate expression will be evaluated to decide if
-			the flow should stop early. Skipped flows are just a label useful to not see them in the runs
-			page. If stop early is run within a forloop, it will just break the for-loop and have it stop
-			at that iteration instead of stopping the whole flow.
+			the flow should stop early.
 		</Tooltip>
 	</h2>
 	<Toggle

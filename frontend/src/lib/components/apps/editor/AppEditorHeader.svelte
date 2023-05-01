@@ -319,7 +319,7 @@
 </Drawer>
 
 <Drawer bind:open={jobsDrawerOpen} size="900px">
-	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)}>
+	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)} tooltip="Look at latests runs to spot potential bugs." documentationLink="https://docs.windmill.dev/docs/apps/app_toolbar#debug-runs">
 		<Splitpanes class="!overflow-visible">
 			<Pane size={25}>
 				<PanelSection title="Past Runs">
