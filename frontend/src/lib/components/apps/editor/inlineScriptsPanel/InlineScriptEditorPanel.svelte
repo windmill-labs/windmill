@@ -158,6 +158,7 @@
 				<div class="flex flex-row">
 					<Button
 						size="xs"
+						variant="border"
 						startIcon={{ icon: faCodeBranch }}
 						on:click={() => {
 							if (
@@ -181,6 +182,7 @@
 					{:else if componentInput.runnable.runType == 'flow'}
 						<div class="pb-2 flex gap-2 w-full flex-row-reverse">
 							<Button
+								variant="border"
 								size="xs"
 								startIcon={{ icon: faRefresh }}
 								on:click={() => {
@@ -201,6 +203,7 @@
 								Refresh
 							</Button>
 							<Button
+								variant="border"
 								size="xs"
 								startIcon={{ icon: faEye }}
 								on:click={() => {
@@ -211,6 +214,7 @@
 								Expand
 							</Button>
 							<Button
+								variant="border"
 								size="xs"
 								startIcon={{ icon: faPen }}
 								endIcon={{ icon: faExternalLinkAlt }}
@@ -218,6 +222,7 @@
 								href="/flows/edit/{componentInput?.['runnable']?.path}?nodraft=true">Edit</Button
 							>
 							<Button
+								variant="border"
 								size="xs"
 								startIcon={{ icon: faEye }}
 								endIcon={{ icon: faExternalLinkAlt }}
