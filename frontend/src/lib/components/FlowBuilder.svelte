@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { FlowService, ScheduleService, type Flow, type FlowModule } from '$lib/gen'
+	import { FlowService, ScheduleService, type Flow, type FlowModule, DraftService } from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
@@ -20,6 +20,7 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -50,8 +51,43 @@
 	}
 
 	let loadingSave = false
+	let loadingDraft = false
 
-	async function saveFlow(leave: boolean): Promise<void> {
+	async function saveDraft(): Promise<void> {
+		loadingDraft = true
+		try {
+			const flow = cleanInputs($flowStore)
+			$dirtyStore = false
+			localStorage.removeItem('flow')
+
+			if (initialPath == '') {
+				await FlowService.createFlow({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description ?? '',
+						value: flow.value,
+						schema: flow.schema
+					}
+				})
+			}
+			await DraftService.createDraft({
+				workspace: $workspaceStore!,
+				requestBody: { path: initialPath == '' ? flow.path : initialPath, typ: 'flow', value: flow }
+			})
+			if (initialPath == '') {
+				$dirtyStore = false
+				goto(`/flows/edit/${flow.path}`)
+			}
+			sendUserToast('Saved as draft')
+		} catch (error) {
+			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
+		}
+		loadingDraft = false
+	}
+
+	async function saveFlow(): Promise<void> {
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
@@ -117,12 +153,8 @@
 				}
 			}
 			loadingSave = false
-			if (leave) {
-				goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
-			} else if (initialPath !== $flowStore.path) {
-				initialPath = $flowStore.path
-				goto(`/flows/edit/${$flowStore.path}?workspace=${$workspaceStore}`)
-			}
+			$dirtyStore = false
+			goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
@@ -133,11 +165,11 @@
 
 	$: {
 		if ($flowStore || $selectedIdStore) {
-			saveDraft()
+			saveSessionDraft()
 		}
 	}
 
-	function saveDraft() {
+	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
 			try {
@@ -231,7 +263,7 @@
 				break
 			case 's':
 				if (event.ctrlKey || event.metaKey) {
-					saveFlow(false)
+					saveDraft()
 					event.preventDefault()
 				}
 				break
@@ -269,8 +301,8 @@
 		onClick: () => void
 	}> = [
 		{
-			label: 'Save and exit',
-			onClick: () => saveFlow(true)
+			label: 'Exit & see details',
+			onClick: () => goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 		}
 	]
 
@@ -283,6 +315,8 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
+
+<UnsavedConfirmationModal />
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
@@ -360,18 +394,23 @@
 				<FlowImportExportMenu />
 
 				<FlowPreviewButtons />
-				<div class="center-center">
-					<Button
-						title="Ctrl/Cmd + S"
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: faSave }}
-						on:click={() => saveFlow(false)}
-						{dropdownItems}
-					>
-						Save&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
-					</Button>
-				</div>
+				<Button
+					loading={loadingDraft}
+					size="xs"
+					startIcon={{ icon: faSave }}
+					on:click={() => saveDraft()}
+				>
+					Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+				</Button>
+				<Button
+					loading={loadingSave}
+					size="xs"
+					startIcon={{ icon: faSave }}
+					on:click={() => saveFlow()}
+					dropdownItems={initialPath != '' ? dropdownItems : undefined}
+				>
+					Deploy
+				</Button>
 			</div>
 		</div>
 

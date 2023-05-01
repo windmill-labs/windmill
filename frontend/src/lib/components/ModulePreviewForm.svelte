@@ -52,7 +52,7 @@
 	}
 </script>
 
-<div class="w-full pt-4">
+<div class="w-full pt-2">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}

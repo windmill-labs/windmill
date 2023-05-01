@@ -14,7 +14,9 @@
 		editor as meditor,
 		Uri as mUri,
 		languages,
-		Range
+		Range,
+		KeyMod,
+		KeyCode
 	} from 'monaco-editor/esm/vs/editor/editor.api'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
@@ -449,6 +451,12 @@
 			fontSize,
 			suggestOnTriggerCharacters: true,
 			lineDecorationsWidth: 14
+		})
+
+		editor.onDidFocusEditorText(() => {
+			dispatch('focus')
+
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 		})
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }

@@ -183,7 +183,7 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				<div class="px-2 w-full border-b py-1">
+				<div class="flex justify-center pt-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
@@ -197,6 +197,7 @@
 						</Button>
 					{:else}
 						<Button
+							color="dark"
 							on:click={runTest}
 							btnClasses="w-full"
 							size="xs"

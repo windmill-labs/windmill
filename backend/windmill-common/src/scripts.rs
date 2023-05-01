@@ -137,6 +137,7 @@ pub struct Script {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
 }
 

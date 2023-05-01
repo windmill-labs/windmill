@@ -16,6 +16,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { Plug } from 'lucide-svelte'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -221,14 +222,14 @@
 					<Button
 						title="Connect to another node's output"
 						variant="border"
-						color="dark"
+						color="light"
 						size="xs2"
 						on:click={() => {
 							focusProp(argName, 'connect', (path) => {
 								connectProperty(path)
 								return true
 							})
-						}}>Link &rightarrow;</Button
+						}}><Plug size={16} /> &rightarrow;</Button
 					>
 				</div>
 			</div>
