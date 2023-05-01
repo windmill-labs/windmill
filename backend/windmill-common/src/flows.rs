@@ -33,6 +33,8 @@ pub struct Flow {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +49,9 @@ pub struct ListableFlow {
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
+    pub has_draft: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Deserialize)]

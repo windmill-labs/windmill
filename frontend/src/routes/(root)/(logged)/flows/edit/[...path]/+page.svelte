@@ -36,29 +36,45 @@
 
 	let selectedId: string = 'settings-metadata'
 
+	let nobackenddraft = false
 	async function loadFlow(): Promise<void> {
 		loading = true
 		let flow: Flow
 		if (stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == $page.params.path) {
-			sendUserToast('Flow restored from draft', false, [
+			sendUserToast('Flow restored from ephemeral autosave', false, [
 				{
-					label: 'Restore last saved version instead',
+					label: 'Discard autosave and reload',
 					callback: () => {
-						FlowService.getFlowByPath({
-							workspace: $workspaceStore!,
-							path: $page.params.path
-						}).then((flow) => {
-							$flowStore = flow
-						})
+						stateLoadedFromUrl = undefined
+						goto(`/flows/edit/${flow!.path}`)
+						loadFlow()
 					}
 				}
 			])
 			flow = stateLoadedFromUrl.flow
 		} else {
-			flow = await FlowService.getFlowByPath({
+			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: $page.params.path
 			})
+			if (flowWithDraft.draft != undefined && !nobackenddraft) {
+				flow = flowWithDraft.draft
+				if (!flowWithDraft.draft_only) {
+					sendUserToast('flow loaded from latest saved draft', false, [
+						{
+							label: 'Ignore draft and load from latest deployed version',
+							callback: () => {
+								stateLoadedFromUrl = undefined
+								nobackenddraft = true
+								goto(`/flows/edit/${flow!.path}`)
+								loadFlow()
+							}
+						}
+					])
+				}
+			} else {
+				flow = flowWithDraft
+			}
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)

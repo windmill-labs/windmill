@@ -130,7 +130,7 @@
 			<Button
 				variant="contained"
 				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
-				color="blue"
+				color="dark"
 				size="sm"
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
