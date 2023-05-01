@@ -33,16 +33,6 @@
 		$selectedId?.includes('branch')
 </script>
 
-<Button
-	size="xs"
-	on:click={() => {
-		previewMode = 'whole'
-		previewOpen = !previewOpen
-	}}
-	startIcon={{ icon: faPlay }}
->
-	Test flow
-</Button>
 {#if !upToDisabled}
 	<Button
 		size="xs"
@@ -61,6 +51,18 @@
 		</Badge>
 	</Button>
 {/if}
+
+<Button
+	color="dark"
+	size="xs"
+	on:click={() => {
+		previewMode = 'whole'
+		previewOpen = !previewOpen
+	}}
+	startIcon={{ icon: faPlay }}
+>
+	Test flow
+</Button>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent

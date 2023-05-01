@@ -28,9 +28,9 @@
 	async function loadScript(): Promise<void> {
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
 			script = scriptLoadedFromUrl
-			sendUserToast('Script loaded from latest state stored in the URL', false, [
+			sendUserToast('Script loaded from latest autosave stored in the URL', false, [
 				{
-					label: 'Discard state and reload',
+					label: 'Discard autosave and reload',
 					callback: () => {
 						scriptLoadedFromUrl = undefined
 						goto(`/scripts/edit/${script!.path}`)
@@ -52,22 +52,22 @@
 				})
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
+					if (!scriptWithDraft.draft_only) {
+						sendUserToast('Script loaded from latest saved draft', false, [
+							{
+								label: 'Ignore draft and load from latest deployed version',
+								callback: () => {
+									scriptLoadedFromUrl = undefined
+									hash = scriptWithDraft.hash
+									console.log(hash)
+									goto(`/scripts/edit/${script!.path}`)
+									loadScript()
+								}
+							}
+						])
+					}
 				} else {
 					script = scriptWithDraft
-				}
-				if (!scriptWithDraft.draft_only) {
-					sendUserToast('Script loaded from latest saved draft', false, [
-						{
-							label: 'Ignore draft and load from latest deployed version',
-							callback: () => {
-								scriptLoadedFromUrl = undefined
-								hash = scriptWithDraft.hash
-								console.log(hash)
-								goto(`/scripts/edit/${script!.path}`)
-								loadScript()
-							}
-						}
-					])
 				}
 				topHash = scriptWithDraft.hash
 			}
