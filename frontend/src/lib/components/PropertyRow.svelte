@@ -18,12 +18,16 @@
 		dispatch('startEditArgument', name)
 	}
 
-	function handleDeleteArgument(name: string) {
-		dispatch('deleteArgument', name)
+	function handleDeleteArgument(argPath: string[]) {
+		dispatch('deleteArgument', argPath)
 	}
 
 	function changePosition(i: number, up: boolean) {
 		dispatch('changePosition', { i, up })
+	}
+
+	function getArgPath(displayInfo: PropertyDisplayInfo): string[] {
+		return [...displayInfo.path, displayInfo.name]
 	}
 
 	const indentStyle = depth > 0 ? `margin-left :${depth}rem` : ''
@@ -59,16 +63,6 @@
 		{/if}
 
 		<Button
-			color="red"
-			variant="border"
-			btnClasses="mx-2"
-			size="sm"
-			startIcon={{ icon: faTrash }}
-			on:click={() => handleDeleteArgument(displayInfo.name)}
-		>
-			Delete
-		</Button>
-		<Button
 			color="light"
 			variant="border"
 			size="sm"
@@ -78,4 +72,14 @@
 			Edit
 		</Button>
 	{/if}
+	<Button
+		color="red"
+		variant="border"
+		btnClasses="mx-2"
+		size="sm"
+		startIcon={{ icon: faTrash }}
+		on:click={() => handleDeleteArgument(getArgPath(displayInfo))}
+	>
+		Delete
+	</Button>
 </td>

@@ -119,12 +119,23 @@
 		handleDeleteArgument(event.detail)
 	}
 
-	function handleDeleteArgument(argName: string): void {
+	function handleDeleteArgument(argPath: string[]): void {
 		try {
-			if (Object.keys(schema.properties).includes(argName)) {
-				delete schema.properties[argName]
+			let modifiedObject = schema
+			let argName = argPath.pop() as string
 
-				schema.required = schema.required.filter((arg) => arg !== argName)
+			argPath.forEach((property) => {
+				if (Object.keys(modifiedObject.properties).includes(property)) {
+					modifiedObject = modifiedObject.properties[property]
+				} else {
+					throw Error('Nested argument not found!')
+				}
+			})
+
+			if (Object.keys(modifiedObject.properties).includes(argName)) {
+				delete modifiedObject.properties[argName]
+
+				modifiedObject.required = schema.required.filter((arg) => arg !== argName)
 
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
