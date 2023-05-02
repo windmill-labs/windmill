@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.92.1](https://github.com/windmill-labs/windmill/compare/v1.92.0...v1.92.1) (2023-05-02)
+
+
+### Bug Fixes
+
+* **go-client:** fix go-client gen ([df333d9](https://github.com/windmill-labs/windmill/commit/df333d9739f601714f7a0124f47422dfb113d320))
+
 ## [1.92.0](https://github.com/windmill-labs/windmill/compare/v1.91.0...v1.92.0) (2023-05-02)
 
 
