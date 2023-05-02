@@ -155,7 +155,7 @@ async fn list_scripts(
 
     if lq.show_archived.unwrap_or(false) {
         sqlb.and_where_eq(
-            "created_at",
+            "o.created_at",
             "(select max(created_at) from script where o.path = path 
             AND workspace_id = ?)"
                 .bind(&w_id),

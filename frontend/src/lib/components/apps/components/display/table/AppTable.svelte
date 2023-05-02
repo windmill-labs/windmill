@@ -21,6 +21,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
+	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -316,54 +317,78 @@
 														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 														: ''}
 												>
-													{#if $selectedComponent?.includes(actionButton.id) || $hoverStore === actionButton.id}
+													{#if $mode !== 'preview'}
+														<!-- svelte-ignore a11y-click-events-have-key-events -->
 														<span
 															title={`Id: ${actionButton.id}`}
 															class={classNames(
-																'px-2 text-2xs font-bold w-fit absolute shadow -top-5 -left-[2px] border z-50 rounded-sm',
-																'bg-indigo-500/90 border-indigo-600 text-white'
+																'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
+																'bg-indigo-500/90 border-indigo-600 text-white',
+																$selectedComponent?.includes(actionButton.id) ||
+																	$hoverStore === actionButton.id
+																	? 'opacity-100'
+																	: 'opacity-0'
 															)}
+															on:click|stopPropagation={() => {
+																$selectedComponent = [actionButton.id]
+															}}
 														>
 															{actionButton.id}
 														</span>
 													{/if}
 													{#if rowIndex == 0}
-														<AppButton
-															extraKey={'idx' + rowIndex}
-															{render}
-															noWFull
-															preclickAction={async () => {
-																toggleRow(row, rowIndex)
-															}}
-															id={actionButton.id}
-															customCss={actionButton.customCss}
-															configuration={actionButton.configuration}
-															recomputeIds={actionButton.recomputeIds}
-															extraQueryParams={{ row: row.original }}
-															componentInput={actionButton.componentInput}
-															controls={{
-																left: () => {
-																	if (actionIndex === 0) {
-																		$selectedComponent = [id]
-																		return true
-																	} else if (actionIndex > 0) {
-																		$selectedComponent = [actionButtons[actionIndex - 1].id]
-																		return true
-																	}
-																	return false
-																},
-																right: () => {
-																	if (actionIndex === actionButtons.length - 1) {
-																		return id
-																	} else if (actionIndex < actionButtons.length - 1) {
-																		$selectedComponent = [actionButtons[actionIndex + 1].id]
-																		return true
-																	}
-																	return false
+														{@const controls = {
+															left: () => {
+																if (actionIndex === 0) {
+																	$selectedComponent = [id]
+																	return true
+																} else if (actionIndex > 0) {
+																	$selectedComponent = [actionButtons[actionIndex - 1].id]
+																	return true
 																}
-															}}
-														/>
-													{:else}
+																return false
+															},
+															right: () => {
+																if (actionIndex === actionButtons.length - 1) {
+																	return id
+																} else if (actionIndex < actionButtons.length - 1) {
+																	$selectedComponent = [actionButtons[actionIndex + 1].id]
+																	return true
+																}
+																return false
+															}
+														}}
+														{#if actionButton.type == 'buttoncomponent'}
+															<AppButton
+																extraKey={'idx' + rowIndex}
+																{render}
+																noWFull
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
+																id={actionButton.id}
+																customCss={actionButton.customCss}
+																configuration={actionButton.configuration}
+																recomputeIds={actionButton.recomputeIds}
+																extraQueryParams={{ row: row.original }}
+																componentInput={actionButton.componentInput}
+																{controls}
+															/>
+														{:else if actionButton.type == 'checkboxcomponent'}
+															<AppCheckbox
+																extraKey={'idx' + rowIndex}
+																{render}
+																id={actionButton.id}
+																customCss={actionButton.customCss}
+																configuration={actionButton.configuration}
+																recomputeIds={actionButton.recomputeIds}
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
+																{controls}
+															/>
+														{/if}
+													{:else if actionButton.type == 'buttoncomponent'}
 														<AppButton
 															extraKey={'idx' + rowIndex}
 															{render}
@@ -377,6 +402,18 @@
 															}}
 															extraQueryParams={{ row: row.original }}
 															componentInput={actionButton.componentInput}
+														/>
+													{:else if actionButton.type == 'checkboxcomponent'}
+														<AppCheckbox
+															extraKey={'idx' + rowIndex}
+															{render}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
+															preclickAction={async () => {
+																toggleRow(row, rowIndex)
+															}}
 														/>
 													{/if}
 												</div>

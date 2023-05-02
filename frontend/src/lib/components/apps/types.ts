@@ -112,6 +112,7 @@ export type HiddenInlineScript = {
 	doNotRecomputeOnInputChanged?: boolean
 	recomputeOnInputChanged?: boolean
 	noBackendValue?: any
+	hidden?: boolean
 }
 
 export type App = {

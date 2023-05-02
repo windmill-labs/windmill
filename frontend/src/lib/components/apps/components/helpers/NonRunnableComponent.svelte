@@ -15,7 +15,6 @@
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: outputs = $worldStore?.outputsById?.[id] as {
-		loading: Output<boolean>
 		result: Output<any>
 	}
 
