@@ -144,7 +144,7 @@
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-gray-600 font-semibold truncate">
 					Background scripts
-					<Tooltip class="mb-0.5">
+					<Tooltip class="mb-0.5" documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-script">
 						Background scripts are triggered upon global refresh or when their input changes. The
 						result of a background script can be shared among many components.
 					</Tooltip>

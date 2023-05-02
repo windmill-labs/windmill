@@ -19,11 +19,10 @@
 
 <h2>
 	Suspend
-	<Tooltip>
+	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
 		If defined, at the end of the step, the flow will be suspended until it receives external
 		requests to be resumed or canceled. This is most useful to implement approval steps but can be
-		used flexibly for other purpose. To get the resume urls, use `wmill.getResumeUrls()` in
-		Typescript, or `wmill.get_resume_urls()` in Python.
+		used flexibly for other purpose.
 	</Tooltip>
 </h2>
 <Toggle
