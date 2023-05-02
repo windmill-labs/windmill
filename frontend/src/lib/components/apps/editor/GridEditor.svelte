@@ -127,16 +127,9 @@
 </div>
 
 {#if $app.hiddenInlineScripts}
-	{#each $app.hiddenInlineScripts as script, index}
-		{#if script}
-			<HiddenComponent
-				id={`bg_${index}`}
-				inlineScript={script.inlineScript}
-				name={script.name}
-				fields={script.fields}
-				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
-				autoRefresh={script.autoRefresh ?? false}
-			/>
+	{#each $app.hiddenInlineScripts as runnable, index}
+		{#if runnable}
+			<HiddenComponent id={`bg_${index}`} {runnable} />
 		{/if}
 	{/each}
 {/if}

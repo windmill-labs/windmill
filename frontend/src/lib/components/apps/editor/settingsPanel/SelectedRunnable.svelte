@@ -49,12 +49,16 @@
 	function getActions(hasScript: boolean): ActionType[] {
 		if (hasScript) {
 			return [
-				{
-					label: 'Detach',
-					icon: ExternalLink,
-					color: 'light',
-					callback: detach
-				},
+				...(appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript
+					? ([
+							{
+								label: 'Detach',
+								icon: ExternalLink,
+								color: 'light',
+								callback: detach
+							}
+					  ] as const)
+					: []),
 				{
 					label: 'Clear',
 					icon: X,

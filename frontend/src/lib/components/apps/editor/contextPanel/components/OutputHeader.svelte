@@ -28,7 +28,8 @@
 		$search != '' &&
 		($hasResult[id] ||
 			Object.entries($hasResult).some(([key, value]) => value && subids.includes(key)))
-	$: open = $allIdsInPath.includes(id) || $manuallyOpened[id] || inSearch
+	$: open =
+		$allIdsInPath.includes(id) || id == $selectedComponent?.[0] || $manuallyOpened[id] || inSearch
 
 	const hoverColor = {
 		blue: 'hover:bg-blue-100 hover:text-blue-500',
@@ -76,12 +77,7 @@
 			})
 
 			$app.hiddenInlineScripts.forEach((x) => {
-				console.log('process', x.name, id)
-				processRunnable(from, to, {
-					name: x.name,
-					inlineScript: x.inlineScript,
-					type: 'runnableByName'
-				})
+				processRunnable(from, to, x)
 			})
 		}
 		propagateRename(id, newId)
