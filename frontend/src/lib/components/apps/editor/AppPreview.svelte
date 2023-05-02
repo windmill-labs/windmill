@@ -111,7 +111,7 @@
 				)}
 			>
 				<div
-					class="w-full sticky z-[1001] top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
+					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
 				>
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
