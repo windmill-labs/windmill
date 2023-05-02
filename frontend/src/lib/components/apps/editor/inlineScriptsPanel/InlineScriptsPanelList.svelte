@@ -31,6 +31,14 @@
 	}
 
 	function createBackgroundScript() {
+		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
+			if (script.hidden) {
+				delete script.hidden
+				$app.hiddenInlineScripts = $app.hiddenInlineScripts
+				selectScript(`bg_${index}`)
+				return
+			}
+		}
 		let index = 0
 		let newScriptPath = `Background Script ${index}`
 
@@ -144,7 +152,10 @@
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-gray-600 font-semibold truncate">
 					Background scripts
-					<Tooltip class="mb-0.5" documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-script">
+					<Tooltip
+						class="mb-0.5"
+						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-script"
+					>
 						Background scripts are triggered upon global refresh or when their input changes. The
 						result of a background script can be shared among many components.
 					</Tooltip>
@@ -163,17 +174,19 @@
 			</div>
 			<div class="flex flex-col gap-1 w-full">
 				{#if $app.hiddenInlineScripts?.length > 0}
-					{#each $app.hiddenInlineScripts as { name }, index (index)}
-						{@const id = `bg_${index}`}
-						<button
-							id={PREFIX + id}
-							class="panel-item
+					{#each $app.hiddenInlineScripts as { name, hidden }, index (index)}
+						{#if !hidden}
+							{@const id = `bg_${index}`}
+							<button
+								id={PREFIX + id}
+								class="panel-item
 								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectScript(id)}
-						>
-							<span class="text-2xs truncate">{name}</span>
-							<Badge color="dark-indigo">{id}</Badge>
-						</button>
+								on:click={() => selectScript(id)}
+							>
+								<span class="text-2xs truncate">{name}</span>
+								<Badge color="dark-indigo">{id}</Badge>
+							</button>
+						{/if}
 					{/each}
 				{:else}
 					<div class="text-xs text-gray-500">No background scripts</div>
