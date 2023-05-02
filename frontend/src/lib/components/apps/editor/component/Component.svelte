@@ -277,6 +277,7 @@
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				recomputeIds={component.recomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'textinputcomponent'}

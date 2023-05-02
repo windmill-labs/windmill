@@ -55,15 +55,7 @@ export function selectId(
 	selectedComponent: Writable<string[] | undefined>,
 	app: App
 ) {
-	// this ensure handleClickOutside are triggered
-	let event = new MouseEvent('click', {
-		view: window,
-		bubbles: true,
-		cancelable: true,
-		relatedTarget: e.target
-	})
-	window.dispatchEvent(event)
-
+	;(document?.activeElement as HTMLElement)?.blur()
 	if (e.shiftKey) {
 		selectedComponent.update((old) => {
 			if (old && old?.[0]) {

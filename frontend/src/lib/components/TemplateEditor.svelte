@@ -459,19 +459,6 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 		})
 
-		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
-		if (extraLib != '') {
-			languages.typescript.javascriptDefaults.setExtraLibs([
-				{
-					content: extraLib,
-					filePath: 'windmill.d.ts'
-				},
-				stdLib
-			])
-		} else {
-			languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
-		}
-
 		extraModel = meditor.createModel('`' + model.getValue() + '`', 'javascript')
 		const worker = await languages.typescript.getJavaScriptWorker()
 		const client = await worker(extraModel.uri)
@@ -589,11 +576,30 @@
 		editor?.focus()
 	}
 
-	onMount(() => {
+	let mounted = false
+	onMount(async () => {
 		if (browser) {
-			loadMonaco()
+			await loadMonaco()
+			mounted = true
 		}
 	})
+
+	$: mounted && extraLib && loadExtraLib()
+
+	function loadExtraLib() {
+		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
+		if (extraLib != '') {
+			languages.typescript.javascriptDefaults.setExtraLibs([
+				{
+					content: extraLib,
+					filePath: 'windmill.d.ts'
+				},
+				stdLib
+			])
+		} else {
+			languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+		}
+	}
 
 	onDestroy(() => {
 		try {

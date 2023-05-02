@@ -10,6 +10,7 @@
 	import TabSelectInput from './TabSelectInput.svelte'
 	import { DollarSign } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -34,7 +35,7 @@
 	{:else if fieldType === 'date'}
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if fieldType === 'boolean'}
-		<input type="checkbox" class="!w-4 !h-4 !rounded-sm" bind:checked={componentInput.value} />
+		<Toggle bind:checked={componentInput.value} size="xs" />
 	{:else if fieldType === 'select' && selectOptions}
 		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
 			{#each selectOptions ?? [] as option}

@@ -3,7 +3,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames } from '$lib/utils'
-	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
@@ -12,21 +12,22 @@
 		clearErrorByComponentId,
 		clearJobsByComponentId
 	} from '../appUtils'
-	import type { ButtonComponent } from '../component'
+	import type { ButtonComponent, CheckboxComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
+	import { Inspect, ToggleRightIcon } from 'lucide-svelte'
 
-	export let components: (BaseAppComponent & ButtonComponent)[]
+	export let components: (BaseAppComponent & (ButtonComponent | CheckboxComponent))[]
 	export let id: string
 
 	const { selectedComponent, app, errorByComponent, jobs } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	function addComponent() {
+	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent') {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
 
 		const newComponent = {
-			...appComponentFromType('buttoncomponent')(`${id}_${actionId}`),
+			...appComponentFromType(typ)(`${id}_${actionId}`),
 			recomputeIds: []
 		}
 		components = [...components, newComponent]
@@ -44,18 +45,7 @@
 	}
 </script>
 
-<PanelSection title={`Table actions ${components.length > 0 ? `(${components.length})` : ''}`}>
-	<svelte:fragment slot="action">
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: faPlus }}
-			on:click={addComponent}
-			iconOnly
-		/>
-	</svelte:fragment>
-
+<PanelSection title={`Table actions`}>
 	{#if components.length == 0}
 		<span class="text-xs text-gray-500">No action buttons</span>
 	{/if}
@@ -85,14 +75,26 @@
 			</div>
 		</div>
 	{/each}
-	<div class="w-full">
+	<div class="w-full flex gap-2">
 		<Button
-			btnClasses="w-full"
+			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			wrapperClasses="w-full"
 			color="light"
 			variant="border"
-			startIcon={{ icon: faPlus }}
-			on:click={addComponent}
-			iconOnly
-		/>
+			on:click={() => addComponent('buttoncomponent')}
+			title="Add Button"
+		>
+			+ <Inspect size={14} />
+		</Button>
+		<Button
+			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			wrapperClasses="w-full"
+			color="light"
+			variant="border"
+			on:click={() => addComponent('checkboxcomponent')}
+			title="Add Toggle"
+		>
+			+ <ToggleRightIcon size={14} />
+		</Button>
 	</div>
 </PanelSection>

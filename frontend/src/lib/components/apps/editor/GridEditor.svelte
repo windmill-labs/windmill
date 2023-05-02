@@ -14,6 +14,8 @@
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import { classNames } from '$lib/utils'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let policy: Policy
 
@@ -51,13 +53,17 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="flex text-2xs text-gray-600 gap-1 items-center">
-			<div class="py-2 pr-2 text-gray-600 flex gap-2 items-center">
+		<div class="flex text-2xs text-gray-600 gap-8 items-center">
+			<div class="py-2 pr-2 text-gray-600 flex gap-1 items-center">
 				Hide bar on view
-				<input class="windmillapp" type="checkbox" bind:checked={$app.norefreshbar} />
+				<Toggle size="xs" bind:checked={$app.norefreshbar} />
 			</div>
 			<div>
-				{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+				{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
+				<Tooltip
+					>The scripts will be run on behalf of the author and a tight policy ensure security about
+					the possible inputs of the runnables.</Tooltip
+				>
 			</div>
 		</div>
 	</div>
