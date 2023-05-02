@@ -6,13 +6,13 @@
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 
-	export let script: HiddenRunnable
+	export let runnable: HiddenRunnable
 	export let id: string
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function updateAutoRefresh() {
-		const autoRefresh = script.autoRefresh
+		const autoRefresh = runnable.autoRefresh
 		if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
 			$runnableComponents[id] = {
 				...$runnableComponents[id],
@@ -23,18 +23,18 @@
 </script>
 
 <div class={'border-y border-gray-200 divide-y'}>
-	<ScriptSettingHeader name={script.name} />
-
-	{#if script.inlineScript}
+	<ScriptSettingHeader name={runnable.name} />
+	{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
 		<ScriptRunConfiguration
-			bind:autoRefresh={script.autoRefresh}
-			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
-			canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
+			bind:autoRefresh={runnable.autoRefresh}
+			bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
+			canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
+				runnable.inlineScript?.language !== 'frontend'}
 			on:updateAutoRefresh={updateAutoRefresh}
 		/>
 		<BackgroundScriptTriggerBy
-			bind:script
-			recomputeOnInputChanged={script.recomputeOnInputChanged}
+			bind:script={runnable}
+			recomputeOnInputChanged={runnable.recomputeOnInputChanged}
 		/>
 	{:else}
 		<ScriptSettingsSection title="Language selection">

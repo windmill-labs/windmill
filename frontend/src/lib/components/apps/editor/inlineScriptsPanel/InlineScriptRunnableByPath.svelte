@@ -16,7 +16,8 @@
 		faExternalLinkAlt,
 		faEye,
 		faPen,
-		faRefresh
+		faRefresh,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import type { AppViewerContext } from '../../types'
 	import { workspaceStore } from '$lib/stores'
@@ -25,11 +26,13 @@
 	import { computeFields } from './utils'
 	import { loadSchema } from '../../utils'
 	import { inferArgs } from '$lib/infer'
+	import RunButton from './RunButton.svelte'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let id: string
 
-	const { app, stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const { stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
@@ -70,13 +73,14 @@
 		})
 	}
 
-	$: {
+	function refresh() {
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
 		}
 	}
+	$: runnable.runType && refresh()
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
@@ -86,73 +90,81 @@
 </Drawer>
 
 <div class="p-2 h-full flex flex-col gap-2">
-	{#if runnable.runType == 'script' || runnable.runType == 'hubscript'}
-		<div class="flex flex-row">
+	<div class="flex flex-row-reverse w-full gap-2">
+		<RunButton hideShortcut {id} />
+
+		<Button
+			size="xs"
+			variant="border"
+			startIcon={{ icon: faCodeBranch }}
+			on:click={() => {
+				fork(runnable.path)
+			}}
+		>
+			Fork
+		</Button>
+		<Button
+			variant="border"
+			size="xs"
+			startIcon={{ icon: faRefresh }}
+			on:click={() => {
+				sendUserToast('Refreshing inputs')
+				refresh()
+				$stateId = $stateId + 1
+			}}
+		>
+			Refresh
+		</Button>
+		<Button
+			size="xs"
+			variant="border"
+			color="red"
+			startIcon={{ icon: faTrashAlt }}
+			on:click={() => {
+				dispatch('delete')
+			}}
+		>
+			Clear
+		</Button>
+		{#if runnable.runType == 'flow'}
 			<Button
-				size="xs"
 				variant="border"
-				startIcon={{ icon: faCodeBranch }}
+				size="xs"
+				startIcon={{ icon: faEye }}
 				on:click={() => {
-					fork(runnable.path)
-					$app = $app
+					flowPath = runnable.path
+					drawerFlowViewer.openDrawer()
 				}}
 			>
-				Fork
+				Expand
 			</Button>
-		</div>
-	{/if}
+			<Button
+				variant="border"
+				size="xs"
+				startIcon={{ icon: faPen }}
+				endIcon={{ icon: faExternalLinkAlt }}
+				target="_blank"
+				href="/flows/edit/{runnable.path}?nodraft=true">Edit</Button
+			>
+			<Button
+				variant="border"
+				size="xs"
+				startIcon={{ icon: faEye }}
+				endIcon={{ icon: faExternalLinkAlt }}
+				target="_blank"
+				href="/flows/get/{runnable.path}?workspace={$workspaceStore}"
+			>
+				Details page
+			</Button>
+		{/if}
+	</div>
 	<div class="w-full">
 		{#key $stateId}
 			{#if runnable.runType == 'script' || runnable.runType == 'hubscript'}
-				<FlowModuleScript path={runnable.path} />
-			{:else if runnable.runType == 'flow'}
-				<div class="pb-2 flex gap-2 w-full flex-row-reverse">
-					<Button
-						variant="border"
-						size="xs"
-						startIcon={{ icon: faRefresh }}
-						on:click={() => {
-							sendUserToast('Refreshing inputs')
-							if (runnable.runType == 'script') {
-								refreshScript(runnable)
-							} else if (runnable.runType == 'flow') {
-								refreshFlow(runnable)
-							}
-							$stateId = $stateId + 1
-						}}
-					>
-						Refresh
-					</Button>
-					<Button
-						variant="border"
-						size="xs"
-						startIcon={{ icon: faEye }}
-						on:click={() => {
-							flowPath = runnable.path
-							drawerFlowViewer.openDrawer()
-						}}
-					>
-						Expand
-					</Button>
-					<Button
-						variant="border"
-						size="xs"
-						startIcon={{ icon: faPen }}
-						endIcon={{ icon: faExternalLinkAlt }}
-						target="_blank"
-						href="/flows/edit/{runnable.path}?nodraft=true">Edit</Button
-					>
-					<Button
-						variant="border"
-						size="xs"
-						startIcon={{ icon: faEye }}
-						endIcon={{ icon: faExternalLinkAlt }}
-						target="_blank"
-						href="/flows/get/{runnable.path}?workspace={$workspaceStore}"
-					>
-						Details page
-					</Button>
+				<div class="border">
+					<FlowModuleScript path={runnable.path} />
 				</div>
+			{:else if runnable.runType == 'flow'}
 				<FlowPathViewer path={runnable.path} />
 			{:else}
 				Unrecognized runType {runnable.runType}

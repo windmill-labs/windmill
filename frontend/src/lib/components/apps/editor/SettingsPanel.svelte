@@ -97,7 +97,7 @@
 	{/key}
 {:else if hiddenInlineScript}
 	<BackgroundScriptSettings
-		bind:script={hiddenInlineScript.script}
+		bind:runnable={hiddenInlineScript.script}
 		id={`bg_${hiddenInlineScript.index}`}
 	/>
 

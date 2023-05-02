@@ -25,7 +25,7 @@
 	})
 </script>
 
-{#if (runnable && runnable.type == 'runnableByPath') || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined)}
+{#if runnable && (runnable.type == 'runnableByPath' || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined))}
 	<RunnableComponent
 		render={false}
 		{id}

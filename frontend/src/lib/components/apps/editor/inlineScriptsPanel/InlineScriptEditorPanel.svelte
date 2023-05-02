@@ -83,6 +83,8 @@
 			on:fork={(e) => fork(e.detail)}
 			bind:runnable={componentInput.runnable}
 			bind:fields={componentInput.fields}
+			on:delete
+			{id}
 		/>
 	{/if}
 {/if}

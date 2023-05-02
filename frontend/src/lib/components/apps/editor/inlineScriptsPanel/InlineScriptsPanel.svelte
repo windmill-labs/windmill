@@ -28,6 +28,7 @@
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		}
 
+		$selectedComponentInEditor = undefined
 		delete $runnableComponents[`bg_${index}`]
 	}
 

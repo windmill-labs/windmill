@@ -2,8 +2,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
-	import { Loader2, Maximize2, Trash2 } from 'lucide-svelte'
+	import type { AppViewerContext, InlineScript } from '../../types'
+	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -17,6 +17,7 @@
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
+	import RunButton from './RunButton.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -87,8 +88,6 @@
 		inlineScript?.language == 'frontend' && worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
-
-	let cancelable: CancelablePromise<void> | undefined = undefined
 </script>
 
 {#if inlineScript}
@@ -163,50 +162,7 @@
 						</div>
 					</div>
 				</Button>
-				{#if $runnableComponents[id] != undefined}
-					{#if !runLoading}
-						<Button
-							loading={runLoading}
-							size="xs"
-							color="dark"
-							variant="border"
-							btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
-							on:click={async () => {
-								runLoading = true
-								try {
-									cancelable = $runnableComponents[id]?.cb?.(
-										!transformer ? inlineScript : undefined
-									)
-									await cancelable
-								} catch {}
-								runLoading = false
-							}}
-						>
-							<div class="flex flex-row gap-1 items-center">
-								Run
-
-								<div class="flex flex-row items-center">
-									<Kbd small>{getModifierKey()}</Kbd>
-									<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
-								</div>
-							</div>
-						</Button>
-					{:else}
-						<Button
-							size="xs"
-							color="red"
-							variant="border"
-							btnClasses="!px-2 !py-1.5"
-							on:click={async () => {
-								cancelable?.cancel()
-								runLoading = false
-							}}
-						>
-							<Loader2 size={14} class="animate-spin mr-2" />
-							Cancel
-						</Button>
-					{/if}
-				{/if}
+				<RunButton bind:runLoading {id} inlineScript={!transformer ? inlineScript : undefined} />
 			</div>
 		</div>
 

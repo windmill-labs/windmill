@@ -100,6 +100,7 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(_src: string) {
+		// console.log(_src)
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $initialized.initialized) {

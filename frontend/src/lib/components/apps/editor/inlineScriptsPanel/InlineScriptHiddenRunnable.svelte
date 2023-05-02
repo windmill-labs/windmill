@@ -34,6 +34,8 @@
 		bind:runnable
 		bind:fields={runnable.fields}
 		on:fork={(e) => fork(e.detail)}
+		on:delete
+		{id}
 	/>
 {:else}
 	<EmptyInlineScript
