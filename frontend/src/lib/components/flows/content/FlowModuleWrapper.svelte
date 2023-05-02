@@ -39,9 +39,11 @@
 		<FlowBranchesAllWrapper {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
-			<Alert type="info" title="Error handlers are triggered upon non recovered errors">
-				If defined, the error handler will take the error as input.
-			</Alert>
+			<div class="p-4">
+				<Alert type="info" title="Error handlers are triggered upon non recovered errors">
+					If defined, the error handler will take the error as input.
+				</Alert>
+			</div>
 		{/if}
 
 		{#if flowModule.value.flow}

@@ -224,6 +224,11 @@
 		border-radius: 4px;
 		background-color: white;
 		border: #bbb solid 1px;
+		transition: all;
+	}
+
+	#buttons > button:hover {
+		background-color: #eee;
 	}
 
 	.Nodes {
