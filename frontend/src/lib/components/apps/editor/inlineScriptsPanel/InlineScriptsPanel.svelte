@@ -18,6 +18,7 @@
 			$app.hiddenInlineScripts.splice(index, 1)
 			$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 		} else {
+			$app.hiddenInlineScripts[index].hidden = true
 			$app.hiddenInlineScripts[index].inlineScript = undefined
 			$app.hiddenInlineScripts[index].name = `Background Script ${index}`
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts
@@ -87,7 +88,6 @@
 									$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
 								}
 							}}
-							cancelable={false}
 						/>
 					{/if}
 				{/key}

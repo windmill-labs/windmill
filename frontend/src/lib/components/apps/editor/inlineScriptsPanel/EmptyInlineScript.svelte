@@ -19,7 +19,6 @@
 
 	export let name: string
 	export let componentType: string | undefined = undefined
-	export let cancelable = true
 
 	let tab = 'inlinescripts'
 	let filter: string = ''
@@ -154,17 +153,15 @@
 			>
 				Fork a workspace or hub script
 			</Button>
-			{#if cancelable}
-				<Button
-					on:click={() => dispatch('delete')}
-					size="xs"
-					color="red"
-					variant="border"
-					btnClasses="truncate"
-				>
-					Cancel
-				</Button>
-			{/if}
+			<Button
+				on:click={() => dispatch('delete')}
+				size="xs"
+				color="red"
+				variant="border"
+				btnClasses="truncate"
+			>
+				Delete
+			</Button>
 		</div>
 	</div>
 
