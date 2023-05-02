@@ -564,6 +564,9 @@ export const quickStyleProperties: Record<
 			backgroundGrouping
 		]
 	},
+	steppercomponent: {
+		container: containerDefaultProps
+	},
 	iconcomponent: {
 		container: containerDefaultProps,
 		icon: [

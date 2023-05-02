@@ -55,7 +55,8 @@ const display: ComponentSet = {
 		'scatterchartcomponent',
 		'timeseriescomponent',
 		'pdfcomponent',
-		'displaycomponent'
+		'displaycomponent',
+		'steppercomponent'
 	]
 } as const
 

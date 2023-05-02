@@ -34,7 +34,8 @@ import {
 	FlipHorizontal,
 	FlipVertical,
 	FileText,
-	AtSignIcon
+	AtSignIcon,
+	ListOrderedIcon
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -105,6 +106,7 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
+export type StepperComponent = BaseComponent<'steppercomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -146,6 +148,7 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
+	| StepperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1654,6 +1657,23 @@ Hello \${ctx.username}
 					value: 100
 				}
 			}
+		}
+	},
+	steppercomponent: {
+		name: 'Stepper',
+		icon: ListOrderedIcon,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'text',
+				value: ['Step 1']
+			} as StaticAppInput
 		}
 	}
 } as const

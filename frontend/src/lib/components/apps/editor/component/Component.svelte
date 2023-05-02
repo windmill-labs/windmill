@@ -39,6 +39,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import AppStepper from '../../components/display/AppStepper.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -459,6 +460,8 @@
 				customCss={component.customCss}
 				{render}
 			/>
+		{:else if component.type === 'steppercomponent'}
+			<AppStepper componentInput={component.componentInput} id={component.id} {render} />
 		{/if}
 	</div>
 </div>
