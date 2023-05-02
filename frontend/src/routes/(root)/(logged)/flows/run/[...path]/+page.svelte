@@ -133,7 +133,8 @@
 												startIcon={{ icon: faPlay }}
 												disabled={runForm == undefined || !isValid}
 												on:click={() => runForm?.run()}
-												>Run <Kbd class="ml-2">{getModifierKey()}+Enter</Kbd></Button
+												>Run &nbsp;<Kbd small>{getModifierKey()}</Kbd>
+												<Kbd small><span class="text-lg font-bold">⏎</span></Kbd></Button
 											>
 										</div>
 									</div>

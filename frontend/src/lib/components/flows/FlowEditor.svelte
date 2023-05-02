@@ -12,7 +12,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let size = 50
+	let size = 40
 </script>
 
 <div class="h-full overflow-hidden border-t">

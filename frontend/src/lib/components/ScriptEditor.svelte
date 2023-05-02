@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -135,7 +135,7 @@
 					href="https://github.com/windmill-labs/windmill/tree/main/cli"
 					color="light"
 					size="xs"
-					btnClasses="mr-1 hidden md:block"
+					btnClasses="mr-1 hidden lg:block"
 					startIcon={{
 						icon: faGithub
 					}}
@@ -183,7 +183,7 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				<div class="px-2 w-full border-b py-1">
+				<div class="flex justify-center pt-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
@@ -197,6 +197,7 @@
 						</Button>
 					{:else}
 						<Button
+							color="dark"
 							on:click={runTest}
 							btnClasses="w-full"
 							size="xs"
@@ -208,7 +209,8 @@
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>Enter</Kbd>
+								Test&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 							{/if}
 						</Button>
 					{/if}

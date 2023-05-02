@@ -130,12 +130,13 @@
 			<Button
 				variant="contained"
 				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
-				color="blue"
+				color="dark"
 				size="sm"
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
 			>
-				Test flow <Kbd class="ml-2">{getModifierKey()}+Enter</Kbd>
+				Test flow &nbsp;<Kbd small>{getModifierKey()}</Kbd>
+				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
 		{/if}
 		<Button

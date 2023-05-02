@@ -24,7 +24,7 @@
 	on:click={() => jsonViewerDrawer.toggleDrawer()}
 >
 	<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
-	Export JSON
+	JSON
 </Button>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">

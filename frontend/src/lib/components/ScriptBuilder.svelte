@@ -190,7 +190,11 @@
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
-				requestBody: { path: script.path, typ: 'script', value: script }
+				requestBody: {
+					path: initialPath == '' ? script.path : initialPath,
+					typ: 'script',
+					value: script
+				}
 			})
 			if (initialPath == '') {
 				$dirtyStore = false
@@ -428,17 +432,15 @@
 						Customise
 					</Button>
 					<Button
-						color="dark"
 						loading={loadingDraft}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveDraft()}
 					>
-						Save as draft&nbsp;<Kbd>{getModifierKey()}</Kbd>
-						<Kbd>S</Kbd>
+						Save draft&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+						<Kbd small>S</Kbd>
 					</Button>
 					<Button
-						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}

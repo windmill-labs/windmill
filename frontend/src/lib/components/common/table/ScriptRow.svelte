@@ -122,7 +122,7 @@
 							Edit
 						</Button>
 					</div>
-				{:else}
+				{:else if !draft_only}
 					<div>
 						<Button
 							color="light"

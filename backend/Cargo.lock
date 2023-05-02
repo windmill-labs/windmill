@@ -72,9 +72,9 @@ dependencies = [
 
 [[package]]
 name = "anstream"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6342bd4f5a1205d7f41e94a41a901f5647c938cdfa96036338e8533c9d6c2450"
+checksum = "0ca84f3628370c59db74ee214b3263d58f9aadd9b4fe7e711fd87dc452b7f163"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -121,9 +121,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.70"
+version = "1.0.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7de8ce5e0f9f8d88245311066a578d72b7af3e7088f32783804676302df237e4"
+checksum = "9c7d0618f0e0b7e8ff11427422b64564d5fb0be1940354bfe2e0529b18a9d9b8"
 
 [[package]]
 name = "argon2"
@@ -390,9 +390,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.17"
+version = "0.6.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b70caf9f1b0c045f7da350636435b775a9733adf2df56e8aa2a29210fbc335d4"
+checksum = "f8175979259124331c1d7bf6586ee7e0da434155e4b2d48ec2c8386281d8df39"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -3236,9 +3236,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.17"
+version = "0.37.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc809f704c03a812ac71f22456c857be34185cac691a4316f27ab0f633bb9009"
+checksum = "8bbfc1d1c7c40c01715f47d71444744a81669ca84e8b63e25a55e169b1f86433"
 dependencies = [
  "bitflags",
  "errno",
@@ -3272,7 +3272,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#429d1d1ccec663454c919650ecee5392603dda51"
+source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -3281,7 +3281,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#429d1d1ccec663454c919650ecee5392603dda51"
+source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
 dependencies = [
  "bitflags",
  "bstr",
@@ -3294,7 +3294,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#429d1d1ccec663454c919650ecee5392603dda51"
+source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
@@ -5106,7 +5106,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5140,7 +5140,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5198,7 +5198,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5215,7 +5215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5228,7 +5228,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5253,7 +5253,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5261,7 +5261,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5276,7 +5276,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5289,7 +5289,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5304,7 +5304,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5318,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5346,7 +5346,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.90.0"
+version = "1.91.0"
 dependencies = [
  "anyhow",
  "async-recursion",

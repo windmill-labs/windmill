@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.90.0
+  version: 1.91.0
   title: Windmill API
 
   contact:
@@ -2712,7 +2712,14 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Flow"
+                  allOf:
+                    - $ref: "#/components/schemas/Flow"
+                    - type: object
+                      properties:
+                        has_draft:
+                          type: boolean
+                        draft_only:
+                          type: boolean
 
   /w/{workspace}/flows/get/{path}:
     get:
@@ -2730,6 +2737,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/get/draft/{path}:
+    get:
+      summary: get flow by path with draft
+      operationId: getFlowByPathWithDraft
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details with draft
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Flow"
+                  - type: object
+                    properties:
+                      draft:
+                        $ref: "#/components/schemas/Flow"
+
 
   /w/{workspace}/flows/exists/{path}:
     get:
@@ -2762,7 +2792,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OpenFlowWPath"
+              allOf:
+                - $ref: "#/components/schemas/OpenFlowWPath"
+                - type: object
+                  properties:
+                    draft_only:
+                      type: boolean
 
       responses:
         "201":
@@ -2935,6 +2970,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
+  /w/{workspace}/apps/get/draft/{path}:
+    get:
+      summary: get app by path with draft
+      operationId: getAppByPathWithDraft
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app details with draft
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AppWithLastVersion"
+                  - type: object
+                    properties:
+                      draft_only:
+                        type: boolean
+                      draft: {}
+
   /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
@@ -3009,6 +3067,8 @@ paths:
                   type: string
                 policy:
                   $ref: "#/components/schemas/Policy"
+                draft_only:
+                  type: boolean
               required:
                 - path
                 - value
@@ -6124,6 +6184,8 @@ components:
         additionalProperties:
           type: boolean
         starred:
+          type: boolean
+        draft_only:
           type: boolean
       required:
         - path

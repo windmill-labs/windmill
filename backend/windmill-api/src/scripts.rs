@@ -65,8 +65,10 @@ pub struct ScriptWDraft {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<serde_json::Value>,
     pub schema: Option<Schema>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
 }
 
@@ -386,15 +388,15 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
-        ns.path,
-        &w_id
-    )
-    .execute(&mut tx)
-    .await?;
-
     if let Some(p_path) = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone()) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            p_path,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+
         let schedulables = sqlx::query_as!(
         Schedule,
             "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
@@ -412,6 +414,14 @@ async fn create_script(
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
+    } else {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            ns.path,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
     }
 
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {

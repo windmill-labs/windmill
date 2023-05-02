@@ -19,6 +19,7 @@
 
 	export let name: string
 	export let componentType: string | undefined = undefined
+	export let cancelable = true
 
 	let tab = 'inlinescripts'
 	let filter: string = ''
@@ -146,21 +147,24 @@
 			<Button
 				on:click={() => picker?.openDrawer()}
 				size="xs"
+				variant="border"
 				color="blue"
 				startIcon={{ icon: faCodeBranch }}
 				btnClasses="truncate"
 			>
 				Fork a workspace or hub script
 			</Button>
-			<Button
-				on:click={() => dispatch('delete')}
-				size="xs"
-				color="red"
-				variant="border"
-				btnClasses="truncate"
-			>
-				Cancel
-			</Button>
+			{#if cancelable}
+				<Button
+					on:click={() => dispatch('delete')}
+					size="xs"
+					color="red"
+					variant="border"
+					btnClasses="truncate"
+				>
+					Cancel
+				</Button>
+			{/if}
 		</div>
 	</div>
 
