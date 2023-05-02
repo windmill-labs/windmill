@@ -35,6 +35,7 @@
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let refreshOnStart: boolean = false
+	export let recomputableByRefreshButton: boolean
 
 	const {
 		worldStore,
@@ -100,7 +101,6 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(_src: string) {
-		// console.log(_src)
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $initialized.initialized) {
@@ -347,7 +347,7 @@
 		}
 
 		$runnableComponents[id] = {
-			autoRefresh: autoRefresh,
+			autoRefresh: autoRefresh && recomputableByRefreshButton,
 			refreshOnStart: refreshOnStart,
 			cb: cancellableRun
 		}

@@ -30,12 +30,13 @@
 		render={false}
 		{id}
 		fields={runnable.fields}
-		autoRefresh={runnable.autoRefresh ?? false}
+		autoRefresh={true}
 		bind:result
 		transformer={undefined}
 		recomputeOnInputChanged={runnable.recomputeOnInputChanged ?? true}
 		{runnable}
 		wrapperClass="hidden"
+		recomputableByRefreshButton={runnable.autoRefresh ?? true}
 		{outputs}
 	>
 		<slot />

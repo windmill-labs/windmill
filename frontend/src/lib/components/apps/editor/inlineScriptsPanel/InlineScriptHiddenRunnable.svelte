@@ -9,13 +9,15 @@
 	export let id: string
 
 	async function fork(nrunnable: Runnable) {
-		runnable = { ...runnable, ...nrunnable }
+		runnable = { ...runnable, ...nrunnable, autoRefresh: true, recomputeOnInputChanged: true }
 	}
 	function onPick(o: { runnable: Runnable; fields: Record<string, StaticAppInput> }) {
 		runnable = {
 			...runnable,
 			...o.runnable,
-			fields: o.fields
+			fields: o.fields,
+			autoRefresh: true,
+			recomputeOnInputChanged: true
 		}
 	}
 </script>
@@ -48,7 +50,9 @@
 				type: 'runnableByName',
 				inlineScript: e.detail,
 				name: runnable.name,
-				fields: {}
+				fields: {},
+				autoRefresh: true,
+				recomputeOnInputChanged: true
 			}
 		}}
 	/>

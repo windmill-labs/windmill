@@ -73,6 +73,8 @@
 						componentInput?.runnable?.type === 'runnableByName'
 					) {
 						componentInput.runnable.inlineScript = e.detail
+						componentInput.autoRefresh = true
+						componentInput.recomputeOnInputChanged = true
 						$app = $app
 					}
 				}}

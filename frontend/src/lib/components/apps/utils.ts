@@ -20,6 +20,11 @@ export function migrateApp(app: App) {
 			//@ts-ignore
 			x.type = 'runnableByName'
 		}
+		//TODO: remove after migration is done
+		if (x.doNotRecomputeOnInputChanged != undefined) {
+			x.recomputeOnInputChanged = x.doNotRecomputeOnInputChanged
+			x.doNotRecomputeOnInputChanged = undefined
+		}
 	})
 }
 export function allItems(
