@@ -86,7 +86,7 @@ export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'resourceselectcomponent'>
 export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
-export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
+export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & ClickableComponent
 export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
@@ -898,6 +898,7 @@ Hello \${ctx.username}
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
+			recomputeIds: undefined,
 			configuration: {
 				label: {
 					type: 'static',
