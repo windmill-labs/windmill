@@ -90,6 +90,7 @@
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
 					<InputsSpecsEditor
+						displayType
 						id={`bg_${hiddenInlineScript.index}`}
 						shouldCapitalize={false}
 						bind:inputSpecs={hiddenInlineScript.script.fields}
