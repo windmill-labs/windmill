@@ -8,6 +8,7 @@
 	import { classNames } from '$lib/utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { concatCustomCss } from '../../utils'
+	import { Check } from 'lucide-svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,12 +25,21 @@
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		currentIndex: 0
 	})
 
 	let currentIndex: number | undefined = undefined
 
 	$: css = concatCustomCss($app.css?.iconcomponent, customCss)
+
+	function handleStepSelection() {
+		if (currentIndex !== undefined) {
+			outputs?.currentIndex.set(currentIndex)
+		}
+	}
+
+	$: currentIndex != undefined && handleStepSelection()
 </script>
 
 <InputValue {id} input={configuration.currentIndex} bind:value={currentIndex} />
@@ -41,22 +51,40 @@
 		class={css?.container?.class ?? ''}
 		style={css?.container?.style ?? ''}
 	>
-		<ol class="relative z-20 flex justify-between text-sm font-medium text-gray-500">
-			{#each result ?? [] as step, index}
-				<li class="flex items-center gap-2 p-2">
-					<span
-						class={classNames(
-							'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold',
-							index === currentIndex ? 'bg-blue-600 text-white' : 'bg-gray-100 '
-						)}
-						class:font-bold={currentIndex === index}
+		{#if currentIndex !== undefined}
+			<ol
+				class="relative z-20 flex justify-between items-centers text-sm font-medium text-gray-500"
+			>
+				{#each result ?? [] as step, index}
+					<li
+						class="flex items-center gap-2 p-2 cursor-pointer"
+						on:click={() => {
+							currentIndex = index
+						}}
 					>
-						{index + 1}
-					</span>
+						<span
+							class={classNames(
+								'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold flex items-center justify-center',
+								index <= currentIndex ? 'bg-blue-600 text-white' : 'bg-gray-100'
+							)}
+							class:font-bold={currentIndex === index}
+						>
+							{#if index < currentIndex}
+								<Check size="14" />
+							{:else}
+								{index + 1}
+							{/if}
+						</span>
 
-					<span class="hidden sm:block">{step}</span>
-				</li>
-			{/each}
-		</ol>
+						<span class="hidden sm:block">{step}</span>
+					</li>
+					{#if index !== (result ?? []).length - 1}
+						<li class="flex items-center">
+							<div class="h-0.5 w-4 bg-blue-200" />
+						</li>
+					{/if}
+				{/each}
+			</ol>
+		{/if}
 	</AlignWrapper>
 </RunnableWrapper>
