@@ -135,11 +135,7 @@
 		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
-			if (input.type === 'static' && schemaStripped !== undefined) {
-				delete schemaStripped.properties[key]
-			}
-
-			if (input.type === 'connected' && schemaStripped !== undefined) {
+			if (['static', 'eval', 'connected'].includes(input.type) && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 		})

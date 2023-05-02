@@ -132,20 +132,16 @@
 					</Popover>
 				{/if}
 				{#if inlineScript.language != 'frontend'}
-					<Popover notClickable placement="bottom">
-						<Button
-							size="xs"
-							color="light"
-							btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
-							aria-label="Open full editor"
-							on:click={() => {
-								inlineScriptEditorDrawer?.openDrawer()
-							}}
-						>
-							Full Editor&nbsp;<Maximize2 size={14} />
-						</Button>
-						<svelte:fragment slot="text">Open full editor</svelte:fragment>
-					</Popover>
+					<Button
+						size="xs"
+						color="light"
+						btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+						on:click={() => {
+							inlineScriptEditorDrawer?.openDrawer()
+						}}
+					>
+						Full Editor&nbsp;<Maximize2 size={14} />
+					</Button>
 				{/if}
 
 				<Button

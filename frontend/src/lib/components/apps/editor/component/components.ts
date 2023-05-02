@@ -410,8 +410,8 @@ export const components = {
 				},
 				disabled: {
 					fieldType: 'boolean',
-					type: 'eval',
-					expr: 'false'
+					type: 'static',
+					value: false
 				},
 				beforeIcon: {
 					type: 'static',
@@ -517,8 +517,8 @@ export const components = {
 				onSuccess: onSuccessClick,
 				disabled: {
 					fieldType: 'boolean',
-					type: 'eval',
-					expr: 'false'
+					type: 'static',
+					value: false
 				}
 			}
 		}
@@ -1536,8 +1536,8 @@ Hello \${ctx.username}
 				},
 				disabled: {
 					fieldType: 'boolean',
-					type: 'eval',
-					expr: 'false'
+					type: 'static',
+					value: false
 				}
 			},
 			componentInput: undefined,

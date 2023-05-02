@@ -97,9 +97,9 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 }`
 	},
 	displaycomponent: {
-		deno: `export async function main() {
+		deno: `export async function main(x = 42) {
 	return {
-		"foo": 42
+		foo: x
 	}
 }`,
 		python3: `def main():
