@@ -2985,13 +2985,8 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/AppWithLastVersion"
-                  - type: object
-                    properties:
-                      draft_only:
-                        type: boolean
-                      draft: {}
+                $ref: "#/components/schemas/AppWithLastVersionWDraft"
+
 
   /w/{workspace}/apps_u/public_app/{path}:
     get:
@@ -6311,6 +6306,15 @@ components:
         - policy
         - execution_mode
         - extra_perms
+
+    AppWithLastVersionWDraft:
+      allOf:
+        - $ref: "#/components/schemas/AppWithLastVersion"
+        - type: object
+          properties:
+            draft_only:
+              type: boolean
+            draft: {}
 
     SlackToken:
       type: object
