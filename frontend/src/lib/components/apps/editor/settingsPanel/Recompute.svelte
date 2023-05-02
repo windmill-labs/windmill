@@ -3,19 +3,15 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let recomputeIds: string[] | undefined = undefined
 	export let ownId: string
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	function onChange(
-		event: Event & {
-			currentTarget: EventTarget & HTMLInputElement
-		},
-		id: string
-	) {
-		if (event.currentTarget.checked) {
+	function onChange(checked: boolean, id: string) {
+		if (checked) {
 			recomputeIds = [...(recomputeIds ?? []), id]
 		} else {
 			recomputeIds = recomputeIds?.filter((x) => x !== id)
@@ -47,10 +43,10 @@
 							<Badge color="dark-indigo">{id}</Badge>
 						</td>
 						<td class="relative whitespace-nowrap px-4 py-2">
-							<input
+							<Toggle
 								class="windmillapp"
-								type="checkbox"
-								on:change={(event) => onChange(event, id)}
+								size="xs"
+								on:change={(e) => onChange(e.detail, id)}
 								checked={recomputeIds?.includes(id)}
 							/>
 						</td>

@@ -12,10 +12,21 @@
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let recomputeIds: string[] | undefined = undefined
 	export let customCss: ComponentCustomCSS<'checkboxcomponent'> | undefined = undefined
 	export let render: boolean
+	export let extraKey: string | undefined = undefined
+	export let preclickAction: (() => Promise<void>) | undefined = undefined
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
+		undefined
+
+	const { app, worldStore, componentControl, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	if (controls) {
+		$componentControl[id] = controls
+	}
 
 	let defaultValue: boolean | undefined = undefined
 	let labelValue: string = ''
@@ -39,12 +50,18 @@
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
+		size="sm"
+		{extraKey}
 		checked={defaultValue}
 		options={{ right: labelValue }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
+			preclickAction?.()
 			outputs.result.set(e.detail)
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+			}
 		}}
 	/>
 </AlignWrapper>
