@@ -166,7 +166,7 @@
 				variant="border"
 				btnClasses="truncate"
 			>
-				Delete
+				Clear
 			</Button>
 		</div>
 	</div>
