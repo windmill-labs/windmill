@@ -93,7 +93,7 @@
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 pb-2 text-gray-500 ">
+				<div class="text-xs pt-1 pb-2 text-gray-500">
 					Windmill {version}
 				</div>
 
@@ -102,7 +102,7 @@
 					{#if passwordError}
 						<div class="text-red-600 text-2xs grow">{passwordError}</div>
 					{/if}
-					<div class="flex flex-col gap-2 w-full ">
+					<div class="flex flex-col gap-2 w-full">
 						<div class="mt-4">
 							<label class="block w-60 mb-2 text-gray-500">
 								<div class="text-gray-700">email</div>
@@ -132,7 +132,9 @@
 							text-sm
 							"
 									/>
-									<Button size="sm" btnClasses="mt-4" on:click={setPassword}>Set password</Button>
+									<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
+										>Set password</Button
+									>
 								</label>
 							{:else if login_type == 'github'}
 								<span>Authentified through Github OAuth2. Cannot set a password.</span>
@@ -167,7 +169,7 @@
 					<div
 						class="{newToken
 							? ''
-							: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 flex flex-row flex-wrap "
+							: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 flex flex-row flex-wrap"
 					>
 						<div>
 							Added token: <button on:click={() => copyToClipboard(newToken ?? '')} class="inline"
@@ -193,7 +195,7 @@
 								>
 								<input type="text" bind:value={newTokenLabel} />
 							</div>
-							<div class="flex flex-col ">
+							<div class="flex flex-col">
 								<label for="expires"
 									>Expires In<span class="text-xs text-gray-500">(optional)</span>
 								</label>
