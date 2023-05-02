@@ -37,7 +37,7 @@
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<div class="text-sm font-medium text-gray-600 pb-0.5"> Style </div>
+					<div class="text-sm font-medium text-gray-600 pb-0.5"> Plain CSS </div>
 					<div class="flex gap-1">
 						<div class="relative grow">
 							<ClearableInput

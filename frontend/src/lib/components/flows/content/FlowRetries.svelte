@@ -34,10 +34,9 @@
 <div class="h-full flex flex-col {$$props.class ?? ''}">
 	<h2>
 		Retries
-		<Tooltip>
+		<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/retries">
 			If defined, upon error this step will be retried with a delay and a maximum number of attempts
-			as defined below. If both static and exponential delay is defined, the static delay attempts
-			are tried before the exponential ones.
+			as defined below.
 		</Tooltip>
 	</h2>
 

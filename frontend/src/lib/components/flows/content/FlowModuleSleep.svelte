@@ -29,10 +29,9 @@
 
 <h2>
 	Sleep
-	<Tooltip>
+	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/sleep">
 		If defined, at the end of the step, the flow will sleep for a number of seconds before
-		scheduling the next job (if any, no effect if the step is the last one). Sleeping is passive and
-		does not consume any resources.
+		scheduling the next job (if any, no effect if the step is the last one).
 	</Tooltip>
 </h2>
 <Toggle
