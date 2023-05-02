@@ -52,22 +52,6 @@
 
 		return undefined
 	}
-
-	$: {
-		if (hiddenInlineScript && hiddenInlineScript?.script.recomputeOnInputChanged === undefined) {
-			hiddenInlineScript.script.recomputeOnInputChanged = true
-		}
-
-		//TODO: remove after migration is done
-		if (
-			hiddenInlineScript &&
-			hiddenInlineScript?.script.doNotRecomputeOnInputChanged != undefined
-		) {
-			hiddenInlineScript.script.recomputeOnInputChanged =
-				!hiddenInlineScript.script.doNotRecomputeOnInputChanged
-			hiddenInlineScript.script.doNotRecomputeOnInputChanged = undefined
-		}
-	}
 </script>
 
 {#if componentSettings}
@@ -97,7 +81,7 @@
 	{/key}
 {:else if hiddenInlineScript}
 	<BackgroundScriptSettings
-		bind:script={hiddenInlineScript.script}
+		bind:runnable={hiddenInlineScript.script}
 		id={`bg_${hiddenInlineScript.index}`}
 	/>
 

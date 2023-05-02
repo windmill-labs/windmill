@@ -23,11 +23,15 @@
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: if (
-		$selectedComponent != $selectedComponentInEditor &&
-		!$selectedComponentInEditor?.includes('_transformer')
-	) {
-		$selectedComponentInEditor = $selectedComponent?.[0]
+	$: $selectedComponent && handleSelectedComponent()
+
+	function handleSelectedComponent() {
+		if (
+			$selectedComponent != $selectedComponentInEditor &&
+			!$selectedComponentInEditor?.includes('_transformer')
+		) {
+			$selectedComponentInEditor = $selectedComponent?.[0]
+		}
 	}
 
 	function createBackgroundScript() {
@@ -57,7 +61,7 @@
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
-
+			type: 'runnableByName',
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts

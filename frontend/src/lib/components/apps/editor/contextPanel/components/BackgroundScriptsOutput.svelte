@@ -7,5 +7,7 @@
 </script>
 
 {#each $app.hiddenInlineScripts as action, index}
-	<BackgroundScriptOutput id={`bg_${index}`} name={action.name} first={index === 0} />
+	{#if !action.hidden}
+		<BackgroundScriptOutput id={`bg_${index}`} name={action.name} first={index === 0} />
+	{/if}
 {/each}
