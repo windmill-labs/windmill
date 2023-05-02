@@ -270,7 +270,7 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
-					<Pane size={22} minSize={5} maxSize={33}>
+					<Pane size={22} minSize={15} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">

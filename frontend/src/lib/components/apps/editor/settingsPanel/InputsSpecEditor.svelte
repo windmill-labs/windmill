@@ -12,7 +12,7 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 
 	export let id: string
@@ -82,7 +82,7 @@
 			</div>
 
 			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
-				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
+				{#if !onlyStatic && componentInput?.type}
 					<ToggleButtonGroup
 						class="h-7"
 						bind:selected={componentInput.type}
@@ -94,6 +94,12 @@
 									hoveredComponent: undefined,
 									onConnect: applyConnection
 								}
+							} else if (
+								e.detail == 'eval' &&
+								componentInput['value'] != undefined &&
+								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
+							) {
+								componentInput['expr'] = JSON.stringify(componentInput['value'])
 							}
 						}}
 					>
@@ -105,6 +111,7 @@
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
 						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
+						<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>
@@ -115,7 +122,7 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full'}>
+			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full flex flex-row-reverse'}>
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}

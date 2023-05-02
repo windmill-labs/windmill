@@ -56,6 +56,18 @@
 		timeout = setTimeout(cb, debounce_ms)
 	}
 
+	function debounce2(cb: () => Promise<void>) {
+		if (firstDebounce) {
+			firstDebounce = false
+			cb()
+			return
+		}
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(cb, 1000)
+	}
+
 	$: lastInput && $worldStore && debounce(handleConnection)
 
 	$: lastInput &&
@@ -63,7 +75,10 @@
 		$stateId &&
 		$state &&
 		debounce(async () => {
-			value = await getValue(lastInput)
+			let nvalue = await getValue(lastInput)
+			if (!deepEqual(nvalue, value)) {
+				value = nvalue
+			}
 			dispatch('done')
 		})
 
@@ -71,7 +86,12 @@
 		lastInput.type == 'eval' &&
 		$stateId &&
 		$state &&
-		debounce(async () => (value = await evalExpr(lastInput)))
+		debounce2(async () => {
+			let nvalue = await evalExpr(lastInput)
+			if (!deepEqual(nvalue, value)) {
+				value = nvalue
+			}
+		})
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
@@ -88,7 +108,7 @@
 		dispatch('done')
 	}
 
-	async function evalExpr(input: EvalAppInput) {
+	async function evalExpr(input: EvalAppInput): Promise<any> {
 		try {
 			const r = await eval_like(
 				input.expr,

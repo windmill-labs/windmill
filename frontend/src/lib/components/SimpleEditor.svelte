@@ -160,7 +160,9 @@
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
 		})
+	}
 
+	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
 			if (extraLib != '') {
@@ -177,11 +179,15 @@
 		}
 	}
 
-	onMount(() => {
+	let mounted = false
+	onMount(async () => {
 		if (browser) {
-			loadMonaco()
+			mounted = true
+			await loadMonaco()
 		}
 	})
+
+	$: mounted && extraLib && loadExtraLib()
 
 	onDestroy(() => {
 		try {
