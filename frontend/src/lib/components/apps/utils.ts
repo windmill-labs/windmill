@@ -14,6 +14,14 @@ import type {
 	VerticalAlignment
 } from './types'
 
+export function migrateApp(app: App) {
+	app.hiddenInlineScripts.forEach((x) => {
+		if (x.type == undefined) {
+			//@ts-ignore
+			x.type = 'runnableByName'
+		}
+	})
+}
 export function allItems(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined

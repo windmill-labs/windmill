@@ -57,7 +57,7 @@
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
-
+			type: 'runnableByName',
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts

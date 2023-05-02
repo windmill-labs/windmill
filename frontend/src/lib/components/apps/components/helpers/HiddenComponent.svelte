@@ -1,27 +1,17 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
-	import type {
-		ConnectedAppInput,
-		RowAppInput,
-		StaticAppInput,
-		UserAppInput
-	} from '../../inputType'
-	import type { AppViewerContext, InlineScript } from '../../types'
+
+	import type { AppViewerContext, HiddenRunnable } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let id: string
-	export let name: string
-	export let inlineScript: InlineScript | undefined
-	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let autoRefresh: boolean
-	export let noBackendValue: any = undefined
-	export let recomputeOnInputChanged: boolean
+	export let runnable: HiddenRunnable
 
 	const { worldStore, staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
-	let result: any = noBackend ? noBackendValue : undefined
+	let result: any = noBackend ? runnable.noBackendValue : undefined
 
 	onMount(() => {
 		$staticExporter[id] = () => {
@@ -35,20 +25,16 @@
 	})
 </script>
 
-{#if inlineScript}
+{#if (runnable && runnable.type == 'runnableByPath') || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined)}
 	<RunnableComponent
 		render={false}
 		{id}
-		{fields}
-		{autoRefresh}
+		fields={runnable.fields}
+		autoRefresh={runnable.autoRefresh ?? false}
 		bind:result
 		transformer={undefined}
-		{recomputeOnInputChanged}
-		runnable={{
-			name,
-			inlineScript,
-			type: 'runnableByName'
-		}}
+		recomputeOnInputChanged={runnable.recomputeOnInputChanged ?? true}
+		{runnable}
 		wrapperClass="hidden"
 		{outputs}
 	>

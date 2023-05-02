@@ -4,27 +4,32 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { ResultAppInput } from '$lib/components/apps/inputType'
+	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
-	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { emptySchema } from '$lib/utils'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
-	export let appInput: ResultAppInput
 	export let defaultUserInput = false
-	export let id: string
+	export let hideCreateScript = false
 
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
 	let picker: Drawer
 
 	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
-	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
+
+	const dispatch = createEventDispatcher<{
+		pick: {
+			runnable: Runnable
+			fields: Record<string, StaticAppInput>
+		}
+	}>()
 
 	async function loadSchemaFromTriggerable(
 		path: string,
@@ -34,48 +39,49 @@
 	}
 
 	async function pickScript(path: string) {
-		if (appInput.type === 'runnable') {
-			const schema = await loadSchemaFromTriggerable(path, 'script')
-			const fields = schemaToInputsSpec(schema, defaultUserInput)
-			appInput.runnable = {
-				type: 'runnableByPath',
-				path,
-				runType: 'script',
-				schema
-			}
-			appInput.fields = fields
-			$selectedComponentInEditor = id
-		}
+		const schema = await loadSchemaFromTriggerable(path, 'script')
+		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const runnable = {
+			type: 'runnableByPath',
+			path,
+			runType: 'script',
+			schema
+		} as const
+
+		dispatch('pick', {
+			runnable,
+			fields
+		})
 	}
 
 	async function pickFlow(path: string) {
-		if (appInput.type === 'runnable') {
-			const schema = await loadSchemaFromTriggerable(path, 'flow')
-			const fields = schemaToInputsSpec(schema, defaultUserInput)
-			appInput.runnable = {
-				type: 'runnableByPath',
-				path,
-				runType: 'flow',
-				schema
-			}
-			appInput.fields = fields
-			$selectedComponentInEditor = id
-		}
+		const schema = await loadSchemaFromTriggerable(path, 'flow')
+		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const runnable = {
+			type: 'runnableByPath',
+			path,
+			runType: 'flow',
+			schema
+		} as const
+		dispatch('pick', {
+			runnable,
+			fields
+		})
 	}
 
 	async function pickHubScript(path: string) {
-		if (appInput.type === 'runnable') {
-			const schema = await loadSchemaFromTriggerable(path, 'hubscript')
-			const fields = schemaToInputsSpec(schema, defaultUserInput)
-			appInput.runnable = {
-				type: 'runnableByPath',
-				path,
-				runType: 'hubscript',
-				schema
-			}
-			appInput.fields = fields
-			$selectedComponentInEditor = id
-		}
+		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
+		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const runnable = {
+			type: 'runnableByPath',
+			path,
+			runType: 'hubscript',
+			schema
+		} as const
+		dispatch('pick', {
+			runnable,
+			fields
+		})
 	}
 
 	function pickInlineScript(name: string) {
@@ -83,20 +89,20 @@
 			(script) => script.name === name
 		)
 		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
-		if (appInput.type === 'runnable' && unusedInlineScript?.inlineScript) {
-			appInput.runnable = {
+		dispatch('pick', {
+			runnable: {
 				type: 'runnableByName',
 				name,
 				inlineScript: unusedInlineScript.inlineScript
-			}
+			},
+			fields: {}
+		})
 
-			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
-		}
-		$selectedComponentInEditor = id
-		$app = $app
+		$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
+		$app.unusedInlineScripts = $app.unusedInlineScripts
 	}
 
-	function createScript(): string {
+	function createScript() {
 		let index = 0
 		let newScriptPath = `Inline Script ${index}`
 
@@ -107,16 +113,14 @@
 			newScriptPath = `Inline Script ${++index}`
 		}
 
-		appInput.runnable = {
-			type: 'runnableByName',
-			name: newScriptPath,
-			inlineScript: undefined
-		}
-
-		appInput = appInput
-		$selectedComponentInEditor = id
-
-		return newScriptPath
+		dispatch('pick', {
+			runnable: {
+				type: 'runnableByName',
+				name: newScriptPath,
+				inlineScript: undefined
+			},
+			fields: {}
+		})
 	}
 </script>
 
@@ -175,16 +179,18 @@
 </Drawer>
 
 <div class="flex flex-col gap-2">
-	<Button
-		on:click={createScript}
-		size="xs"
-		color="light"
-		variant="border"
-		startIcon={{ icon: faPlus }}
-		btnClasses="truncate w-full"
-	>
-		Create an inline script
-	</Button>
+	{#if !hideCreateScript}
+		<Button
+			on:click={createScript}
+			size="xs"
+			color="light"
+			variant="border"
+			startIcon={{ icon: faPlus }}
+			btnClasses="truncate w-full"
+		>
+			Create an inline script
+		</Button>
+	{/if}
 	<Button
 		on:click={() => picker?.openDrawer()}
 		size="xs"

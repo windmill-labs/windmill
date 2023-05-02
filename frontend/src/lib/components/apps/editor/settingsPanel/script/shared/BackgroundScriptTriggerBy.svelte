@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { HiddenInlineScript } from '$lib/components/apps/types'
+	import type { HiddenRunnable } from '$lib/components/apps/types'
 
 	import { getDependencies } from '../utils'
 	import ScriptTriggers from './ScriptTriggers.svelte'
 
-	export let script: HiddenInlineScript
+	export let script: HiddenRunnable
 	export let recomputeOnInputChanged: boolean | undefined = undefined
 
 	$: isFrontend = script.inlineScript?.language === 'frontend'

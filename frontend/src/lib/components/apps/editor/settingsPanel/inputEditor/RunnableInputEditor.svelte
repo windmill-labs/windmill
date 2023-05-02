@@ -1,17 +1,36 @@
 <script lang="ts">
-	import type { ResultAppInput } from '$lib/components/apps/inputType'
+	import type { ResultAppInput, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '$lib/components/apps/utils'
+	import { getContext } from 'svelte'
 	import type { AppComponent } from '../../component'
 	import RunnableSelector from '../mainInput/RunnableSelector.svelte'
 	import SelectedRunnable from '../SelectedRunnable.svelte'
+	import type { AppEditorContext } from '$lib/components/apps/types'
 
 	export let appInput: ResultAppInput
 	export let defaultUserInput = false
 	export let appComponent: AppComponent
+
+	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
+
+	function onPick({
+		runnable,
+		fields
+	}: {
+		runnable: Runnable
+		fields: Record<string, StaticAppInput>
+	}) {
+		if (appInput.type === 'runnable') {
+			appInput = { ...appInput, runnable, fields }
+			$selectedComponentInEditor = appComponent.id
+		} else {
+			console.warn('Cannot pick runnable for non-runnable input')
+		}
+	}
 </script>
 
 {#if isScriptByPathDefined(appInput) || isScriptByNameDefined(appInput)}
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else if appInput !== undefined}
-	<RunnableSelector id={appComponent.id} {defaultUserInput} bind:appInput />
+	<RunnableSelector {defaultUserInput} on:pick={(e) => onPick(e.detail)} />
 {/if}

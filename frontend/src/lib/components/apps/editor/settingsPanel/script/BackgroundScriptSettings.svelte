@@ -1,12 +1,12 @@
 <script lang="ts">
 	import ScriptSettingHeader from './shared/ScriptSettingHeader.svelte'
-	import type { AppViewerContext, HiddenInlineScript } from '$lib/components/apps/types'
+	import type { AppViewerContext, HiddenRunnable } from '$lib/components/apps/types'
 	import ScriptRunConfiguration from './shared/ScriptRunConfiguration.svelte'
 	import BackgroundScriptTriggerBy from './shared/BackgroundScriptTriggerBy.svelte'
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 
-	export let script: HiddenInlineScript
+	export let script: HiddenRunnable
 	export let id: string
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
