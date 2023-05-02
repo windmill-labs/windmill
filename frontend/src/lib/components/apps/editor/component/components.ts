@@ -1668,12 +1668,20 @@ Hello \${ctx.username}
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {},
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
+			configuration: {
+				currentIndex: {
+					fieldType: 'number',
+					type: 'static',
+					value: 0
+				}
+			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'text',
-				value: ['Step 1']
+				value: ['First', 'Second', 'Third']
 			} as StaticAppInput
 		}
 	}

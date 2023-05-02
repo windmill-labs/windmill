@@ -462,7 +462,15 @@
 				{render}
 			/>
 		{:else if component.type === 'steppercomponent'}
-			<AppStepper componentInput={component.componentInput} id={component.id} {render} />
+			<AppStepper
+				componentInput={component.componentInput}
+				configuration={component.configuration}
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				customCss={component.customCss}
+				{render}
+			/>
 		{/if}
 	</div>
 </div>

@@ -19,7 +19,7 @@
 </script>
 
 {#if componentInput?.type === 'eval'}
-	<div class="border border-gray-300">
+	<div class="border border-gray-300 rounded-md">
 		<SimpleEditor
 			lang="javascript"
 			bind:code={componentInput.expr}
