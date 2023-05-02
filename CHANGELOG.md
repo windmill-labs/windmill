@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.92.0](https://github.com/windmill-labs/windmill/compare/v1.91.0...v1.92.0) (2023-05-02)
+
+
+### Features
+
+* **frontend:** add labels as table action ([64065c1](https://github.com/windmill-labs/windmill/commit/64065c17f305fb4c7c078c7fa4935d5423da8f66))
+* **frontend:** add labels as table action ([2ab1714](https://github.com/windmill-labs/windmill/commit/2ab1714dfa7cffc46b4b6aa40dabdd92c5a6270f))
+* **frontend:** allow running eval in every field ([62acbb5](https://github.com/windmill-labs/windmill/commit/62acbb5ab3a0727b306e25a80b74ac8216619501))
+* **frontend:** background script can run script and flows ([#1515](https://github.com/windmill-labs/windmill/issues/1515)) ([607c803](https://github.com/windmill-labs/windmill/commit/607c803be91921b53f329a2c2c3c129ce53d6c0c))
+
+
+### Bug Fixes
+
+* **frontend:** fix small ui issues ([#1513](https://github.com/windmill-labs/windmill/issues/1513)) ([f6ff8ca](https://github.com/windmill-labs/windmill/commit/f6ff8ca232f5725f86a36379956da2731def2580))
+
 ## [1.91.0](https://github.com/windmill-labs/windmill/compare/v1.90.0...v1.91.0) (2023-05-01)
 
 
