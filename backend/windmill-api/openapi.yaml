@@ -2384,16 +2384,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/NewScript"
-                  - type: object
-                    properties:
-                      draft:
-                        $ref: "#/components/schemas/NewScript"
-                      hash:
-                        type: string
-                    required:
-                      - hash
+                $ref: "#/components/schemas/NewScriptWithDraft"
 
 
 
@@ -5169,6 +5160,20 @@ components:
         - description
         - content
         - language
+
+    NewScriptWithDraft:
+      allOf:
+        - $ref: "#/components/schemas/NewScript"
+        - type: object
+          properties:
+            draft:
+              $ref: "#/components/schemas/NewScript"
+            hash:
+              type: string
+          required:
+            - hash
+
+
     ScriptArgs:
       type: object
       additionalProperties: {}
