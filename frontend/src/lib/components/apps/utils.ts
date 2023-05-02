@@ -22,7 +22,7 @@ export function migrateApp(app: App) {
 		}
 		//TODO: remove after migration is done
 		if (x.doNotRecomputeOnInputChanged != undefined) {
-			x.recomputeOnInputChanged = x.doNotRecomputeOnInputChanged
+			x.recomputeOnInputChanged = !x.doNotRecomputeOnInputChanged
 			x.doNotRecomputeOnInputChanged = undefined
 		}
 	})
