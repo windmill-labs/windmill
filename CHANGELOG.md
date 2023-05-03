@@ -13,6 +13,18 @@
 
 * **frontend:** deploy path for apps ([7ac9677](https://github.com/windmill-labs/windmill/commit/7ac96771a5c3d44234c790e8cea3d621d8c1d00e))
 
+## [1.93.0](https://github.com/windmill-labs/windmill/compare/v1.92.2...v1.93.0) (2023-05-03)
+
+
+### Features
+
+* **frontend:** add recompute others to background scripts ([392d0f8](https://github.com/windmill-labs/windmill/commit/392d0f8b876c9b587fe85421098f3eceb8a74dec))
+
+
+### Bug Fixes
+
+* **frontend:** deploy path for apps ([7ac9677](https://github.com/windmill-labs/windmill/commit/7ac96771a5c3d44234c790e8cea3d621d8c1d00e))
+
 ## [1.92.2](https://github.com/windmill-labs/windmill/compare/v1.92.1...v1.92.2) (2023-05-02)
 
 
