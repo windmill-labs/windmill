@@ -402,7 +402,7 @@
 		<Path
 			bind:error={pathError}
 			bind:path={newPath}
-			initialPath=""
+			initialPath={appPath}
 			namePlaceholder="app"
 			kind="app"
 		/>

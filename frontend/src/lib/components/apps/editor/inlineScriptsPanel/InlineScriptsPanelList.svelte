@@ -23,14 +23,14 @@
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: $selectedComponent && handleSelectedComponent()
+	$: handleSelectedComponent($selectedComponent)
 
-	function handleSelectedComponent() {
+	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
-			$selectedComponent != $selectedComponentInEditor &&
+			selectedComponent != $selectedComponentInEditor &&
 			!$selectedComponentInEditor?.includes('_transformer')
 		) {
-			$selectedComponentInEditor = $selectedComponent?.[0]
+			$selectedComponentInEditor = selectedComponent?.[0]
 		}
 	}
 

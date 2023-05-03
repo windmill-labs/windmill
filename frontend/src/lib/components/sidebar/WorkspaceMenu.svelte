@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { switchWorkspace, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
-	import { Building, Cog } from 'lucide-svelte'
+	import { Building } from 'lucide-svelte'
 
 	import Menu from '../common/menu/Menu.svelte'
 	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
