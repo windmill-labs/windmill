@@ -29,7 +29,7 @@
 	initOutput($worldStore, id, {})
 
 	let gridContent: string[] | undefined = undefined
-	let drawerTitle: string | undefined = undefined
+	let modalTitle: string | undefined = undefined
 
 	let labelValue: string
 	let color: ButtonType.Color
@@ -83,7 +83,7 @@
 </div>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-<InputValue {id} input={configuration.drawerTitle} bind:value={drawerTitle} />
+<InputValue {id} input={configuration.modalTitle} bind:value={modalTitle} />
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
@@ -97,7 +97,7 @@
 	<div
 		class={twMerge(
 			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50',
-			open ? 'z-[10000] bg-black bg-opacity-60' : 'hidden'
+			open ? 'z-50 bg-black bg-opacity-60' : 'hidden'
 		)}
 	>
 		<div
@@ -110,7 +110,7 @@
 			}}
 		>
 			<div class="p-4 border-b flex justify-between items-center">
-				<div>{labelValue}</div>
+				<div>{modalTitle}</div>
 				<div class="w-8">
 					<button
 						on:click={() => {

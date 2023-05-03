@@ -1671,10 +1671,10 @@ Hello \${ctx.username}
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
 			configuration: {
-				drawerTitle: {
+				modalTitle: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Drawer title',
+					value: 'Modal title',
 					onlyStatic: true
 				},
 				label: {
