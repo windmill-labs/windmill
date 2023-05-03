@@ -101,9 +101,11 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(_src: string) {
+		// console.debug(`Triggering refreshing ${id} because ${_src}`)
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $initialized.initialized) {
+			// console.debug(`Refreshing ${id} because ${_src} (enabled)`)
 			setDebouncedExecute()
 		}
 	}
@@ -153,6 +155,7 @@
 	}
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+		console.debug(`Executing ${id}`)
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 			try {
@@ -300,6 +303,8 @@
 				}
 			}
 		}
+
+		// console.log('setr', id)
 
 		outputs.result?.set(res)
 
