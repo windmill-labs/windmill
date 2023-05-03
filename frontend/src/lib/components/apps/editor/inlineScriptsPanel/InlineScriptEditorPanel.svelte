@@ -16,9 +16,10 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	function deleteInlineScript() {
+	function clear() {
 		if (componentInput && componentInput.type == 'runnable') {
 			componentInput = clearResultAppInput(componentInput)
+			$app = $app
 		}
 	}
 
@@ -59,13 +60,13 @@
 				bind:name={componentInput.runnable.name}
 				bind:fields={componentInput.fields}
 				syncFields
-				on:delete={deleteInlineScript}
+				on:delete={clear}
 			/>
 		{:else}
 			<EmptyInlineScript
 				{componentType}
 				name={componentInput.runnable.name}
-				on:delete={deleteInlineScript}
+				on:delete={clear}
 				on:new={(e) => {
 					if (
 						componentInput &&
@@ -85,7 +86,7 @@
 			on:fork={(e) => fork(e.detail)}
 			bind:runnable={componentInput.runnable}
 			bind:fields={componentInput.fields}
-			on:delete
+			on:delete={clear}
 			{id}
 		/>
 	{/if}

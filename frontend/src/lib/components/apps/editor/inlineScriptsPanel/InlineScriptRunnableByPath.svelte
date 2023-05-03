@@ -94,16 +94,6 @@
 		<RunButton hideShortcut {id} />
 
 		<Button
-			size="xs"
-			variant="border"
-			startIcon={{ icon: faCodeBranch }}
-			on:click={() => {
-				fork(runnable.path)
-			}}
-		>
-			Fork
-		</Button>
-		<Button
 			variant="border"
 			size="xs"
 			startIcon={{ icon: faRefresh }}
@@ -155,6 +145,17 @@
 				href="/flows/get/{runnable.path}?workspace={$workspaceStore}"
 			>
 				Details page
+			</Button>
+		{:else}
+			<Button
+				size="xs"
+				variant="border"
+				startIcon={{ icon: faCodeBranch }}
+				on:click={() => {
+					fork(runnable.path)
+				}}
+			>
+				Fork
 			</Button>
 		{/if}
 	</div>
