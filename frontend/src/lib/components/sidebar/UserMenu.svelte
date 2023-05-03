@@ -1,15 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import {
-		userStore,
-		usersWorkspaceStore,
-		superadmin,
-		usageStore,
-		premiumStore
-	} from '$lib/stores'
+	import { userStore, usersWorkspaceStore, superadmin, usageStore, premiumStore } from '$lib/stores'
 	import { classNames, isCloudHosted } from '$lib/utils'
-	import { faCrown, faHardHat, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faCog, faCrown, faHardHat, faSignOut, faUser } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
@@ -44,7 +38,6 @@
 
 	<div class="divide-y divide-gray-100">
 		<div class="px-4 py-3" role="none">
-			<p class="text-sm" role="none">Signed in as</p>
 			<p class="text-sm font-medium text-gray-900 truncate" role="none">
 				{$usersWorkspaceStore?.email}
 			</p>
@@ -64,7 +57,7 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				Account settings
+				<Icon class="pr-0.5" data={faCog} /> Account settings
 			</a>
 		</div>
 		{#if $superadmin}
@@ -75,7 +68,7 @@
 					role="menuitem"
 					tabindex="-1"
 				>
-					Superadmin settings
+					<Icon class="pr-0.5" data={faCog} /> Superadmin settings
 				</a>
 			</div>
 		{/if}
@@ -87,7 +80,7 @@
 				tabindex="-1"
 				on:click={() => logout()}
 			>
-				Sign out
+				<Icon class="pr-0.5" data={faSignOut} /> Sign out
 			</button>
 		</div>
 		{#if isCloudHosted() && $premiumStore}
