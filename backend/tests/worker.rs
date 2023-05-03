@@ -6,7 +6,7 @@ use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
 use tokio::sync::RwLock;
 use windmill_api::jobs::{CompletedJob, Job};
-use windmill_api_client::types::CreateFlowBody;
+use windmill_api_client::types::{CreateFlowBody, RawScript};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -2470,18 +2470,18 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
             tracing::error!("Module: {:?}", m.value);
             assert!(matches!(
                 m.value,
-                windmill_api_client::types::FlowModuleValue::RawScript {
+                windmill_api_client::types::FlowModuleValue::RawScript(RawScript {
                     language: windmill_api_client::types::RawScriptLanguage::Deno | windmill_api_client::types::RawScriptLanguage::Bash,
                     lock: Some(ref lock),
                     ..
-                } if lock == "")
+                }) if lock == "")
                 || matches!(
                 m.value,
-                windmill_api_client::types::FlowModuleValue::RawScript {
+                windmill_api_client::types::FlowModuleValue::RawScript(RawScript{
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3,
                     lock: Some(ref lock),
                     ..
-                } if lock.len() > 0)
+                }) if lock.len() > 0)
             );
         });
 }
