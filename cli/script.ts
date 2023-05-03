@@ -123,7 +123,9 @@ export async function handleFile(
       await Deno.stat(metaPath);
       typed = JSON.parse(await Deno.readTextFile(metaPath));
       typed = decoverto.type(ScriptFile).plainToInstance(typed);
-    } catch {}
+    } catch {
+      // no meta file
+    }
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -132,7 +134,9 @@ export async function handleFile(
         workspace,
         path: remotePath,
       });
-    } catch {}
+    } catch {
+      // no remote script
+    }
 
     if (remote) {
       if (content === remote.content) {
