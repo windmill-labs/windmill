@@ -20,7 +20,6 @@ import {
   getTypeStrFromPath,
   GlobalOptions,
   inferTypeFromPath,
-  setValueByPath,
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
 import { FolderFile } from "./folder.ts";
@@ -32,11 +31,15 @@ import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
 import * as Diff from "npm:diff";
+import {
+  stringify as yamlStringify,
+  parse as yamlParse,
+} from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
-  getContentBytes(): Promise<Uint8Array>;
+  // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
   getChildren(): AsyncIterable<DynFSElement>;
 };
@@ -51,31 +54,52 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
           yield _internal_element(path.join(localP, e.name), e.isDirectory);
         }
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        return await Deno.readFile(localP);
-      },
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   return await Deno.readFile(localP);
+      // },
       async getContentText(): Promise<string> {
-        return await Deno.readTextFile(localP);
+        const content = await Deno.readTextFile(localP);
+        return p.endsWith(".yaml")
+          ? JSON.stringify(yamlParse(content))
+          : content;
       },
     };
   }
   return _internal_element(p, (await Deno.stat(p)).isDirectory);
 }
 
-function ZipFSElement(zip: JSZip): DynFSElement {
+function prioritizeName(name: string): string {
+  if (name == "summary") return "aa";
+  if (name == "name") return "aaaa";
+  if (name == "display_name") return "aaa";
+  if (name == "description") return "ab";
+  if (name == "value") return "ac";
+  return name;
+}
+
+function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
   function _internal_file(p: string, f: JSZip.JSZipObject): DynFSElement {
     return {
       isDirectory: false,
-      path: p,
+      path: useYaml && p.endsWith(".json") ? p.replaceAll(".json", ".yaml") : p,
       // deno-lint-ignore require-yield
       async *getChildren(): AsyncIterable<DynFSElement> {
         throw new Error("Cannot get children of file");
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        return await f.async("uint8array");
-      },
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   return await f.async("uint8array");
+      // },
       async getContentText(): Promise<string> {
-        return await f.async("text");
+        const content = await f.async("text");
+        return useYaml && p.endsWith(".json")
+          ? yamlStringify(JSON.parse(content), {
+              sortKeys: (a, b) => {
+                return prioritizeName(a).localeCompare(prioritizeName(b));
+              },
+              noCompatMode: true,
+              noRefs: true,
+            })
+          : content;
       },
     };
   }
@@ -95,9 +119,11 @@ function ZipFSElement(zip: JSZip): DynFSElement {
           }
         }
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        throw new Error("Cannot get content of folder");
-      },
+      // // deno-lint-ignore require-await
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   throw new Error("Cannot get content of folder");
+      // },
+      // deno-lint-ignore require-await
       async getContentText(): Promise<string> {
         throw new Error("Cannot get content of folder");
       },
@@ -113,7 +139,7 @@ async function* readDirRecursiveWithIgnore(
   path: string;
   ignored: boolean;
   isDirectory: boolean;
-  getContentBytes(): Promise<Uint8Array>;
+  // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
 }> {
   const stack: {
@@ -121,7 +147,7 @@ async function* readDirRecursiveWithIgnore(
     isDirectory: boolean;
     ignored: boolean;
     c(): AsyncIterable<DynFSElement>;
-    getContentBytes(): Promise<Uint8Array>;
+    // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
     {
@@ -129,9 +155,9 @@ async function* readDirRecursiveWithIgnore(
       ignored: ignore(root.path, root.isDirectory),
       isDirectory: root.isDirectory,
       c: root.getChildren,
-      getContentBytes(): Promise<Uint8Array> {
-        throw undefined;
-      },
+      // getContentBytes(): Promise<Uint8Array> {
+      //   throw undefined;
+      // },
       getContentText(): Promise<string> {
         throw undefined;
       },
@@ -147,7 +173,7 @@ async function* readDirRecursiveWithIgnore(
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
-        getContentBytes: e2.getContentBytes,
+        // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
         c: e2.getChildren,
       });
@@ -194,11 +220,6 @@ async function compareDynFSElement(
       m2[k] != v &&
       (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k])))
     ) {
-      // await Deno.writeTextFile("/tmp/k", m2[k])
-      // await Deno.writeTextFile("/tmp/v", v)
-      // console.log(k)
-      // if (k.includes("flow"))
-      //   Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -248,7 +269,7 @@ async function ignoreF() {
         (isNotWmillFile(p, isDirectory) || ignore.denies(p))
       );
     };
-  } catch (e) {
+  } catch {
     return (p: string, isDirectory: boolean) =>
       !isWhitelisted(p) && isNotWmillFile(p, isDirectory);
   }
@@ -260,6 +281,7 @@ async function pull(
     yes: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
+    yaml?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -275,7 +297,8 @@ async function pull(
     )
   );
   const remote = ZipFSElement(
-    (await downloadZip(workspace, opts.plainSecrets))!
+    (await downloadZip(workspace, opts.plainSecrets))!,
+    opts.yaml ?? false
   );
   const local = opts.raw
     ? undefined
@@ -334,7 +357,9 @@ async function pull(
               }
             }
           }
-        } catch {}
+        } catch {
+          // ignore
+        }
         if (!change.path.endsWith(".json")) {
           console.log(`Editing script content of ${change.path}`);
         } else {
@@ -369,7 +394,7 @@ async function pull(
           if (!opts.raw) {
             await Deno.remove(stateTarget);
           }
-        } catch (e) {
+        } catch {
           if (!opts.raw) {
             await Deno.remove(stateTarget);
           }
@@ -472,6 +497,7 @@ async function push(
     skipPull: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
+    yaml?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -495,7 +521,10 @@ async function push(
   );
   const remote = opts.raw
     ? undefined
-    : ZipFSElement((await downloadZip(workspace, opts.plainSecrets))!);
+    : ZipFSElement(
+        (await downloadZip(workspace, opts.plainSecrets))!,
+        opts.yaml ?? false
+      );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
 
@@ -663,7 +692,9 @@ async function push(
         }
         try {
           await Deno.remove(stateTarget);
-        } catch {}
+        } catch {
+          // state target may not exist already
+        }
       }
     }
     console.log(
@@ -723,6 +754,8 @@ const command = new Command()
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
   .option("--plain-secrets", "Pull secrets as plain text")
+  .option("--yaml", "Use YAML instead of JSON")
+  // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
   .description(
@@ -736,6 +769,8 @@ const command = new Command()
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
+  .option("--yaml", "Use YAML instead of JSON")
+  // deno-lint-ignore no-explicit-any
   .action(push as any);
 
 export default command;
