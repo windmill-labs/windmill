@@ -20,7 +20,7 @@
 					<div class="flex flex-row items-center gap-2 text-xs">
 						Run on start and app refresh
 						<Tooltip wrapperClass="flex">
-							You may want to disable this so that the background script is only triggered by
+							You may want to disable this so that the background runnable is only triggered by
 							changes to other values or triggered by another computation on a button (See
 							'Recompute Others')
 						</Tooltip>

@@ -5,9 +5,9 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
-	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
 	import { findGridItem } from '../appUtils'
+	import InlineScriptHiddenRunnable from './InlineScriptHiddenRunnable.svelte'
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
@@ -18,12 +18,18 @@
 			$app.hiddenInlineScripts.splice(index, 1)
 			$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 		} else {
-			$app.hiddenInlineScripts[index].hidden = true
-			$app.hiddenInlineScripts[index].inlineScript = undefined
-			$app.hiddenInlineScripts[index].name = `Background Script ${index}`
+			$app.hiddenInlineScripts[index] = {
+				hidden: true,
+				inlineScript: undefined,
+				name: `Background Script ${index}`,
+				fields: {},
+				type: 'runnableByName',
+				recomputeIds: undefined
+			}
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		}
 
+		$selectedComponentInEditor = undefined
 		delete $runnableComponents[`bg_${index}`]
 	}
 
@@ -70,27 +76,12 @@
 				{/key}
 			{:else if hiddenInlineScript > -1}
 				{#key hiddenInlineScript}
-					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]?.inlineScript}
-						<InlineScriptEditor
+					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
+						<InlineScriptHiddenRunnable
+							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 							id={`bg_${hiddenInlineScript}`}
-							bind:inlineScript={$app.hiddenInlineScripts[hiddenInlineScript].inlineScript}
-							bind:name={$app.hiddenInlineScripts[hiddenInlineScript].name}
-							bind:fields={$app.hiddenInlineScripts[hiddenInlineScript].fields}
-							syncFields
-							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-						/>
-					{:else}
-						<EmptyInlineScript
-							name={$app.hiddenInlineScripts[hiddenInlineScript].name}
-							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-							on:new={(e) => {
-								if ($app.hiddenInlineScripts[hiddenInlineScript]) {
-									$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
-								}
-							}}
-						/>
-					{/if}
-				{/key}
+							bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
+						/>{/if}{/key}
 			{:else}
 				<div class="text-sm text-gray-500 text-center py-8 px-2">
 					No script found at id {$selectedComponentInEditor}

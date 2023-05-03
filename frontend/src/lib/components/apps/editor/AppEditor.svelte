@@ -44,6 +44,7 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
+	import { migrateApp } from '../utils'
 
 	export let app: App
 	export let path: string
@@ -51,6 +52,8 @@
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
+
+	migrateApp(app)
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)

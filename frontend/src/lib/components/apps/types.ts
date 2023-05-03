@@ -3,7 +3,7 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
-import type { AppComponent, components } from './editor/component/components'
+import type { AppComponent, RecomputeOthersSource, components } from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -12,6 +12,7 @@ import type {
 	InputConnection,
 	ResultAppInput,
 	RowAppInput,
+	Runnable,
 	StaticAppInput,
 	UploadAppInput,
 	UserAppInput
@@ -103,9 +104,10 @@ export type InlineScript = {
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
 
-export type HiddenInlineScript = {
+export type HiddenRunnable = {
 	name: string
-	inlineScript: InlineScript | undefined
+	// inlineScript?: InlineScript | undefined
+	// type?: 'runnableByName' | 'runnableByPath'
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	autoRefresh?: boolean
 	//deprecated and to be removed after migration
@@ -113,7 +115,8 @@ export type HiddenInlineScript = {
 	recomputeOnInputChanged?: boolean
 	noBackendValue?: any
 	hidden?: boolean
-}
+} & Runnable &
+	RecomputeOthersSource
 
 export type App = {
 	grid: GridItem[]
@@ -123,7 +126,8 @@ export type App = {
 		name: string
 		inlineScript: InlineScript
 	}>
-	hiddenInlineScripts: Array<HiddenInlineScript>
+	//TODO: should be called hidden runnables but migration tbd
+	hiddenInlineScripts: Array<HiddenRunnable>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }

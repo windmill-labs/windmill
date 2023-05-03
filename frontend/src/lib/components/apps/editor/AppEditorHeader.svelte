@@ -34,6 +34,7 @@
 		AppInput,
 		ConnectedAppInput,
 		RowAppInput,
+		Runnable,
 		StaticAppInput,
 		UserAppInput
 	} from '../inputType'
@@ -120,7 +121,7 @@
 		)
 	}
 	async function computeTriggerables() {
-		const allTriggers = await Promise.all(
+		const allTriggers = (await Promise.all(
 			allItems($app.grid, $app.subgrids)
 				.flatMap((x) => {
 					let c = x.data as AppComponent
@@ -132,27 +133,32 @@
 				})
 				.map(async (input) => {
 					if (input?.type == 'runnable') {
-						const staticInputs = collectStaticFields(input.fields)
-						if (input.runnable?.type == 'runnableByName') {
-							let hex = await hash(input.runnable.inlineScript?.content)
-							return [`rawscript/${hex}`, staticInputs]
-						} else if (input.runnable?.type == 'runnableByPath') {
-							let prefix =
-								input.runnable.runType !== 'hubscript' ? input.runnable.runType : 'script'
-							return [`${prefix}/${input.runnable.path}`, staticInputs]
-						}
+						return await processRunnable(input.runnable, input.fields)
 					}
-					return []
 				})
 				.concat(
 					Object.values($app.hiddenInlineScripts ?? {}).map(async (v) => {
-						let hex = await hash(v.inlineScript?.content)
-						const staticInputs = collectStaticFields(v.fields)
-						return [`rawscript/${hex}`, staticInputs]
+						return await processRunnable(v, v.fields)
 					})
 				)
+		)) as ([string, Record<string, any>] | undefined)[]
+		policy.triggerables = Object.fromEntries(
+			allTriggers.filter(Boolean) as [string, Record<string, any>][]
 		)
-		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
+	}
+
+	async function processRunnable(
+		runnable: Runnable,
+		fields: Record<string, any>
+	): Promise<[string, Record<string, any>] | undefined> {
+		const staticInputs = collectStaticFields(fields)
+		if (runnable?.type == 'runnableByName') {
+			let hex = await hash(runnable.inlineScript?.content)
+			return [`rawscript/${hex}`, staticInputs]
+		} else if (runnable?.type == 'runnableByPath') {
+			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
+			return [`${prefix}/${runnable.path}`, staticInputs]
+		}
 	}
 	async function createApp(path: string) {
 		await computeTriggerables()
@@ -496,7 +502,13 @@
 </Drawer>
 
 <Drawer bind:open={jobsDrawerOpen} size="900px">
-	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)} tooltip="Look at latests runs to spot potential bugs." documentationLink="https://docs.windmill.dev/docs/apps/app_toolbar#debug-runs">
+	<DrawerContent
+		noPadding
+		title="Debug Runs"
+		on:close={() => (jobsDrawerOpen = false)}
+		tooltip="Look at latests runs to spot potential bugs."
+		documentationLink="https://docs.windmill.dev/docs/apps/app_toolbar#debug-runs"
+	>
 		<Splitpanes class="!overflow-visible">
 			<Pane size={25}>
 				<PanelSection title="Past Runs">
