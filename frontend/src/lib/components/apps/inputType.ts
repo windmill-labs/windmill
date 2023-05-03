@@ -20,6 +20,7 @@ export type InputType =
 	| 'labeledresource'
 	| 'labeledselect'
 	| 'tab-select'
+	| 'step-select'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -160,6 +161,7 @@ export type AppInput =
 	| AppInputSpec<'labeledselect', object>
 	| AppInputSpec<'labeledresource', object>
 	| AppInputSpec<'array', object[], 'tab-select'>
+	| AppInputSpec<'array', object[], 'step-select'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

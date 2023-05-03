@@ -263,6 +263,15 @@ const onSuccessClick = {
 				value: '',
 				placeholder: 'Hello there'
 			}
+		},
+		setStep: {
+			setStep: {
+				type: 'static',
+				value: [] as Array<{ id: string; step: number }>,
+				fieldType: 'array',
+				subFieldType: 'step-select',
+				tooltip: 'Set the steper id and step to go to on success'
+			}
 		}
 	}
 } as const

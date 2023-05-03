@@ -19,7 +19,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	let result: string[] | undefined = undefined
 
 	let outputs = initOutput($worldStore, id, {
@@ -32,13 +32,18 @@
 
 	$: css = concatCustomCss($app.css?.iconcomponent, customCss)
 
-	function handleStepSelection() {
-		if (currentIndex !== undefined) {
-			outputs?.currentIndex.set(currentIndex)
+	function handleStepSelection(currentIndex: number) {
+		outputs?.currentIndex.set(currentIndex)
+		currentIndex = currentIndex
+	}
+
+	$componentControl[id] = {
+		setTab: (step: number) => {
+			handleStepSelection(step)
 		}
 	}
 
-	$: currentIndex != undefined && handleStepSelection()
+	$: currentIndex != undefined && handleStepSelection(currentIndex)
 </script>
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>

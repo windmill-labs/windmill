@@ -24,7 +24,7 @@
 	export let runnableStyle = ''
 	export let doOnSuccess:
 		| {
-				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast'
+				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast' | 'setStep'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -32,6 +32,9 @@
 					}
 					sendToast: {
 						message: string | undefined
+					}
+					setStep: {
+						setStep: { id: string; step: number }[] | undefined
 					}
 				}
 		  }
@@ -88,6 +91,15 @@
 					if (tab) {
 						const { id, index } = tab
 						$componentControl[id].setTab?.(index)
+					}
+				})
+			}
+		} else if (doOnSuccess.selected === 'setStep') {
+			if (Array.isArray(doOnSuccess.configuration.setStep.setStep)) {
+				doOnSuccess.configuration.setStep?.setStep?.forEach((s) => {
+					if (s) {
+						const { id, step } = s
+						$componentControl[id].setTab?.(step)
 					}
 				})
 			}

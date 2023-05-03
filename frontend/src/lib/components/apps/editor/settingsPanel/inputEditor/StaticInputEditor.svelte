@@ -11,6 +11,7 @@
 	import { DollarSign } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import StepSelectInput from './StepSelectInput.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -54,6 +55,8 @@
 		<IconSelectInput bind:componentInput />
 	{:else if fieldType === 'tab-select'}
 		<TabSelectInput bind:componentInput />
+	{:else if fieldType === 'step-select'}
+		<StepSelectInput bind:componentInput />
 	{:else if fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
 			<div class="flex flex-col gap-1 w-full">

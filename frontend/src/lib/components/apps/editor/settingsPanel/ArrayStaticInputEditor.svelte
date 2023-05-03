@@ -33,6 +33,8 @@
 				value.push({ value: 'foo', label: 'bar' })
 			} else if (subFieldType === 'tab-select') {
 				value.push({ id: '', index: 0 })
+			} else if (subFieldType === 'step-select') {
+				value.push({ id: '', step: 0 })
 			} else if (
 				subFieldType === 'text' ||
 				subFieldType === 'textarea' ||

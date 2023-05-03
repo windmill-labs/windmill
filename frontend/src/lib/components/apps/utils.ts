@@ -120,6 +120,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 			return 'any'
 		case 'tab-select':
 			return 'Tab'
+		case 'step-select':
+			return 'Step'
 		default:
 			return 'string'
 	}
