@@ -12,6 +12,7 @@ import {
 } from "./deps.ts";
 import { Any, array, decoverto, model, property } from "./decoverto.ts";
 import { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
+import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 @model()
 export class ScriptFile {
@@ -69,7 +70,7 @@ async function push(opts: PushOptions, filePath: string) {
   }
   let contentPath: string;
   let metaPath: string | undefined;
-  if (filePath.endsWith(".script.json")) {
+  if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
     metaPath = filePath;
     contentPath = await findContentFile(filePath);
   } else {
@@ -87,7 +88,7 @@ export async function handleScriptMetadata(
   workspace: string,
   alreadySynced: string[]
 ): Promise<boolean> {
-  if (path.endsWith(".script.json")) {
+  if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
     return handleFile(
       contentPath,
@@ -124,8 +125,17 @@ export async function handleFile(
       typed = JSON.parse(await Deno.readTextFile(metaPath));
       typed = decoverto.type(ScriptFile).plainToInstance(typed);
     } catch {
-      // no meta file
+      const metaPath = remotePath + ".script.yaml";
+      let typed = undefined;
+      try {
+        await Deno.stat(metaPath);
+        typed = yamlParse(await Deno.readTextFile(metaPath));
+        typed = decoverto.type(ScriptFile).plainToInstance(typed);
+      } catch {
+        // no meta file
+      }
     }
+
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -210,6 +220,10 @@ export async function findContentFile(filePath: string) {
     filePath.replace(".script.json", ".py"),
     filePath.replace(".script.json", ".go"),
     filePath.replace(".script.json", ".sh"),
+    filePath.replace(".script.yaml", ".ts"),
+    filePath.replace(".script.yaml", ".py"),
+    filePath.replace(".script.yaml", ".go"),
+    filePath.replace(".script.yaml", ".sh"),
   ];
   const validCandidates = (
     await Promise.all(
