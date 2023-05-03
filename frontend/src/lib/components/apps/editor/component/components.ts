@@ -1663,9 +1663,9 @@ Hello \${ctx.username}
 		name: 'Modal',
 		icon: SidebarClose,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
-			container: { class: '', style: '' }
+			button: { class: '', style: '' },
+			popup: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',

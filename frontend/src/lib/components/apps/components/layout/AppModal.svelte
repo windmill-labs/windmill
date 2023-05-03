@@ -4,12 +4,15 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { concatCustomCss } from '../../utils'
-	import { Button, ButtonType, Drawer } from '$lib/components/common'
+	import { Button, ButtonType } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
 	import { initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import AlwaysMountedModal from '$lib/components/common/modal/AlwaysMountedModal.svelte'
+	import { getModal } from '$lib/components/common/modal/AlwaysMountedModal.svelte'
+	import Portal from 'svelte-portal'
+	import { clickOutside } from '$lib/utils'
+	import { X } from 'lucide-svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -19,7 +22,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -27,7 +30,6 @@
 
 	let gridContent: string[] | undefined = undefined
 	let drawerTitle: string | undefined = undefined
-	let appDrawer: Drawer
 
 	let labelValue: string
 	let color: ButtonType.Color
@@ -36,6 +38,21 @@
 	let fillContainer: boolean | undefined = undefined
 
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let open = false
+
+	function handleKeyUp(event: KeyboardEvent): void {
+		const key = event.key
+		if (key === 'Escape' || key === 'Esc') {
+			if (open) {
+				event.preventDefault()
+				closeDrawer()
+			}
+		}
+	}
+
+	function closeDrawer(): void {
+		open = false
+	}
 </script>
 
 <div class="h-full w-full">
@@ -54,7 +71,8 @@
 					parentComponentId: id,
 					subGridIndex: 0
 				}
-				appDrawer.toggleDrawer()
+				getModal(id)?.open()
+				open = true
 			}}
 			{size}
 			{color}
@@ -73,29 +91,40 @@
 
 <InitializeComponent {id} />
 
-<AlwaysMountedModal title={labelValue ?? ''}>
+<svelte:window on:keyup={handleKeyUp} />
+
+<Portal target="#app-editor-top-level-drawer">
 	<div
-		class="h-full"
-		on:pointerdown={(e) => {
-			e?.stopPropagation()
-			if (!$connectingInput.opened) {
-				$selectedComponent = [id]
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: 0
-				}
-			}
-		}}
+		class={twMerge(
+			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50',
+			open ? 'z-[10000] bg-black bg-opacity-60' : 'hidden'
+		)}
 	>
-		{#if $app.subgrids?.[`${id}-0`]}
-			<SubGridEditor
-				visible={true && render}
-				{id}
-				class={css?.container?.class}
-				style={css?.container?.style}
-				subGridId={`${id}-0`}
-				containerHeight={1200}
-				on:focus={() => {
+		<div
+			class="m-24 h-[80%] bg-white overflow-y-auto rounded-lg relative"
+			use:clickOutside
+			on:click_outside={() => {
+				if ($mode !== 'dnd') {
+					closeDrawer()
+				}
+			}}
+		>
+			<div class="p-4 border-b flex justify-between items-center">
+				<div>{labelValue}</div>
+				<div class="w-8">
+					<button
+						on:click={() => {
+							open = false
+						}}
+						class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+					>
+						<X class="text-gray-500" />
+					</button>
+				</div>
+			</div>
+			<div
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
 					if (!$connectingInput.opened) {
 						$selectedComponent = [id]
 						$focusedGrid = {
@@ -104,7 +133,26 @@
 						}
 					}
 				}}
-			/>
-		{/if}
+			>
+				{#if $app.subgrids?.[`${id}-0`]}
+					<SubGridEditor
+						visible={open && render}
+						{id}
+						class={css?.container?.class}
+						style={css?.container?.style}
+						subGridId={`${id}-0`}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
+								}
+							}
+						}}
+					/>
+				{/if}
+			</div>
+		</div>
 	</div>
-</AlwaysMountedModal>
+</Portal>
