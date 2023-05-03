@@ -21,6 +21,7 @@
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
+	import { migrateApp } from '../utils'
 
 	export let app: App
 	export let appPath: string
@@ -32,6 +33,8 @@
 	export let context: Record<string, any>
 	export let noBackend: boolean = false
 	export let isLocked = false
+
+	migrateApp(app)
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
@@ -111,7 +114,7 @@
 				)}
 			>
 				<div
-					class="w-full sticky z-[1001] top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
+					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
 				>
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
@@ -163,17 +166,9 @@
 </div>
 
 {#if app.hiddenInlineScripts}
-	{#each app.hiddenInlineScripts as script, index}
-		{#if script}
-			<HiddenComponent
-				id={`bg_${index}`}
-				inlineScript={script.inlineScript}
-				name={script.name}
-				fields={script.fields}
-				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
-				autoRefresh={script.autoRefresh ?? false}
-				noBackendValue={script.noBackendValue}
-			/>
+	{#each app.hiddenInlineScripts as runnable, index}
+		{#if runnable}
+			<HiddenComponent id={`bg_${index}`} {runnable} />
 		{/if}
 	{/each}
 {/if}

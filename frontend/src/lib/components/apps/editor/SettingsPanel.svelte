@@ -7,6 +7,7 @@
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
+	import Recompute from './settingsPanel/Recompute.svelte'
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -52,22 +53,6 @@
 
 		return undefined
 	}
-
-	$: {
-		if (hiddenInlineScript && hiddenInlineScript?.script.recomputeOnInputChanged === undefined) {
-			hiddenInlineScript.script.recomputeOnInputChanged = true
-		}
-
-		//TODO: remove after migration is done
-		if (
-			hiddenInlineScript &&
-			hiddenInlineScript?.script.doNotRecomputeOnInputChanged != undefined
-		) {
-			hiddenInlineScript.script.recomputeOnInputChanged =
-				!hiddenInlineScript.script.doNotRecomputeOnInputChanged
-			hiddenInlineScript.script.doNotRecomputeOnInputChanged = undefined
-		}
-	}
 </script>
 
 {#if componentSettings}
@@ -96,17 +81,16 @@
 		/>
 	{/key}
 {:else if hiddenInlineScript}
-	<BackgroundScriptSettings
-		bind:script={hiddenInlineScript.script}
-		id={`bg_${hiddenInlineScript.index}`}
-	/>
+	{@const id = `bg_${hiddenInlineScript.index}`}
+	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
-	<div>
+	<div class="mb-8">
 		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
 					<InputsSpecsEditor
-						id={`bg_${hiddenInlineScript.index}`}
+						displayType
+						{id}
 						shouldCapitalize={false}
 						bind:inputSpecs={hiddenInlineScript.script.fields}
 						userInputEnabled={false}
@@ -114,6 +98,7 @@
 				{/key}
 			</PanelSection>
 		{/if}
-		<div class="grow shrink" />
 	</div>
+	<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
+	<div class="grow shrink" />
 {/if}

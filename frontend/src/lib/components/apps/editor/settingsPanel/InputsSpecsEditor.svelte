@@ -6,18 +6,20 @@
 
 	export let id: string
 	export let inputSpecs: RichConfigurations
-	export let inputSpecsConfiguration: RichConfigurations = inputSpecs
+	export let inputSpecsConfiguration: RichConfigurations | undefined = undefined
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 	export let resourceOnly = false
 	export let displayType = false
+
+	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 </script>
 
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
-		{#each Object.keys(inputSpecsConfiguration) as k}
-			{#if inputSpecsConfiguration[k]?.type == 'oneOf'}
+		{#each Object.keys(finalInputSpecsConfiguration) as k}
+			{#if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
 					key={k}
 					bind:oneOf={inputSpecs[k]}
@@ -25,12 +27,12 @@
 					{shouldCapitalize}
 					{resourceOnly}
 					{rowColumns}
-					inputSpecsConfiguration={inputSpecsConfiguration?.[k]?.['configuration']}
-					labels={inputSpecsConfiguration?.[k]?.['labels']}
-					tooltip={inputSpecsConfiguration?.[k]?.['tooltip']}
+					inputSpecsConfiguration={finalInputSpecsConfiguration?.[k]?.['configuration']}
+					labels={finalInputSpecsConfiguration?.[k]?.['labels']}
+					tooltip={finalInputSpecsConfiguration?.[k]?.['tooltip']}
 				/>
 			{:else}
-				{@const meta = inputSpecsConfiguration?.[k]}
+				{@const meta = finalInputSpecsConfiguration?.[k]}
 				<InputsSpecEditor
 					key={k}
 					bind:componentInput={inputSpecs[k]}

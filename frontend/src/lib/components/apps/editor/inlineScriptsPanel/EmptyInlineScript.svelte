@@ -16,9 +16,11 @@
 	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
+	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
 
 	export let name: string
 	export let componentType: string | undefined = undefined
+	export let showScriptPicker = false
 
 	let tab = 'inlinescripts'
 	let filter: string = ''
@@ -140,9 +142,12 @@
 </Drawer>
 
 <div class="flex flex-col px-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
-	<div class="mt-4 flex justify-between gap-8 mb-2">
-		<div class="font-bold items-baseline">Choose a language:</div>
+	<div class="mt-2 flex justify-between gap-4">
+		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
+			{#if showScriptPicker}
+				<RunnableSelector on:pick hideCreateScript />
+			{/if}
 			<Button
 				on:click={() => picker?.openDrawer()}
 				size="xs"
@@ -151,8 +156,9 @@
 				startIcon={{ icon: faCodeBranch }}
 				btnClasses="truncate"
 			>
-				Fork a workspace or hub script
+				Fork a script
 			</Button>
+
 			<Button
 				on:click={() => dispatch('delete')}
 				size="xs"
@@ -160,7 +166,7 @@
 				variant="border"
 				btnClasses="truncate"
 			>
-				Delete
+				Clear
 			</Button>
 		</div>
 	</div>
@@ -181,7 +187,7 @@
 				{/each}
 			</div>
 
-			<div class="mt-4 mb-2 text-sm">Typescript templates</div>
+			<div class="mt-2 mb-2 text-sm">Typescript templates</div>
 
 			<div class="flex gap-2 flex-row flex-wrap mb-4">
 				<FlowScriptPicker

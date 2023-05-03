@@ -66,7 +66,7 @@
 					{/each}
 				</div>
 				<div>
-					<span class="text-xs font-semibold text-gray-800 p-2">Background scripts</span>
+					<span class="text-xs font-semibold text-gray-800 p-2">Background runnables</span>
 					<BackgroundScriptsOutput />
 				</div>
 			</div>

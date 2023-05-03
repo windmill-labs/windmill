@@ -2470,14 +2470,14 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
             tracing::error!("Module: {:?}", m.value);
             assert!(matches!(
                 m.value,
-                windmill_api_client::types::FlowModuleValue::Rawscript {
+                windmill_api_client::types::FlowModuleValue::RawScript {
                     language: windmill_api_client::types::RawScriptLanguage::Deno | windmill_api_client::types::RawScriptLanguage::Bash,
                     lock: Some(ref lock),
                     ..
                 } if lock == "")
                 || matches!(
                 m.value,
-                windmill_api_client::types::FlowModuleValue::Rawscript {
+                windmill_api_client::types::FlowModuleValue::RawScript {
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3,
                     lock: Some(ref lock),
                     ..
