@@ -23,14 +23,14 @@
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: $selectedComponent && handleSelectedComponent()
+	$: handleSelectedComponent($selectedComponent)
 
-	function handleSelectedComponent() {
+	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
-			$selectedComponent != $selectedComponentInEditor &&
+			selectedComponent != $selectedComponentInEditor &&
 			!$selectedComponentInEditor?.includes('_transformer')
 		) {
-			$selectedComponentInEditor = $selectedComponent?.[0]
+			$selectedComponentInEditor = selectedComponent?.[0]
 		}
 	}
 
@@ -44,13 +44,13 @@
 			}
 		}
 		let index = 0
-		let newScriptPath = `Background Script ${index}`
+		let newScriptPath = `Background Runnable ${index}`
 
 		const names = getAllScriptNames($app)
 
 		// Find a name that is not used by any other inline script
 		while (names.includes(newScriptPath)) {
-			newScriptPath = `Background Script ${++index}`
+			newScriptPath = `Background Runnable ${++index}`
 		}
 
 		if (!$app.hiddenInlineScripts) {
@@ -159,7 +159,7 @@
 					Background runnables
 					<Tooltip
 						class="mb-0.5"
-						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-script"
+						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-runnable"
 					>
 						Background runnables are triggered upon global refresh or when their input changes. The
 						result of a background runnable can be shared among many components.
@@ -194,7 +194,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-gray-500">No background scripts</div>
+					<div class="text-xs text-gray-500">No background runnable</div>
 				{/if}
 			</div>
 		</div>

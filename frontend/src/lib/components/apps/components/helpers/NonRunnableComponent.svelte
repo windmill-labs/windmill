@@ -19,6 +19,7 @@
 	}
 
 	function setOutput(v: any) {
+		// console.log('setnr', id)
 		outputs?.result?.set(v, true)
 	}
 
