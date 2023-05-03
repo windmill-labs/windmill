@@ -205,7 +205,7 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md hover:z-40',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
 				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
