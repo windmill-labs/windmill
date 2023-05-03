@@ -52,7 +52,8 @@
 				name: runnable.name,
 				fields: {},
 				autoRefresh: true,
-				recomputeOnInputChanged: true
+				recomputeOnInputChanged: true,
+				recomputeIds: []
 			}
 		}}
 	/>

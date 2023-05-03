@@ -9,9 +9,16 @@
 	export let id: string
 	export let runnable: HiddenRunnable
 
-	const { worldStore, staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, staticExporter, noBackend, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let result: any = noBackend ? runnable.noBackendValue : undefined
+
+	export function onSuccess() {
+		if (runnable.recomputeIds) {
+			runnable.recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+		}
+	}
 
 	onMount(() => {
 		$staticExporter[id] = () => {
@@ -37,6 +44,7 @@
 		{runnable}
 		wrapperClass="hidden"
 		recomputableByRefreshButton={runnable.autoRefresh ?? true}
+		on:success={onSuccess}
 		{outputs}
 	>
 		<slot />

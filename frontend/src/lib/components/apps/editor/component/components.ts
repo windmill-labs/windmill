@@ -50,7 +50,7 @@ export type BaseComponent<T extends string> = {
 	type: T
 }
 
-type ClickableComponent = {
+export type RecomputeOthersSource = {
 	recomputeIds: string[] | undefined
 }
 
@@ -68,9 +68,9 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & ClickableComponent
-export type FormComponent = BaseComponent<'formcomponent'> & ClickableComponent
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & ClickableComponent
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
+export type FormComponent = BaseComponent<'formcomponent'> & RecomputeOthersSource
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & RecomputeOthersSource
 
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
@@ -86,7 +86,7 @@ export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'resourceselectcomponent'>
 export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
-export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & ClickableComponent
+export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
 export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>

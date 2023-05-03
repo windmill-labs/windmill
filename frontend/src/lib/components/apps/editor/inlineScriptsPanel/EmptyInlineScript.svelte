@@ -230,6 +230,10 @@ console.log(ctx.email)
 if (!state.foo) { state.foo = 0 }
 state.foo += 1
 
+// for reactivity to work, you need to assign a value and not modify it in place
+// e.g: state.foo.push(1) will not work but 'state.foo = [...state.foo, 1]' will.
+// you may also just reassign as next statement 'state.foo = state.foo'
+
 // you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
 
 return state.foo`,

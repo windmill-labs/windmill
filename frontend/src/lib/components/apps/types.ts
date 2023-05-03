@@ -3,7 +3,7 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
-import type { AppComponent, components } from './editor/component/components'
+import type { AppComponent, RecomputeOthersSource, components } from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -115,7 +115,8 @@ export type HiddenRunnable = {
 	recomputeOnInputChanged?: boolean
 	noBackendValue?: any
 	hidden?: boolean
-} & Runnable
+} & Runnable &
+	RecomputeOthersSource
 
 export type App = {
 	grid: GridItem[]

@@ -4,6 +4,8 @@
 	import { Building } from 'lucide-svelte'
 
 	import Menu from '../common/menu/Menu.svelte'
+	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Icon } from 'svelte-awesome'
 
 	export let isCollapsed: boolean = false
 </script>
@@ -53,11 +55,11 @@
 		<div class="py-1" role="none">
 			<a
 				href="/user/create_workspace"
-				class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+				class="text-gray-700 block px-4 py-2 text-xs hover:bg-gray-100 hover:text-gray-900"
 				role="menuitem"
 				tabindex="-1"
 			>
-				Create new workspace
+				<Icon data={faPlus} class="-mt-0.5 pr-0.5" /> Workspace
 			</a>
 		</div>
 		<div class="py-1" role="none">
@@ -66,11 +68,21 @@
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}
-				class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+				class="text-gray-700 block px-4 py-2 text-xs hover:bg-gray-100 hover:text-gray-900"
 				role="menuitem"
 				tabindex="-1"
 			>
-				See all workspaces & invites
+				All workspaces & invites
+			</a>
+		</div>
+		<div class="py-1" role="none">
+			<a
+				href="/workspace_settings"
+				class="text-gray-700 block px-4 py-2 text-xs hover:bg-gray-100 hover:text-gray-900"
+				role="menuitem"
+				tabindex="-1"
+			>
+				<Icon class="pr-0.5" data={faCog} /> Workspace Settings
 			</a>
 		</div>
 	</div>

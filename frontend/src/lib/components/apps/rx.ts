@@ -41,7 +41,6 @@ export function buildWorld(context: Record<string, any>): Writable<World> {
 
 	function newOutput<T>(id: string, name: string, previousValue: T) {
 		if (outputsById[id]?.[name]) {
-			writableWorld?.update((x) => x)
 			return outputsById[id][name]
 		}
 		let o = newWorld.newOutput(id, name, stateId, previousValue)

@@ -70,6 +70,8 @@
 
 	$: lastInput && $worldStore && debounce(handleConnection)
 
+	$: console.log('worldStore', $worldStore, id)
+
 	$: lastInput &&
 		lastInput.type == 'template' &&
 		$stateId &&

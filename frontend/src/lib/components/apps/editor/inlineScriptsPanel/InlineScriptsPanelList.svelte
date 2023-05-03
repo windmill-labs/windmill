@@ -23,14 +23,14 @@
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: $selectedComponent && handleSelectedComponent()
+	$: handleSelectedComponent($selectedComponent)
 
-	function handleSelectedComponent() {
+	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
-			$selectedComponent != $selectedComponentInEditor &&
+			selectedComponent != $selectedComponentInEditor &&
 			!$selectedComponentInEditor?.includes('_transformer')
 		) {
-			$selectedComponentInEditor = $selectedComponent?.[0]
+			$selectedComponentInEditor = selectedComponent?.[0]
 		}
 	}
 
@@ -62,7 +62,8 @@
 			inlineScript: undefined,
 			autoRefresh: true,
 			type: 'runnableByName',
-			fields: {}
+			fields: {},
+			recomputeIds: undefined
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		selectScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
@@ -155,13 +156,13 @@
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-gray-600 font-semibold truncate">
-					Background scripts
+					Background runnables
 					<Tooltip
 						class="mb-0.5"
 						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-script"
 					>
-						Background scripts are triggered upon global refresh or when their input changes. The
-						result of a background script can be shared among many components.
+						Background runnables are triggered upon global refresh or when their input changes. The
+						result of a background runnable can be shared among many components.
 					</Tooltip>
 				</div>
 				<Button
@@ -169,8 +170,8 @@
 					color="light"
 					variant="border"
 					btnClasses="!rounded-full !p-1"
-					title="Create a new background script"
-					aria-label="Create a new background script"
+					title="Create a new background runnable"
+					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
 				>
 					<Plus size={14} class="text-gray-500" />
