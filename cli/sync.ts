@@ -218,7 +218,8 @@ async function compareDynFSElement(
       changes.push({ name: "added", path: k, content: v });
     } else if (
       m2[k] != v &&
-      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k])))
+      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k]))) &&
+      (!k.endsWith(".yaml") || !equal(yamlParse(v), yamlParse(m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
