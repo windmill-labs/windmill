@@ -23,7 +23,8 @@
 				inlineScript: undefined,
 				name: `Background Script ${index}`,
 				fields: {},
-				type: 'runnableByName'
+				type: 'runnableByName',
+				recomputeIds: undefined
 			}
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		}

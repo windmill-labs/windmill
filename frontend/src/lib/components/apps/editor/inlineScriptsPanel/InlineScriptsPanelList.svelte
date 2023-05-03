@@ -62,7 +62,8 @@
 			inlineScript: undefined,
 			autoRefresh: true,
 			type: 'runnableByName',
-			fields: {}
+			fields: {},
+			recomputeIds: undefined
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		selectScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
