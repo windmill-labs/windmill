@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.93.1](https://github.com/windmill-labs/windmill/compare/v1.93.0...v1.93.1) (2023-05-03)
+
+
+### Bug Fixes
+
+* **cli:** add yaml support for cli ([03e6017](https://github.com/windmill-labs/windmill/commit/03e6017860526784f1a8696eceed5750b25f1c5c))
+
 ## [1.93.0](https://github.com/windmill-labs/windmill/compare/v1.92.2...v1.93.0) (2023-05-03)
 
 
