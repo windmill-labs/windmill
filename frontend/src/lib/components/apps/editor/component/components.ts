@@ -105,6 +105,7 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
+export type ModalComponent = BaseComponent<'modalcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -146,6 +147,7 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
+	| ModalComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1655,6 +1657,60 @@ Hello \${ctx.username}
 					value: 100
 				}
 			}
+		}
+	},
+	modalcomponent: {
+		name: 'Modal',
+		icon: SidebarClose,
+		dims: '1:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
+			configuration: {
+				drawerTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Drawer title',
+					onlyStatic: true
+				},
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: buttonColorOptions,
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				}
+			},
+			componentInput: undefined,
+
+			numberOfSubgrids: 1
 		}
 	}
 } as const

@@ -550,6 +550,7 @@ export const quickStyleProperties: Record<
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
+
 	formcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
@@ -604,6 +605,9 @@ export const quickStyleProperties: Record<
 		button: buttonDefaultProps
 	},
 	drawercomponent: {
+		container: containerDefaultProps
+	},
+	modalcomponent: {
 		container: containerDefaultProps
 	},
 	plotlycomponent: {},

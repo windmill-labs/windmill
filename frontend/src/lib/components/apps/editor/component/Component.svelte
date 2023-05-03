@@ -39,6 +39,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import AppModal from '../../components/layout/AppModal.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -455,6 +456,15 @@
 			/>
 		{:else if component.type === 'pdfcomponent'}
 			<AppPdf
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'modalcomponent'}
+			<AppModal
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
