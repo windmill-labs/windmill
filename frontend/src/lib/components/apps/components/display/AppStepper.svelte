@@ -2,11 +2,11 @@
 	import { getContext } from 'svelte'
 
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import { classNames } from '$lib/utils'
-	import { AlignWrapper, InputValue } from '../helpers'
+	import { AlignWrapper } from '../helpers'
 	import { concatCustomCss } from '../../utils'
 	import { Check } from 'lucide-svelte'
 
@@ -18,7 +18,6 @@
 
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let configuration: RichConfigurations
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let result: string[] | undefined = undefined
@@ -29,7 +28,7 @@
 		currentIndex: 0
 	})
 
-	let currentIndex: number | undefined = undefined
+	let currentIndex: number = 0
 
 	$: css = concatCustomCss($app.css?.iconcomponent, customCss)
 
@@ -42,7 +41,6 @@
 	$: currentIndex != undefined && handleStepSelection()
 </script>
 
-<InputValue {id} input={configuration.currentIndex} bind:value={currentIndex} />
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<AlignWrapper
 		{render}
@@ -56,8 +54,9 @@
 				class="relative z-20 flex justify-between items-centers text-sm font-medium text-gray-500"
 			>
 				{#each result ?? [] as step, index}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<li
-						class="flex items-center gap-2 p-2 cursor-pointer"
+						class="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-100 rounded-md"
 						on:click={() => {
 							currentIndex = index
 						}}

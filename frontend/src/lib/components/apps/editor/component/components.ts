@@ -1670,13 +1670,7 @@ Hello \${ctx.username}
 		initialData: {
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
-			configuration: {
-				currentIndex: {
-					fieldType: 'number',
-					type: 'static',
-					value: 0
-				}
-			},
+			configuration: {},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
