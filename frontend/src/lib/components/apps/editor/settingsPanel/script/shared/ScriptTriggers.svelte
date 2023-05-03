@@ -19,7 +19,9 @@
 			? inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
 			: []
 		: dependencies
-	$: hasNoTriggers = triggerEvents.length === 0 && changeEvents.length === 0
+
+	$: hasNoTriggers =
+		triggerEvents.length === 0 && (changeEvents.length === 0 || !shoudlDisplayChangeEvents)
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
@@ -114,6 +116,12 @@
 					</span>
 				{/each}
 			</div>
+			{#if changeEvents.includes('Eval')}
+				<Alert type="info" title="Input evaluated at runtime" size="xs" class="mt-2">
+					At least one input is configured as an evaluated input. This means that the script will
+					run when the input value changes.
+				</Alert>
+			{/if}
 		{/if}
 	{/if}
 </ScriptSettingsSection>

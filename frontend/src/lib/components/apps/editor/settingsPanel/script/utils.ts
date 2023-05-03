@@ -1,4 +1,4 @@
-import type { Runnable } from '$lib/components/apps/inputType'
+import type { EvalAppInput, Runnable } from '$lib/components/apps/inputType'
 import type { AppComponent } from '../../component'
 import type {
 	StaticAppInput,
@@ -9,7 +9,7 @@ import type {
 
 export function getDependencies(
 	fields:
-		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | EvalAppInput>
 		| undefined
 ): string[] {
 	let dependencies: string[] = []
@@ -19,6 +19,10 @@ export function getDependencies(
 	Object.values(fields).forEach((field) => {
 		if (field.type === 'connected' && dependencies && field.connection) {
 			dependencies.push(`${field.connection.componentId} - ${field.connection.path}`)
+		}
+
+		if (field.type === 'eval' && !dependencies.includes('Eval')) {
+			dependencies.push(`Eval`)
 		}
 	})
 	return dependencies
