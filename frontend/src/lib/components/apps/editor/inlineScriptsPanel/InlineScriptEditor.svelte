@@ -116,20 +116,18 @@
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
 
-				{#if id.startsWith('unused-') || id.startsWith('bg_')}
-					<Popover notClickable placement="bottom">
-						<Button
-							size="xs"
-							color="light"
-							btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
-							aria-label="Delete"
-							on:click={() => dispatch('delete')}
-						>
-							<Trash2 size={14} class="text-red-800" />
-						</Button>
-						<svelte:fragment slot="text">Delete</svelte:fragment>
-					</Popover>
-				{/if}
+				<Popover notClickable placement="bottom">
+					<Button
+						size="xs"
+						color="light"
+						btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
+						aria-label="Delete"
+						on:click={() => dispatch('delete')}
+					>
+						<Trash2 size={14} class="text-red-800" />
+					</Button>
+					<svelte:fragment slot="text">Delete</svelte:fragment>
+				</Popover>
 				{#if inlineScript.language != 'frontend'}
 					<Button
 						size="xs"
