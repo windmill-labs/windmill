@@ -360,7 +360,7 @@ async function pull(
         } catch {
           // ignore
         }
-        if (!change.path.endsWith(".json")) {
+        if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
           console.log(`Editing script content of ${change.path}`);
         } else {
           console.log(
@@ -600,7 +600,10 @@ async function push(
           await Deno.writeTextFile(stateTarget, change.after);
         }
       } else if (change.name === "added") {
-        if (change.path.endsWith(".script.json")) {
+        if (
+          change.path.endsWith(".script.json") ||
+          change.path.endsWith(".script.yaml")
+        ) {
           continue;
         } else if (
           await handleFile(
@@ -631,7 +634,7 @@ async function push(
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
-        if (!change.path.includes(".json")) {
+        if (!change.path.includes(".json") && !change.path.includes(".yaml")) {
           continue;
         }
         console.log(
