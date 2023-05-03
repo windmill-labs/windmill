@@ -39,7 +39,7 @@
 
 	$componentControl[id] = {
 		setTab: (step: number) => {
-			handleStepSelection(step)
+			currentIndex = step
 		}
 	}
 
