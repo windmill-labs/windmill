@@ -31,7 +31,10 @@ import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
 import * as Diff from "npm:diff";
-import { stringify as yamlStringify } from "https://deno.land/std@0.184.0/yaml/mod.ts";
+import {
+  stringify as yamlStringify,
+  parse as yamlParse,
+} from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -55,7 +58,10 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
       //   return await Deno.readFile(localP);
       // },
       async getContentText(): Promise<string> {
-        return await Deno.readTextFile(localP);
+        const content = await Deno.readTextFile(localP);
+        return p.endsWith(".yaml")
+          ? JSON.stringify(yamlParse(content))
+          : content;
       },
     };
   }
@@ -64,7 +70,10 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
 
 function prioritizeName(name: string): string {
   if (name == "summary") return "aa";
+  if (name == "name") return "aaaa";
+  if (name == "display_name") return "aaa";
   if (name == "description") return "ab";
+  if (name == "value") return "ac";
   return name;
 }
 
@@ -87,6 +96,8 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
               sortKeys: (a, b) => {
                 return prioritizeName(a).localeCompare(prioritizeName(b));
               },
+              noCompatMode: true,
+              noRefs: true,
             })
           : content;
       },
