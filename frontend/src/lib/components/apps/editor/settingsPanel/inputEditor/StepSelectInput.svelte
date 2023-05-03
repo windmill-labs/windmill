@@ -39,30 +39,30 @@
 	<div>
 		<div class="flex flex-row gap-2 w-full">
 			<div class="flex flex-col">
-				<label for="tabId" class="text-xs font-semibold">Tab ID</label>
+				<label for="stepId" class="text-xs font-semibold">Step ID</label>
 
 				<select
-					id="tabId"
+					id="stepId"
 					bind:value={componentInput.value.id}
 					class="border border-gray-300 rounded-md p-1 !w-16"
 				>
-					{#each stepperComponents as tabComponent}
-						<option value={tabComponent.data.id}>
-							{tabComponent.data.id}
+					{#each stepperComponents as stepComponent}
+						<option value={stepComponent.data.id}>
+							{stepComponent.data.id}
 						</option>
 					{/each}
 				</select>
 			</div>
 			<div class="flex flex-col">
-				<label for="tabIndex" class="text-xs font-semibold">Tab Index</label>
+				<label for="stepIndex" class="text-xs font-semibold">Step Index</label>
 				<select
-					id="tabIndex"
+					id="stepIndex"
 					bind:value={componentInput.value.step}
 					class="border border-gray-300 rounded-md p-1 !w-16"
 				>
-					{#each stepperComponents as tabComponent}
-						{#if tabComponent.data.id === componentInput.value.id}
-							{#each Array(numberOfSteps) as _, i}
+					{#each stepperComponents as stepComponent}
+						{#if stepComponent.data.id === componentInput.value.id}
+							{#each Array(numberOfSteps + 1) as _, i}
 								<option value={i}>{i}</option>
 							{/each}
 						{/if}
@@ -72,5 +72,5 @@
 		</div>
 	</div>
 {:else}
-	<div class="text-xs text-gray-500"> No tab component found in the app </div>
+	<div class="text-xs text-gray-500"> No stepper component found in the app </div>
 {/if}

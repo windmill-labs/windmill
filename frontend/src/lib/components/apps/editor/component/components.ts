@@ -227,7 +227,8 @@ const onSuccessClick = {
 		none: 'Do nothing',
 		gotoUrl: 'Go to an url',
 		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
+		sendToast: 'Display a toast notification',
+		setStep: 'Set the step of a stepper component'
 	},
 	configuration: {
 		none: {},
