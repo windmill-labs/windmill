@@ -12,6 +12,7 @@
 	import { GripVertical } from 'lucide-svelte'
 
 	export let tabs: string[] = []
+	export let word: string = 'Tab'
 
 	export let component: AppComponent
 
@@ -24,7 +25,7 @@
 
 	function addTab() {
 		const numberOfTabs = tabs.length
-		tabs = [...tabs, `Tab ${numberOfTabs + 1}`]
+		tabs = [...tabs, `${word} ${numberOfTabs + 1}`]
 
 		if (!$app.subgrids) {
 			$app.subgrids = {}
@@ -128,7 +129,7 @@
 	}
 </script>
 
-<PanelSection title={`Tabs ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
+<PanelSection title={`${word}s ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
 	{#if tabs.length == 0}
 		<span class="text-xs text-gray-500">No Tabs</span>
 	{/if}

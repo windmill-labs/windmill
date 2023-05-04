@@ -243,7 +243,7 @@
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}

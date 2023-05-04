@@ -36,16 +36,14 @@
 	let footerHeight: number = 0
 
 	let outputs = initOutput($worldStore, id, {
-		selectedTabIndex: 0,
-		shouldValidate: false,
-		shouldShowButtons: false,
+		currentStepIndex: 0,
 		result: undefined,
 		loading: false
 	})
 
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
-		outputs?.selectedTabIndex.set(selectedIndex)
+		outputs?.currentStepIndex.set(selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
@@ -79,13 +77,31 @@
 	}
 
 	$: selected != undefined && handleTabSelection()
+
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
+
+	// Store max reached index
+	let maxReachedIndex = -1
+
+	$: if (selectedIndex > maxReachedIndex) {
+		maxReachedIndex = selectedIndex
+	}
+
 	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
 
 	$: lastStep = selectedIndex === tabs.length - 1
 
-	let runnableWrapper: RunnableWrapper
 	let runnableComponent: RunnableComponent
+
+	function getStepColor(index: number, selectedIndex: number) {
+		if (index === selectedIndex) {
+			return 'bg-blue-500 text-white'
+		} else if (index > maxReachedIndex) {
+			return 'bg-gray-200'
+		} else {
+			return 'bg-blue-200'
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.shouldValidate} bind:value={resolvedConfig.shouldValidate} />
@@ -93,7 +109,6 @@
 <InitializeComponent {id} />
 
 <RunnableWrapper
-	bind:this={runnableWrapper}
 	{recomputeIds}
 	{render}
 	bind:runnableComponent
@@ -127,7 +142,7 @@
 							<span
 								class={classNames(
 									'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold flex items-center justify-center',
-									index <= selectedIndex ? 'bg-blue-600 text-white' : 'bg-gray-100'
+									getStepColor(index, selectedIndex)
 								)}
 								class:font-bold={selectedIndex === index}
 							>

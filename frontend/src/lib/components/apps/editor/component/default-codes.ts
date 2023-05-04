@@ -48,6 +48,10 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	return query.rows;
 }`
 	},
+	steppercomponent: {
+		deno: `export async function main(step: number, final: boolean, shouldValidate: boolean) {
+}`
+	},
 	textcomponent: {
 		deno: `export async function main() {
 	return "foo"
