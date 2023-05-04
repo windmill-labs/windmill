@@ -20,8 +20,6 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let componentInput: AppInput | undefined
 
-	$: statusByStep = [] as Array<'success' | 'error' | 'pending'>
-
 	const {
 		app,
 		worldStore,
@@ -37,7 +35,8 @@
 	let footerHeight: number = 0
 	let runnableComponent: RunnableComponent
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	$: maxReachedIndex = -1
+	let maxReachedIndex = -1
+	let statusByStep = [] as Array<'success' | 'error' | 'pending'>
 
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
