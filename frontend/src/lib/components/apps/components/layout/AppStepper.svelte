@@ -22,8 +22,15 @@
 
 	$: statusByStep = [] as Array<'success' | 'error' | 'pending'>
 
-	const { app, worldStore, focusedGrid, selectedComponent, componentControl, connectingInput } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		focusedGrid,
+		selectedComponent,
+		componentControl,
+		connectingInput,
+		mode
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
 	let tabHeight: number = 0
@@ -169,7 +176,7 @@
 								index <= maxReachedIndex ? 'cursor-pointer' : 'cursor-not-allowed'
 							)}
 							on:click={() => {
-								if (index <= maxReachedIndex) {
+								if (index <= maxReachedIndex || $mode === 'dnd') {
 									selected = step
 								}
 							}}
