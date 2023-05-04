@@ -67,7 +67,13 @@
 				? 'border-green-500 border-2 bg-green-200 text-green-600'
 				: 'border-green-200 border-2'
 		} else if (statusByStep[index] === 'error') {
-			return current ? 'border-red-500 border-2 bg-red-200 text-red-600' : 'border-red-200 border-2'
+			return current
+				? 'border-red-500 border-2 bg-red-200 text-red-600'
+				: 'border-red-300 bg-red-100 border-2'
+		} else if (statusByStep[index] === 'pending') {
+			return current
+				? 'border-indigo-500 border-2 bg-indigo-200 text-indigo-600'
+				: 'border-indigo-200 border-2'
 		} else {
 			if (index <= maxReachedIndex) {
 				return current

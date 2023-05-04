@@ -13,7 +13,7 @@
 </script>
 
 {#if canConfigureRecomputeOnInputChanged || canConfigureRunOnStart}
-	<ScriptSettingsSection title="Triggers">
+	<ScriptSettingsSection title="Run configuration">
 		<div class="flex flex-col gap-1">
 			{#if autoRefresh !== undefined && canConfigureRunOnStart}
 				<div class="flex items-center justify-between w-full">
