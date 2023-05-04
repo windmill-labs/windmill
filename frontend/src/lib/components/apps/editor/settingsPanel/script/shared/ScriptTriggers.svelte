@@ -7,6 +7,7 @@
 	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let triggerEvents: string[] = []
 	export let inlineScript: InlineScript | undefined = undefined
@@ -98,6 +99,13 @@
 				{#each changeEvents as changeEvent}
 					<span class={classNames(badgeClass, colors['blue'])}>
 						{changeEvent}
+						{#if changeEvents.includes('Eval')}
+							<Tooltip class="!text-blue-600 ml-1">
+								At least one input is configured as an evaluated input and the component will be
+								triggered if the result of the eval change. Eval expressions are re-evaluated on any
+								output or state changes.
+							</Tooltip>
+						{/if}
 						{#if isFrontend}
 							<button
 								class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
@@ -116,12 +124,6 @@
 					</span>
 				{/each}
 			</div>
-			{#if changeEvents.includes('Eval')}
-				<Alert type="info" title="Input evaluated at runtime" size="xs" class="mt-2">
-					At least one input is configured as an evaluated input. This means that the script will
-					run when the input value changes.
-				</Alert>
-			{/if}
 		{/if}
 	{/if}
 </ScriptSettingsSection>
