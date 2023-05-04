@@ -108,7 +108,7 @@
 	</div>
 {/if}
 
-{#if error && component.type !== 'steppercomponent'}
+{#if error}
 	{@const json = JSON.parse(JSON.stringify(error))}
 	<span
 		title="Error"

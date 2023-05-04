@@ -49,16 +49,22 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 }`
 	},
 	steppercomponent: {
-		deno: `export async function main(step: number, final: boolean) {
-	if(final) {
-		// submit the form
-	}
-
-	if(step === 0) {
-		// validate the first step
-		// throw an error if it's invalid
-	}
-}`
+		deno: `export async function main(step: number, lastPage: boolean) {
+		// if page == 0 {
+		//  if (page0Invalid) throw Error("first step invalid")
+		// } else if ...
+		if (lastPage) {
+				submitFullForm()
+		}
+}`,
+		python3: `def main(step: int, lastPage: bool):
+# if page == 0:
+#     if page0Invalid:
+#         raise Exception("first step invalid")
+# elif ...
+if lastPage:
+		submitFullForm()
+`
 	},
 	textcomponent: {
 		deno: `export async function main() {

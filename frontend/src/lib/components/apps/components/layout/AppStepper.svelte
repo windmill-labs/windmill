@@ -42,7 +42,7 @@
 		currentStepIndex: 0,
 		result: undefined,
 		loading: false,
-		final: false
+		lastPage: false
 	})
 
 	function handleTabSelection() {
@@ -51,7 +51,7 @@
 			maxReachedIndex = selectedIndex
 		}
 		outputs?.currentStepIndex.set(selectedIndex)
-		outputs?.final.set(tabs.length - 1 === selectedIndex)
+		outputs?.lastPage.set(tabs.length - 1 === selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
