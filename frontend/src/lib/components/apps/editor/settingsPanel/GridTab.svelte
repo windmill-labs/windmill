@@ -20,26 +20,27 @@
 		return { value: tab, id: generateRandomString(), originalIndex: index }
 	})
 
+	$: tabs = items.map((item) => item.value)
+
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
-		const numberOfTabs = tabs.length
-		tabs = [...tabs, `${word} ${numberOfTabs + 1}`]
+		const numberOfTabs = items.length
 
 		if (!$app.subgrids) {
 			$app.subgrids = {}
 		}
 
 		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
-		component.numberOfSubgrids = tabs.length
+		component.numberOfSubgrids = items.length
 
 		items = [
 			...items,
 			{
-				value: tabs[tabs.length - 1],
+				value: `${word} ${items.length + 1}`,
 				id: generateRandomString(),
-				originalIndex: tabs.length - 1
+				originalIndex: items.length - 1
 			}
 		]
 	}
@@ -53,16 +54,15 @@
 			}
 		}
 		$runnableComponents = $runnableComponents
-		for (let i = index; i < tabs.length - 1; i++) {
+		for (let i = index; i < items.length - 1; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
 		}
-		tabs.splice(index, 1)
-		tabs = tabs
-		component.numberOfSubgrids = tabs.length
-		$app = $app
 
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
+
+		component.numberOfSubgrids = items.length
+		$app = $app
 
 		// Update the originalIndex of the remaining items
 		items.forEach((item, i) => {
@@ -81,16 +81,16 @@
 		items[index].value = newValue
 		items = [...items]
 	}
+
 	function handleFinalize(e: CustomEvent) {
 		const { items: newItems } = e.detail
 
 		items = newItems
-		tabs = items.map((item) => item.value)
 
 		// if the originalIndex are not in order, we should swap the subgrids
 		if (items.some((item, index) => item.originalIndex !== index)) {
 			const newSubgrids = {}
-			for (let i = 0; i < tabs.length; i++) {
+			for (let i = 0; i < items.length; i++) {
 				newSubgrids[`${component.id}-${i}`] =
 					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
@@ -149,7 +149,7 @@
 						on:keydown|stopPropagation
 						on:input={(e) => updateItemValue(index, e)}
 						type="text"
-						bind:value={tabs[index]}
+						bind:value={items[index].value}
 					/>
 					<div class="absolute right-6">
 						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
