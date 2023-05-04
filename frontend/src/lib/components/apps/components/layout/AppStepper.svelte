@@ -28,22 +28,30 @@
 		configuration
 	)
 
+	const statusByStep: Array<'success' | 'error' | 'pending'> = []
+
 	const { app, worldStore, focusedGrid, selectedComponent, componentControl, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
 	let tabHeight: number = 0
 	let footerHeight: number = 0
+	let runnableComponent: RunnableComponent
+	let selectedIndex = tabs?.indexOf(selected) ?? -1
+	let maxReachedIndex = -1
 
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
 		result: undefined,
-		loading: false
+		loading: false,
+		final: false,
+		shouldValidate: false
 	})
 
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
 		outputs?.currentStepIndex.set(selectedIndex)
+		outputs?.final.set(tabs.length - 1 === selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
@@ -52,6 +60,57 @@
 			}
 		}
 	}
+
+	function setShouldValidate(shouldValidate: boolean) {
+		outputs?.shouldValidate.set(shouldValidate)
+	}
+
+	function getStepColor(index: number, selectedIndex: number, lastStep: boolean) {
+		console.log(index, selectedIndex, maxReachedIndex)
+		if (index === selectedIndex) {
+			return 'bg-blue-500 text-white'
+		} else if (index < maxReachedIndex) {
+			return x(index, 'bg-blue-200')
+		} else {
+			return x(index, 'bg-gray-200')
+		}
+	}
+
+	function x(index: number, fallback?: string) {
+		if (statusByStep[index] === 'pending' && resolvedConfig.shouldValidate) {
+			return 'bg-blue-500 text-white'
+		} else if (statusByStep[index] === 'error' && resolvedConfig.shouldValidate) {
+			return 'bg-red-500 text-white'
+		} else if (statusByStep[index] === 'success' && resolvedConfig.shouldValidate) {
+			return 'bg-green-500 text-white'
+		} else {
+			return fallback
+		}
+	}
+
+	let result: { error: { name: string; message: string; stack: string } } | undefined = undefined
+
+	async function runStep() {
+		statusByStep[selectedIndex] = 'pending'
+
+		if (lastStep || resolvedConfig.shouldValidate) {
+			if (runnableComponent) {
+				await runnableComponent?.runComponent()
+			}
+		}
+
+		if (result?.error) {
+			statusByStep[selectedIndex] = 'error'
+		} else {
+			statusByStep[selectedIndex] = 'success'
+
+			if (!lastStep) {
+				selected = tabs[selectedIndex + 1]
+			}
+		}
+	}
+
+	$: resolvedConfig.shouldValidate && setShouldValidate(resolvedConfig.shouldValidate)
 
 	$componentControl[id] = {
 		left: () => {
@@ -76,38 +135,17 @@
 		}
 	}
 
-	$: selected != undefined && handleTabSelection()
-
-	let selectedIndex = tabs?.indexOf(selected) ?? -1
-
-	// Store max reached index
-	let maxReachedIndex = -1
-
 	$: if (selectedIndex > maxReachedIndex) {
 		maxReachedIndex = selectedIndex
 	}
+	$: selected != undefined && handleTabSelection()
 
 	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
-
 	$: lastStep = selectedIndex === tabs.length - 1
-
-	let runnableComponent: RunnableComponent
-
-	function getStepColor(index: number, selectedIndex: number) {
-		if (index === selectedIndex) {
-			return 'bg-blue-500 text-white'
-		} else if (index > maxReachedIndex) {
-			return 'bg-gray-200'
-		} else {
-			return 'bg-blue-200'
-		}
-	}
 </script>
 
 <InputValue {id} input={configuration.shouldValidate} bind:value={resolvedConfig.shouldValidate} />
-
 <InitializeComponent {id} />
-
 <RunnableWrapper
 	{recomputeIds}
 	{render}
@@ -120,6 +158,7 @@
 	runnableClass="!block"
 	{outputs}
 	triggerable
+	bind:result
 >
 	<div class="w-full">
 		<div bind:clientHeight={tabHeight}>
@@ -142,7 +181,7 @@
 							<span
 								class={classNames(
 									'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold flex items-center justify-center',
-									getStepColor(index, selectedIndex)
+									getStepColor(index, selectedIndex, lastStep)
 								)}
 								class:font-bold={selectedIndex === index}
 							>
@@ -205,17 +244,7 @@
 						size="xs"
 						color={lastStep ? 'dark' : 'light'}
 						variant={lastStep ? 'contained' : 'border'}
-						on:click={async () => {
-							if (lastStep || resolvedConfig.shouldValidate) {
-								if (runnableComponent) {
-									await runnableComponent?.runComponent()
-								}
-							}
-
-							if (!lastStep) {
-								selected = tabs[selectedIndex + 1]
-							}
-						}}
+						on:click={runStep}
 					>
 						{#if lastStep}
 							Submit

@@ -139,7 +139,7 @@
 		{#if component.componentInput}
 			<PanelSection
 				title={componentSettings?.item.data.type
-					? 'On submit'
+					? 'Validation and on submit handler'
 					: hasInteraction
 					? 'Event handler'
 					: 'Data source'}

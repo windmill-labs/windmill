@@ -221,8 +221,6 @@
 					}
 				})
 
-				console.log(extraQueryParams, nonStaticRunnableInputs, staticRunnableInputs)
-
 				const requestBody = {
 					args: nonStaticRunnableInputs,
 					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
