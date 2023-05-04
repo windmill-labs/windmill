@@ -622,7 +622,12 @@ async function push(
             `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(change.path, JSON.parse(change.content));
+        const obj = inferTypeFromPath(
+          change.path,
+          change.path.endsWith(".yaml")
+            ? yamlParse(change.content)
+            : JSON.parse(change.content)
+        );
         const diff = microdiff({}, obj, { cyclesFix: false });
         await applyDiff(
           workspace.workspaceId,
