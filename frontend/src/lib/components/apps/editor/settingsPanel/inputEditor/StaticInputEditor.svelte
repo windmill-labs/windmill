@@ -111,7 +111,7 @@
 	{:else if fieldType === 'array'}
 		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
 	{:else}
-		<div class="flex gap-1 relative">
+		<div class="flex gap-1 relative w-full">
 			<input
 				on:keydown|stopPropagation
 				type="text"
