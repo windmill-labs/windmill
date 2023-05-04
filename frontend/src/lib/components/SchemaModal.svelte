@@ -25,7 +25,7 @@
 		return {
 			name,
 			selectedType: schema.type,
-			description: schema.description,
+			description: schema.description ?? '',
 			pattern: schema.pattern,
 			default: schema.default,
 			contentEncoding: schema.contentEncoding,
