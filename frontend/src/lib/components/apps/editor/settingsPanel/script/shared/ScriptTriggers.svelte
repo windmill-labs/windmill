@@ -99,7 +99,7 @@
 				{#each changeEvents as changeEvent}
 					<span class={classNames(badgeClass, colors['blue'])}>
 						{changeEvent}
-						{#if changeEvents.includes('Eval')}
+						{#if changeEvent === 'Eval'}
 							<Tooltip class="!text-blue-600 ml-1">
 								At least one input is configured as an evaluated input and the component will be
 								triggered if the result of the eval change. Eval expressions are re-evaluated on any
