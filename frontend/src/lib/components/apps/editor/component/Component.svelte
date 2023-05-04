@@ -399,7 +399,6 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				componentInput={component.componentInput}
-				recomputeIds={component.recomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'containercomponent'}

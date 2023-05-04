@@ -82,18 +82,13 @@
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
 	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
 
-	$: canSubmit = selectedIndex === tabs.length - 1
+	$: lastStep = selectedIndex === tabs.length - 1
 
 	let runnableWrapper: RunnableWrapper
 	let runnableComponent: RunnableComponent
 </script>
 
 <InputValue {id} input={configuration.shouldValidate} bind:value={resolvedConfig.shouldValidate} />
-<InputValue
-	{id}
-	input={configuration.shouldShowButtons}
-	bind:value={resolvedConfig.shouldShowButtons}
-/>
 
 <InitializeComponent {id} />
 
@@ -179,41 +174,41 @@
 						Step {selectedIndex + 1} of {tabs.length}
 					</span>
 				</div>
-				{#if resolvedConfig.shouldShowButtons}
-					<div class="flex items-center gap-2">
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							disabled={selectedIndex === 0}
-							on:click={() => {
-								selected = tabs[selectedIndex - 1]
-							}}
-						>
-							Previous
-						</Button>
-						<Button
-							size="xs"
-							color={canSubmit ? 'dark' : 'light'}
-							variant={canSubmit ? 'contained' : 'border'}
-							on:click={async () => {
-								if (canSubmit) {
-									if (runnableComponent) {
-										await runnableComponent?.runComponent()
-									}
-								} else {
-									selected = tabs[selectedIndex + 1]
+				<div class="flex items-center gap-2">
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						disabled={selectedIndex === 0}
+						on:click={() => {
+							selected = tabs[selectedIndex - 1]
+						}}
+					>
+						Previous
+					</Button>
+					<Button
+						size="xs"
+						color={lastStep ? 'dark' : 'light'}
+						variant={lastStep ? 'contained' : 'border'}
+						on:click={async () => {
+							if (lastStep || resolvedConfig.shouldValidate) {
+								if (runnableComponent) {
+									await runnableComponent?.runComponent()
 								}
-							}}
-						>
-							{#if canSubmit}
-								Submit
-							{:else}
-								Next
-							{/if}
-						</Button>
-					</div>
-				{/if}
+							}
+
+							if (!lastStep) {
+								selected = tabs[selectedIndex + 1]
+							}
+						}}
+					>
+						{#if lastStep}
+							Submit
+						{:else}
+							Next
+						{/if}
+					</Button>
+				</div>
 			</div>
 		</div>
 	</div>

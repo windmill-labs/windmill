@@ -1353,12 +1353,6 @@ Hello \${ctx.username}
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
-				},
-				shouldShowButtons: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
 				}
 			},
 			componentInput: {
