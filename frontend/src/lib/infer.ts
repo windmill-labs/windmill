@@ -44,7 +44,8 @@ export async function inferArgs(
 	}
 
 	schema.required = []
-	const oldProperties = Object.assign({}, schema.properties)
+	const oldProperties = JSON.parse(JSON.stringify(schema.properties))
+
 	schema.properties = {}
 
 	for (const arg of inferedSchema.args) {
@@ -54,7 +55,9 @@ export async function inferArgs(
 			schema.properties[arg.name] = oldProperties[arg.name]
 		}
 		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
+
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
+
 		schema.properties[arg.name].default = arg.default
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
@@ -72,7 +75,7 @@ function argSigToJsonSchemaType(
 		| { object: { key: string; typ: any }[] },
 	oldS: SchemaProperty
 ): void {
-	const newS: SchemaProperty = { type: '', description: '' }
+	const newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -134,9 +137,7 @@ function argSigToJsonSchemaType(
 		}
 	}
 
-	let oldDescription = oldS.description
 	Object.assign(oldS, newS)
-	oldS.description = oldDescription
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
 	}

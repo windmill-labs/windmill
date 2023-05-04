@@ -73,7 +73,7 @@
 		schema = schema ?? emptySchema()
 		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
-			if (schema.properties[k].default == v) {
+			if (schema.properties?.[k]?.default == v) {
 				isDefault.push(k)
 			}
 		})
