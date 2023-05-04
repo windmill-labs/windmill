@@ -48,6 +48,9 @@ wmill sync pull
 wmill sync push
 ```
 
+We recommend using the --yaml option to use yaml instead of json as the encoding
+format. Yaml will be made the default soon.
+
 ### Pushing individual files
 
 You can push individual resources using
