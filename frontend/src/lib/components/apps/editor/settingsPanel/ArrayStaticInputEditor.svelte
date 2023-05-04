@@ -140,7 +140,9 @@
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 						<div class="flex flex-row gap-2 items-center relative my-1">
-							<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
+							<div class="grow overflow-x-auto">
+								<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
+							</div>
 							<div class="flex justify-between flex-col items-center">
 								<div
 									tabindex={dragDisabled ? 0 : -1}
