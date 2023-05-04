@@ -67,8 +67,9 @@
 			bind:autoRefresh={appInput.autoRefresh}
 			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 			on:updateAutoRefresh={updateAutoRefresh}
-		/>
-		<ComponentScriptTriggerBy {appComponent} {appInput} />
+		>
+			<ComponentScriptTriggerBy {appComponent} {appInput} />
+		</ScriptRunConfiguration>
 	{:else}
 		<ScriptSettingsSection title="Language selection">
 			<div class="text-xs"> Please configure the language in the inline script panel </div>
