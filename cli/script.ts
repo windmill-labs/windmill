@@ -168,7 +168,7 @@ export async function handleFile(
           return true;
         }
       }
-
+      console.log(typed);
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -215,16 +215,19 @@ export async function handleFile(
 }
 
 export async function findContentFile(filePath: string) {
-  const candidates = [
-    filePath.replace(".script.json", ".ts"),
-    filePath.replace(".script.json", ".py"),
-    filePath.replace(".script.json", ".go"),
-    filePath.replace(".script.json", ".sh"),
-    filePath.replace(".script.yaml", ".ts"),
-    filePath.replace(".script.yaml", ".py"),
-    filePath.replace(".script.yaml", ".go"),
-    filePath.replace(".script.yaml", ".sh"),
-  ];
+  const candidates = filePath.endsWith("script.json")
+    ? [
+        filePath.replace(".script.json", ".ts"),
+        filePath.replace(".script.json", ".py"),
+        filePath.replace(".script.json", ".go"),
+        filePath.replace(".script.json", ".sh"),
+      ]
+    : [
+        filePath.replace(".script.yaml", ".ts"),
+        filePath.replace(".script.yaml", ".py"),
+        filePath.replace(".script.yaml", ".go"),
+        filePath.replace(".script.yaml", ".sh"),
+      ];
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
@@ -241,7 +244,7 @@ export async function findContentFile(filePath: string) {
     .map((x) => x.path);
   if (validCandidates.length > 1) {
     throw new Error(
-      "No content path given and more then one candidate found: " +
+      "No content path given and more than one candidate found: " +
         validCandidates.join(", ")
     );
   }

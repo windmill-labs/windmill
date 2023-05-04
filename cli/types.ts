@@ -22,6 +22,7 @@ export interface PushDiffs {
   pushDiffs(
     workspace: string,
     remotePath: string,
+    newContent: string,
     diffs: Difference[],
     plainSecrets?: boolean
   ): Promise<void>;

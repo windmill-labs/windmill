@@ -35,7 +35,7 @@ export class AppFile implements Resource, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[]
+    content: string
   ): Promise<void> {
     let app: AppWithLastVersion | undefined = undefined;
     try {

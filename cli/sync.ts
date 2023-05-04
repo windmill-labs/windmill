@@ -199,6 +199,7 @@ async function elementsToMap(
   }
   return map;
 }
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -222,6 +223,7 @@ async function compareDynFSElement(
       (!k.endsWith(".yaml") || !equal(yamlParse(v), yamlParse(m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
+      console.log({ before: m2[k], after: v });
     }
   }
 
@@ -306,7 +308,9 @@ async function pull(
     : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
   const changes = await compareDynFSElement(remote, local, await ignoreF());
 
-  console.log(`remote -> local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -529,7 +533,9 @@ async function push(
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
 
-  console.log(`remote <- local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -583,10 +589,20 @@ async function push(
             `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(change.path, JSON.parse(change.after));
+        const obj = inferTypeFromPath(
+          change.path,
+          change.path.endsWith(".yaml")
+            ? yamlParse(change.after)
+            : JSON.parse(change.after)
+        );
 
         const diff = microdiff(
-          inferTypeFromPath(change.path, JSON.parse(change.before)),
+          inferTypeFromPath(
+            change.path,
+            change.path.endsWith(".yaml")
+              ? yamlParse(change.before)
+              : JSON.parse(change.before)
+          ),
           obj,
           { cyclesFix: false }
         );
@@ -708,7 +724,7 @@ async function push(
     }
     console.log(
       colors.green.underline(
-        `Done! All ${changes.length} changes pushed to the remote workspace.`
+        `Done! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
       )
     );
   }

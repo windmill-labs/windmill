@@ -39,7 +39,7 @@ export class FlowFile implements Resource, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[]
+    content: string
   ): Promise<void> {
     if (
       await FlowService.existsFlowByPath({
