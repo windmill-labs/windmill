@@ -49,7 +49,15 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 }`
 	},
 	steppercomponent: {
-		deno: `export async function main(step: number, final: boolean, shouldValidate: boolean) {
+		deno: `export async function main(step: number, final: boolean) {
+	if(final) {
+		// submit the form
+	}
+
+	if(step === 0) {
+		// validate the first step
+		// throw an error if it's invalid
+	}
 }`
 	},
 	textcomponent: {

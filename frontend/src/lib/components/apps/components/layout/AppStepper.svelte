@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components } from '../../editor/component'
+	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { classNames } from '$lib/utils'
@@ -14,7 +12,6 @@
 	import type { AppInput } from '../../inputType'
 
 	export let id: string
-	export let configuration: RichConfigurations
 	export let componentContainerHeight: number
 	export let tabs: string[]
 	export let customCss: ComponentCustomCSS<'steppercomponent'> | undefined = undefined
@@ -22,11 +19,6 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let componentInput: AppInput | undefined
-
-	let resolvedConfig = initConfig(
-		components['steppercomponent'].initialData.configuration,
-		configuration
-	)
 
 	$: statusByStep = [] as Array<'success' | 'error' | 'pending'>
 
@@ -38,22 +30,20 @@
 	let footerHeight: number = 0
 	let runnableComponent: RunnableComponent
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	let maxReachedIndex = -1
+	$: maxReachedIndex = -1
 
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
 		result: undefined,
 		loading: false,
-		final: false,
-		shouldValidate: false
+		final: false
 	})
 
 	function handleTabSelection() {
+		selectedIndex = tabs?.indexOf(selected)
 		if (selectedIndex > maxReachedIndex) {
 			maxReachedIndex = selectedIndex
 		}
-
-		selectedIndex = tabs?.indexOf(selected)
 		outputs?.currentStepIndex.set(selectedIndex)
 		outputs?.final.set(tabs.length - 1 === selectedIndex)
 
@@ -65,39 +55,29 @@
 		}
 	}
 
-	function setShouldValidate(shouldValidate: boolean) {
-		outputs?.shouldValidate.set(shouldValidate)
-
-		if (shouldValidate === false) {
-			statusByStep = []
-		}
-	}
-
-	function getStepColor(index: number, selectedIndex: number, maxReachedIndex: number) {
-		if (index === selectedIndex) {
-			return 'bg-blue-500 text-white'
-		} else if (index > maxReachedIndex) {
-			return 'bg-gray-200'
-		} else {
-			return 'bg-blue-200'
-		}
-	}
-
-	function getValidationStepColor(
-		statusByStep: Array<'success' | 'error' | 'pending'>,
+	function getStepColor(
 		index: number,
-		selectedIndex: number
+		selectedIndex: number,
+		statusByStep: Array<'success' | 'error' | 'pending'>,
+		maxReachedIndex: number
 	) {
-		const status = statusByStep[index]
-
-		if (index === selectedIndex) {
-			return 'bg-blue-500 text-white'
-		} else if (status === 'success') {
-			return 'bg-green-500 text-white'
-		} else if (status === 'error') {
-			return 'bg-red-500 text-white'
+		const current = index === selectedIndex
+		if (statusByStep[index] === 'success') {
+			return current
+				? 'border-green-500 border-2 bg-green-200 text-green-600'
+				: 'border-green-200 border-2'
+		} else if (statusByStep[index] === 'error') {
+			return current ? 'border-red-500 border-2 bg-red-200 text-red-600' : 'border-red-200 border-2'
 		} else {
-			return 'bg-gray-200'
+			if (index <= maxReachedIndex) {
+				return current
+					? 'border-blue-500 border-2 bg-blue-200 text-blue-600'
+					: 'border-blue-200 border-2'
+			} else {
+				return current
+					? 'border-gray-500 border-2 bg-gray-200 text-gray-600'
+					: 'border-gray-200 border-2'
+			}
 		}
 	}
 
@@ -106,13 +86,11 @@
 	async function runStep() {
 		statusByStep[selectedIndex] = 'pending'
 
-		if (lastStep || resolvedConfig.shouldValidate) {
-			if (runnableComponent) {
-				await runnableComponent?.runComponent()
-			}
+		if (runnableComponent) {
+			await runnableComponent?.runComponent()
 		}
 
-		if (result?.error) {
+		if (result?.error !== undefined) {
 			statusByStep[selectedIndex] = 'error'
 		} else {
 			statusByStep[selectedIndex] = 'success'
@@ -122,8 +100,6 @@
 			}
 		}
 	}
-
-	$: resolvedConfig.shouldValidate && setShouldValidate(resolvedConfig.shouldValidate)
 
 	$componentControl[id] = {
 		left: () => {
@@ -154,7 +130,6 @@
 	$: lastStep = selectedIndex === tabs.length - 1
 </script>
 
-<InputValue {id} input={configuration.shouldValidate} bind:value={resolvedConfig.shouldValidate} />
 <InitializeComponent {id} />
 <RunnableWrapper
 	{recomputeIds}
@@ -183,24 +158,34 @@
 					{#each tabs ?? [] as step, index}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<li
-							class="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-100 rounded-md"
+							class={classNames(
+								'flex items-center gap-2 px-2 py-1 hover:bg-gray-1200 rounded-md m-0.5',
+								index <= maxReachedIndex ? 'cursor-pointer' : 'cursor-not-allowed'
+							)}
 							on:click={() => {
-								selected = step
+								if (index <= maxReachedIndex) {
+									selected = step
+								}
 							}}
 						>
 							<span
 								class={classNames(
-									'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold flex items-center justify-center',
-									resolvedConfig.shouldValidate
-										? getValidationStepColor(statusByStep, index, selectedIndex)
-										: getStepColor(index, selectedIndex, maxReachedIndex)
+									'h-6 w-6 rounded-full text-center text-[10px]/6  flex items-center justify-center',
+									getStepColor(index, selectedIndex, statusByStep, maxReachedIndex)
 								)}
 								class:font-bold={selectedIndex === index}
 							>
 								{index + 1}
 							</span>
 
-							<span class="hidden sm:block">{step}</span>
+							<span
+								class={classNames(
+									'hidden sm:block',
+									selectedIndex === index
+										? 'font-semibold text-gray-900'
+										: 'font-normal text-gray-600'
+								)}>{step}</span
+							>
 						</li>
 						{#if index !== (tabs ?? []).length - 1}
 							<li class="flex items-center">

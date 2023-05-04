@@ -1347,14 +1347,7 @@ Hello \${ctx.username}
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {
-				shouldValidate: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
-				}
-			},
+			configuration: {},
 			componentInput: {
 				type: 'runnable',
 				fieldType: 'any',
