@@ -67,6 +67,10 @@
 
 	function setShouldValidate(shouldValidate: boolean) {
 		outputs?.shouldValidate.set(shouldValidate)
+
+		if (shouldValidate === false) {
+			statusByStep = []
+		}
 	}
 
 	function getStepColor(index: number, selectedIndex: number, maxReachedIndex: number) {
@@ -172,9 +176,9 @@
 				<ol
 					class={twMerge(
 						'relative z-20 flex justify-between items-centers text-sm font-medium text-gray-500',
-						css?.selectedTab?.class
+						css?.selectedStep?.class
 					)}
-					style={css?.tabRow?.style}
+					style={css?.stepsRow?.style}
 				>
 					{#each tabs ?? [] as step, index}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->

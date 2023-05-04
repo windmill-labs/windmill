@@ -1341,9 +1341,9 @@ Hello \${ctx.username}
 		dims: '2:8-6:8' as AppComponentDimensions,
 
 		customCss: {
-			tabRow: { class: '', style: '' },
-			allTabs: { class: '', style: '' },
-			selectedTab: { class: '', style: '' },
+			stepsRow: { class: '', style: '' },
+			allSteps: { class: '', style: '' },
+			selectedStep: { class: '', style: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
