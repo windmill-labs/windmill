@@ -28,7 +28,7 @@
 		configuration
 	)
 
-	const statusByStep: Array<'success' | 'error' | 'pending'> = []
+	$: statusByStep = [] as Array<'success' | 'error' | 'pending'>
 
 	const { app, worldStore, focusedGrid, selectedComponent, componentControl, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -49,6 +49,10 @@
 	})
 
 	function handleTabSelection() {
+		if (selectedIndex > maxReachedIndex) {
+			maxReachedIndex = selectedIndex
+		}
+
 		selectedIndex = tabs?.indexOf(selected)
 		outputs?.currentStepIndex.set(selectedIndex)
 		outputs?.final.set(tabs.length - 1 === selectedIndex)
@@ -65,26 +69,31 @@
 		outputs?.shouldValidate.set(shouldValidate)
 	}
 
-	function getStepColor(index: number, selectedIndex: number, lastStep: boolean) {
-		console.log(index, selectedIndex, maxReachedIndex)
+	function getStepColor(index: number, selectedIndex: number, maxReachedIndex: number) {
 		if (index === selectedIndex) {
 			return 'bg-blue-500 text-white'
-		} else if (index < maxReachedIndex) {
-			return x(index, 'bg-blue-200')
+		} else if (index > maxReachedIndex) {
+			return 'bg-gray-200'
 		} else {
-			return x(index, 'bg-gray-200')
+			return 'bg-blue-200'
 		}
 	}
 
-	function x(index: number, fallback?: string) {
-		if (statusByStep[index] === 'pending' && resolvedConfig.shouldValidate) {
+	function getValidationStepColor(
+		statusByStep: Array<'success' | 'error' | 'pending'>,
+		index: number,
+		selectedIndex: number
+	) {
+		const status = statusByStep[index]
+
+		if (index === selectedIndex) {
 			return 'bg-blue-500 text-white'
-		} else if (statusByStep[index] === 'error' && resolvedConfig.shouldValidate) {
-			return 'bg-red-500 text-white'
-		} else if (statusByStep[index] === 'success' && resolvedConfig.shouldValidate) {
+		} else if (status === 'success') {
 			return 'bg-green-500 text-white'
+		} else if (status === 'error') {
+			return 'bg-red-500 text-white'
 		} else {
-			return fallback
+			return 'bg-gray-200'
 		}
 	}
 
@@ -135,9 +144,6 @@
 		}
 	}
 
-	$: if (selectedIndex > maxReachedIndex) {
-		maxReachedIndex = selectedIndex
-	}
 	$: selected != undefined && handleTabSelection()
 
 	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
@@ -181,7 +187,9 @@
 							<span
 								class={classNames(
 									'h-6 w-6 rounded-full text-center text-[10px]/6 font-bold flex items-center justify-center',
-									getStepColor(index, selectedIndex, lastStep)
+									resolvedConfig.shouldValidate
+										? getValidationStepColor(statusByStep, index, selectedIndex)
+										: getStepColor(index, selectedIndex, maxReachedIndex)
 								)}
 								class:font-bold={selectedIndex === index}
 							>
