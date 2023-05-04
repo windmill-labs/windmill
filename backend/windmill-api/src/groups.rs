@@ -292,6 +292,12 @@ async fn delete_group(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    if name == "all" {
+        return Err(Error::BadRequest(
+            "The group 'all' is a special group that contains all users and cannot be deleted".to_string(),
+        ));
+    }
+
     if !authed.is_admin {
         require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
     }
