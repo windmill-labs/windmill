@@ -751,7 +751,7 @@ export function sortObject<T>(o: T & object): T {
 	return Object.keys(o)
 		.sort()
 		.reduce((obj, key) => {
-			obj[key] = obj[key]
+			obj[key] = o[key]
 			return obj
 		}, {}) as T
 }
