@@ -11,7 +11,8 @@
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical } from 'lucide-svelte'
 
-	export let tabs: string[]
+	export let tabs: string[] = []
+
 	export let component: AppComponent
 
 	let items = tabs.map((tab, index) => {

@@ -137,7 +137,13 @@
 	{@const component = componentSettings.item.data}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title={hasInteraction ? 'Event handler' : 'Data source'}>
+			<PanelSection
+				title={componentSettings?.item.data.type
+					? 'On submit'
+					: hasInteraction
+					? 'Event handler'
+					: 'Data source'}
+			>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
@@ -235,6 +241,8 @@
 		{/if}
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
+			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane bind:panes={componentSettings.item.data.panes} {component} />

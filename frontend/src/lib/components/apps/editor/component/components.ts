@@ -105,6 +105,9 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
+export type StepperComponent = BaseComponent<'steppercomponent'> & {
+	tabs: string[]
+}
 
 export type TypedComponent =
 	| DisplayComponent
@@ -146,6 +149,7 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
+	| StepperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1329,6 +1333,42 @@ Hello \${ctx.username}
 
 			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab'] as string[]
+		}
+	},
+	steppercomponent: {
+		name: 'Stepper',
+		icon: ListOrdered,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				shouldValidate: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true
+				},
+				shouldShowButtons: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true
+				}
+			},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			numberOfSubgrids: 2,
+			tabs: ['First', 'Second'] as string[]
 		}
 	},
 	iconcomponent: {
