@@ -1,4 +1,3 @@
-import { decoverto } from "./decoverto.ts";
 import { FlowFile } from "./flow.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import { ResourceFile } from "./resource.ts";
@@ -6,27 +5,7 @@ import { ScriptFile } from "./script.ts";
 import { VariableFile } from "./variable.ts";
 import { path } from "./deps.ts";
 import { FolderFile } from "./folder.ts";
-import { AppFile } from "./apps.ts";
-
-// TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
-// Then combine those with diffing, which then gives the new push impl
-export interface Resource {
-  push(
-    workspace: string,
-    remotePath: string,
-    plainSecrets?: boolean
-  ): Promise<void>;
-}
-
-export interface PushDiffs {
-  pushDiffs(
-    workspace: string,
-    remotePath: string,
-    newContent: string,
-    diffs: Difference[],
-    plainSecrets?: boolean
-  ): Promise<void>;
-}
+import { App, pushApp } from "./apps.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -88,38 +67,34 @@ export type GlobalOptions = {
   token: string | undefined;
 };
 
-export function inferTypeFromPath(
-  p: string,
-  obj: any
-):
-  | ScriptFile
-  | VariableFile
-  | FlowFile
-  | ResourceFile
-  | ResourceTypeFile
-  | FolderFile
-  | AppFile {
+export function push(workspace: string, p: string, obj: any) {
   const typeEnding = getTypeStrFromPath(p);
 
-  if (typeEnding === "folder") {
-    return decoverto.type(FolderFile).plainToInstance(obj);
-  } else if (typeEnding === "script") {
-    return decoverto.type(ScriptFile).plainToInstance(obj);
-  } else if (typeEnding === "variable") {
-    return decoverto.type(VariableFile).plainToInstance(obj);
-  } else if (typeEnding === "flow") {
-    return decoverto.type(FlowFile).plainToInstance(obj);
-  } else if (typeEnding === "resource") {
-    return decoverto.type(ResourceFile).plainToInstance(obj);
-  } else if (typeEnding === "resource-type") {
-    return decoverto.type(ResourceTypeFile).plainToInstance(obj);
-  } else if (typeEnding === "app") {
-    return decoverto.type(AppFile).plainToInstance(obj);
+  if (typeEnding === "app") {
+    pushApp(workspace, p, obj);
+
+    //   return decoverto.type(AppFile).plainToInstance(obj);
+    // if (typeEnding === "folder") {
+    //   return decoverto.type(FolderFile).plainToInstance(obj);
+    // } else if (typeEnding === "script") {
+    //   return decoverto.type(ScriptFile).plainToInstance(obj);
+    // } else if (typeEnding === "variable") {
+    //   return decoverto.type(VariableFile).plainToInstance(obj);
+    // } else if (typeEnding === "flow") {
+    //   return decoverto.type(FlowFile).plainToInstance(obj);
+    // } else if (typeEnding === "resource") {
+    //   return decoverto.type(ResourceFile).plainToInstance(obj);
+    // } else if (typeEnding === "resource-type") {
+    //   return decoverto.type(ResourceTypeFile).plainToInstance(obj);
+    // } else
   } else {
     throw new Error("infer type unreachable");
   }
 }
 
+export parseFromPath<T>(p: string): T {
+  
+}
 export function getTypeStrFromPath(
   p: string
 ):
