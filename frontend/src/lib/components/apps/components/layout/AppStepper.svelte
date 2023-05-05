@@ -41,17 +41,19 @@
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
 		result: undefined,
-		loading: false,
-		lastPage: false
+		loading: false
 	})
 
-	function handleTabSelection() {
+	async function handleTabSelection() {
+		if (runnableComponent) {
+			await runnableComponent?.runComponent()
+		}
+
 		selectedIndex = tabs?.indexOf(selected)
 		if (selectedIndex > maxReachedIndex) {
 			maxReachedIndex = selectedIndex
 		}
 		outputs?.currentStepIndex.set(selectedIndex)
-		outputs?.lastPage.set(tabs.length - 1 === selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
@@ -196,8 +198,9 @@
 									selectedIndex === index
 										? 'font-semibold text-gray-900'
 										: 'font-normal text-gray-600'
-								)}>{step}</span
-							>
+								)}
+								>{step}
+							</span>
 						</li>
 						{#if index !== (tabs ?? []).length - 1}
 							<li class="flex items-center">
@@ -256,7 +259,7 @@
 						on:click={runStep}
 					>
 						{#if lastStep}
-							Submit
+							Validate
 						{:else}
 							Next
 						{/if}
