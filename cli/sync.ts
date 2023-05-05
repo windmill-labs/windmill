@@ -280,7 +280,7 @@ async function pull(
     yes: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
-    yaml?: boolean;
+    json?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -297,7 +297,7 @@ async function pull(
   );
   const remote = ZipFSElement(
     (await downloadZip(workspace, opts.plainSecrets))!,
-    opts.yaml ?? false
+    opts.json ?? true
   );
   const local = opts.raw
     ? undefined
@@ -478,7 +478,7 @@ async function push(
     skipPull: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
-    yaml?: boolean;
+    json?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -504,7 +504,7 @@ async function push(
     ? undefined
     : ZipFSElement(
         (await downloadZip(workspace, opts.plainSecrets))!,
-        opts.yaml ?? false
+        opts.json ?? true
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
@@ -700,7 +700,7 @@ const command = new Command()
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
   .option("--plain-secrets", "Pull secrets as plain text")
-  .option("--yaml", "Use YAML instead of JSON")
+  .option("--json", "Use JSON instead of YAML")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -715,7 +715,7 @@ const command = new Command()
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
-  .option("--yaml", "Use YAML instead of JSON")
+  .option("--json", "Use JSON instead of YAML")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 

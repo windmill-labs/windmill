@@ -133,7 +133,6 @@ export async function handleFile(
           return true;
         }
       }
-      console.log(typed);
       await ScriptService.createScript({
         workspace,
         requestBody: {
