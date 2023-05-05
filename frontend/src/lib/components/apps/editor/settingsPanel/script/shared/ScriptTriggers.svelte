@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { isTriggerable } from '../utils'
 
 	export let triggerEvents: string[] = []
 	export let inlineScript: InlineScript | undefined = undefined
@@ -56,7 +57,7 @@
 	}
 </script>
 
-{#if isFrontend}
+{#if isFrontend && !isTriggerable}
 	<div class="flex mb-4">
 		<Button
 			size="xs2"
