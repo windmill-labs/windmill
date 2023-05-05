@@ -168,7 +168,7 @@
 	bind:result
 	errorHandledByComponent={true}
 >
-	<div class="w-full">
+	<div class="w-full overflow-auto">
 		<div bind:clientHeight={tabHeight}>
 			<div class="flex justify-between">
 				<ol
