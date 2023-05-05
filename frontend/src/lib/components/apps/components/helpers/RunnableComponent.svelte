@@ -416,7 +416,6 @@
 					bind:args
 					on:inputClicked={handleInputClick}
 				/>
-				{JSON.stringify(schemaStripped)}
 			</div>
 		{/if}
 
