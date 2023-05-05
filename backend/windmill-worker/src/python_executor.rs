@@ -296,7 +296,7 @@ pub async fn handle_python_job(
                 } else {
                     format!(
                         r#"args["{name}"] = kwargs.get("{name}")
-if not args["{name}"]:
+if args["{name}"] is None:
     del args["{name}"]"#
                     )
                 }
