@@ -69,6 +69,16 @@
 		statusByStep: Array<'success' | 'error' | 'pending'>,
 		maxReachedIndex: number
 	) {
+		if (!runnableComponent) {
+			if (index === selectedIndex) {
+				return 'bg-blue-500 text-white'
+			} else if (index > maxReachedIndex) {
+				return 'bg-gray-200'
+			} else {
+				return 'bg-blue-200'
+			}
+		}
+
 		const current = index === selectedIndex
 		if (statusByStep[index] === 'success') {
 			return current
@@ -80,8 +90,8 @@
 				: 'border-red-300 bg-red-100 border-2'
 		} else if (statusByStep[index] === 'pending') {
 			return current
-				? 'border-indigo-500 border-2 bg-indigo-200 text-indigo-600'
-				: 'border-indigo-200 border-2'
+				? 'border-gray-500 border-2 bg-gray-200 text-gray-600'
+				: 'border-gray-200 border-2'
 		} else {
 			if (index <= maxReachedIndex) {
 				return current
@@ -199,7 +209,8 @@
 										? 'font-semibold text-gray-900'
 										: 'font-normal text-gray-600'
 								)}
-								>{step}
+							>
+								{step}
 							</span>
 						</li>
 						{#if index !== (tabs ?? []).length - 1}
@@ -252,18 +263,32 @@
 					>
 						Previous
 					</Button>
-					<Button
-						size="xs"
-						color={lastStep ? 'dark' : 'light'}
-						variant={lastStep ? 'contained' : 'border'}
-						on:click={runStep}
-					>
-						{#if lastStep}
-							Validate
-						{:else}
+
+					{#if lastStep}
+						<Button
+							size="xs"
+							color="blue"
+							variant="contained"
+							on:click={runStep}
+							disabled={!Boolean(runnableComponent)}
+						>
+							{#if runnableComponent}
+								Validate
+							{:else}
+								Next
+							{/if}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="blue"
+							variant="contained"
+							disabled={lastStep}
+							on:click={runStep}
+						>
 							Next
-						{/if}
-					</Button>
+						</Button>
+					{/if}
 				</div>
 			</div>
 		</div>

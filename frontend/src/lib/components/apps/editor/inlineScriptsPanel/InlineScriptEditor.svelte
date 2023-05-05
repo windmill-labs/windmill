@@ -101,8 +101,6 @@
 			const hadPreviousFields = Object.keys(fields).length > 0
 			const newFields = computeFields(newSchema, defaultUserInput, fields)
 
-			console.log({ fields, hadPreviousFields, newFields })
-
 			// First time we load the schema, we want to trigger the pre-connect
 			if (!hadPreviousFields && Object.keys(newFields).length > 0) {
 				preConnect(newFields)
