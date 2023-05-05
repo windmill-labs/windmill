@@ -11,7 +11,9 @@
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical } from 'lucide-svelte'
 
-	export let tabs: string[]
+	export let tabs: string[] = []
+	export let word: string = 'Tab'
+
 	export let component: AppComponent
 
 	let items = tabs.map((tab, index) => {
@@ -36,7 +38,7 @@
 		items = [
 			...items,
 			{
-				value: `Tab ${items.length + 1}`,
+				value: `${word} ${items.length + 1}`,
 				id: generateRandomString(),
 				originalIndex: items.length - 1
 			}
@@ -127,8 +129,8 @@
 	}
 </script>
 
-<PanelSection title={`Tabs ${items.length > 0 ? `(${items.length})` : ''}`}>
-	{#if items.length == 0}
+<PanelSection title={`${word}s ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
+	{#if tabs.length == 0}
 		<span class="text-xs text-gray-500">No Tabs</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">

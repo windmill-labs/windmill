@@ -65,9 +65,11 @@
 		}
 	}}
 	on:pointerdown={onPointerDown}
-	on:click|capture={(event) => preventInteraction(event, type === 'tabscomponent')}
+	on:click|capture={(event) =>
+		preventInteraction(event, type === 'tabscomponent' || type === 'steppercomponent')}
 	on:drag|capture={preventInteraction}
-	on:pointerup|capture={(event) => preventInteraction(event, type === 'tabscomponent')}
+	on:pointerup|capture={(event) =>
+		preventInteraction(event, type === 'tabscomponent' || type === 'steppercomponent')}
 >
 	<slot />
 </div>

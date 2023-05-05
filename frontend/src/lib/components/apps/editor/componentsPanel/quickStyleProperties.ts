@@ -547,6 +547,12 @@ export const quickStyleProperties: Record<
 	mapcomponent: {
 		map: [spacingGrouping, borderGrouping]
 	},
+	steppercomponent: {
+		stepsRow: containerDefaultProps,
+		allSteps: [typographyGrouping, sizeGrouping],
+		selectedStep: [typographyGrouping, sizeGrouping],
+		container: containerDefaultProps
+	},
 	pdfcomponent: {
 		container: containerDefaultProps
 	},

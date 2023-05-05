@@ -36,6 +36,7 @@
 	export let loading = false
 	export let refreshOnStart: boolean = false
 	export let recomputableByRefreshButton: boolean
+	export let errorHandledByComponent: boolean = false
 
 	const {
 		worldStore,
@@ -423,7 +424,7 @@
 			<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 				Please select a runnable
 			</Alert>
-		{:else if result?.error && $mode === 'preview'}
+		{:else if result?.error && $mode === 'preview' && !errorHandledByComponent}
 			<div
 				title="Error"
 				class={classNames(
