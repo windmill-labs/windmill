@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   AppService,
@@ -8,9 +9,14 @@ import {
   Policy,
   Table,
 } from "./deps.ts";
-import { GlobalOptions } from "./types.ts";
+import {
+  GlobalOptions,
+  isSuperset,
+  parseFromFile,
+  removeType,
+} from "./types.ts";
 
-export interface App {
+export interface AppFile {
   value: any;
   summary: string;
   policy: Policy;
@@ -19,26 +25,19 @@ export interface App {
 export async function pushApp(
   workspace: string,
   remotePath: string,
-  localApp: App
+  app: AppFile | AppWithLastVersion | undefined,
+  newApp: AppFile
 ): Promise<void> {
-  let app: AppWithLastVersion | undefined = undefined;
-  try {
-    app = await AppService.getAppByPath({ workspace, path: remotePath });
-  } catch (e) {}
-
+  remotePath = removeType(remotePath, "app");
   if (app) {
-    // console.log(
-    //   colors.bold.yellow(
-    //     `Applying ${diffs.length} diffs to existing app... ${remotePath}`
-    //   )
-    // );
-
+    if (isSuperset(newApp, app)) {
+      return;
+    }
     await AppService.updateApp({
       workspace,
       path: remotePath,
       requestBody: {
-        path: remotePath,
-        ...localApp,
+        ...newApp,
       },
     });
   } else {
@@ -48,7 +47,7 @@ export async function pushApp(
       workspace,
       requestBody: {
         path: remotePath,
-        ...localApp,
+        ...newApp,
       },
     });
   }
@@ -90,7 +89,22 @@ async function push(opts: GlobalOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushApp(workspace.workspaceId, remotePath);
+  let app: AppWithLastVersion | undefined = undefined;
+  try {
+    app = await AppService.getAppByPath({
+      workspace: workspace.workspaceId,
+      path: remotePath,
+    });
+  } catch {
+    // app doesn't exist
+  }
+
+  await pushApp(
+    workspace.workspaceId,
+    remotePath,
+    app,
+    parseFromFile(filePath)
+  );
   console.log(colors.bold.underline.green("App pushed"));
 }
 
