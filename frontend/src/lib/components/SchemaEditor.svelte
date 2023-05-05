@@ -18,6 +18,7 @@
 
 	const dispatch = createEventDispatcher()
 
+	export let lightMode: boolean = false
 	export let schema: Schema = emptySchema()
 	if (!schema) {
 		schema = emptySchema()
@@ -162,7 +163,7 @@
 			<Button
 				variant="contained"
 				color="dark"
-				size="sm"
+				size={lightMode ? 'xs' : 'sm'}
 				startIcon={{ icon: faPlus }}
 				on:click={() => {
 					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
@@ -179,6 +180,7 @@
 				options={{
 					right: 'As JSON'
 				}}
+				size={lightMode ? 'xs' : 'sm'}
 			/>
 			<div class="ml-2">
 				<Tooltip
@@ -199,9 +201,11 @@
 						<tr slot="header-row">
 							<th>Name</th>
 							<th>Type</th>
-							<th>Description</th>
-							<th>Default</th>
-							<th>Required</th>
+							{#if !lightMode}
+								<th>Description</th>
+								<th>Default</th>
+								<th>Required</th>
+							{/if}
 							<th />
 						</tr>
 						<tbody slot="body">
@@ -211,45 +215,50 @@
 									<td>
 										<SchemaEditorProperty {property} />
 									</td>
-									<td>{property.description ?? ''}</td>
-									<td>{property.default ? JSON.stringify(property.default) : ''}</td>
-									<td
-										>{#if schema.required.includes(name)}
-											<span class="text-red-600 font-bold text-lg">*</span>
-										{/if}</td
-									>
+									{#if !lightMode}
+										<td>{property.description ?? ''}</td>
+										<td>{property.default ? JSON.stringify(property.default) : ''}</td>
+										<td>
+											{#if schema.required.includes(name)}
+												<span class="text-red-600 font-bold text-lg">*</span>
+											{/if}
+										</td>
+									{/if}
 									<td class="justify-end flex">
 										{#if i > 0}
 											<button
 												on:click={() => changePosition(i, true)}
 												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
 											>
-												&uparrow;</button
-											>
+												&uparrow;
+											</button>
 										{/if}
 										{#if i < Object.keys(schema.properties).length - 1}
 											<button
 												on:click={() => changePosition(i, false)}
-												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}">&downarrow;</button
-											>
+												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
+												>&downarrow;
+											</button>
 										{/if}
 
 										<Button
 											color="red"
 											variant="border"
 											btnClasses="mx-2"
-											size="sm"
+											size={lightMode ? 'xs' : 'sm'}
 											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteArgument(name)}
+											iconOnly={lightMode}
 										>
 											Delete
 										</Button>
 										<Button
 											color="light"
 											variant="border"
-											size="sm"
+											size={lightMode ? 'xs' : 'sm'}
 											startIcon={{ icon: faPen }}
 											on:click={() => startEditArgument(name)}
+											iconOnly={lightMode}
 										>
 											Edit
 										</Button>
