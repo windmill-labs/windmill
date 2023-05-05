@@ -7,13 +7,13 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { isTriggerable } from '../utils'
 
 	export let triggerEvents: string[] = []
 	export let inlineScript: InlineScript | undefined = undefined
 	export let isFrontend: boolean = false
 	export let dependencies: string[] = []
 	export let shoudlDisplayChangeEvents: boolean = false
+	export let isTriggerable: boolean = false
 
 	$: changeEvents = isFrontend
 		? inlineScript?.refreshOn
