@@ -213,7 +213,7 @@
 						<Button
 							on:click|once={() => {
 								$runFormStore = job?.args
-								goto(`${stem}/edit/${route}${isScript ? `` : `?nodraft=true`}`)
+								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
 							size="md"

@@ -289,7 +289,18 @@ pub async fn handle_python_job(
     } else {
         sig.args
             .into_iter()
-            .map(|x| format!("args[\"{}\"] = kwargs.get(\"{}\")", x.name, x.name))
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"args["{name}"] = kwargs.get("{name}")
+if args["{name}"] is None:
+    del args["{name}"]"#
+                    )
+                }
+            })
             .join("\n")
     };
 

@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'New Schedule' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -20,7 +12,7 @@
 	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	let initialPath = ''
@@ -150,12 +142,23 @@
 
 <Drawer size="900px" bind:this={drawer}>
 	<DrawerContent
-		title={edit ? `Edit ${initialPath}` : 'New schedule'}
+		title={edit ? `Edit schedule ${initialPath}` : 'New schedule'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
 			{#if edit}
 				<div class="mr-8">
+					<Button
+						size="sm"
+						variant="border"
+						startIcon={{ icon: faList }}
+						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+						href={`/runs/${script_path}`}
+					>
+						View Runs
+					</Button>
+				</div>
+				<div class="mr-8 center-center -mt-2">
 					<Toggle
 						disabled={!can_write}
 						checked={enabled}
