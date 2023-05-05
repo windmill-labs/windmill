@@ -302,8 +302,8 @@
 					</div>
 
 					<div class="mt-4">
-						<Button variant="border" color="dark" size="xs" on:click={() => (schedule = nschedule)}
-							>Set Schedule</Button
+						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}
+							>Set Cron Schedule</Button
 						>
 					</div>
 				</CollapseLink>
