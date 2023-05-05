@@ -556,6 +556,10 @@ export const quickStyleProperties: Record<
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
+	schemaformcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
+	},
 	formcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps

@@ -40,6 +40,7 @@
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppStepper from '../../components/layout/AppStepper.svelte'
+	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -468,6 +469,13 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'schemaformcomponent'}
+			<AppSchemaForm
+				id={component.id}
+				componentInput={component.componentInput}
+				{initializing}
 				{render}
 			/>
 		{/if}

@@ -33,11 +33,12 @@
 			canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
 				runnable.inlineScript?.language !== 'frontend'}
 			on:updateAutoRefresh={updateAutoRefresh}
-		/>
-		<BackgroundScriptTriggerBy
-			bind:script={runnable}
-			recomputeOnInputChanged={runnable.recomputeOnInputChanged}
-		/>
+		>
+			<BackgroundScriptTriggerBy
+				bind:script={runnable}
+				recomputeOnInputChanged={runnable.recomputeOnInputChanged}
+			/>
+		</ScriptRunConfiguration>
 	{:else}
 		<ScriptSettingsSection title="Language selection">
 			<div class="text-xs"> Please configure the language in the inline script panel </div>

@@ -10,6 +10,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { RunnableComponent, RunnableWrapper } from '../helpers'
 	import type { AppInput } from '../../inputType'
+	import { ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -82,25 +83,21 @@
 		const current = index === selectedIndex
 		if (statusByStep[index] === 'success') {
 			return current
-				? 'border-green-500 border-2 bg-green-200 text-green-600'
-				: 'border-green-200 border-2'
+				? 'border-green-500 border bg-green-200 text-green-600'
+				: 'border-green-500 border'
 		} else if (statusByStep[index] === 'error') {
 			return current
-				? 'border-red-500 border-2 bg-red-200 text-red-600'
-				: 'border-red-300 bg-red-100 border-2'
-		} else if (statusByStep[index] === 'pending') {
-			return current
-				? 'border-gray-500 border-2 bg-gray-200 text-gray-600'
-				: 'border-gray-200 border-2'
+				? 'border-red-500 border bg-red-200 text-red-600'
+				: 'border-red-500 bg-red-100 border'
 		} else {
 			if (index <= maxReachedIndex) {
 				return current
-					? 'border-blue-500 border-2 bg-blue-200 text-blue-600'
-					: 'border-blue-200 border-2'
+					? 'border-blue-500 border bg-blue-200 text-blue-600'
+					: 'border-blue-500 border'
 			} else {
 				return current
-					? 'border-gray-500 border-2 bg-gray-200 text-gray-600'
-					: 'border-gray-200 border-2'
+					? 'border-gray-500 border bg-gray-200 text-gray-600'
+					: 'border-gray-500 border'
 			}
 		}
 	}
@@ -121,6 +118,7 @@
 
 			selected = tabs[targetIndex]
 		}
+		directionClicked = undefined
 	}
 
 	$componentControl[id] = {
@@ -150,6 +148,8 @@
 
 	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
 	$: lastStep = selectedIndex === tabs.length - 1
+
+	let directionClicked: 'left' | 'right' | undefined = undefined
 </script>
 
 <InitializeComponent {id} />
@@ -191,15 +191,19 @@
 								}
 							}}
 						>
-							<span
-								class={classNames(
-									'h-6 w-6 rounded-full text-center text-[10px]/6  flex items-center justify-center',
-									getStepColor(index, selectedIndex, statusByStep, maxReachedIndex)
-								)}
-								class:font-bold={selectedIndex === index}
-							>
-								{index + 1}
-							</span>
+							{#if statusByStep[index] === 'pending'}
+								<Loader2 class="h-6 w-6 animate-spin" />
+							{:else}
+								<span
+									class={classNames(
+										'h-6 w-6 rounded-full flex items-center justify-center text-xs',
+										getStepColor(index, selectedIndex, statusByStep, maxReachedIndex)
+									)}
+									class:font-bold={selectedIndex === index}
+								>
+									{index + 1}
+								</span>
+							{/if}
 
 							<span
 								class={classNames(
@@ -254,25 +258,41 @@
 					<Button
 						size="xs"
 						color="light"
-						variant="border"
+						variant="contained"
 						disabled={selectedIndex === 0}
 						on:click={() => {
+							directionClicked = 'left'
 							runStep(selectedIndex - 1)
 						}}
 					>
-						Previous
+						<div class="flex flex-row gap-2">
+							{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'left'}
+								<Loader2 class="w-4 h-4 animate-spin" />
+							{:else}
+								<ArrowLeftIcon class="w-4 h-4" />
+							{/if}
+							Previous
+						</div>
 					</Button>
 
 					<Button
 						size="xs"
-						color="blue"
+						color="dark"
 						variant="contained"
 						disabled={lastStep}
 						on:click={() => {
+							directionClicked = 'right'
 							runStep(selectedIndex + 1)
 						}}
 					>
-						Next
+						<div class="flex flex-row gap-2">
+							Next
+							{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'right'}
+								<Loader2 class="w-4 h-4 animate-spin" />
+							{:else}
+								<ArrowRightIcon class="w-4 h-4" />
+							{/if}
+						</div>
 					</Button>
 				</div>
 			</div>

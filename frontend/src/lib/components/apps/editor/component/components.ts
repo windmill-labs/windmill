@@ -108,6 +108,7 @@ export type PdfComponent = BaseComponent<'pdfcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
+export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -150,6 +151,7 @@ export type TypedComponent =
 	| HorizontalSplitPanesComponent
 	| PdfComponent
 	| StepperComponent
+	| Schemaformcomponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1682,6 +1684,27 @@ Hello \${ctx.username}
 					value: 100
 				}
 			}
+		}
+	},
+	schemaformcomponent: {
+		name: 'Schema Form',
+		icon: FileText,
+		dims: '3:8-8:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'schema',
+				value: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					properties: {},
+					required: [],
+					type: 'object'
+				}
+			},
+			configuration: {}
 		}
 	}
 } as const
