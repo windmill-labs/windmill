@@ -6,7 +6,6 @@ import {
   ensureDir,
   gitignore_parser,
   JSZip,
-  microdiff,
   path,
   ScriptService,
   FolderService,
@@ -16,21 +15,19 @@ import {
   FlowService,
 } from "./deps.ts";
 import {
-  Difference,
   getTypeStrFromPath,
   GlobalOptions,
-  inferTypeFromPath,
+  parseFromPath,
+  pushObj,
+  showConflict,
+  showDiff,
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
-import { FolderFile } from "./folder.ts";
-import { ResourceTypeFile } from "./resource-type.ts";
-import { handleScriptMetadata, ScriptFile } from "./script.ts";
-import { ResourceFile } from "./resource.ts";
-import { FlowFile } from "./flow.ts";
-import { VariableFile } from "./variable.ts";
+
+import { handleScriptMetadata } from "./script.ts";
+
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
-import * as Diff from "npm:diff";
 import {
   stringify as yamlStringify,
   parse as yamlParse,
@@ -199,6 +196,7 @@ async function elementsToMap(
   }
   return map;
 }
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -306,7 +304,9 @@ async function pull(
     : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
   const changes = await compareDynFSElement(remote, local, await ignoreF());
 
-  console.log(`remote -> local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -424,27 +424,6 @@ async function pull(
       )
     );
   }
-
-  function showConflict(path: string, local: string, remote: string) {
-    console.log(colors.yellow(`- ${path}`));
-
-    let finalString = "";
-    for (const part of Diff.diffLines(local, remote)) {
-      if (part.removed) {
-        // print red if removed without newline
-        finalString += `\x1b[31m${part.value}\x1b[0m`;
-      } else if (part.added) {
-        // print green if added
-        finalString += `\x1b[32m${part.value}\x1b[0m`;
-      } else {
-        // print white if unchanged
-        finalString += `\x1b[37m${part.value}\x1b[0m`;
-      }
-    }
-    console.log(finalString);
-    console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
-    console.log();
-  }
 }
 
 function prettyChanges(changes: Change[]) {
@@ -461,6 +440,7 @@ function prettyChanges(changes: Change[]) {
       console.log(
         colors.yellow(`~ ${getTypeStrFromPath(change.path)} ` + change.path)
       );
+      showDiff(change.before, change.after);
     }
   }
 }
@@ -529,7 +509,9 @@ async function push(
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
 
-  console.log(`remote <- local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -583,20 +565,17 @@ async function push(
             `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(change.path, JSON.parse(change.after));
+        const oldObj = parseFromPath(change.path, change.before);
+        const newObj = parseFromPath(change.path, change.after);
 
-        const diff = microdiff(
-          inferTypeFromPath(change.path, JSON.parse(change.before)),
-          obj,
-          { cyclesFix: false }
-        );
-        await applyDiff(
+        pushObj(
           workspace.workspaceId,
-          change.path.split(".")[0],
-          obj,
-          diff,
-          opts.plainSecrets
+          change.path,
+          oldObj,
+          newObj,
+          opts.plainSecrets ?? false
         );
+
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.after);
         }
@@ -622,20 +601,15 @@ async function push(
             `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(
-          change.path,
-          change.path.endsWith(".yaml")
-            ? yamlParse(change.content)
-            : JSON.parse(change.content)
-        );
-        const diff = microdiff({}, obj, { cyclesFix: false });
-        await applyDiff(
+        const obj = parseFromPath(change.path, change.content);
+        pushObj(
           workspace.workspaceId,
-          change.path.split(".")[0],
+          change.path,
+          undefined,
           obj,
-          diff,
-          opts.plainSecrets
+          opts.plainSecrets ?? false
         );
+
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
@@ -708,46 +682,9 @@ async function push(
     }
     console.log(
       colors.green.underline(
-        `Done! All ${changes.length} changes pushed to the remote workspace.`
+        `Done! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
       )
     );
-  }
-
-  async function applyDiff(
-    workspace: string,
-    remotePath: string,
-    file:
-      | ScriptFile
-      | VariableFile
-      | FlowFile
-      | ResourceFile
-      | ResourceTypeFile
-      | FolderFile,
-    diffs: Difference[],
-    plainSecrets?: boolean
-  ) {
-    if (file instanceof ScriptFile) {
-      throw new Error(
-        "This code path should be unreachable - we should never generate diffs for scripts"
-      );
-    } else if (file instanceof FolderFile) {
-      const parts = remotePath.split("/");
-      if (parts[0] === "f") {
-        remotePath = parts[1];
-      } else {
-        remotePath = parts[0];
-      }
-    }
-    if (diffs.length === 0) {
-      console.log("No diffs to apply to " + remotePath);
-      return;
-    }
-    try {
-      await file.pushDiffs(workspace, remotePath, diffs, plainSecrets);
-    } catch (e) {
-      console.error("Failing to apply diffs to " + remotePath);
-      console.error(JSON.stringify(e));
-    }
   }
 }
 
