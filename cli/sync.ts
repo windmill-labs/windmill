@@ -13,6 +13,9 @@ import {
   VariableService,
   AppService,
   FlowService,
+  OpenFlow,
+  FlowModule,
+  RawScript,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -47,6 +50,7 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
       isDirectory: isDir,
       path: localP.substring(p.length + 1),
       async *getChildren(): AsyncIterable<DynFSElement> {
+        if (!isDir) return [];
         for await (const e of Deno.readDir(localP)) {
           yield _internal_element(path.join(localP, e.name), e.isDirectory);
         }
@@ -74,14 +78,109 @@ function prioritizeName(name: string): string {
   return name;
 }
 
+const yamlOptions = {
+  sortKeys: (a: any, b: any) => {
+    return prioritizeName(a).localeCompare(prioritizeName(b));
+  },
+  noCompatMode: true,
+  noRefs: true,
+};
+
 function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
   function _internal_file(p: string, f: JSZip.JSZipObject): DynFSElement {
+    const isFlow = p.endsWith("flow.json");
+    function transformPath() {
+      if (isFlow) {
+        return p.replace("flow.json", "flow");
+      } else {
+        return useYaml && p.endsWith(".json")
+          ? p.replaceAll(".json", ".yaml")
+          : p;
+      }
+    }
+
+    interface InlineScript {
+      path: string;
+      content: string;
+    }
+    let counter = 0;
+    const seen_names = new Set<string>();
+    function assignPath(
+      summary: string | undefined,
+      language: RawScript.language
+    ): string {
+      let name;
+      if (summary && summary != "" && !seen_names.has(summary)) {
+        name = summary.toLowerCase().replaceAll(" ", "_");
+        seen_names.add(name);
+      } else {
+        name = `inline_script_${counter}`;
+        while (seen_names.has(name)) {
+          counter++;
+          name = `inline_script_${counter}`;
+        }
+        seen_names.add(name);
+      }
+      let ext;
+      if (language == "python3") ext = "py";
+      else if (language == "deno") ext = "ts";
+      else if (language == "go") ext = "go";
+      else if (language == "bash") ext = "sh";
+      return `${name}.inline_script.${ext}`;
+    }
+    function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
+      return modules.flatMap((m) => {
+        if (m.value.type == "rawscript") {
+          const path = assignPath(m.summary, m.value.language);
+          const content = m.value.content;
+          m.value.content = "!inline " + path;
+          return [{ path: path, content: content }];
+        } else if (m.value.type == "forloopflow") {
+          return extractInlineScripts(m.value.modules);
+        } else if (m.value.type == "branchall") {
+          return m.value.branches.flatMap((b) =>
+            extractInlineScripts(b.modules)
+          );
+        } else if (m.value.type == "branchone") {
+          return [
+            ...m.value.branches.flatMap((b) => extractInlineScripts(b.modules)),
+            ...extractInlineScripts(m.value.default),
+          ];
+        } else {
+          return [];
+        }
+      });
+    }
+    const flowPath = transformPath();
     return {
-      isDirectory: false,
-      path: useYaml && p.endsWith(".json") ? p.replaceAll(".json", ".yaml") : p,
-      // deno-lint-ignore require-yield
+      isDirectory: isFlow,
+      path: flowPath,
       async *getChildren(): AsyncIterable<DynFSElement> {
-        throw new Error("Cannot get children of file");
+        if (isFlow) {
+          const flow: OpenFlow = JSON.parse(await f.async("text"));
+          const inlineScripts = extractInlineScripts(flow.value.modules);
+          for (const s of inlineScripts) {
+            yield {
+              isDirectory: false,
+              path: path.join(flowPath, s.path),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return s.content;
+              },
+            };
+          }
+
+          yield {
+            isDirectory: false,
+            path: path.join(flowPath, "flow.yaml"),
+            async *getChildren() {},
+            // deno-lint-ignore require-await
+            async getContentText() {
+              return yamlStringify(flow, yamlOptions);
+            },
+          };
+        }
       },
       // async getContentBytes(): Promise<Uint8Array> {
       //   return await f.async("uint8array");
@@ -89,13 +188,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       async getContentText(): Promise<string> {
         const content = await f.async("text");
         return useYaml && p.endsWith(".json")
-          ? yamlStringify(JSON.parse(content), {
-              sortKeys: (a, b) => {
-                return prioritizeName(a).localeCompare(prioritizeName(b));
-              },
-              noCompatMode: true,
-              noRefs: true,
-            })
+          ? yamlStringify(JSON.parse(content), yamlOptions)
           : content;
       },
     };
@@ -164,7 +257,6 @@ async function* readDirRecursiveWithIgnore(
   while (stack.length > 0) {
     const e = stack.pop()!;
     yield e;
-    if (!e.isDirectory) continue;
     for await (const e2 of e.c()) {
       stack.push({
         path: e2.path,

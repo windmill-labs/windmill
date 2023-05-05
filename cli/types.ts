@@ -48,10 +48,14 @@ export function isSuperset(
   return Object.keys(subset).every((key) => {
     const eq = equal(subset[key], superset[key]);
     if (!eq) {
-      console.log(
-        `Found diff for ${key}:`,
-        showDiff(yamlStringify(subset[key]), yamlStringify(superset[key]))
-      );
+      const sub = subset[key];
+      const supers = superset[key];
+      if (!supers) {
+        console.log(`Key ${key} not found in remote`);
+      } else {
+        console.log(`Found diff for ${key}:`);
+        showDiff(yamlStringify(sub), yamlStringify(supers));
+      }
     }
     return eq;
   });
@@ -67,6 +71,13 @@ export function showDiff(local: string, remote: string) {
       // print green if added
       finalString += `\x1b[32m${part.value}\x1b[0m`;
     } else {
+      let lines = part.value.split("\n");
+
+      if (lines.length > 4) {
+        lines = lines.slice(0, 2);
+        lines.push("...");
+        lines = lines.concat(part.value.split("\n").slice(-2));
+      }
       // print white if unchanged
       finalString += `\x1b[37m${part.value}\x1b[0m`;
     }
@@ -99,7 +110,8 @@ export function pushObj(
   } else if (typeEnding === "variable") {
     pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    pushFlow(workspace, p, befObj, newObj);
+    const flowName = p.split(".flow/")[0];
+    pushFlow(workspace, flowName, flowName + ".flow", workspace);
   } else if (typeEnding === "resource") {
     pushResource(workspace, p, befObj, newObj);
   } else if (typeEnding === "resource-type") {
@@ -110,7 +122,11 @@ export function pushObj(
 }
 
 export function parseFromPath(p: string, content: string): any {
-  return p.endsWith(".yaml") ? yamlParse(content) : JSON.parse(content);
+  return p.endsWith(".yaml")
+    ? yamlParse(content)
+    : p.endsWith(".json")
+    ? JSON.parse(content)
+    : content;
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
@@ -131,6 +147,9 @@ export function getTypeStrFromPath(
   | "resource-type"
   | "folder"
   | "app" {
+  if (p.includes(".flow/")) {
+    return "flow";
+  }
   const parsed = path.parse(p);
   if (
     parsed.ext == ".go" ||
@@ -149,7 +168,6 @@ export function getTypeStrFromPath(
   if (
     typeEnding === "script" ||
     typeEnding === "variable" ||
-    typeEnding === "flow" ||
     typeEnding === "resource" ||
     typeEnding === "resource-type" ||
     typeEnding === "app"

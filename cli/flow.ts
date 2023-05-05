@@ -1,14 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
-import {
-  GlobalOptions,
-  isSuperset,
-  parseFromFile,
-  removeType,
-} from "./types.ts";
+import { GlobalOptions, isSuperset } from "./types.ts";
+import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
+
 import {
   colors,
   Command,
   Flow,
+  FlowModule,
   FlowService,
   JobService,
   Table,
@@ -23,16 +21,55 @@ export interface FlowFile {
   schema?: any;
 }
 
+let alreadySynced: string[] = [];
+
 export async function pushFlow(
   workspace: string,
   remotePath: string,
-  flow: Flow | FlowFile | undefined,
-  localFlow: FlowFile
+  localFlowPath: string,
+  workspaceId: string
 ): Promise<void> {
-  remotePath = removeType(remotePath, "flow");
+  if (alreadySynced.includes(localFlowPath)) {
+    return;
+  }
+  alreadySynced.push(localFlowPath);
+  let flow: Flow | undefined = undefined;
+  try {
+    flow = await FlowService.getFlowByPath({
+      workspace: workspaceId,
+      path: remotePath,
+    });
+  } catch {
+    // flow doesn't exist
+  }
+
+  if (!localFlowPath.endsWith("/")) {
+    localFlowPath += "/";
+  }
+  const localFlowRaw = await Deno.readTextFile(localFlowPath + "flow.yaml");
+  const localFlow = yamlParse(localFlowRaw) as FlowFile;
+
+  function extractInlineScripts(modules: FlowModule[]) {
+    return modules.flatMap((m) => {
+      if (m.value.type == "rawscript") {
+        const path = m.value.content.split(" ")[1];
+        m.value.content = Deno.readTextFileSync(localFlowPath + path);
+      } else if (m.value.type == "forloopflow") {
+        extractInlineScripts(m.value.modules);
+      } else if (m.value.type == "branchall") {
+        m.value.branches.forEach((b) => extractInlineScripts(b.modules));
+      } else if (m.value.type == "branchone") {
+        m.value.branches.forEach((b) => extractInlineScripts(b.modules));
+        extractInlineScripts(m.value.default);
+      }
+    });
+  }
+
+  extractInlineScripts(localFlow.value.modules);
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
+      console.log(colors.bold.green("Flow is up to date"));
       return;
     }
     await FlowService.updateFlow({
@@ -63,20 +100,12 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  let flow: Flow | undefined = undefined;
-  try {
-    flow = await FlowService.getFlowByPath({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // flow doesn't exist
-  }
+
   await pushFlow(
     workspace.workspaceId,
     remotePath,
-    flow,
-    parseFromFile(filePath)
+    filePath,
+    workspace.workspaceId
   );
   console.log(colors.bold.underline.green("Flow pushed"));
 }
