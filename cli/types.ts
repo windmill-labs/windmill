@@ -1,31 +1,19 @@
-import { decoverto } from "./decoverto.ts";
-import { FlowFile } from "./flow.ts";
-import { ResourceTypeFile } from "./resource-type.ts";
-import { ResourceFile } from "./resource.ts";
-import { ScriptFile } from "./script.ts";
-import { VariableFile } from "./variable.ts";
-import { path } from "./deps.ts";
-import { FolderFile } from "./folder.ts";
-import { AppFile } from "./apps.ts";
+// deno-lint-ignore-file no-explicit-any
 
-// TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
-// Then combine those with diffing, which then gives the new push impl
-export interface Resource {
-  push(
-    workspace: string,
-    remotePath: string,
-    plainSecrets?: boolean
-  ): Promise<void>;
-}
-
-export interface PushDiffs {
-  pushDiffs(
-    workspace: string,
-    remotePath: string,
-    diffs: Difference[],
-    plainSecrets?: boolean
-  ): Promise<void>;
-}
+import { colors, path } from "./deps.ts";
+import { pushApp } from "./apps.ts";
+import {
+  parse as yamlParse,
+  stringify as yamlStringify,
+} from "https://deno.land/std@0.184.0/yaml/mod.ts";
+import { equal } from "https://deno.land/x/equal@v1.5.0/equal.ts";
+import { pushFolder } from "./folder.ts";
+import { pushScript } from "./script.ts";
+import { pushFlow } from "./flow.ts";
+import { pushResource } from "./resource.ts";
+import { pushResourceType } from "./resource-type.ts";
+import { pushVariable } from "./variable.ts";
+import * as Diff from "npm:diff";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -48,77 +36,91 @@ export interface DifferenceChange {
 
 export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
-export function setValueByPath(
-  obj: any,
-  path: (string | number)[],
-  value: any
-) {
-  let i;
-  let lastObj = undefined;
-  for (i = 0; i < path.length - 1; i++) {
-    if (!obj) {
-      let oldNewObj;
-      if (typeof path[i] === "number") {
-        oldNewObj = [];
-      } else {
-        oldNewObj = {};
-      }
-      lastObj[path[i - 1]] = oldNewObj;
-      obj = oldNewObj;
-    }
-    lastObj = obj;
-    obj = obj[path[i]];
-  }
-  if (!obj) {
-    let oldNewObj;
-    if (typeof path[i] === "number") {
-      oldNewObj = [];
-    } else {
-      oldNewObj = {};
-    }
-    lastObj[path[i - 1]] = oldNewObj;
-    obj = oldNewObj;
-  }
-  obj[path[i]] = value;
-}
-
 export type GlobalOptions = {
   workspace: string | undefined;
   token: string | undefined;
 };
 
-export function inferTypeFromPath(
+export function isSuperset(
+  subset: Record<string, any>,
+  superset: Record<string, any>
+): boolean {
+  return Object.keys(subset).every((key) => {
+    const eq = equal(subset[key], superset[key]);
+    if (!eq) {
+      console.log(
+        `Found diff for ${key}:`,
+        showDiff(yamlStringify(subset[key]), yamlStringify(superset[key]))
+      );
+    }
+    return eq;
+  });
+}
+
+export function showDiff(local: string, remote: string) {
+  let finalString = "";
+  for (const part of Diff.diffLines(local, remote)) {
+    if (part.removed) {
+      // print red if removed without newline
+      finalString += `\x1b[31m${part.value}\x1b[0m`;
+    } else if (part.added) {
+      // print green if added
+      finalString += `\x1b[32m${part.value}\x1b[0m`;
+    } else {
+      // print white if unchanged
+      finalString += `\x1b[37m${part.value}\x1b[0m`;
+    }
+  }
+  console.log(finalString);
+}
+
+export function showConflict(path: string, local: string, remote: string) {
+  console.log(colors.yellow(`- ${path}`));
+  showDiff(local, remote);
+  console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
+  console.log();
+}
+
+export function pushObj(
+  workspace: string,
   p: string,
-  obj: any
-):
-  | ScriptFile
-  | VariableFile
-  | FlowFile
-  | ResourceFile
-  | ResourceTypeFile
-  | FolderFile
-  | AppFile {
+  befObj: any,
+  newObj: any,
+  plainSecrets: boolean
+) {
   const typeEnding = getTypeStrFromPath(p);
 
-  if (typeEnding === "folder") {
-    return decoverto.type(FolderFile).plainToInstance(obj);
+  if (typeEnding === "app") {
+    pushApp(workspace, p, befObj, newObj);
+  } else if (typeEnding === "folder") {
+    pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "script") {
-    return decoverto.type(ScriptFile).plainToInstance(obj);
+    pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    return decoverto.type(VariableFile).plainToInstance(obj);
+    pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    return decoverto.type(FlowFile).plainToInstance(obj);
+    pushFlow(workspace, p, befObj, newObj);
   } else if (typeEnding === "resource") {
-    return decoverto.type(ResourceFile).plainToInstance(obj);
+    pushResource(workspace, p, befObj, newObj);
   } else if (typeEnding === "resource-type") {
-    return decoverto.type(ResourceTypeFile).plainToInstance(obj);
-  } else if (typeEnding === "app") {
-    return decoverto.type(AppFile).plainToInstance(obj);
+    pushResourceType(workspace, p, befObj, newObj);
   } else {
     throw new Error("infer type unreachable");
   }
 }
 
+export function parseFromPath(p: string, content: string): any {
+  return p.endsWith(".yaml") ? yamlParse(content) : JSON.parse(content);
+}
+export function parseFromFile(p: string): any {
+  if (p.endsWith(".json")) {
+    return JSON.parse(Deno.readTextFileSync(p));
+  } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
+    return yamlParse(Deno.readTextFileSync(p));
+  } else {
+    throw new Error("Could not read file " + p);
+  }
+}
 export function getTypeStrFromPath(
   p: string
 ):
@@ -156,4 +158,14 @@ export function getTypeStrFromPath(
   } else {
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }
+}
+
+export function removeType(str: string, type: string) {
+  if (
+    !str.endsWith("." + type + ".yaml") &&
+    !str.endsWith("." + type + ".json")
+  ) {
+    throw new Error(str + " does not end with ." + type + ".(yaml|json)");
+  }
+  return str.slice(0, str.length - type.length - 6);
 }
