@@ -58,11 +58,15 @@
 				class="p-0 {css?.container?.class ?? ''}"
 				title="sandbox"
 				srcdoc={result
-					? '<scr' + `ipt type="application/javascript" src="/tailwind.js"></script>` + result
+					? '<base target="_parent" /><scr' +
+					  `ipt type="application/javascript" src="/tailwind.js"></script>` +
+					  result
 					: ''}
 			/>
 		{/key}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div on:click|stopPropagation class="absolute top-0 h-full w-full" />
+		{#if $mode == 'dnd'}
+			<div on:click|stopPropagation class="absolute top-0 h-full w-full" />
+		{/if}
 	</RunnableWrapper>
 </div>
