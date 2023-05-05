@@ -107,7 +107,7 @@
 
 	let result: { error: { name: string; message: string; stack: string } } | undefined = undefined
 
-	async function runStep() {
+	async function runStep(targetIndex: number) {
 		statusByStep[selectedIndex] = 'pending'
 
 		if (runnableComponent) {
@@ -119,9 +119,7 @@
 		} else {
 			statusByStep[selectedIndex] = 'success'
 
-			if (!lastStep) {
-				selected = tabs[selectedIndex + 1]
-			}
+			selected = tabs[targetIndex]
 		}
 	}
 
@@ -189,7 +187,7 @@
 							)}
 							on:click={() => {
 								if (index <= maxReachedIndex || $mode === 'dnd') {
-									selected = step
+									runStep(index)
 								}
 							}}
 						>
@@ -259,37 +257,23 @@
 						variant="border"
 						disabled={selectedIndex === 0}
 						on:click={() => {
-							selected = tabs[selectedIndex - 1]
+							runStep(selectedIndex - 1)
 						}}
 					>
 						Previous
 					</Button>
 
-					{#if lastStep}
-						<Button
-							size="xs"
-							color="blue"
-							variant="contained"
-							on:click={runStep}
-							disabled={!Boolean(runnableComponent)}
-						>
-							{#if runnableComponent}
-								Validate
-							{:else}
-								Next
-							{/if}
-						</Button>
-					{:else}
-						<Button
-							size="xs"
-							color="blue"
-							variant="contained"
-							disabled={lastStep}
-							on:click={runStep}
-						>
-							Next
-						</Button>
-					{/if}
+					<Button
+						size="xs"
+						color="blue"
+						variant="contained"
+						disabled={lastStep}
+						on:click={() => {
+							runStep(selectedIndex + 1)
+						}}
+					>
+						Next
+					</Button>
 				</div>
 			</div>
 		</div>
