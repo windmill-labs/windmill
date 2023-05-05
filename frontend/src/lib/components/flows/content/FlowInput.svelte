@@ -40,6 +40,7 @@
 		</div>
 		<div class="pt-6">
 			<SchemaEditor
+				isFlowInput
 				bind:schema={$flowStore.schema}
 				on:change={() => {
 					$flowStore = $flowStore

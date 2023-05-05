@@ -14,6 +14,8 @@
 	import { flip } from 'svelte/animate'
 	import Portal from 'svelte-portal'
 
+	export let isFlowInput = false
+
 	const dispatch = createEventDispatcher()
 
 	export let schema: Schema = emptySchema()
@@ -286,6 +288,7 @@
 
 <Portal>
 	<SchemaModal
+		{isFlowInput}
 		bind:this={schemaModal}
 		bind:property={modalProperty}
 		bind:error={argError}
