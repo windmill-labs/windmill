@@ -168,6 +168,7 @@
 	{outputs}
 	triggerable
 	bind:result
+	errorHandledByComponent={true}
 >
 	<div class="w-full">
 		<div bind:clientHeight={tabHeight}>
