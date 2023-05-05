@@ -69,6 +69,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@aws-crypto/sha256-js": "^4.0.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^1.0.6",
