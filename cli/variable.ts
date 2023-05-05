@@ -1,6 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { GlobalOptions, isSuperset, parseFromFile } from "./types.ts";
+import {
+  GlobalOptions,
+  isSuperset,
+  parseFromFile,
+  removeType,
+} from "./types.ts";
 import {
   colors,
   Command,
@@ -47,6 +52,8 @@ export async function pushVariable(
   localVariable: VariableFile,
   plainSecrets: boolean
 ): Promise<void> {
+  remotePath = removeType(remotePath, "variable");
+
   if (variable) {
     if (isSuperset(localVariable, variable)) {
       return;
@@ -61,7 +68,7 @@ export async function pushVariable(
       },
     });
   } else {
-    console.log(colors.yellow.bold("Creating new variable..."));
+    console.log(colors.yellow.bold(`Creating new variable ${remotePath}...`));
     await VariableService.createVariable({
       workspace,
       alreadyEncrypted: !plainSecrets,

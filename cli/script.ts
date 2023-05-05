@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions, parseFromFile } from "./types.ts";
+import { GlobalOptions, parseFromFile, removeType } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -76,10 +76,11 @@ export async function handleFile(
   alreadySynced: string[]
 ): Promise<boolean> {
   if (
-    path.endsWith(".ts") ||
-    path.endsWith(".py") ||
-    path.endsWith(".go") ||
-    path.endsWith(".sh")
+    !path.includes(".inline_script.") &&
+    (path.endsWith(".ts") ||
+      path.endsWith(".py") ||
+      path.endsWith(".go") ||
+      path.endsWith(".sh"))
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -133,6 +134,9 @@ export async function handleFile(
           return true;
         }
       }
+      console.log(
+        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
+      );
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -148,11 +152,10 @@ export async function handleFile(
           schema: typed?.schema,
         },
       });
-
-      console.log(
-        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
-      );
     } else {
+      console.log(
+        colors.yellow.bold(`Creating script without parent ${remotePath}`)
+      );
       // no parent hash
       await ScriptService.createScript({
         workspace: workspace,
@@ -169,9 +172,6 @@ export async function handleFile(
           schema: typed?.schema,
         },
       });
-      console.log(
-        colors.yellow.bold(`Creating script without parent ${remotePath}`)
-      );
     }
     return true;
   }
@@ -243,6 +243,8 @@ export async function pushScript(
   workspace: string,
   remotePath: string
 ) {
+  remotePath = removeType(remotePath, "script");
+
   const data: ScriptFile | undefined = filePath
     ? parseFromFile(filePath)
     : undefined;
@@ -263,7 +265,7 @@ export async function pushScript(
     }
   }
 
-  console.log(colors.bold.yellow("Pushing script..."));
+  console.log(colors.bold.yellow(`Pushing script ${remotePath}...`));
   await ScriptService.createScript({
     workspace: workspace,
     requestBody: {
