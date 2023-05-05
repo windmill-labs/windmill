@@ -15,7 +15,7 @@ const layout: ComponentSet = {
 
 const buttons: ComponentSet = {
 	title: 'Buttons',
-	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent', 'staticformcomponent']
+	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent']
 } as const
 
 const inputs: ComponentSet = {
@@ -34,7 +34,8 @@ const inputs: ComponentSet = {
 		'checkboxcomponent',
 		'selectcomponent',
 		'resourceselectcomponent',
-		'multiselectcomponent'
+		'multiselectcomponent',
+		'schemaformcomponent'
 	]
 } as const
 

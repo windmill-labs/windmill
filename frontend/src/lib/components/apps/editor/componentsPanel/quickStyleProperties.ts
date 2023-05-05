@@ -550,7 +550,7 @@ export const quickStyleProperties: Record<
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
-	staticformcomponent: {
+	schemaformcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
 	},

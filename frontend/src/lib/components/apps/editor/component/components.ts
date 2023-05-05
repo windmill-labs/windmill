@@ -105,7 +105,7 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
-export type StaticFormComponent = BaseComponent<'staticformcomponent'>
+export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -147,7 +147,7 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
-	| StaticFormComponent
+	| Schemaformcomponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1659,8 +1659,8 @@ Hello \${ctx.username}
 			}
 		}
 	},
-	staticformcomponent: {
-		name: 'Static Form',
+	schemaformcomponent: {
+		name: 'Schema Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
@@ -1669,8 +1669,13 @@ Hello \${ctx.username}
 		initialData: {
 			componentInput: {
 				type: 'static',
-				fieldType: 'object',
-				value: { foo: 42 }
+				fieldType: 'schema',
+				value: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					properties: {},
+					required: [],
+					type: 'object'
+				}
 			},
 			configuration: {}
 		}

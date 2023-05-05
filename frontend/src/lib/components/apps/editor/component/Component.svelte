@@ -39,7 +39,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import AppStaticForm from '../../components/buttons/AppStaticForm.svelte'
+	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -461,8 +461,8 @@
 				customCss={component.customCss}
 				{render}
 			/>
-		{:else if component.type === 'staticformcomponent'}
-			<AppStaticForm
+		{:else if component.type === 'schemaformcomponent'}
+			<AppSchemaForm
 				id={component.id}
 				componentInput={component.componentInput}
 				{initializing}
