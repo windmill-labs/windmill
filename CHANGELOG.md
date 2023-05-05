@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.95.0](https://github.com/windmill-labs/windmill/compare/v1.94.0...v1.95.0) (2023-05-05)
+
+
+### Features
+
+* **backend:** default parameters are used in python if missing from args ([8791a86](https://github.com/windmill-labs/windmill/commit/8791a86a936301d44ae05ea09d26c9815abf8929))
+* **frontend:** App Schema Form component ([#1533](https://github.com/windmill-labs/windmill/issues/1533)) ([85c0d93](https://github.com/windmill-labs/windmill/commit/85c0d939f59411d023cd4b173ce11224d3cbc9db))
+* **frontend:** App stepper ([#1529](https://github.com/windmill-labs/windmill/issues/1529)) ([15f1c94](https://github.com/windmill-labs/windmill/commit/15f1c947bb233147f7da261fd32054a51a9c6efa))
+* **frontend:** Merge run configuration + triggers ([#1530](https://github.com/windmill-labs/windmill/issues/1530)) ([1be4658](https://github.com/windmill-labs/windmill/commit/1be4658150ef20a9f1f0fe57b5f30ba3c2d4d94e))
+
 ## [1.94.0](https://github.com/windmill-labs/windmill/compare/v1.93.1...v1.94.0) (2023-05-04)
 
 
