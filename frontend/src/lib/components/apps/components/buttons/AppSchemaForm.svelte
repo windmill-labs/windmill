@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -13,7 +13,8 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, connectingInput, app, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -27,7 +28,11 @@
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	{#if result && Object.keys(result.properties).length > 0}
-		<div class="m-2">
+		<div
+			class="m-2"
+			on:pointerdown|stopPropagation={(e) =>
+				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+		>
 			<LightweightSchemaForm schema={result} bind:args />
 			<div class="flex justify-end">
 				<Button

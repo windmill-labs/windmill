@@ -112,8 +112,8 @@
 	{:else if fieldType === 'array'}
 		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
 	{:else if fieldType === 'schema'}
-		<div class="w-full overflow-x-scroll">
-			<SchemaEditor bind:schema={componentInput.value} />
+		<div class="w-full">
+			<SchemaEditor bind:schema={componentInput.value} lightMode />
 		</div>
 	{:else}
 		<div class="flex gap-1 relative w-full">
