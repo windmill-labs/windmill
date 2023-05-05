@@ -43,6 +43,7 @@
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
 	export let triggerable: boolean = false
+	export let errorHandledByComponent: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -136,6 +137,7 @@
 		{render}
 		on:success={onSuccess}
 		{outputs}
+		{errorHandledByComponent}
 	>
 		<slot />
 	</RunnableComponent>

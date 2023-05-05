@@ -36,6 +36,7 @@
 			transformer
 			defaultUserInput={false}
 			{id}
+			{componentType}
 			bind:inlineScript={componentInput.transformer}
 			name="Transformer"
 			on:delete={() => {
@@ -56,6 +57,7 @@
 			<InlineScriptEditor
 				{defaultUserInput}
 				{id}
+				{componentType}
 				bind:inlineScript={componentInput.runnable.inlineScript}
 				bind:name={componentInput.runnable.name}
 				bind:fields={componentInput.fields}

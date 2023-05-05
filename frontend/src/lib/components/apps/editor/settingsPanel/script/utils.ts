@@ -33,7 +33,9 @@ export function isFrontend(runnable: Runnable): boolean {
 }
 
 export function isTriggerable(componentType: string): boolean {
-	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(componentType)
+	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent', 'steppercomponent'].includes(
+		componentType
+	)
 }
 
 export function isTriggerOnAppLoad(appComponent: AppComponent): boolean {

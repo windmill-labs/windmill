@@ -39,6 +39,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import AppStepper from '../../components/layout/AppStepper.svelte'
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 
 	export let component: AppComponent
@@ -389,6 +390,15 @@
 				tabs={component.tabs}
 				customCss={component.customCss}
 				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'steppercomponent' && component.tabs}
+			<AppStepper
+				id={component.id}
+				tabs={component.tabs}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				componentInput={component.componentInput}
 				{render}
 			/>
 		{:else if component.type === 'containercomponent'}
