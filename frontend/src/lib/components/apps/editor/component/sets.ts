@@ -15,7 +15,7 @@ const layout: ComponentSet = {
 
 const buttons: ComponentSet = {
 	title: 'Buttons',
-	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent']
+	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent', 'staticformcomponent']
 } as const
 
 const inputs: ComponentSet = {

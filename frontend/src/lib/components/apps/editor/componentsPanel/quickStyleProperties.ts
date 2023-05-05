@@ -550,6 +550,10 @@ export const quickStyleProperties: Record<
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
+	staticformcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
+	},
 	formcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
