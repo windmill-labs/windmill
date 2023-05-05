@@ -23,7 +23,6 @@
 		{isFrontend}
 		{triggerEvents}
 		{shoudlDisplayChangeEvents}
-		isTriggerable={isTriggerable(appComponent.type)}
 	/>
 {:else}
 	<ScriptTriggers
@@ -31,6 +30,5 @@
 		{triggerEvents}
 		{isFrontend}
 		{shoudlDisplayChangeEvents}
-		isTriggerable={isTriggerable(appComponent.type)}
 	/>
 {/if}

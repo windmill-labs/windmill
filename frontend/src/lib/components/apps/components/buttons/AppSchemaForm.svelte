@@ -6,7 +6,6 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { Button } from '$lib/components/common'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,6 +23,20 @@
 
 	let result: Schema | undefined = undefined
 	let args: Record<string, unknown> = {}
+
+	function handleArgsChange() {
+		const newArgs: Record<string, unknown> = {}
+
+		for (const key in args) {
+			if (result?.properties[key]) {
+				newArgs[key] = args[key]
+			}
+		}
+
+		outputs.values.set(newArgs, true)
+	}
+
+	$: args && handleArgsChange()
 </script>
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
@@ -34,19 +47,6 @@
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		>
 			<LightweightSchemaForm schema={result} bind:args />
-			<div class="flex justify-end">
-				<Button
-					color="dark"
-					variant="contained"
-					btnClasses="mt-2"
-					size="xs"
-					on:click={() => {
-						outputs.values.set(args, true)
-					}}
-				>
-					Submit
-				</Button>
-			</div>
 		</div>
 	{:else}
 		<p class="m-2 italic"> Empty form </p>

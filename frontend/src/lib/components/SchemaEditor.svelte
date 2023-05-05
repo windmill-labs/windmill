@@ -248,6 +248,7 @@
 											size={lightMode ? 'xs' : 'sm'}
 											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteArgument(name)}
+											iconOnly={lightMode}
 										>
 											Delete
 										</Button>
@@ -257,6 +258,7 @@
 											size={lightMode ? 'xs' : 'sm'}
 											startIcon={{ icon: faPen }}
 											on:click={() => startEditArgument(name)}
+											iconOnly={lightMode}
 										>
 											Edit
 										</Button>
