@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, parseFromFile } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -10,49 +10,17 @@ import {
   ScriptService,
   Table,
 } from "./deps.ts";
-import { Any, array, decoverto, model, property } from "./decoverto.ts";
 import { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
 import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
-@model()
-export class ScriptFile {
-  @property(() => String)
+export interface ScriptFile {
   parent_hash?: string;
-  @property(() => String)
   summary: string;
-  @property(() => String)
   description: string;
-  @property(Any)
   schema?: any;
-  @property(() => Boolean)
   is_template?: boolean;
-  @property(array(() => String))
   lock?: Array<string>;
-  @property({
-    toInstance: (data) => {
-      if (data == null) return data;
-
-      if (
-        data === "script" ||
-        data === "failure" ||
-        data === "trigger" ||
-        data === "command" ||
-        data === "approvial"
-      ) {
-        return data;
-      }
-
-      throw new Error("Invalid kind " + data);
-    },
-    toPlain: (data) => data,
-  })
-  @property(() => String)
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
-
-  constructor(summary: string, description: string) {
-    this.summary = summary;
-    this.description = description;
-  }
 }
 
 type PushOptions = GlobalOptions;
@@ -123,14 +91,11 @@ export async function handleFile(
     try {
       await Deno.stat(metaPath);
       typed = JSON.parse(await Deno.readTextFile(metaPath));
-      typed = decoverto.type(ScriptFile).plainToInstance(typed);
     } catch {
       const metaPath = remotePath + ".script.yaml";
-      let typed = undefined;
       try {
         await Deno.stat(metaPath);
         typed = yamlParse(await Deno.readTextFile(metaPath));
-        typed = decoverto.type(ScriptFile).plainToInstance(typed);
       } catch {
         // no meta file
       }
@@ -168,7 +133,6 @@ export async function handleFile(
           return true;
         }
       }
-
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -215,16 +179,19 @@ export async function handleFile(
 }
 
 export async function findContentFile(filePath: string) {
-  const candidates = [
-    filePath.replace(".script.json", ".ts"),
-    filePath.replace(".script.json", ".py"),
-    filePath.replace(".script.json", ".go"),
-    filePath.replace(".script.json", ".sh"),
-    filePath.replace(".script.yaml", ".ts"),
-    filePath.replace(".script.yaml", ".py"),
-    filePath.replace(".script.yaml", ".go"),
-    filePath.replace(".script.yaml", ".sh"),
-  ];
+  const candidates = filePath.endsWith("script.json")
+    ? [
+        filePath.replace(".script.json", ".ts"),
+        filePath.replace(".script.json", ".py"),
+        filePath.replace(".script.json", ".go"),
+        filePath.replace(".script.json", ".sh"),
+      ]
+    : [
+        filePath.replace(".script.yaml", ".ts"),
+        filePath.replace(".script.yaml", ".py"),
+        filePath.replace(".script.yaml", ".go"),
+        filePath.replace(".script.yaml", ".sh"),
+      ];
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
@@ -241,7 +208,7 @@ export async function findContentFile(filePath: string) {
     .map((x) => x.path);
   if (validCandidates.length > 1) {
     throw new Error(
-      "No content path given and more then one candidate found: " +
+      "No content path given and more than one candidate found: " +
         validCandidates.join(", ")
     );
   }
@@ -276,10 +243,8 @@ export async function pushScript(
   workspace: string,
   remotePath: string
 ) {
-  const data = filePath
-    ? decoverto
-        .type(ScriptFile)
-        .rawToInstance(await Deno.readTextFile(filePath))
+  const data: ScriptFile | undefined = filePath
+    ? parseFromFile(filePath)
     : undefined;
   const content = await Deno.readTextFile(contentPath);
 

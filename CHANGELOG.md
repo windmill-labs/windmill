@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.94.0](https://github.com/windmill-labs/windmill/compare/v1.93.1...v1.94.0) (2023-05-04)
+
+
+### Features
+
+* **frontend:** add eval badge + alert ([#1522](https://github.com/windmill-labs/windmill/issues/1522)) ([32f04c7](https://github.com/windmill-labs/windmill/commit/32f04c796856fa48ddc1548752ba1e7a8802083a))
+
+
+### Bug Fixes
+
+* **backend:** fix python transformers ([a07e3e8](https://github.com/windmill-labs/windmill/commit/a07e3e84386c0895a7209fc87a4b07218271feca))
+* **frontend:** fix ArrayStaticInputEditor width ([#1528](https://github.com/windmill-labs/windmill/issues/1528)) ([b423eec](https://github.com/windmill-labs/windmill/commit/b423eec019785a62c279db01fc93eb3fe08f7f1f))
+* **frontend:** fix select width ([#1526](https://github.com/windmill-labs/windmill/issues/1526)) ([f248c09](https://github.com/windmill-labs/windmill/commit/f248c09655889ddace24f451597a56e81443be3c))
+* **frontend:** preserve customise arguments ([b4867f1](https://github.com/windmill-labs/windmill/commit/b4867f12bb4f595b5b0e8142ab5d720307ecadd3))
+
 ## [1.93.1](https://github.com/windmill-labs/windmill/compare/v1.93.0...v1.93.1) (2023-05-03)
 
 

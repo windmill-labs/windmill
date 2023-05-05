@@ -12,31 +12,13 @@ import {
   UserService,
   WorkspaceService,
 } from "./deps.ts";
-import { decoverto, model, property } from "./decoverto.ts";
 import { requireLogin } from "./context.ts";
 
-@model()
-export class Workspace {
-  @property(() => String)
+export interface Workspace {
   remote: string;
-  @property(() => String)
   workspaceId: string;
-  @property(() => String)
   name: string;
-  @property(() => String)
   token: string;
-
-  constructor(
-    remote: string,
-    workspaceId: string,
-    name: string,
-    token: string
-  ) {
-    this.remote = remote;
-    this.workspaceId = workspaceId;
-    this.name = name;
-    this.token = token;
-  }
 }
 
 function makeWorkspaceStream(
@@ -52,7 +34,7 @@ function makeWorkspaceStream(
             if (line.length <= 2) {
               return;
             }
-            const workspace = decoverto.type(Workspace).rawToInstance(line);
+            const workspace = JSON.parse(line) as Workspace;
             workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
             controller.enqueue(workspace);
           } catch {
