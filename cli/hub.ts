@@ -1,6 +1,7 @@
-import { Command } from "./deps.ts";
+// deno-lint-ignore-file no-explicit-any
+import { Command, ResourceService } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { ResourceTypeFile } from "./resource-type.ts";
+import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 
 async function pull(opts: GlobalOptions) {
@@ -8,7 +9,7 @@ async function pull(opts: GlobalOptions) {
 
   if (workspace.workspaceId !== "admins") {
     console.log(
-      "Should only sync to admins workspace, but current is not admins.",
+      "Should only sync to admins workspace, but current is not admins."
     );
     return;
   }
@@ -24,15 +25,12 @@ async function pull(opts: GlobalOptions) {
     created_by: string;
     created_at: Date;
     comments: never[];
-  }[] = await fetch(
-    "https://hub.windmill.dev/resource_types/list",
-    {
-      headers: {
-        "Accept": "application/json",
-        "X-email": userInfo.email,
-      },
+  }[] = await fetch("https://hub.windmill.dev/resource_types/list", {
+    headers: {
+      Accept: "application/json",
+      "X-email": userInfo.email,
     },
-  )
+  })
     .then((r) => r.json())
     .then((list: { id: number; name: string }[]) =>
       list.map((x) =>
@@ -40,9 +38,9 @@ async function pull(opts: GlobalOptions) {
           "https://hub.windmill.dev/resource_types/" + x.id + "/" + x.name,
           {
             headers: {
-              "Accept": "application/json",
+              Accept: "application/json",
             },
-          },
+          }
         )
       )
     )
@@ -58,14 +56,22 @@ async function pull(opts: GlobalOptions) {
     .then((x) => Promise.all(x))
     .then((x) => x.filter((x) => x).map((x) => x.resource_type));
 
-  for (
-    const x of list
-  ) {
+  const resourceTypes = await ResourceService.listResourceType({
+    workspace: workspace.workspaceId,
+  });
+
+  for (const x of list) {
+    if (resourceTypes.find((y) => y.name === x.name)) {
+      console.log("skipping " + x.name);
+      continue;
+    }
     console.log("syncing " + x.name);
-    const f = new ResourceTypeFile();
-    f.description = x.description;
-    f.schema = JSON.parse(x.schema);
-    await f.push(workspace.workspaceId, x.name);
+    await pushResourceType(
+      workspace.workspaceId,
+      x.name + ".resource-type.json",
+      undefined,
+      x
+    );
   }
 }
 
