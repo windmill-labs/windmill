@@ -17,8 +17,8 @@ use serde_json::json;
 use windmill_common::error;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
 
-use rustpython_parser as parser;
 use rustpython_parser::ast::{Constant, ExprKind, Located, StmtKind};
+use rustpython_parser::parser::parse_program;
 
 const DEF_MAIN: &str = "def main(";
 const FUNCTION_CALL: &str = "<function call>";
@@ -64,7 +64,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
             "No main function found".to_string(),
         ));
     }
-    let ast = parser::parse_program(&filtered_code, "main.py").map_err(|e| {
+    let ast = parse_program(&filtered_code, "main.py").map_err(|e| {
         error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
     })?;
     let param = ast.into_iter().find_map(|x| match x {
@@ -134,10 +134,7 @@ fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
                 .into_iter()
                 .zip(values)
                 .map(|(k, v)| {
-                    let key = k
-                        .as_ref()
-                        .map(|x| x.node.clone())
-                        .and_then(|n| to_value(&n))
+                    let key = to_value(&k.node)
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
@@ -215,7 +212,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
         Ok(lines)
     } else {
         let code = code.split(DEF_MAIN).next().unwrap_or("");
-        let ast = parser::parse_program(code, "main.py").map_err(|e| {
+        let ast = parse_program(code, "main.py").map_err(|e| {
             error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
         })?;
         let mut imports: Vec<String> = ast

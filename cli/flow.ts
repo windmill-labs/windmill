@@ -49,23 +49,23 @@ export async function pushFlow(
   const localFlowRaw = await Deno.readTextFile(localFlowPath + "flow.yaml");
   const localFlow = yamlParse(localFlowRaw) as FlowFile;
 
-  function extractInlineScripts(modules: FlowModule[]) {
-    return modules.flatMap((m) => {
+  function replaceInlineScripts(modules: FlowModule[]) {
+    modules.forEach((m) => {
       if (m.value.type == "rawscript") {
         const path = m.value.content.split(" ")[1];
         m.value.content = Deno.readTextFileSync(localFlowPath + path);
       } else if (m.value.type == "forloopflow") {
-        extractInlineScripts(m.value.modules);
+        replaceInlineScripts(m.value.modules);
       } else if (m.value.type == "branchall") {
-        m.value.branches.forEach((b) => extractInlineScripts(b.modules));
+        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
       } else if (m.value.type == "branchone") {
-        m.value.branches.forEach((b) => extractInlineScripts(b.modules));
-        extractInlineScripts(m.value.default);
+        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
+        replaceInlineScripts(m.value.default);
       }
     });
   }
 
-  extractInlineScripts(localFlow.value.modules);
+  replaceInlineScripts(localFlow.value.modules);
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {

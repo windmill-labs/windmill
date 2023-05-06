@@ -60,9 +60,7 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
       // },
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
-        return p.endsWith(".yaml")
-          ? JSON.stringify(yamlParse(content))
-          : content;
+        return content;
       },
     };
   }
@@ -397,7 +395,7 @@ async function pull(
   );
   const remote = ZipFSElement(
     (await downloadZip(workspace, opts.plainSecrets))!,
-    opts.json ?? true
+    !opts.json
   );
   const local = opts.raw
     ? undefined
@@ -604,7 +602,7 @@ async function push(
     ? undefined
     : ZipFSElement(
         (await downloadZip(workspace, opts.plainSecrets))!,
-        opts.json ?? true
+        !opts.json
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
