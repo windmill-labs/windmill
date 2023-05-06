@@ -149,6 +149,7 @@
 					tag: script.tag
 				}
 			})
+			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
