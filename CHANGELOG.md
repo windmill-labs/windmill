@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.95.1](https://github.com/windmill-labs/windmill/compare/v1.95.0...v1.95.1) (2023-05-06)
+
+
+### Bug Fixes
+
+* **cli:** cli flow sync improvements ([e585e3a](https://github.com/windmill-labs/windmill/commit/e585e3aea2b18b6dc0c9fa7ffa1e6c1dfb2a3ce2))
+
 ## [1.95.0](https://github.com/windmill-labs/windmill/compare/v1.94.0...v1.95.0) (2023-05-05)
 
 
