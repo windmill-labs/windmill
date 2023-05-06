@@ -14,6 +14,7 @@ import { pushResource } from "./resource.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
 import * as Diff from "npm:diff";
+import { yamlOptions } from "./sync.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -54,7 +55,10 @@ export function isSuperset(
         console.log(`Key ${key} not found in remote`);
       } else {
         console.log(`Found diff for ${key}:`);
-        showDiff(yamlStringify(sub), yamlStringify(supers));
+        showDiff(
+          yamlStringify(sub, yamlOptions),
+          yamlStringify(supers, yamlOptions)
+        );
       }
     }
     return eq;
@@ -79,7 +83,7 @@ export function showDiff(local: string, remote: string) {
         lines = lines.concat(part.value.split("\n").slice(-2));
       }
       // print white if unchanged
-      finalString += `\x1b[37m${part.value}\x1b[0m`;
+      finalString += `\x1b[37m${lines.join("\n")}\x1b[0m`;
     }
   }
   console.log(finalString);

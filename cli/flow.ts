@@ -21,7 +21,7 @@ export interface FlowFile {
   schema?: any;
 }
 
-let alreadySynced: string[] = [];
+const alreadySynced: string[] = [];
 
 export async function pushFlow(
   workspace: string,

@@ -70,15 +70,23 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
 }
 
 function prioritizeName(name: string): string {
-  if (name == "summary") return "aa";
-  if (name == "name") return "aaaa";
-  if (name == "display_name") return "aaa";
-  if (name == "description") return "ab";
-  if (name == "value") return "ac";
+  if (name == "id") return "a";
+  if (name == "type") return "b";
+  if (name == "summary") return "d";
+  if (name == "name") return "e";
+  if (name == "display_name") return "f";
+  if (name == "description") return "g";
+  if (name == "value") return "h";
+  if (name == "content") return "i";
+  if (name == "modules") return "j";
+  if (name == "failure_modules") return "k";
+  if (name == "input_transforms") return "l";
+  if (name == "lock") return "z";
+
   return name;
 }
 
-const yamlOptions = {
+export const yamlOptions = {
   sortKeys: (a: any, b: any) => {
     return prioritizeName(a).localeCompare(prioritizeName(b));
   },
