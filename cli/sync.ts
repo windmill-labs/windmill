@@ -68,18 +68,18 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
 }
 
 function prioritizeName(name: string): string {
-  if (name == "id") return "a";
-  if (name == "type") return "b";
-  if (name == "summary") return "d";
-  if (name == "name") return "e";
-  if (name == "display_name") return "f";
-  if (name == "description") return "g";
-  if (name == "value") return "h";
-  if (name == "content") return "i";
-  if (name == "modules") return "j";
-  if (name == "failure_module") return "k";
-  if (name == "input_transforms") return "l";
-  if (name == "lock") return "z";
+  if (name == "id") return "aa";
+  if (name == "type") return "ab";
+  if (name == "summary") return "ad";
+  if (name == "name") return "ae";
+  if (name == "display_name") return "af";
+  if (name == "description") return "ag";
+  if (name == "value") return "ah";
+  if (name == "content") return "ai";
+  if (name == "modules") return "aj";
+  if (name == "failure_module") return "ak";
+  if (name == "input_transforms") return "al";
+  if (name == "lock") return "az";
 
   return name;
 }
