@@ -77,7 +77,7 @@ function prioritizeName(name: string): string {
   if (name == "value") return "h";
   if (name == "content") return "i";
   if (name == "modules") return "j";
-  if (name == "failure_modules") return "k";
+  if (name == "failure_module") return "k";
   if (name == "input_transforms") return "l";
   if (name == "lock") return "z";
 
