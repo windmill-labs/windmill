@@ -26,7 +26,7 @@ BigInt.prototype.toJSON = function () {
   return this.toString();
 };
 
-export { pgSql, pgClient } from "./pg.ts";
+export { pgSql, pgClient } from "./pgp.ts";
 
 export type Sql = string;
 export type Email = string;
