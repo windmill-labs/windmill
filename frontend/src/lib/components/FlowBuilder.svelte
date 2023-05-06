@@ -155,6 +155,7 @@
 			}
 			loadingSave = false
 			$dirtyStore = false
+			window.history.replaceState(window.history.state, '', `/flows/edit/${flow.path}`)
 			goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
