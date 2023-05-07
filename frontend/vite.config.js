@@ -9,7 +9,20 @@ const version = JSON.parse(json)
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
-		port: 3000
+		port: 3000,
+		proxy: {
+			'^/api/.*': {
+				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
+				changeOrigin: true,
+				cookieDomainRewrite: 'localhost'
+			},
+			// Proxying websockets or socket.io: ws://localhost:5173/socket.io -> ws://localhost:5174/socket.io
+			'^/ws/.*': {
+				target: process.env.REMOTE_LSP ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true
+			}
+		}
 	},
 	preview: {
 		port: 3000
