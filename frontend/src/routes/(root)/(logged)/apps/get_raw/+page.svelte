@@ -7,7 +7,7 @@
 	onMount(async () => {
 		//@ts-ignore
 
-		await import('http://localhost/app.iife.js')
+		await import('http://localhost:3000/app.iife.js')
 		loaded = false
 	})
 </script>
