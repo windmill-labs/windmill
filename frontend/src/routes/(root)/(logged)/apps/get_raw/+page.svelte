@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { Skeleton } from '$lib/components/common'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 
 	let loaded = false
 
 	onMount(async () => {
-		//@ts-ignore
+		globalThis.windmill = {
+			username: $userStore?.username,
+			email: $userStore?.email,
+			workspace: $workspaceStore
+		}
 
+		//@ts-ignore
 		await import('http://localhost:3000/app.iife.js')
 		loaded = false
 	})
