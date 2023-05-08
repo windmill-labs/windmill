@@ -13,7 +13,8 @@ export async function pushFolder(
   workspace: string,
   name: string,
   folder: Folder | FolderFile | undefined,
-  localFolder: FolderFile
+  localFolder: FolderFile,
+  raw: boolean
 ): Promise<void> {
   if (name.startsWith("/")) {
     name = name.substring(1);
@@ -22,6 +23,14 @@ export async function pushFolder(
     name = name.substring(2);
   }
   name = name.split("/")[0];
+  if (raw) {
+    // deleting old app if it exists in raw mode
+    try {
+      folder = await FolderService.getFolder({ workspace, name });
+    } catch {
+      //ignore
+    }
+  }
 
   if (folder) {
     if (isSuperset(localFolder, folder)) {
@@ -65,21 +74,13 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   }
 
   console.log(colors.bold.yellow("Pushing folder..."));
-  let folder: Folder | undefined = undefined;
-  try {
-    folder = await FolderService.getFolder({
-      workspace: workspace.workspaceId,
-      name: remotePath,
-    });
-  } catch {
-    // folder doesn't exist
-  }
 
   await pushFolder(
     workspace.workspaceId,
     remotePath,
-    folder,
-    parseFromFile(filePath)
+    undefined,
+    parseFromFile(filePath),
+    false
   );
   console.log(colors.bold.underline.green("Folder pushed"));
 }

@@ -101,25 +101,26 @@ export function pushObj(
   p: string,
   befObj: any,
   newObj: any,
-  plainSecrets: boolean
+  plainSecrets: boolean,
+  raw: boolean
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj);
+    pushApp(workspace, p, befObj, newObj, raw);
   } else if (typeEnding === "folder") {
-    pushFolder(workspace, p, befObj, newObj);
+    pushFolder(workspace, p, befObj, newObj, raw);
   } else if (typeEnding === "script") {
     pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    pushVariable(workspace, p, befObj, newObj, plainSecrets);
+    pushVariable(workspace, p, befObj, newObj, plainSecrets, raw);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
     pushFlow(workspace, flowName, flowName + ".flow", workspace);
   } else if (typeEnding === "resource") {
-    pushResource(workspace, p, befObj, newObj);
+    pushResource(workspace, p, befObj, newObj, raw);
   } else if (typeEnding === "resource-type") {
-    pushResourceType(workspace, p, befObj, newObj);
+    pushResourceType(workspace, p, befObj, newObj, raw);
   } else {
     throw new Error("infer type unreachable");
   }

@@ -671,7 +671,8 @@ async function push(
           change.path,
           oldObj,
           newObj,
-          opts.plainSecrets ?? false
+          opts.plainSecrets ?? false,
+          opts.raw
         );
 
         if (!opts.raw && stateExists) {
@@ -705,7 +706,8 @@ async function push(
           change.path,
           undefined,
           obj,
-          opts.plainSecrets ?? false
+          opts.plainSecrets ?? false,
+          opts.raw
         );
 
         if (!opts.raw && stateExists) {

@@ -26,9 +26,19 @@ export async function pushApp(
   workspace: string,
   remotePath: string,
   app: AppFile | AppWithLastVersion | undefined,
-  newApp: AppFile
+  newApp: AppFile,
+  raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "app");
+  if (raw) {
+    // deleting old app if it exists in raw mode
+    try {
+      app = await AppService.getAppByPath({ workspace, path: remotePath });
+    } catch {
+      //ignore
+    }
+  }
+
   if (app) {
     if (isSuperset(newApp, app)) {
       return;
@@ -103,7 +113,8 @@ async function push(opts: GlobalOptions, filePath: string) {
     workspace.workspaceId,
     remotePath,
     app,
-    parseFromFile(filePath)
+    parseFromFile(filePath),
+    false
   );
   console.log(colors.bold.underline.green("App pushed"));
 }

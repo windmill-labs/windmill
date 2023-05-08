@@ -72,6 +72,7 @@ export async function pushFlow(
       console.log(colors.bold.green("Flow is up to date"));
       return;
     }
+    console.log(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
       path: remotePath,
