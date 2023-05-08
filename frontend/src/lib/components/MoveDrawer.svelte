@@ -5,11 +5,11 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
-	import { AppService, FlowService, ScriptService } from '$lib/gen'
+	import { AppService, FlowService, RawAppService, ScriptService } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 
-	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
+	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app' | 'raw_app'
 
 	let kind: Kind
 	let initialPath: string = ''
@@ -25,6 +25,7 @@
 		kind_l: Kind
 	) {
 		kind = kind_l
+		path = undefined
 		initialPath = initialPath_l
 		summary = summary_l
 		loadOwner()
@@ -70,6 +71,15 @@
 			})
 		} else if (kind == 'app') {
 			await AppService.updateApp({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
+					path: path != initialPath ? path : undefined,
+					summary
+				}
+			})
+		} else if (kind == 'raw_app') {
+			await RawAppService.updateRawApp({
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {

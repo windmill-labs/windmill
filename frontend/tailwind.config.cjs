@@ -7,7 +7,6 @@ const config = {
 		'hljs',
 		'splitpanes__pane',
 		'splitpanes__splitter',
-
 		...(process.env.NODE_ENV === 'production'
 			? [
 					{ pattern: /^m(\w?)-.*$/ },

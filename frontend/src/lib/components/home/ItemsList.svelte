@@ -3,7 +3,16 @@
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
+	import {
+		AppService,
+		FlowService,
+		ListableApp,
+		Script,
+		ScriptService,
+		type Flow,
+		type ListableRawApp,
+		RawAppService
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import type uFuzzy from '@leeoniya/ufuzzy'
@@ -25,8 +34,9 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
+	import RawAppRow from '../common/table/RawAppRow.svelte'
 
-	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
+	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
 		marked?: string
 		type?: U
@@ -37,12 +47,14 @@
 	type TableScript = TableItem<Script, 'script'>
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
+	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
 	let scripts: TableScript[] | undefined
 	let flows: TableFlow[] | undefined
 	let apps: TableApp[] | undefined
+	let raw_apps: TableRawApp[] | undefined
 
-	let filteredItems: (TableScript | TableFlow | TableApp)[] = []
+	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = []
 
 	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
 
@@ -102,14 +114,29 @@
 		loading = false
 	}
 
+	async function loadRawApps(): Promise<void> {
+		raw_apps = (await RawAppService.listRawApps({ workspace: $workspaceStore! })).map(
+			(app: ListableRawApp) => {
+				return {
+					canWrite:
+						canWrite(app.path!, app.extra_perms!, $userStore) &&
+						app.workspace_id == $workspaceStore &&
+						!$userStore?.operator,
+					...app
+				}
+			}
+		)
+		loading = false
+	}
+
 	$: owners = Array.from(
 		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 	).sort()
 
-	let combinedItems: (TableScript | TableFlow | TableApp)[] | undefined = undefined
+	let combinedItems: (TableScript | TableFlow | TableApp | TableRawApp)[] | undefined = undefined
 
 	$: combinedItems =
-		flows == undefined || scripts == undefined || apps == undefined
+		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
 			? undefined
 			: [
 					...flows.map((x) => ({
@@ -125,6 +152,11 @@
 					...apps.map((x) => ({
 						...x,
 						type: 'app' as 'app',
+						time: new Date(x.edited_at).getTime()
+					})),
+					...raw_apps.map((x) => ({
+						...x,
+						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					}))
 			  ].sort((a, b) =>
@@ -150,8 +182,10 @@
 			loadFlows()
 			if (!archived) {
 				loadApps()
+				loadRawApps()
 			} else {
 				apps = []
+				raw_apps = []
 			}
 		}
 	}
@@ -230,6 +264,7 @@
 		loadScripts()
 		loadApps()
 		loadFlows()
+		loadRawApps()
 	}}
 />
 
@@ -239,6 +274,7 @@
 		loadScripts()
 		loadApps()
 		loadFlows()
+		loadRawApps()
 	}}
 />
 
@@ -321,37 +357,51 @@
 			<div class="border rounded-md divide-y divide-gray-200">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
-					{#if item.type == 'script'}
-						<ScriptRow
-							bind:deleteConfirmedCallback
-							starred={item.starred ?? false}
-							marked={item.marked}
-							on:change={loadScripts}
-							script={item}
-							{shareModal}
-							{moveDrawer}
-						/>
-					{:else if item.type == 'flow'}
-						<FlowRow
-							bind:deleteConfirmedCallback
-							starred={item.starred ?? false}
-							marked={item.marked}
-							on:change={loadFlows}
-							flow={item}
-							{shareModal}
-							{moveDrawer}
-						/>
-					{:else if item.type == 'app'}
-						<AppRow
-							bind:deleteConfirmedCallback
-							starred={item.starred ?? false}
-							marked={item.marked}
-							on:change={loadApps}
-							app={item}
-							{moveDrawer}
-							{shareModal}
-						/>
-					{/if}
+					{#key item.summary}
+						{#key item.starred}
+							{#if item.type == 'script'}
+								<ScriptRow
+									bind:deleteConfirmedCallback
+									starred={item.starred ?? false}
+									marked={item.marked}
+									on:change={loadScripts}
+									script={item}
+									{shareModal}
+									{moveDrawer}
+								/>
+							{:else if item.type == 'flow'}
+								<FlowRow
+									bind:deleteConfirmedCallback
+									starred={item.starred ?? false}
+									marked={item.marked}
+									on:change={loadFlows}
+									flow={item}
+									{shareModal}
+									{moveDrawer}
+								/>
+							{:else if item.type == 'app'}
+								<AppRow
+									bind:deleteConfirmedCallback
+									starred={item.starred ?? false}
+									marked={item.marked}
+									on:change={loadApps}
+									app={item}
+									{moveDrawer}
+									{shareModal}
+								/>
+							{:else if item.type == 'raw_app'}
+								<RawAppRow
+									bind:deleteConfirmedCallback
+									starred={item.starred ?? false}
+									marked={item.marked}
+									on:change={loadRawApps}
+									app={item}
+									{moveDrawer}
+									{shareModal}
+								/>
+							{/if}
+						{/key}
+					{/key}
 				{/each}
 				<!-- </VirtualList> -->
 			</div>

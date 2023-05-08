@@ -9,7 +9,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let kind: 'script' | 'flow' | 'app' = 'script'
+	export let kind: 'script' | 'flow' | 'app' | 'raw_app' = 'script'
 	export let summary: string | undefined = undefined
 	export let path: string
 	export let href: string

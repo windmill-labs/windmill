@@ -1101,7 +1101,8 @@
                 "Enum": [
                   "app",
                   "script",
-                  "flow"
+                  "flow",
+                  "raw_app"
                 ]
               },
               "name": "favorite_kind"
@@ -2308,6 +2309,27 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)"
   },
+  "5a0333e29280c0814d62473b5e5e7b187c4d8cbf2caeb645bfef82f6880467a7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "data",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT data FROM raw_app\n        WHERE path = $1 AND workspace_id = $2"
+  },
   "5b9b58612ca0f703a5d154a76fab82ac2329aef965fa937bfab2810b6e1336a4": {
     "describe": {
       "columns": [],
@@ -2489,7 +2511,8 @@
                 "Enum": [
                   "app",
                   "script",
-                  "flow"
+                  "flow",
+                  "raw_app"
                 ]
               },
               "name": "favorite_kind"
@@ -3211,6 +3234,21 @@
       }
     },
     "query": "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3"
+  },
+  "84bbd11f7bb0c65dcfb2e12038b8a9cb51d303480ac3c5f8a5e833a53c40ed9b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO raw_app\n            (workspace_id, path, summary, extra_perms, data)\n            VALUES ($1, $2, $3, '{}', $4)"
   },
   "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2": {
     "describe": {
@@ -4722,6 +4760,19 @@
     },
     "query": "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3"
   },
+  "b2b2b7251be2b80207f47b10eeff78d61c84161caaf16b8fd25d82b97aac1186": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM raw_app WHERE path = $1 AND workspace_id = $2"
+  },
   "b3b80de52d0931a2fdb5d38b7603a2d69cc25ab1cda413228c363a5ffd777113": {
     "describe": {
       "columns": [
@@ -5231,6 +5282,27 @@
       }
     },
     "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(\n                                     JSONB_SET(flow_status, ARRAY['failure_module'], $1),\n                                                            ARRAY['step'], $2)\n                 WHERE id = $3\n                  "
+  },
+  "c4b3ab3d87f158b20f0557f78c6307c50620425aeb43636e19931c142b5ce0d7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)"
   },
   "c4f1c14c3aae145b52ff39bdecd779cd3eba27a869fda68516dc68dc2abefd38": {
     "describe": {

@@ -29,6 +29,7 @@ pub enum FavoriteKind {
     Script,
     Flow,
     App,
+    Raw_App,
 }
 #[derive(Deserialize)]
 pub struct Favorite {
