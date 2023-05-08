@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initOutput, selectId } from '../../editor/appUtils'
+	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { InputValue } from '../helpers'
 	import { concatCustomCss } from '../../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -42,15 +43,22 @@
 	}
 
 	$: args && handleArgsChange()
-
-	let displayType: boolean = false
-	let orientation: 'horizontal' | 'vertical' = 'vertical'
-
 	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
+
+	let resolvedConfig = initConfig(
+		components['schemaformcomponent'].initialData.configuration,
+		configuration
+	)
 </script>
 
-<InputValue {id} input={configuration.displayType} bind:value={displayType} />
-<InputValue {id} input={configuration.orientation} bind:value={orientation} />
+{#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	{#if result && Object.keys(result.properties).length > 0}
@@ -60,7 +68,13 @@
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		>
-			<LightweightSchemaForm schema={result} bind:args {displayType} {css} />
+			<LightweightSchemaForm
+				schema={result}
+				bind:args
+				displayType={Boolean(resolvedConfig.displayType)}
+				largeGap={Boolean(resolvedConfig.largeGap)}
+				{css}
+			/>
 		</div>
 	{:else}
 		<p class="m-2 italic"> Empty form </p>

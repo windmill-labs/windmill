@@ -1712,6 +1712,11 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					value: false
+				},
+				largeGap: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
 				}
 			}
 		}
