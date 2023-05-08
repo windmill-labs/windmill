@@ -1706,32 +1706,32 @@ Hello \${ctx.username}
 					value: 'Modal title',
 					onlyStatic: true
 				},
-				label: {
+				buttonLabel: {
 					type: 'static',
 					fieldType: 'text',
 					value: 'Press me'
 				},
-				color: {
+				buttonColor: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: buttonColorOptions,
 					value: 'blue'
 				},
-				size: {
+				buttonSize: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
-				fillContainer: {
+				buttonFillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
 					value: false
 				},
-				disabled: {
+				buttonDisabled: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false

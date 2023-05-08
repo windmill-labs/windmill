@@ -2,17 +2,18 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import InputValue from '../helpers/InputValue.svelte'
 	import { concatCustomCss } from '../../utils'
-	import { Button, ButtonType } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { getModal } from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
 	import { X } from 'lucide-svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -27,15 +28,6 @@
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
-
-	let gridContent: string[] | undefined = undefined
-	let modalTitle: string | undefined = undefined
-
-	let labelValue: string
-	let color: ButtonType.Color
-	let size: ButtonType.Size
-	let disabled: boolean | undefined = undefined
-	let fillContainer: boolean | undefined = undefined
 
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 	let open = false
@@ -53,6 +45,11 @@
 	function closeDrawer(): void {
 		open = false
 	}
+
+	let resolvedConfig = initConfig(
+		components['modalcomponent'].initialData.configuration,
+		configuration
+	)
 </script>
 
 <div class="h-full w-full">
@@ -60,9 +57,9 @@
 		<Button
 			btnClasses={twMerge(
 				$app.css?.['buttoncomponent']?.['button']?.class,
-				fillContainer ? 'w-full h-full' : ''
+				resolvedConfig.buttonFillContainer ? 'w-full h-full' : ''
 			)}
-			{disabled}
+			disabled={resolvedConfig.buttonDisabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 			}}
@@ -74,20 +71,22 @@
 				getModal(id)?.open()
 				open = true
 			}}
-			{size}
-			{color}
+			size={resolvedConfig.buttonSize}
+			color={resolvedConfig.buttonColor}
 		>
-			<div>{labelValue}</div>
+			<div>{resolvedConfig.buttonLabel}</div>
 		</Button>
 	</AlignWrapper>
 </div>
 
-<InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-<InputValue {id} input={configuration.modalTitle} bind:value={modalTitle} />
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
+{#each Object.keys(components['imagecomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
@@ -96,7 +95,7 @@
 <Portal target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
-			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50',
+			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
 			open ? 'z-50 bg-black bg-opacity-60' : 'hidden'
 		)}
 	>
@@ -110,7 +109,7 @@
 			}}
 		>
 			<div class="p-4 border-b flex justify-between items-center">
-				<div>{modalTitle}</div>
+				<div>{resolvedConfig.modalTitle}</div>
 				<div class="w-8">
 					<button
 						on:click={() => {
