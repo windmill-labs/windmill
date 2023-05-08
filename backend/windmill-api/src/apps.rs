@@ -384,6 +384,22 @@ async fn create_app(
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
     }
 
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
+        &app.path,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "App with path {} already exists",
+            &app.path
+        )));
+    }
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         &app.path,
@@ -536,6 +552,22 @@ async fn update_app(
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
+
+                let exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
+                    npath,
+                    w_id
+                )
+                .fetch_one(&mut tx)
+                .await?
+                .unwrap_or(false);
+
+                if exists {
+                    return Err(Error::BadRequest(format!(
+                        "App with path {} already exists",
+                        npath
+                    )));
+                }
             }
             sqlb.set_str("path", npath);
         }

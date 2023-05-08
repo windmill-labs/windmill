@@ -20,7 +20,7 @@ The default proxy is setup to use the remote backend: <https://app.windmill.dev>
 You can configure another proxy to use like so:
 
 ```bash
-REMOTE=http://localhost:8000 REMOTE_LSP=http://localhost:3000 npm run dev
+REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
 ## Use a Local backend
@@ -80,7 +80,7 @@ DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5433/windmill?sslmode=disabl
 In the frontend folder:
 
 ```bash
-REMOTE=http://localhost:8000 REMOTE_LSP=http://localhost:3000 npm run dev
+REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
 ## Building

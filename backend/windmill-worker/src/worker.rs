@@ -630,7 +630,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if job.id == Uuid::nil() {
                         tracing::info!(worker = %worker_name, "running warmup job");
                     } else {
-                        tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                        tracing::info!(worker = %worker_name, workspace_id = %job.workspace_id, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
                     }
 
                     let job_dir = format!("{worker_dir}/{}", job.id);

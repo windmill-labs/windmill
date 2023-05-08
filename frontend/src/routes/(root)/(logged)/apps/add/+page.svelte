@@ -46,7 +46,7 @@
 
 	async function loadApp() {
 		if (importJson) {
-			sendUserToast('Loaded from raw JSON')
+			sendUserToast('Loaded from JSON')
 			if ('value' in importJson) {
 				summary = importJson.summary
 				value = importJson.value

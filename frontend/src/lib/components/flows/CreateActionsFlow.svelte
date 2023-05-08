@@ -28,7 +28,7 @@
 		href="/flows/add?nodraft=true"
 		dropdownItems={[
 			{
-				label: 'Import from raw JSON',
+				label: 'Import from JSON',
 				onClick: () => drawer?.toggleDrawer?.()
 			}
 		]}
