@@ -1,16 +1,22 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { twMerge } from 'tailwind-merge'
 	import LightweightArgInput from './LightweightArgInput.svelte'
+	import type { ComponentCustomCSS } from './apps/types'
+
+	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
 	export let schema: Schema
 	export let args: Record<string, any> | undefined = undefined
+	export let displayType: boolean = true
+	export let largeGap: boolean = false
 
 	$: if (args === undefined) {
 		args = {}
 	}
 </script>
 
-<div class="w-full">
+<div class={twMerge('w-full flex flex-col overflow-auto', largeGap ? 'gap-8' : 'gap-2')}>
 	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
 		<div>
 			{#if typeof args == 'object' && schema?.properties[argName] && args}
@@ -29,6 +35,8 @@
 					itemsType={schema.properties[argName].items}
 					extra={schema.properties[argName]}
 					on:inputClicked
+					{displayType}
+					{css}
 				/>
 			{/if}
 		</div>

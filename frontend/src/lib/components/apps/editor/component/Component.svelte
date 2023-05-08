@@ -475,6 +475,8 @@
 			<AppSchemaForm
 				id={component.id}
 				componentInput={component.componentInput}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				{initializing}
 				{render}
 			/>
