@@ -7,6 +7,7 @@ import {
   Command,
   DelimiterStream,
   Input,
+  log,
   setClient,
   Table,
   UserService,
@@ -122,12 +123,12 @@ async function list(opts: GlobalOptions) {
     )
     .render();
 
-  console.log("Active: " + colors.green.bold(activeName || "none"));
+  log.info("Active: " + colors.green.bold(activeName || "none"));
 }
 
 async function switchC(opts: GlobalOptions, workspaceName: string) {
   if (opts.workspace) {
-    console.log(
+    log.info(
       colors.red.bold(
         "! Workspace needs to be specified as positional argument, not as option."
       )
@@ -137,14 +138,14 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 
   const all = await allWorkspaces();
   if (all.findIndex((x) => x.name === workspaceName) === -1) {
-    console.log(
+    log.info(
       colors.red.bold(
         `! This workspace profile ${workspaceName} does not exist locally.`
       )
     );
-    console.log("available workspace profiles:");
+    log.info("available workspace profiles:");
     for (const w of all) {
-      console.log("  - " + w.name);
+      log.info("  - " + w.name);
     }
     return;
   }
@@ -166,7 +167,7 @@ export async function add(
   remote: string | undefined
 ) {
   if (opts.workspace) {
-    console.log(
+    log.info(
       colors.red.bold(
         "! Workspace needs to be specified as positional argument, not as option."
       )
@@ -221,14 +222,14 @@ export async function add(
       requestBody: { id: workspaceId },
     });
   } catch (e) {
-    console.log(
+    log.info(
       colors.red.bold("! Credentials or instance is invalid. Aborting.")
     );
     throw e;
   }
   if (opts.create) {
     if (!alreadyExists) {
-      console.log(
+      log.info(
         colors.yellow(
           `Workspace at id ${workspaceId} on ${remote} does not exist. Creating...`
         )
@@ -242,17 +243,17 @@ export async function add(
       });
     }
   } else if (!alreadyExists) {
-    console.log(
+    log.info(
       colors.red.bold(
         `! Workspace at id ${workspaceId} on ${remote} does not exist. Re-run with --create to create it. Aborting.`
       )
     );
-    console.log(
+    log.info(
       "On that instance and with those credentials, the workspaces that you can access are:"
     );
     const workspaces = await WorkspaceService.listWorkspaces();
     for (const workspace of workspaces) {
-      console.log(`- ${workspace.id} (name: ${workspace.name})`);
+      log.info(`- ${workspace.id} (name: ${workspace.name})`);
     }
     Deno.exit(1);
   }
@@ -270,7 +271,7 @@ export async function add(
     (await getRootStore()) + "/activeWorkspace",
     workspaceName
   );
-  console.log(
+  log.info(
     colors.green.underline(
       `Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`
     )
@@ -299,16 +300,16 @@ export async function removeWorkspace(
   const orgWorkspaces = await allWorkspaces();
   if (orgWorkspaces.findIndex((x) => x.name === name) === -1) {
     if (!silent) {
-      console.log(
+      log.info(
         colors.red.bold(`! Workspace profile ${name} does not exist locally`)
       );
-      console.log("available workspace profiles:");
+      log.info("available workspace profiles:");
       await list(opts);
     }
     return;
   }
   if (silent) {
-    console.log(colors.yellow(`Replacing existing workspace ${name}`));
+    log.info(colors.yellow(`Replacing existing workspace ${name}`));
   }
 
   await Deno.writeTextFile(
@@ -320,9 +321,7 @@ export async function removeWorkspace(
   );
 
   if (!silent) {
-    console.log(
-      colors.green.underline(`Succesfully removed workspace ${name}!`)
-    );
+    log.info(colors.green.underline(`Succesfully removed workspace ${name}!`));
   }
 }
 
@@ -332,9 +331,9 @@ async function remove(_opts: GlobalOptions, name: string) {
 
 async function whoami(_opts: GlobalOptions) {
   await requireLogin(_opts);
-  console.log(await UserService.globalWhoami());
+  log.info(await UserService.globalWhoami());
   const activeName = await getActiveWorkspaceName(_opts);
-  console.log("Active: " + colors.green.bold(activeName || "none"));
+  log.info("Active: " + colors.green.bold(activeName || "none"));
 }
 
 const command = new Command()

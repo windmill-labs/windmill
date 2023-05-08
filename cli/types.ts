@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, path } from "./deps.ts";
+import { colors, log, path } from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import {
   parse as yamlParse,
@@ -52,9 +52,9 @@ export function isSuperset(
       const sub = subset[key];
       const supers = superset[key];
       if (!supers) {
-        console.log(`Key ${key} not found in remote`);
+        log.info(`Key ${key} not found in remote`);
       } else {
-        console.log(`Found diff for ${key}:`);
+        log.info(`Found diff for ${key}:`);
         showDiff(
           yamlStringify(sub, yamlOptions),
           yamlStringify(supers, yamlOptions)
@@ -86,14 +86,14 @@ export function showDiff(local: string, remote: string) {
       finalString += `\x1b[37m${lines.join("\n")}\x1b[0m`;
     }
   }
-  console.log(finalString);
+  log.info(finalString);
 }
 
 export function showConflict(path: string, local: string, remote: string) {
-  console.log(colors.yellow(`- ${path}`));
+  log.info(colors.yellow(`- ${path}`));
   showDiff(local, remote);
-  console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
-  console.log();
+  log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
+  log.info("\n");
 }
 
 export function pushObj(

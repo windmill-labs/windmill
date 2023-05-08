@@ -10,6 +10,7 @@ import {
   colors,
   Command,
   ListableVariable,
+  log,
   Table,
   VariableService,
 } from "./deps.ts";
@@ -54,6 +55,7 @@ export async function pushVariable(
   raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
+  log.debug(`Processing local variable ${remotePath}`);
 
   if (raw) {
     try {
@@ -62,15 +64,18 @@ export async function pushVariable(
         path: remotePath,
         decryptSecret: plainSecrets,
       });
+      log.debug(`Variable ${remotePath} exists on remote`);
     } catch {
-      // resource type doesn't exist
+      log.debug(`Variable ${remotePath} does not exist on remote`);
     }
   }
 
   if (variable) {
     if (isSuperset(localVariable, variable)) {
+      log.debug(`Variable ${remotePath} is up-to-date`);
       return;
     }
+    log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
     await VariableService.updateVariable({
       workspace,
@@ -81,7 +86,7 @@ export async function pushVariable(
       },
     });
   } else {
-    console.log(colors.yellow.bold(`Creating new variable ${remotePath}...`));
+    log.info(colors.yellow.bold(`Creating new variable ${remotePath}...`));
     await VariableService.createVariable({
       workspace,
       alreadyEncrypted: !plainSecrets,
@@ -110,7 +115,7 @@ async function push(
     throw new Error("file path must refer to a file.");
   }
 
-  console.log(colors.bold.yellow("Pushing variable..."));
+  log.info(colors.bold.yellow("Pushing variable..."));
 
   await pushVariable(
     workspace.workspaceId,
@@ -120,7 +125,7 @@ async function push(
     opts.plainSecrets,
     true
   );
-  console.log(colors.bold.underline.green(`Variable ${remotePath} pushed`));
+  log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 const command = new Command()

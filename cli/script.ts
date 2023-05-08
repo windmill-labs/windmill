@@ -5,6 +5,7 @@ import {
   colors,
   Command,
   JobService,
+  log,
   NewScript,
   readAll,
   Script,
@@ -49,7 +50,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   await requireLogin(opts);
   await pushScript(metaPath, contentPath, workspace.workspaceId, remotePath);
-  console.log(colors.bold.underline.green(`Script ${remotePath} pushed`));
+  log.info(colors.bold.underline.green(`Script ${remotePath} pushed`));
 }
 
 export async function handleScriptMetadata(
@@ -86,6 +87,8 @@ export async function handleFile(
     if (alreadySynced.includes(path)) {
       return true;
     }
+    log.debug(`Processing local script ${path}`);
+
     alreadySynced.push(path);
     const remotePath = path.substring(0, path.length - 3);
     const metaPath = remotePath + ".script.json";
@@ -111,8 +114,9 @@ export async function handleFile(
         workspace,
         path: remotePath,
       });
+      log.debug(`Script ${remotePath} exists on remote`);
     } catch {
-      // no remote script
+      log.debug(`Script ${remotePath} does not exist on remote`);
     }
 
     if (remote) {
@@ -127,7 +131,7 @@ export async function handleFile(
             remote?.lock == typed.lock?.join("\n") &&
             JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
         ) {
-          console.log(
+          log.info(
             colors.yellow(
               `No change to push for script ${remotePath}, skipping`
             )
@@ -135,7 +139,7 @@ export async function handleFile(
           return true;
         }
       }
-      console.log(
+      log.info(
         colors.yellow.bold(`Creating script with a parent ${remotePath}`)
       );
       await ScriptService.createScript({
@@ -154,7 +158,7 @@ export async function handleFile(
         },
       });
     } else {
-      console.log(
+      log.info(
         colors.yellow.bold(`Creating script without parent ${remotePath}`)
       );
       // no parent hash
@@ -266,7 +270,7 @@ export async function pushScript(
     }
   }
 
-  console.log(colors.bold.yellow(`Pushing script ${remotePath}...`));
+  log.info(colors.bold.yellow(`Pushing script ${remotePath}...`));
   await ScriptService.createScript({
     workspace: workspace,
     requestBody: {
@@ -362,7 +366,7 @@ async function run(
             id,
           })
         ).result ?? {};
-      console.log(result);
+      log.info(result);
 
       break;
     } catch {
@@ -375,16 +379,16 @@ export async function track_job(workspace: string, id: string) {
   try {
     const result = await JobService.getCompletedJob({ workspace, id });
 
-    console.log(result.logs);
-    console.log();
-    console.log(colors.bold.underline.green("Job Completed"));
-    console.log();
+    log.info(result.logs);
+    log.info("\n");
+    log.info(colors.bold.underline.green("Job Completed"));
+    log.info("\n");
     return;
   } catch {
     /* ignore */
   }
 
-  console.log(colors.yellow("Waiting for Job " + id + " to start..."));
+  log.info(colors.yellow("Waiting for Job " + id + " to start..."));
 
   let logOffset = 0;
   let running = false;
@@ -405,7 +409,7 @@ export async function track_job(workspace: string, id: string) {
     } catch {
       retry++;
       if (retry > 3) {
-        console.log("failed to get job updated. skipping log streaming.");
+        log.info("failed to get job updated. skipping log streaming.");
         break;
       }
       continue;
@@ -413,7 +417,7 @@ export async function track_job(workspace: string, id: string) {
 
     if (!running && updates.running === true) {
       running = true;
-      console.log(colors.green("Job running. Streaming logs..."));
+      log.info(colors.green("Job running. Streaming logs..."));
     }
 
     if (updates.new_logs) {
@@ -428,9 +432,7 @@ export async function track_job(workspace: string, id: string) {
 
     if (running && updates.running === false) {
       running = false;
-      console.log(
-        colors.yellow("Job suspended. Waiting for it to continue...")
-      );
+      log.info(colors.yellow("Job suspended. Waiting for it to continue..."));
     }
   }
   await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
@@ -438,17 +440,17 @@ export async function track_job(workspace: string, id: string) {
   try {
     const final_job = await JobService.getCompletedJob({ workspace, id });
     if ((final_job.logs?.length ?? -1) > logOffset) {
-      console.log(final_job.logs!.substring(logOffset));
+      log.info(final_job.logs!.substring(logOffset));
     }
-    console.log("\n");
+    log.info("\n");
     if (final_job.success) {
-      console.log(colors.bold.underline.green("Job Completed"));
+      log.info(colors.bold.underline.green("Job Completed"));
     } else {
-      console.log(colors.bold.underline.red("Job Completed"));
+      log.info(colors.bold.underline.red("Job Completed"));
     }
-    console.log();
+    log.info("\n");
   } catch {
-    console.log("Job appears to have completed, but no data can be retrieved");
+    log.info("Job appears to have completed, but no data can be retrieved");
   }
 }
 
@@ -459,10 +461,10 @@ async function show(opts: GlobalOptions, path: string) {
     workspace: workspace.workspaceId,
     path,
   });
-  console.log(colors.underline(s.path));
-  if (s.description) console.log(s.description);
-  console.log("");
-  console.log(s.content);
+  log.info(colors.underline(s.path));
+  if (s.description) log.info(s.description);
+  log.info("");
+  log.info(s.content);
 }
 
 const command = new Command()
