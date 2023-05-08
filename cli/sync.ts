@@ -285,11 +285,20 @@ type Change = Added | Deleted | Edit;
 
 async function elementsToMap(
   els: DynFSElement,
-  ignore: (path: string, isDirectory: boolean) => boolean
+  ignore: (path: string, isDirectory: boolean) => boolean,
+  json: boolean
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
+    if (json && entry.path.endsWith(".yaml")) continue;
+    if (!json && entry.path.endsWith(".json")) continue;
+    if (
+      !["json", "yaml", "go", "sh", "ts", "py"].includes(
+        entry.path.split(".").pop() ?? ""
+      )
+    )
+      continue;
     const content = await entry.getContentText();
     map[entry.path] = content;
   }
@@ -299,14 +308,15 @@ async function elementsToMap(
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
-  ignore: (path: string, isDirectory: boolean) => boolean
+  ignore: (path: string, isDirectory: boolean) => boolean,
+  json: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore),
-        elementsToMap(els2, ignore),
+        elementsToMap(els1, ignore, json),
+        elementsToMap(els2, ignore, json),
       ])
-    : [await elementsToMap(els1, ignore), {}];
+    : [await elementsToMap(els1, ignore, json), {}];
 
   const changes: Change[] = [];
 
@@ -401,7 +411,12 @@ async function pull(
   const local = opts.raw
     ? undefined
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
-  const changes = await compareDynFSElement(remote, local, await ignoreF());
+  const changes = await compareDynFSElement(
+    remote,
+    local,
+    await ignoreF(),
+    opts.json ?? false
+  );
 
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
@@ -602,7 +617,12 @@ async function push(
         !opts.json
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
-  const changes = await compareDynFSElement(local, remote, await ignoreF());
+  const changes = await compareDynFSElement(
+    local,
+    remote,
+    await ignoreF(),
+    opts.json ?? false
+  );
 
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`

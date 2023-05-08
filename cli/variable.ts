@@ -83,6 +83,8 @@ export async function pushVariable(
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
+        is_secret:
+          localVariable.is_secret && !variable.is_secret ? true : undefined,
       },
     });
   } else {
