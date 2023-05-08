@@ -8,6 +8,7 @@
 
 	export let displayInfo: PropertyDisplayInfo
 	export let isAnimated: boolean
+	export let lightMode: boolean
 
 	let depth = displayInfo.path.length
 	const required = displayInfo.isRequired
@@ -42,8 +43,10 @@
 <td>
 	<SchemaEditorProperty property={displayInfo.property} />
 </td>
-<td>{displayInfo.property.default ? JSON.stringify(displayInfo.property.default) : ''}</td>
-<td>{displayInfo.property.description ?? ''}</td>
+{#if !lightMode}
+	<td>{displayInfo.property.default ? JSON.stringify(displayInfo.property.default) : ''}</td>
+	<td>{displayInfo.property.description ?? ''}</td>
+{/if}
 <td />
 <td class="justify-end flex">
 	{#if depth === 0}
@@ -65,9 +68,10 @@
 		<Button
 			color="light"
 			variant="border"
-			size="sm"
+			size={lightMode ? 'xs' : 'sm'}
 			startIcon={{ icon: faPen }}
 			on:click={() => startEditArgument(displayInfo.name)}
+			iconOnly={lightMode}
 		>
 			Edit
 		</Button>
@@ -76,9 +80,10 @@
 		color="red"
 		variant="border"
 		btnClasses="mx-2"
-		size="sm"
+		size={lightMode ? 'xs' : 'sm'}
 		startIcon={{ icon: faTrash }}
 		on:click={() => handleDeleteArgument(getArgPath(displayInfo))}
+		iconOnly={lightMode}
 	>
 		Delete
 	</Button>

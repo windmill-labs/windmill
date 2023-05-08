@@ -17,7 +17,7 @@ export interface PropertyDisplayInfo {
 
 export interface SchemaProperty {
 	type: string | undefined
-	description: string
+	description?: string
 	pattern?: string
 	default?: any
 	enum?: string[]

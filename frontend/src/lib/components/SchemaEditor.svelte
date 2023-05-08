@@ -14,7 +14,11 @@
 	import { flip } from 'svelte/animate'
 	import Portal from 'svelte-portal'
 
+	export let isFlowInput = false
+
 	const dispatch = createEventDispatcher()
+
+	export let lightMode: boolean = false
 
 	const moveAnimationDuration = 300
 
@@ -82,7 +86,7 @@
 			}
 
 			if (editing && oldArgName && oldArgName !== modalProperty.name) {
-				handleDeleteArgument(oldArgName)
+				handleDeleteArgument([oldArgName])
 			}
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
@@ -121,19 +125,21 @@
 
 	function handleDeleteArgument(argPath: string[]): void {
 		try {
-			let modifiedObject = schema
+			let modifiedObject: Schema | SchemaProperty = schema
+			let modifiedProperties = modifiedObject.properties as object
 			let argName = argPath.pop() as string
 
 			argPath.forEach((property) => {
-				if (Object.keys(modifiedObject.properties).includes(property)) {
-					modifiedObject = modifiedObject.properties[property]
+				if (Object.keys(modifiedProperties).includes(property)) {
+					modifiedObject = modifiedProperties[property]
+					modifiedProperties = modifiedObject.properties as object
 				} else {
 					throw Error('Nested argument not found!')
 				}
 			})
 
-			if (Object.keys(modifiedObject.properties).includes(argName)) {
-				delete modifiedObject.properties[argName]
+			if (Object.keys(modifiedProperties).includes(argName)) {
+				delete modifiedProperties[argName]
 
 				modifiedObject.required = schema.required.filter((arg) => arg !== argName)
 
@@ -261,8 +267,10 @@
 						<tr slot="header-row">
 							<th>Name</th>
 							<th>Type</th>
-							<th>Default</th>
-							<th>Description</th>
+							{#if !lightMode}
+								<th>Default</th>
+								<th>Description</th>
+							{/if}
 							<th />
 						</tr>
 						<tbody slot="body">
@@ -271,6 +279,7 @@
 									<PropertyRow
 										{displayInfo}
 										{isAnimated}
+										{lightMode}
 										on:startEditArgument={handleStartEditEvent}
 										on:deleteArgument={handleDeleteEvent}
 										on:changePosition={handleChangePositionEvent}
@@ -309,6 +318,7 @@
 
 <Portal>
 	<SchemaModal
+		{isFlowInput}
 		bind:this={schemaModal}
 		bind:property={modalProperty}
 		bind:error={argError}
