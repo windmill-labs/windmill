@@ -39,8 +39,9 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import AppStepper from '../../components/layout/AppStepper.svelte'
+	import AppModal from '../../components/layout/AppModal.svelte'
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
+	import AppStepper from '../../components/layout/AppStepper.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -466,6 +467,15 @@
 			/>
 		{:else if component.type === 'pdfcomponent'}
 			<AppPdf
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'modalcomponent'}
+			<AppModal
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
