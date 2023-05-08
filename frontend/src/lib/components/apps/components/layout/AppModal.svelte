@@ -79,7 +79,7 @@
 	</AlignWrapper>
 </div>
 
-{#each Object.keys(components['imagecomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
