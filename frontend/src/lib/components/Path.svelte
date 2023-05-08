@@ -28,7 +28,7 @@
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
+	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
 	export let namePlaceholder = ''
 	export let initialPath: string

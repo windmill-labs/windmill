@@ -6,7 +6,7 @@
 	import { Star, StarOff } from 'lucide-svelte'
 
 	export let path: string
-	export let kind: 'flow' | 'app' | 'script'
+	export let kind: 'flow' | 'app' | 'script' | 'raw_app'
 	export let starred = false
 	export let workspace_id: string
 

@@ -10,7 +10,7 @@
 	export let favoriteLinks = [] as {
 		label: string
 		href: string
-		kind: 'script' | 'flow' | 'app'
+		kind: 'script' | 'flow' | 'app' | 'raw_app'
 	}[]
 </script>
 
@@ -42,13 +42,17 @@
 		{:else}
 			<div class="py-1 w-full max-w-full">
 				{#each favoriteLinks ?? [] as favorite (favorite.href)}
-					<a href={favorite.href} on:click={close} class="w-full inline-flex flex-row px-4 py-2 hover:bg-gray-100">
+					<a
+						href={favorite.href}
+						on:click={close}
+						class="w-full inline-flex flex-row px-4 py-2 hover:bg-gray-100"
+					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}
 								<Code2 size={16} />
 							{:else if favorite.kind == 'flow'}
 								<Icon data={faBarsStaggered} />
-							{:else if favorite.kind == 'app'}
+							{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 								<LayoutDashboard size={16} />
 							{/if}
 						</span>
