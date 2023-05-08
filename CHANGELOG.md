@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.96.3](https://github.com/windmill-labs/windmill/compare/v1.96.2...v1.96.3) (2023-05-08)
+
+
+### Bug Fixes
+
+* **cli:** add folder listing ([c598083](https://github.com/windmill-labs/windmill/commit/c5980839251cdc759c5afc688e7084f5d58ad57f))
+* **cli:** show diffs only with --show-diffs ([d254088](https://github.com/windmill-labs/windmill/commit/d254088fce00091352ad95888deeaf88bc6c9d6f))
+* **cli:** show diffs only with --show-diffs ([37f08e9](https://github.com/windmill-labs/windmill/commit/37f08e9357c7a74a1c6cdc18bad2d6dc4de5d33d))
+* **cli:** variable updating ([2639250](https://github.com/windmill-labs/windmill/commit/2639250b43c3c55f5b9a43f4020fc2f0747e792b))
+
 ## [1.96.2](https://github.com/windmill-labs/windmill/compare/v1.96.1...v1.96.2) (2023-05-08)
 
 
