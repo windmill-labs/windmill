@@ -400,7 +400,7 @@ async function pull(
   );
   const local = opts.raw
     ? undefined
-    : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
   const changes = await compareDynFSElement(remote, local, await ignoreF());
 
   log.info(
