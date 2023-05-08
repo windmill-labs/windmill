@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, Command, Folder, FolderService, log } from "./deps.ts";
+import { colors, Command, Folder, FolderService, log, Table } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions, isSuperset, parseFromFile } from "./types.ts";
 
@@ -7,6 +7,28 @@ export interface FolderFile {
   owners: Array<string> | undefined;
   extra_perms: Map<string, boolean> | undefined;
   display_name: string | undefined;
+}
+
+async function list(opts: GlobalOptions) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const folders = await FolderService.listFolders({
+    workspace: workspace.workspaceId,
+  });
+
+  new Table()
+    .header(["Name", "Owners", "Extra Perms"])
+    .padding(2)
+    .border(true)
+    .body(
+      folders.map((x) => [
+        x.name,
+        x.owners?.join(",") ?? "-",
+        JSON.stringify(x.extra_perms ?? {}),
+      ])
+    )
+    .render();
 }
 
 export async function pushFolder(
@@ -87,7 +109,8 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 }
 
 const command = new Command()
-  .description("resource related commands")
+  .description("folder related commands")
+  .action(list as any)
   .command(
     "push",
     "push a local folder spec. This overrides any remote versions."
