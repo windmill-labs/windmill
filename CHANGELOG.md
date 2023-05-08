@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.96.0](https://github.com/windmill-labs/windmill/compare/v1.95.1...v1.96.0) (2023-05-08)
+
+
+### Features
+
+* add support for full fleged apps (react, svelte, vue) ([#1536](https://github.com/windmill-labs/windmill/issues/1536)) ([13242ab](https://github.com/windmill-labs/windmill/commit/13242abff153b021cac1ecaa3cbf65ae9d87fb69))
+* **frontend:** Add a custom deepEqualWithOrderedArray to handle orde… ([#1537](https://github.com/windmill-labs/windmill/issues/1537)) ([3a291f7](https://github.com/windmill-labs/windmill/commit/3a291f7108623b5c7194f0a7f6a3774499669313))
+* **frontend:** Add label, description, input style + add displayType… ([#1540](https://github.com/windmill-labs/windmill/issues/1540)) ([bef829d](https://github.com/windmill-labs/windmill/commit/bef829d4805bb6c5330b13dc17c9a89a84ad48ca))
+* **frontend:** app modal ([#1518](https://github.com/windmill-labs/windmill/issues/1518)) ([686f5bb](https://github.com/windmill-labs/windmill/commit/686f5bbe1847cb2a92678e7cfdbb51ecf6bbe2b6))
+
 ## [1.95.1](https://github.com/windmill-labs/windmill/compare/v1.95.0...v1.95.1) (2023-05-06)
 
 
