@@ -13,8 +13,8 @@
 </script>
 
 {#if canConfigureRecomputeOnInputChanged || canConfigureRunOnStart}
-	<ScriptSettingsSection title="Run configuration">
-		<div class="flex flex-col gap-1">
+	<ScriptSettingsSection title="Triggers">
+		<div class="flex flex-col">
 			{#if autoRefresh !== undefined && canConfigureRunOnStart}
 				<div class="flex items-center justify-between w-full">
 					<div class="flex flex-row items-center gap-2 text-xs">
@@ -50,9 +50,10 @@
 				</div>
 			{/if}
 		</div>
+		<slot />
 	</ScriptSettingsSection>
 {:else}
-	<ScriptSettingsSection title="Run configuration">
-		<div class="text-xs"> Triggerable component runs only when an interaction happens. </div>
+	<ScriptSettingsSection title="Triggers">
+		<slot />
 	</ScriptSettingsSection>
 {/if}

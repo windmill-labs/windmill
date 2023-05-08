@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.93.0",
+	"version": "1.95.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -11,6 +11,7 @@
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
 		"package": "svelte-package -o package",
 		"generate-backend-client": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
+		"generate-backend-client-mac": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
@@ -68,6 +69,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@aws-crypto/sha256-js": "^4.0.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^1.0.6",

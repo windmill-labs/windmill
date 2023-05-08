@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.93.0"
+version = "1.95.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.93.0"
+version = "1.95.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -104,7 +104,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = { git = "https://github.com/RustPython/RustPython" }
+rustpython-parser = "0.2.0"
 cron = "^0"
 lettre = { version = "^0", features = [
     "rustls-tls",

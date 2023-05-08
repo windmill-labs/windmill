@@ -153,7 +153,7 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
-				} else if (item?.data.type === 'tabscomponent') {
+				} else if (item?.data.type === 'tabscomponent' || item?.data.type === 'steppercomponent') {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex:

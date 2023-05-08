@@ -547,10 +547,19 @@ export const quickStyleProperties: Record<
 	mapcomponent: {
 		map: [spacingGrouping, borderGrouping]
 	},
+	steppercomponent: {
+		stepsRow: containerDefaultProps,
+		allSteps: [typographyGrouping, sizeGrouping],
+		selectedStep: [typographyGrouping, sizeGrouping],
+		container: containerDefaultProps
+	},
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
-
+	schemaformcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
+	},
 	formcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps

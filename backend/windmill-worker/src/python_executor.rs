@@ -240,18 +240,18 @@ pub async fn handle_python_job(
         .iter()
         .map(|x| match x.typ {
             windmill_parser::Typ::Bytes => {
+                let name = &x.name;
                 format!(
-                    "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
-                                     kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
-                    x.name, x.name, x.name, x.name
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = base64.b64decode(kwargs[\"{name}\"])\n",
                 )
             }
             windmill_parser::Typ::Datetime => {
+                let name = &x.name;
                 format!(
-                    "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
-                                     kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], \
                                      '%Y-%m-%dT%H:%M')\n",
-                    x.name, x.name, x.name, x.name
                 )
             }
             _ => "".to_string(),
@@ -289,7 +289,18 @@ pub async fn handle_python_job(
     } else {
         sig.args
             .into_iter()
-            .map(|x| format!("args[\"{}\"] = kwargs.get(\"{}\")", x.name, x.name))
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"args["{name}"] = kwargs.get("{name}")
+if args["{name}"] is None:
+    del args["{name}"]"#
+                    )
+                }
+            })
             .join("\n")
     };
 
@@ -308,8 +319,8 @@ from {module_dir_dot} import {last} as inner_script
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 args = {{}}
-{spread}
 {transforms}
+{spread}
 for k, v in list(args.items()):
     if v == '<function call>':
         del args[k]

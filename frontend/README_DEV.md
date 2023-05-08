@@ -1,23 +1,39 @@
 # Developing
 
-## Starting The Development Server
+- install the dependencies with `npm install` (or `pnpm install` or `yarn`)
+- generate the windmill client:
 
-Once you've created a project and installed dependencies with `npm install` (or
-`pnpm install` or `yarn`), start a development server:
+```bash
+npm run generate-backend-client
+## on mac use
+npm run generate-backend-client-mac
+```
+
+Once the dependencies are installed, just start the dev server:
 
 ```bash
 npm run dev
 ```
 
-To have the whole stack backing your dev environment, 3 solutions:
+The default proxy is setup to use the remote backend: <https://app.windmill.dev>.
+
+You can configure another proxy to use like so:
+
+```bash
+REMOTE=http://localhost:8000 REMOTE_LSP=http://localhost:3000 npm run dev
+```
+
+## Use a Local backend
 
 ### 1. Backend is run by docker
-
-In the root folder:
 
 ```bash
 docker build . -t windmill
 docker compose up db windmill_server windmill_worker
+```
+
+```bash
+REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
 ```
 
 ### 2. Backend is run by cargo
@@ -28,54 +44,26 @@ docker compose up db windmill_server windmill_worker
 - Install llvm
 
   **On OSX:**
+
   ```bash
   brew install llvm caddy gsed
-  
+
   # make LLVM tools available on PATH
   echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
-  
+
   # now, restart your shell. You should now have the `lld` binary on your PATH.
   ```
+
 - To test that you have Rust and Cargo installed run `cargo --version`
 
-- In your terminal, go to the backend directory and run `cargo build`
-- Run `cargo run`
+**Known issue on M1 Mac while running `cargorun`**
 
-**Known issue on M1 Mac while running `cargo build`**
 - You may encounter `linking with cc failed` build time error.
 - To solve this run:
   ```bash
   echo 'export RUSTFLAGS="-L/opt/homebrew/opt/libomp/lib"' >> ~/.zshrc
   source ~/.zshrc
   ```
-
-
-**Do a Frontend Build**
-
-In order to run the backend, you need to have a frontend build inside `frontend/build/`.
-
-Otherwise, `cargo run` will break.
-
-So, in the frontend folder, run:
-
-```bash
-# !!! on OSX, you are not allowed to use the system SED, but you need to use GNU SED.
-# !!! thus, in `frontend/package.json`, replace all `sed` occurences with `gsed`.
-
-# prerequisite for build
-npm run generate-backend-client
-
-npm run build
-# now, you'll have a `frontend/build` folder.
-```
-
-**Known issue while running `npm run build`**
-- You may encounter `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory` error.
-- To solve this run:
-```bash
-export NODE_OPTIONS=--max_old_space_size=8096
-```
-- run `npm run build` again
 
 In the root folder:
 
@@ -89,38 +77,16 @@ In the backend folder:
 DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5433/windmill?sslmode=disable cargo run
 ```
 
-You can now access [http://127.0.0.1:8000](http://127.0.0.1:8000).
-
-### In both cases
-
 In the frontend folder:
 
 ```bash
-sudo caddy run --config ./Caddyfile
+REMOTE=http://localhost:8000 REMOTE_LSP=http://localhost:3000 npm run dev
 ```
-
-(sudo is required to bind port 80 and 443)
-
-and then go to <http://localhost>
-
-### 3. Backend is run by remote!
-
-```bash
-sudo caddy run --config ./CaddyfileRemote
-```
-
-and then go to <http://localhost>
 
 ## Building
 
 ```bash
-npm run build
-```
-
-## Generating the backend client automatically
-
-```bash
-npm run generate-backend-client
+NODE_OPTIONS=--max_old_space_size=8096 npm run build
 ```
 
 ## Formatting
@@ -146,13 +112,13 @@ Recommended config for VS Code:
 
 - turn _format on save_ on
 
-
 ## Building
 
 The project is built with [SvelteKit](https://kit.svelte.dev/) and uses as output static files.
 There are others adapters for sveltekit, but we use the static adapter.
 
 To build the frontend as static assets, use:
+
 ```
 npm run build
 ```
@@ -160,10 +126,11 @@ npm run build
 The output is in the `build` folder.
 
 The default build assume you serve every non static files as the 200.html file which is catchall. If you prefer a normal layout, you can use:
+
 ```
 NOTCATCHALL=true npm run build
 ```
+
 which will generate an index.html and allow you to serve the frontend with any static server.
 
 Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
-

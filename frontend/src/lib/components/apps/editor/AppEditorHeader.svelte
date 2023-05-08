@@ -50,13 +50,23 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Sha256 } from '@aws-crypto/sha256-js'
 
 	async function hash(message) {
-		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
-		const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8) // hash the message
-		const hashArray = Array.from(new Uint8Array(hashBuffer)) // convert buffer to byte array
-		const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
-		return hashHex
+		try {
+			const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
+			const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8) // hash the message
+			const hashArray = Array.from(new Uint8Array(hashBuffer)) // convert buffer to byte array
+			const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
+			return hashHex
+		} catch {
+			//subtle not available, trying pure js
+			const hash = new Sha256()
+			hash.update(message)
+			const result = Array.from(await hash.digest())
+			const hex = result.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
+			return hex
+		}
 	}
 
 	export let policy: Policy

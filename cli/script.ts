@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, parseFromFile, removeType } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -10,48 +10,17 @@ import {
   ScriptService,
   Table,
 } from "./deps.ts";
-import { Any, array, decoverto, model, property } from "./decoverto.ts";
 import { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
+import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
-@model()
-export class ScriptFile {
-  @property(() => String)
+export interface ScriptFile {
   parent_hash?: string;
-  @property(() => String)
   summary: string;
-  @property(() => String)
   description: string;
-  @property(Any)
   schema?: any;
-  @property(() => Boolean)
   is_template?: boolean;
-  @property(array(() => String))
   lock?: Array<string>;
-  @property({
-    toInstance: (data) => {
-      if (data == null) return data;
-
-      if (
-        data === "script" ||
-        data === "failure" ||
-        data === "trigger" ||
-        data === "command" ||
-        data === "approvial"
-      ) {
-        return data;
-      }
-
-      throw new Error("Invalid kind " + data);
-    },
-    toPlain: (data) => data,
-  })
-  @property(() => String)
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
-
-  constructor(summary: string, description: string) {
-    this.summary = summary;
-    this.description = description;
-  }
 }
 
 type PushOptions = GlobalOptions;
@@ -69,7 +38,7 @@ async function push(opts: PushOptions, filePath: string) {
   }
   let contentPath: string;
   let metaPath: string | undefined;
-  if (filePath.endsWith(".script.json")) {
+  if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
     metaPath = filePath;
     contentPath = await findContentFile(filePath);
   } else {
@@ -87,7 +56,7 @@ export async function handleScriptMetadata(
   workspace: string,
   alreadySynced: string[]
 ): Promise<boolean> {
-  if (path.endsWith(".script.json")) {
+  if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
     return handleFile(
       contentPath,
@@ -107,10 +76,11 @@ export async function handleFile(
   alreadySynced: string[]
 ): Promise<boolean> {
   if (
-    path.endsWith(".ts") ||
-    path.endsWith(".py") ||
-    path.endsWith(".go") ||
-    path.endsWith(".sh")
+    !path.includes(".inline_script.") &&
+    (path.endsWith(".ts") ||
+      path.endsWith(".py") ||
+      path.endsWith(".go") ||
+      path.endsWith(".sh"))
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -122,8 +92,16 @@ export async function handleFile(
     try {
       await Deno.stat(metaPath);
       typed = JSON.parse(await Deno.readTextFile(metaPath));
-      typed = decoverto.type(ScriptFile).plainToInstance(typed);
-    } catch {}
+    } catch {
+      const metaPath = remotePath + ".script.yaml";
+      try {
+        await Deno.stat(metaPath);
+        typed = yamlParse(await Deno.readTextFile(metaPath));
+      } catch {
+        // no meta file
+      }
+    }
+
     const language = inferContentTypeFromFilePath(path);
 
     let remote = undefined;
@@ -132,7 +110,9 @@ export async function handleFile(
         workspace,
         path: remotePath,
       });
-    } catch {}
+    } catch {
+      // no remote script
+    }
 
     if (remote) {
       if (content === remote.content) {
@@ -154,7 +134,9 @@ export async function handleFile(
           return true;
         }
       }
-
+      console.log(
+        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
+      );
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -170,11 +152,10 @@ export async function handleFile(
           schema: typed?.schema,
         },
       });
-
-      console.log(
-        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
-      );
     } else {
+      console.log(
+        colors.yellow.bold(`Creating script without parent ${remotePath}`)
+      );
       // no parent hash
       await ScriptService.createScript({
         workspace: workspace,
@@ -191,9 +172,6 @@ export async function handleFile(
           schema: typed?.schema,
         },
       });
-      console.log(
-        colors.yellow.bold(`Creating script without parent ${remotePath}`)
-      );
     }
     return true;
   }
@@ -201,12 +179,19 @@ export async function handleFile(
 }
 
 export async function findContentFile(filePath: string) {
-  const candidates = [
-    filePath.replace(".script.json", ".ts"),
-    filePath.replace(".script.json", ".py"),
-    filePath.replace(".script.json", ".go"),
-    filePath.replace(".script.json", ".sh"),
-  ];
+  const candidates = filePath.endsWith("script.json")
+    ? [
+        filePath.replace(".script.json", ".ts"),
+        filePath.replace(".script.json", ".py"),
+        filePath.replace(".script.json", ".go"),
+        filePath.replace(".script.json", ".sh"),
+      ]
+    : [
+        filePath.replace(".script.yaml", ".ts"),
+        filePath.replace(".script.yaml", ".py"),
+        filePath.replace(".script.yaml", ".go"),
+        filePath.replace(".script.yaml", ".sh"),
+      ];
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
@@ -223,7 +208,7 @@ export async function findContentFile(filePath: string) {
     .map((x) => x.path);
   if (validCandidates.length > 1) {
     throw new Error(
-      "No content path given and more then one candidate found: " +
+      "No content path given and more than one candidate found: " +
         validCandidates.join(", ")
     );
   }
@@ -258,10 +243,10 @@ export async function pushScript(
   workspace: string,
   remotePath: string
 ) {
-  const data = filePath
-    ? decoverto
-        .type(ScriptFile)
-        .rawToInstance(await Deno.readTextFile(filePath))
+  remotePath = removeType(remotePath, "script");
+
+  const data: ScriptFile | undefined = filePath
+    ? parseFromFile(filePath)
     : undefined;
   const content = await Deno.readTextFile(contentPath);
 
@@ -280,7 +265,7 @@ export async function pushScript(
     }
   }
 
-  console.log(colors.bold.yellow("Pushing script..."));
+  console.log(colors.bold.yellow(`Pushing script ${remotePath}...`));
   await ScriptService.createScript({
     workspace: workspace,
     requestBody: {

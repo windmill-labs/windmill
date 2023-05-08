@@ -6,7 +6,6 @@ import {
   ensureDir,
   gitignore_parser,
   JSZip,
-  microdiff,
   path,
   ScriptService,
   FolderService,
@@ -14,29 +13,33 @@ import {
   VariableService,
   AppService,
   FlowService,
+  OpenFlow,
+  FlowModule,
+  RawScript,
 } from "./deps.ts";
 import {
-  Difference,
   getTypeStrFromPath,
   GlobalOptions,
-  inferTypeFromPath,
-  setValueByPath,
+  parseFromPath,
+  pushObj,
+  showConflict,
+  showDiff,
 } from "./types.ts";
 import { downloadZip } from "./pull.ts";
-import { FolderFile } from "./folder.ts";
-import { ResourceTypeFile } from "./resource-type.ts";
-import { handleScriptMetadata, ScriptFile } from "./script.ts";
-import { ResourceFile } from "./resource.ts";
-import { FlowFile } from "./flow.ts";
-import { VariableFile } from "./variable.ts";
+
+import { handleScriptMetadata } from "./script.ts";
+
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
-import * as Diff from "npm:diff";
+import {
+  stringify as yamlStringify,
+  parse as yamlParse,
+} from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
-  getContentBytes(): Promise<Uint8Array>;
+  // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
   getChildren(): AsyncIterable<DynFSElement>;
 };
@@ -47,35 +50,152 @@ async function FSFSElement(p: string): Promise<DynFSElement> {
       isDirectory: isDir,
       path: localP.substring(p.length + 1),
       async *getChildren(): AsyncIterable<DynFSElement> {
+        if (!isDir) return [];
         for await (const e of Deno.readDir(localP)) {
           yield _internal_element(path.join(localP, e.name), e.isDirectory);
         }
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        return await Deno.readFile(localP);
-      },
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   return await Deno.readFile(localP);
+      // },
       async getContentText(): Promise<string> {
-        return await Deno.readTextFile(localP);
+        const content = await Deno.readTextFile(localP);
+        return content;
       },
     };
   }
   return _internal_element(p, (await Deno.stat(p)).isDirectory);
 }
 
-function ZipFSElement(zip: JSZip): DynFSElement {
+function prioritizeName(name: string): string {
+  if (name == "id") return "aa";
+  if (name == "type") return "ab";
+  if (name == "summary") return "ad";
+  if (name == "name") return "ae";
+  if (name == "display_name") return "af";
+  if (name == "description") return "ag";
+  if (name == "value") return "ah";
+  if (name == "content") return "ai";
+  if (name == "modules") return "aj";
+  if (name == "failure_module") return "ak";
+  if (name == "input_transforms") return "al";
+  if (name == "lock") return "az";
+
+  return name;
+}
+
+export const yamlOptions = {
+  sortKeys: (a: any, b: any) => {
+    return prioritizeName(a).localeCompare(prioritizeName(b));
+  },
+  noCompatMode: true,
+  noRefs: true,
+};
+
+function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
   function _internal_file(p: string, f: JSZip.JSZipObject): DynFSElement {
+    const isFlow = p.endsWith("flow.json");
+    function transformPath() {
+      if (isFlow) {
+        return p.replace("flow.json", "flow");
+      } else {
+        return useYaml && p.endsWith(".json")
+          ? p.replaceAll(".json", ".yaml")
+          : p;
+      }
+    }
+
+    interface InlineScript {
+      path: string;
+      content: string;
+    }
+    let counter = 0;
+    const seen_names = new Set<string>();
+    function assignPath(
+      summary: string | undefined,
+      language: RawScript.language
+    ): string {
+      let name;
+      if (summary && summary != "" && !seen_names.has(summary)) {
+        name = summary.toLowerCase().replaceAll(" ", "_");
+        seen_names.add(name);
+      } else {
+        name = `inline_script_${counter}`;
+        while (seen_names.has(name)) {
+          counter++;
+          name = `inline_script_${counter}`;
+        }
+        seen_names.add(name);
+      }
+      let ext;
+      if (language == "python3") ext = "py";
+      else if (language == "deno") ext = "ts";
+      else if (language == "go") ext = "go";
+      else if (language == "bash") ext = "sh";
+      return `${name}.inline_script.${ext}`;
+    }
+    function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
+      return modules.flatMap((m) => {
+        if (m.value.type == "rawscript") {
+          const path = assignPath(m.summary, m.value.language);
+          const content = m.value.content;
+          m.value.content = "!inline " + path;
+          return [{ path: path, content: content }];
+        } else if (m.value.type == "forloopflow") {
+          return extractInlineScripts(m.value.modules);
+        } else if (m.value.type == "branchall") {
+          return m.value.branches.flatMap((b) =>
+            extractInlineScripts(b.modules)
+          );
+        } else if (m.value.type == "branchone") {
+          return [
+            ...m.value.branches.flatMap((b) => extractInlineScripts(b.modules)),
+            ...extractInlineScripts(m.value.default),
+          ];
+        } else {
+          return [];
+        }
+      });
+    }
+    const flowPath = transformPath();
     return {
-      isDirectory: false,
-      path: p,
-      // deno-lint-ignore require-yield
+      isDirectory: isFlow,
+      path: flowPath,
       async *getChildren(): AsyncIterable<DynFSElement> {
-        throw new Error("Cannot get children of file");
+        if (isFlow) {
+          const flow: OpenFlow = JSON.parse(await f.async("text"));
+          const inlineScripts = extractInlineScripts(flow.value.modules);
+          for (const s of inlineScripts) {
+            yield {
+              isDirectory: false,
+              path: path.join(flowPath, s.path),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return s.content;
+              },
+            };
+          }
+
+          yield {
+            isDirectory: false,
+            path: path.join(flowPath, "flow.yaml"),
+            async *getChildren() {},
+            // deno-lint-ignore require-await
+            async getContentText() {
+              return yamlStringify(flow, yamlOptions);
+            },
+          };
+        }
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        return await f.async("uint8array");
-      },
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   return await f.async("uint8array");
+      // },
       async getContentText(): Promise<string> {
-        return await f.async("text");
+        const content = await f.async("text");
+        return useYaml && p.endsWith(".json")
+          ? yamlStringify(JSON.parse(content), yamlOptions)
+          : content;
       },
     };
   }
@@ -95,9 +215,11 @@ function ZipFSElement(zip: JSZip): DynFSElement {
           }
         }
       },
-      async getContentBytes(): Promise<Uint8Array> {
-        throw new Error("Cannot get content of folder");
-      },
+      // // deno-lint-ignore require-await
+      // async getContentBytes(): Promise<Uint8Array> {
+      //   throw new Error("Cannot get content of folder");
+      // },
+      // deno-lint-ignore require-await
       async getContentText(): Promise<string> {
         throw new Error("Cannot get content of folder");
       },
@@ -113,7 +235,7 @@ async function* readDirRecursiveWithIgnore(
   path: string;
   ignored: boolean;
   isDirectory: boolean;
-  getContentBytes(): Promise<Uint8Array>;
+  // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
 }> {
   const stack: {
@@ -121,7 +243,7 @@ async function* readDirRecursiveWithIgnore(
     isDirectory: boolean;
     ignored: boolean;
     c(): AsyncIterable<DynFSElement>;
-    getContentBytes(): Promise<Uint8Array>;
+    // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
     {
@@ -129,9 +251,9 @@ async function* readDirRecursiveWithIgnore(
       ignored: ignore(root.path, root.isDirectory),
       isDirectory: root.isDirectory,
       c: root.getChildren,
-      getContentBytes(): Promise<Uint8Array> {
-        throw undefined;
-      },
+      // getContentBytes(): Promise<Uint8Array> {
+      //   throw undefined;
+      // },
       getContentText(): Promise<string> {
         throw undefined;
       },
@@ -141,13 +263,12 @@ async function* readDirRecursiveWithIgnore(
   while (stack.length > 0) {
     const e = stack.pop()!;
     yield e;
-    if (!e.isDirectory) continue;
     for await (const e2 of e.c()) {
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
-        getContentBytes: e2.getContentBytes,
+        // getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
         c: e2.getChildren,
       });
@@ -173,6 +294,7 @@ async function elementsToMap(
   }
   return map;
 }
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -192,13 +314,9 @@ async function compareDynFSElement(
       changes.push({ name: "added", path: k, content: v });
     } else if (
       m2[k] != v &&
-      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k])))
+      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k]))) &&
+      (!k.endsWith(".yaml") || !equal(yamlParse(v), yamlParse(m2[k])))
     ) {
-      // await Deno.writeTextFile("/tmp/k", m2[k])
-      // await Deno.writeTextFile("/tmp/v", v)
-      // console.log(k)
-      // if (k.includes("flow"))
-      //   Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -248,7 +366,7 @@ async function ignoreF() {
         (isNotWmillFile(p, isDirectory) || ignore.denies(p))
       );
     };
-  } catch (e) {
+  } catch {
     return (p: string, isDirectory: boolean) =>
       !isWhitelisted(p) && isNotWmillFile(p, isDirectory);
   }
@@ -260,6 +378,7 @@ async function pull(
     yes: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
+    json?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -275,14 +394,17 @@ async function pull(
     )
   );
   const remote = ZipFSElement(
-    (await downloadZip(workspace, opts.plainSecrets))!
+    (await downloadZip(workspace, opts.plainSecrets))!,
+    !opts.json
   );
   const local = opts.raw
     ? undefined
     : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
   const changes = await compareDynFSElement(remote, local, await ignoreF());
 
-  console.log(`remote -> local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -334,8 +456,10 @@ async function pull(
               }
             }
           }
-        } catch {}
-        if (!change.path.endsWith(".json")) {
+        } catch {
+          // ignore
+        }
+        if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
           console.log(`Editing script content of ${change.path}`);
         } else {
           console.log(
@@ -369,7 +493,7 @@ async function pull(
           if (!opts.raw) {
             await Deno.remove(stateTarget);
           }
-        } catch (e) {
+        } catch {
           if (!opts.raw) {
             await Deno.remove(stateTarget);
           }
@@ -398,27 +522,6 @@ async function pull(
       )
     );
   }
-
-  function showConflict(path: string, local: string, remote: string) {
-    console.log(colors.yellow(`- ${path}`));
-
-    let finalString = "";
-    for (const part of Diff.diffLines(local, remote)) {
-      if (part.removed) {
-        // print red if removed without newline
-        finalString += `\x1b[31m${part.value}\x1b[0m`;
-      } else if (part.added) {
-        // print green if added
-        finalString += `\x1b[32m${part.value}\x1b[0m`;
-      } else {
-        // print white if unchanged
-        finalString += `\x1b[37m${part.value}\x1b[0m`;
-      }
-    }
-    console.log(finalString);
-    console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
-    console.log();
-  }
 }
 
 function prettyChanges(changes: Change[]) {
@@ -435,6 +538,7 @@ function prettyChanges(changes: Change[]) {
       console.log(
         colors.yellow(`~ ${getTypeStrFromPath(change.path)} ` + change.path)
       );
+      showDiff(change.before, change.after);
     }
   }
 }
@@ -472,6 +576,7 @@ async function push(
     skipPull: boolean;
     failConflicts: boolean;
     plainSecrets?: boolean;
+    json?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -495,11 +600,16 @@ async function push(
   );
   const remote = opts.raw
     ? undefined
-    : ZipFSElement((await downloadZip(workspace, opts.plainSecrets))!);
+    : ZipFSElement(
+        (await downloadZip(workspace, opts.plainSecrets))!,
+        !opts.json
+      );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
 
-  console.log(`remote <- local: ${changes.length} changes to apply`);
+  console.log(
+    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+  );
   if (changes.length > 0) {
     prettyChanges(changes);
     if (
@@ -553,25 +663,25 @@ async function push(
             `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(change.path, JSON.parse(change.after));
+        const oldObj = parseFromPath(change.path, change.before);
+        const newObj = parseFromPath(change.path, change.after);
 
-        const diff = microdiff(
-          inferTypeFromPath(change.path, JSON.parse(change.before)),
-          obj,
-          { cyclesFix: false }
-        );
-        await applyDiff(
+        pushObj(
           workspace.workspaceId,
-          change.path.split(".")[0],
-          obj,
-          diff,
-          opts.plainSecrets
+          change.path,
+          oldObj,
+          newObj,
+          opts.plainSecrets ?? false
         );
+
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.after);
         }
       } else if (change.name === "added") {
-        if (change.path.endsWith(".script.json")) {
+        if (
+          change.path.endsWith(".script.json") ||
+          change.path.endsWith(".script.yaml")
+        ) {
           continue;
         } else if (
           await handleFile(
@@ -589,20 +699,20 @@ async function push(
             `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
           );
         }
-        const obj = inferTypeFromPath(change.path, JSON.parse(change.content));
-        const diff = microdiff({}, obj, { cyclesFix: false });
-        await applyDiff(
+        const obj = parseFromPath(change.path, change.content);
+        pushObj(
           workspace.workspaceId,
-          change.path.split(".")[0],
+          change.path,
+          undefined,
           obj,
-          diff,
-          opts.plainSecrets
+          opts.plainSecrets ?? false
         );
+
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
-        if (!change.path.includes(".json")) {
+        if (!change.path.includes(".json") && !change.path.includes(".yaml")) {
           continue;
         }
         console.log(
@@ -663,51 +773,16 @@ async function push(
         }
         try {
           await Deno.remove(stateTarget);
-        } catch {}
+        } catch {
+          // state target may not exist already
+        }
       }
     }
     console.log(
       colors.green.underline(
-        `Done! All ${changes.length} changes pushed to the remote workspace.`
+        `Done! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
       )
     );
-  }
-
-  async function applyDiff(
-    workspace: string,
-    remotePath: string,
-    file:
-      | ScriptFile
-      | VariableFile
-      | FlowFile
-      | ResourceFile
-      | ResourceTypeFile
-      | FolderFile,
-    diffs: Difference[],
-    plainSecrets?: boolean
-  ) {
-    if (file instanceof ScriptFile) {
-      throw new Error(
-        "This code path should be unreachable - we should never generate diffs for scripts"
-      );
-    } else if (file instanceof FolderFile) {
-      const parts = remotePath.split("/");
-      if (parts[0] === "f") {
-        remotePath = parts[1];
-      } else {
-        remotePath = parts[0];
-      }
-    }
-    if (diffs.length === 0) {
-      console.log("No diffs to apply to " + remotePath);
-      return;
-    }
-    try {
-      await file.pushDiffs(workspace, remotePath, diffs, plainSecrets);
-    } catch (e) {
-      console.error("Failing to apply diffs to " + remotePath);
-      console.error(JSON.stringify(e));
-    }
   }
 }
 
@@ -723,6 +798,8 @@ const command = new Command()
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
   .option("--plain-secrets", "Pull secrets as plain text")
+  .option("--json", "Use JSON instead of YAML")
+  // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
   .description(
@@ -736,6 +813,8 @@ const command = new Command()
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
+  .option("--json", "Use JSON instead of YAML")
+  // deno-lint-ignore no-explicit-any
   .action(push as any);
 
 export default command;

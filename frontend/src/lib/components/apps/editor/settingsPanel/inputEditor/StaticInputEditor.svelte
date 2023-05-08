@@ -11,6 +11,7 @@
 	import { DollarSign } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -110,8 +111,12 @@
 		{/if}
 	{:else if fieldType === 'array'}
 		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
+	{:else if fieldType === 'schema'}
+		<div class="w-full">
+			<SchemaEditor bind:schema={componentInput.value} lightMode />
+		</div>
 	{:else}
-		<div class="flex gap-1 relative">
+		<div class="flex gap-1 relative w-full">
 			<input
 				on:keydown|stopPropagation
 				type="text"

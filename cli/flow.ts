@@ -1,121 +1,94 @@
 // deno-lint-ignore-file no-explicit-any
-import {
-  Difference,
-  GlobalOptions,
-  PushDiffs,
-  Resource,
-  setValueByPath,
-} from "./types.ts";
+import { GlobalOptions, isSuperset } from "./types.ts";
+import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
+
 import {
   colors,
   Command,
   Flow,
+  FlowModule,
   FlowService,
   JobService,
-  microdiff,
-  OpenFlowWPath,
   Table,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
-import { Any, decoverto, model, property } from "./decoverto.ts";
 
-// this is effectively "OpenFlow" but a copy as it is accepted by the CLI
-@model()
-export class FlowFile implements Resource, PushDiffs {
-  @property(() => String)
+export interface FlowFile {
   summary: string;
-  @property(() => String)
   description?: string;
-  @property(Any)
   value: any;
-  @property(Any)
   schema?: any;
+}
 
-  constructor(value: any, summary?: string) {
-    this.summary = summary ?? "";
-    this.value = value;
+const alreadySynced: string[] = [];
+
+export async function pushFlow(
+  workspace: string,
+  remotePath: string,
+  localFlowPath: string,
+  workspaceId: string
+): Promise<void> {
+  if (alreadySynced.includes(localFlowPath)) {
+    return;
   }
-  async pushDiffs(
-    workspace: string,
-    remotePath: string,
-    diffs: Difference[]
-  ): Promise<void> {
-    if (
-      await FlowService.existsFlowByPath({
-        workspace: workspace,
-        path: remotePath,
-      })
-    ) {
-      console.log(
-        colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing flow... ${remotePath}`
-        )
-      );
+  alreadySynced.push(localFlowPath);
+  let flow: Flow | undefined = undefined;
+  try {
+    flow = await FlowService.getFlowByPath({
+      workspace: workspaceId,
+      path: remotePath,
+    });
+  } catch {
+    // flow doesn't exist
+  }
 
-      // TODO: Make these optional in backend (not path ofc)
-      const changeset: OpenFlowWPath = {
-        path: remotePath,
-        summary: this.summary,
-        value: this.value,
-        description: this.description, // This is OpenAPIed as optional, but isn't
-        schema: this.schema, // Same
-      };
-      const base_changeset = { ...changeset };
-      for (const diff of diffs) {
-        if (
-          diff.type !== "REMOVE" &&
-          diff.path[0] !== "value" &&
-          (diff.path.length !== 1 ||
-            !["summary", "description", "schema"].includes(
-              diff.path[0] as string
-            ))
-        ) {
-          throw new Error("Invalid flow diff with path " + diff.path);
-        }
-        if (diff.type === "CREATE" || diff.type === "CHANGE") {
-          setValueByPath(changeset, diff.path, diff.value);
-        } else if (diff.type === "REMOVE") {
-          setValueByPath(changeset, diff.path, null);
-        }
+  if (!localFlowPath.endsWith("/")) {
+    localFlowPath += "/";
+  }
+  const localFlowRaw = await Deno.readTextFile(localFlowPath + "flow.yaml");
+  const localFlow = yamlParse(localFlowRaw) as FlowFile;
+
+  function replaceInlineScripts(modules: FlowModule[]) {
+    modules.forEach((m) => {
+      if (m.value.type == "rawscript") {
+        const path = m.value.content.split(" ")[1];
+        m.value.content = Deno.readTextFileSync(localFlowPath + path);
+      } else if (m.value.type == "forloopflow") {
+        replaceInlineScripts(m.value.modules);
+      } else if (m.value.type == "branchall") {
+        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
+      } else if (m.value.type == "branchone") {
+        m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
+        replaceInlineScripts(m.value.default);
       }
-      const hasChanges = Object.values(changeset).some(
-        (v) => v !== null && typeof v !== "undefined"
-      );
-      if (!hasChanges) {
-        return;
-      }
+    });
+  }
 
-      const update = {
-        ...changeset,
-        ...base_changeset,
-      };
+  replaceInlineScripts(localFlow.value.modules);
 
-      await FlowService.updateFlow({
-        workspace: workspace,
-        path: remotePath,
-        requestBody: update,
-      });
-    } else {
-      console.log(colors.bold.yellow("Creating new flow..."));
-      await FlowService.createFlow({
-        workspace: workspace,
-        requestBody: {
-          path: remotePath,
-          summary: this.summary,
-          value: this.value,
-          schema: this.schema,
-          description: this.description,
-        },
-      });
+  if (flow) {
+    if (isSuperset(localFlow, flow)) {
+      console.log(colors.bold.green("Flow is up to date"));
+      return;
     }
-  }
-  async push(workspace: string, remotePath: string): Promise<void> {
-    await this.pushDiffs(
-      workspace,
-      remotePath,
-      microdiff({}, this, { cyclesFix: false })
-    );
+    await FlowService.updateFlow({
+      workspace: workspace,
+      path: remotePath,
+      requestBody: {
+        path: remotePath,
+        ...localFlow,
+      },
+    });
+  } else {
+    console.log(colors.bold.yellow("Creating new flow..."));
+    await FlowService.createFlow({
+      workspace: workspace,
+      requestBody: {
+        path: remotePath,
+        ...localFlow,
+      },
+    });
   }
 }
 
@@ -128,19 +101,13 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushFlow(filePath, workspace.workspaceId, remotePath);
+  await pushFlow(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    workspace.workspaceId
+  );
   console.log(colors.bold.underline.green("Flow pushed"));
-}
-
-export async function pushFlow(
-  filePath: string,
-  workspace: string,
-  remotePath: string
-) {
-  const data = decoverto
-    .type(FlowFile)
-    .rawToInstance(await Deno.readTextFile(filePath));
-  await data.push(workspace, remotePath);
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {

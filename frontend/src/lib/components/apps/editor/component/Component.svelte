@@ -40,6 +40,8 @@
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppModal from '../../components/layout/AppModal.svelte'
+	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
+	import AppStepper from '../../components/layout/AppStepper.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -391,6 +393,15 @@
 				{componentContainerHeight}
 				{render}
 			/>
+		{:else if component.type === 'steppercomponent' && component.tabs}
+			<AppStepper
+				id={component.id}
+				tabs={component.tabs}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				componentInput={component.componentInput}
+				{render}
+			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
 				id={component.id}
@@ -468,6 +479,13 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'schemaformcomponent'}
+			<AppSchemaForm
+				id={component.id}
+				componentInput={component.componentInput}
+				{initializing}
 				{render}
 			/>
 		{/if}

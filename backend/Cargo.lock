@@ -479,6 +479,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -669,7 +678,7 @@ checksum = "cf9cc2b23599e6d7479755f3594285efb3f74a1bdca7a7374948bc831e23a552"
 dependencies = [
  "chrono",
  "chrono-tz-build",
- "phf",
+ "phf 0.11.1",
 ]
 
 [[package]]
@@ -679,8 +688,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9998fb9f7e9b2111641485bf8beb32f92945f97f92a3d061f744cfef335f751"
 dependencies = [
  "parse-zoneinfo",
- "phf",
- "phf_codegen",
+ "phf 0.11.1",
+ "phf_codegen 0.11.1",
 ]
 
 [[package]]
@@ -813,7 +822,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
 dependencies = [
  "percent-encoding",
- "time 0.3.20",
+ "time 0.3.21",
  "version_check",
 ]
 
@@ -2114,9 +2123,9 @@ dependencies = [
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b64f40e5e03e0d54f03845c8197d0291253cdbedfb1cb46b13c2c117554a9f4c"
+checksum = "ece97ea872ece730aed82664c424eb4c8291e1ff2480247ccf7409044bc6479f"
 
 [[package]]
 name = "lock_api"
@@ -2346,6 +2355,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02e0d21255c828d6f128a1e41534206671e8c3ea0c62f32291e808dc82cff17d"
 dependencies = [
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2579,12 +2589,31 @@ dependencies = [
 
 [[package]]
 name = "phf"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabbf1ead8a5bcbc20f5f8b939ee3f5b0f6f281b6ad3468b84656b658b455259"
+dependencies = [
+ "phf_shared 0.10.0",
+]
+
+[[package]]
+name = "phf"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "928c6535de93548188ef63bb7c4036bd415cd8f36ad25af44b9789b2ee72a48c"
 dependencies = [
  "phf_macros",
  "phf_shared 0.11.1",
+]
+
+[[package]]
+name = "phf_codegen"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb1c3a8bc4dd4e5cfce29b44ffc14bedd2ee294559a294e2a4d4c9e9a6a13cd"
+dependencies = [
+ "phf_generator 0.10.0",
+ "phf_shared 0.10.0",
 ]
 
 [[package]]
@@ -2784,8 +2813,8 @@ dependencies = [
 
 [[package]]
 name = "progenitor"
-version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#6936ecc51a2d84e8adee21a003120a05513c6c20"
+version = "0.3.0"
+source = "git+https://github.com/oxidecomputer/progenitor#1121d5948c01afa080d542023544a449304343fa"
 dependencies = [
  "anyhow",
  "built",
@@ -2803,8 +2832,8 @@ dependencies = [
 
 [[package]]
 name = "progenitor-client"
-version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#6936ecc51a2d84e8adee21a003120a05513c6c20"
+version = "0.3.0"
+source = "git+https://github.com/oxidecomputer/progenitor#1121d5948c01afa080d542023544a449304343fa"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2817,8 +2846,8 @@ dependencies = [
 
 [[package]]
 name = "progenitor-impl"
-version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#6936ecc51a2d84e8adee21a003120a05513c6c20"
+version = "0.3.0"
+source = "git+https://github.com/oxidecomputer/progenitor#1121d5948c01afa080d542023544a449304343fa"
 dependencies = [
  "getopts",
  "heck",
@@ -2839,8 +2868,8 @@ dependencies = [
 
 [[package]]
 name = "progenitor-macro"
-version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#6936ecc51a2d84e8adee21a003120a05513c6c20"
+version = "0.3.0"
+source = "git+https://github.com/oxidecomputer/progenitor#1121d5948c01afa080d542023544a449304343fa"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -3236,9 +3265,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.18"
+version = "0.37.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bbfc1d1c7c40c01715f47d71444744a81669ca84e8b63e25a55e169b1f86433"
+checksum = "acf8729d8542766f1b2cf77eb034d52f40d375bb8b615d0b147089946e16613d"
 dependencies = [
  "bitflags",
  "errno",
@@ -3272,7 +3301,8 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7b83af38212db64ecfc76b6d53a1c6de89733236e39c69d4bc8ab565ae167b2"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -3281,20 +3311,26 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81870eb757460989d43ce41e069f1a01d0292b33011b23b0455d0a6394e4c77a"
 dependencies = [
+ "bincode",
  "bitflags",
  "bstr",
  "itertools",
  "lz4_flex",
  "num-bigint",
  "num-complex",
+ "serde",
+ "static_assertions",
+ "thiserror",
 ]
 
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#fa790558211ec690541299258f44d7453501958a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db7348e148144ba85bc1284d97004062137306554fd00e7eb500d91720de5e78"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
@@ -3304,11 +3340,12 @@ dependencies = [
  "log",
  "num-bigint",
  "num-traits",
- "phf",
- "phf_codegen",
+ "phf 0.10.1",
+ "phf_codegen 0.10.0",
  "rustc-hash",
  "rustpython-ast",
  "rustpython-compiler-core",
+ "thiserror",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
@@ -3466,9 +3503,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.160"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb2f3770c8bce3bcda7e149193a069a0f4365bda1fa5cd88e03bca26afc1216c"
+checksum = "71b2f6e1ab5c2b98c05f0f35b236b22e8df7ead6ffbf51d7808da7f8817e7ab6"
 dependencies = [
  "serde_derive",
 ]
@@ -3495,9 +3532,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.160"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "291a097c63d8497e00160b166a967a4a79c64f3facdd01cbd7502231688d77df"
+checksum = "a2a0814352fd64b58489904a44ea8d90cb1a91dcb6b4f5ebabc32c8318e93cb6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4241,9 +4278,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.20"
+version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd0cbfecb4d19b5ea75bb31ad904eb5b9fa13f21079c3b92017ebdf4999a5890"
+checksum = "8f3403384eaacbca9923fa06940178ac13e4edb725486d70e8e15881d0c836cc"
 dependencies = [
  "itoa",
  "serde",
@@ -4253,15 +4290,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e153e1f1acaef8acc537e68b44906d2db6436e2b35ac2c6b42640fff91f00fd"
+checksum = "7300fbefb4dadc1af235a9cef3737cea692a9d97e1b9cbcd4ebdae6f8868e6fb"
 
 [[package]]
 name = "time-macros"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd80a657e71da814b8e5d60d3374fc6d35045062245d80224748ae522dd76f36"
+checksum = "372950940a5f07bf38dbe211d7283c9e6d7327df53794992d293e534c733d09b"
 dependencies = [
  "time-core",
 ]
@@ -4612,8 +4649,8 @@ checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
 
 [[package]]
 name = "typify"
-version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#70a5b06a0948f13264f7a27b2015c3814f90ca8a"
+version = "0.0.12"
+source = "git+https://github.com/oxidecomputer/typify#101f84ff158e31a6e148554b95e35ac0bf83a709"
 dependencies = [
  "typify-impl",
  "typify-macro",
@@ -4621,8 +4658,8 @@ dependencies = [
 
 [[package]]
 name = "typify-impl"
-version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#70a5b06a0948f13264f7a27b2015c3814f90ca8a"
+version = "0.0.12"
+source = "git+https://github.com/oxidecomputer/typify#101f84ff158e31a6e148554b95e35ac0bf83a709"
 dependencies = [
  "heck",
  "log",
@@ -4638,8 +4675,8 @@ dependencies = [
 
 [[package]]
 name = "typify-macro"
-version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#70a5b06a0948f13264f7a27b2015c3814f90ca8a"
+version = "0.0.12"
+source = "git+https://github.com/oxidecomputer/typify#101f84ff158e31a6e148554b95e35ac0bf83a709"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4799,11 +4836,9 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
 name = "unicode_names2"
-version = "0.6.0"
-source = "git+https://github.com/youknowone/unicode_names2.git?rev=4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde#4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde"
-dependencies = [
- "phf",
-]
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "029df4cc8238cefc911704ff8fa210853a0f3bce2694d8f51181dd41ee0f3301"
 
 [[package]]
 name = "unsafe-libyaml"
@@ -5106,7 +5141,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5140,7 +5175,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5176,7 +5211,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "tempfile",
- "time 0.3.20",
+ "time 0.3.21",
  "tokio",
  "tokio-tar",
  "tokio-util",
@@ -5198,7 +5233,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5215,7 +5250,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5228,7 +5263,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5253,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5261,12 +5296,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "itertools",
  "lazy_static",
- "phf",
+ "phf 0.11.1",
  "regex",
  "serde_json",
  "unicode-general-category",
@@ -5276,12 +5311,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "gosyn",
  "itertools",
- "phf",
+ "phf 0.11.1",
  "unicode-general-category",
  "windmill-common",
  "windmill-parser",
@@ -5289,12 +5324,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "itertools",
  "lazy_static",
- "phf",
+ "phf 0.11.1",
  "regex",
  "rustpython-parser",
  "serde_json",
@@ -5304,7 +5339,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5318,7 +5353,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5346,7 +5381,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.93.0"
+version = "1.95.1"
 dependencies = [
  "anyhow",
  "async-recursion",

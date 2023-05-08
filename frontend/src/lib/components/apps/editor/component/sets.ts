@@ -11,6 +11,7 @@ const layout: ComponentSet = {
 		'verticalsplitpanescomponent',
 		'horizontalsplitpanescomponent',
 		'modalcomponent'
+		'steppercomponent'
 	]
 } as const
 
@@ -35,7 +36,8 @@ const inputs: ComponentSet = {
 		'checkboxcomponent',
 		'selectcomponent',
 		'resourceselectcomponent',
-		'multiselectcomponent'
+		'multiselectcomponent',
+		'schemaformcomponent'
 	]
 } as const
 

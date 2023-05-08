@@ -106,6 +106,10 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
 export type ModalComponent = BaseComponent<'modalcomponent'>
+export type StepperComponent = BaseComponent<'steppercomponent'> & {
+	tabs: string[]
+}
+export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -148,6 +152,8 @@ export type TypedComponent =
 	| HorizontalSplitPanesComponent
 	| PdfComponent
 	| ModalComponent
+	| StepperComponent
+	| Schemaformcomponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1333,6 +1339,29 @@ Hello \${ctx.username}
 			tabs: ['First tab', 'Second tab'] as string[]
 		}
 	},
+	steppercomponent: {
+		name: 'Stepper',
+		icon: ListOrdered,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			stepsRow: { class: '', style: '' },
+			allSteps: { class: '', style: '' },
+			selectedStep: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			numberOfSubgrids: 2,
+			tabs: ['First', 'Second'] as string[]
+		}
+	},
 	iconcomponent: {
 		name: 'Icon',
 		icon: Smile,
@@ -1659,6 +1688,7 @@ Hello \${ctx.username}
 			}
 		}
 	},
+<<<<<<< HEAD
 	modalcomponent: {
 		name: 'Modal',
 		icon: SidebarClose,
@@ -1711,6 +1741,27 @@ Hello \${ctx.username}
 			componentInput: undefined,
 
 			numberOfSubgrids: 1
+=======
+	schemaformcomponent: {
+		name: 'Schema Form',
+		icon: FileText,
+		dims: '3:8-8:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'schema',
+				value: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					properties: {},
+					required: [],
+					type: 'object'
+				}
+			},
+			configuration: {}
+>>>>>>> main
 		}
 	}
 } as const

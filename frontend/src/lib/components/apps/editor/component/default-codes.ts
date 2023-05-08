@@ -48,6 +48,19 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	return query.rows;
 }`
 	},
+	steppercomponent: {
+		deno: `export async function main(stepIndex: number) {
+		// if (stepIndex == 0) {
+		// 	if (page0Invalid) throw Error("first step invalid")
+		// } else if ...
+}`,
+		python3: `def main(stepIndex: int):
+# if stepIndex == 0:
+#     if page0Invalid:
+#         raise Exception("first step invalid")
+# elif ...
+`
+	},
 	textcomponent: {
 		deno: `export async function main() {
 	return "foo"

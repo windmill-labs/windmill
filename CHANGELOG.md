@@ -1,6 +1,57 @@
 # Changelog
 
 
+## [1.95.1](https://github.com/windmill-labs/windmill/compare/v1.95.0...v1.95.1) (2023-05-06)
+
+
+### Bug Fixes
+
+* **cli:** cli flow sync improvements ([e585e3a](https://github.com/windmill-labs/windmill/commit/e585e3aea2b18b6dc0c9fa7ffa1e6c1dfb2a3ce2))
+
+## [1.95.0](https://github.com/windmill-labs/windmill/compare/v1.94.0...v1.95.0) (2023-05-05)
+
+
+### Features
+
+* **backend:** default parameters are used in python if missing from args ([8791a86](https://github.com/windmill-labs/windmill/commit/8791a86a936301d44ae05ea09d26c9815abf8929))
+* **frontend:** App Schema Form component ([#1533](https://github.com/windmill-labs/windmill/issues/1533)) ([85c0d93](https://github.com/windmill-labs/windmill/commit/85c0d939f59411d023cd4b173ce11224d3cbc9db))
+* **frontend:** App stepper ([#1529](https://github.com/windmill-labs/windmill/issues/1529)) ([15f1c94](https://github.com/windmill-labs/windmill/commit/15f1c947bb233147f7da261fd32054a51a9c6efa))
+* **frontend:** Merge run configuration + triggers ([#1530](https://github.com/windmill-labs/windmill/issues/1530)) ([1be4658](https://github.com/windmill-labs/windmill/commit/1be4658150ef20a9f1f0fe57b5f30ba3c2d4d94e))
+
+## [1.94.0](https://github.com/windmill-labs/windmill/compare/v1.93.1...v1.94.0) (2023-05-04)
+
+
+### Features
+
+* **frontend:** add eval badge + alert ([#1522](https://github.com/windmill-labs/windmill/issues/1522)) ([32f04c7](https://github.com/windmill-labs/windmill/commit/32f04c796856fa48ddc1548752ba1e7a8802083a))
+
+
+### Bug Fixes
+
+* **backend:** fix python transformers ([a07e3e8](https://github.com/windmill-labs/windmill/commit/a07e3e84386c0895a7209fc87a4b07218271feca))
+* **frontend:** fix ArrayStaticInputEditor width ([#1528](https://github.com/windmill-labs/windmill/issues/1528)) ([b423eec](https://github.com/windmill-labs/windmill/commit/b423eec019785a62c279db01fc93eb3fe08f7f1f))
+* **frontend:** fix select width ([#1526](https://github.com/windmill-labs/windmill/issues/1526)) ([f248c09](https://github.com/windmill-labs/windmill/commit/f248c09655889ddace24f451597a56e81443be3c))
+* **frontend:** preserve customise arguments ([b4867f1](https://github.com/windmill-labs/windmill/commit/b4867f12bb4f595b5b0e8142ab5d720307ecadd3))
+
+## [1.93.1](https://github.com/windmill-labs/windmill/compare/v1.93.0...v1.93.1) (2023-05-03)
+
+
+### Bug Fixes
+
+* **cli:** add yaml support for cli ([03e6017](https://github.com/windmill-labs/windmill/commit/03e6017860526784f1a8696eceed5750b25f1c5c))
+
+## [1.93.0](https://github.com/windmill-labs/windmill/compare/v1.92.2...v1.93.0) (2023-05-03)
+
+
+### Features
+
+* **frontend:** add recompute others to background scripts ([392d0f8](https://github.com/windmill-labs/windmill/commit/392d0f8b876c9b587fe85421098f3eceb8a74dec))
+
+
+### Bug Fixes
+
+* **frontend:** deploy path for apps ([7ac9677](https://github.com/windmill-labs/windmill/commit/7ac96771a5c3d44234c790e8cea3d621d8c1d00e))
+
 ## [1.93.0](https://github.com/windmill-labs/windmill/compare/v1.92.2...v1.93.0) (2023-05-03)
 
 

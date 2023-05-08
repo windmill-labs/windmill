@@ -28,6 +28,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 	export let transformer: boolean = false
+	export let componentType: string | undefined = undefined
 
 	const { runnableComponents, stateId, worldStore, state, appPath, app } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -72,10 +73,38 @@
 	const dispatch = createEventDispatcher()
 	let runLoading = false
 
+	function preConnect(newFields) {
+		if (!componentType) {
+			return
+		}
+
+		if (componentType === 'steppercomponent') {
+			const componentOutputs = $worldStore?.outputsById[id]
+
+			if (componentOutputs.currentStepIndex) {
+				newFields['stepIndex'] = {
+					type: 'connected',
+					connection: {
+						componentId: id,
+						path: 'currentStepIndex'
+					},
+					value: componentOutputs.currentStepIndex.peak(),
+					fieldType: 'number'
+				}
+			}
+		}
+	}
+
 	async function loadSchemaAndInputsByName() {
 		if (syncFields && inlineScript) {
 			const newSchema = inlineScript.schema ?? emptySchema()
+			const hadPreviousFields = Object.keys(fields).length > 0
 			const newFields = computeFields(newSchema, defaultUserInput, fields)
+
+			// First time we load the schema, we want to trigger the pre-connect
+			if (!hadPreviousFields && Object.keys(newFields).length > 0) {
+				preConnect(newFields)
+			}
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields

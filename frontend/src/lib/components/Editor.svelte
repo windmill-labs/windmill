@@ -506,9 +506,19 @@
 
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 	async function loadMonaco() {
-		const model = meditor.createModel(code, lang, mUri.parse(uri))
-
+		let model: meditor.ITextModel
+		try {
+			model = meditor.createModel(code, lang, mUri.parse(uri))
+		} catch (err) {
+			console.log('model already existed', err)
+			const nmodel = meditor.getModel(mUri.parse(uri))
+			if (!nmodel) {
+				throw err
+			}
+			model = nmodel
+		}
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
+
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
@@ -555,7 +565,7 @@
 		return () => {
 			try {
 				closeWebsockets()
-				model.dispose()
+				model?.dispose()
 				editor && editor.dispose()
 			} catch (err) {
 				console.log('error disposing editor', err)
