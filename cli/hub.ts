@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command, ResourceService } from "./deps.ts";
+import { Command, ResourceService, log } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
@@ -8,7 +8,7 @@ async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
   if (workspace.workspaceId !== "admins") {
-    console.log(
+    log.info(
       "Should only sync to admins workspace, but current is not admins."
     );
     return;
@@ -48,7 +48,7 @@ async function pull(opts: GlobalOptions) {
     .then((x) =>
       x.map((x) =>
         x.json().catch((e) => {
-          console.log(e);
+          log.info(e);
           return undefined;
         })
       )
@@ -62,15 +62,16 @@ async function pull(opts: GlobalOptions) {
 
   for (const x of list) {
     if (resourceTypes.find((y) => y.name === x.name)) {
-      console.log("skipping " + x.name);
+      log.info("skipping " + x.name);
       continue;
     }
-    console.log("syncing " + x.name);
+    log.info("syncing " + x.name);
     await pushResourceType(
       workspace.workspaceId,
       x.name + ".resource-type.json",
       undefined,
-      x
+      x,
+      false
     );
   }
 }
