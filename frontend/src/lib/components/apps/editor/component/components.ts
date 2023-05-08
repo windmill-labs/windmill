@@ -105,6 +105,7 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
+export type ModalComponent = BaseComponent<'modalcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
@@ -150,6 +151,7 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
+	| ModalComponent
 	| StepperComponent
 	| Schemaformcomponent
 
@@ -219,7 +221,8 @@ export const selectOptions = {
 		'en-CA'
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
-	splitPanelOptions: ['2', '3', '4']
+	splitPanelOptions: ['2', '3', '4'],
+	formorientationOptions: ['Horizontal', 'Vertical']
 }
 
 const onSuccessClick = {
@@ -1686,12 +1689,68 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	modalcomponent: {
+		name: 'Modal',
+		icon: SidebarClose,
+		dims: '1:1-2:1' as AppComponentDimensions,
+		customCss: {
+			button: { class: '', style: '' },
+			popup: { class: '', style: '' }
+		},
+		initialData: {
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
+			configuration: {
+				modalTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Modal title',
+					onlyStatic: true
+				},
+				buttonLabel: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				buttonColor: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: buttonColorOptions,
+					value: 'blue'
+				},
+				buttonSize: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				buttonFillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				buttonDisabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				}
+			},
+			componentInput: undefined,
+
+			numberOfSubgrids: 1
+		}
+	},
 	schemaformcomponent: {
 		name: 'Schema Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			label: { class: '', style: '' },
+			description: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: {
@@ -1704,7 +1763,18 @@ Hello \${ctx.username}
 					type: 'object'
 				}
 			},
-			configuration: {}
+			configuration: {
+				displayType: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				},
+				largeGap: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				}
+			}
 		}
 	}
 } as const
