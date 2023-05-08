@@ -38,6 +38,10 @@ let command: any = new Command()
   )
   .globalOption("--debug", "Show debug logs")
   .globalOption(
+    "--show-diffs",
+    "Show diff informations when syncing (may show sensitive informations)"
+  )
+  .globalOption(
     "--token <token:string>",
     "Specify an API token. This will override any stored token."
   )
@@ -82,9 +86,11 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
   command = command.command("push", push).command("pull", pull);
 }
 
+export let showDiffs = false;
 try {
   const LOG_LEVEL = Deno.args.includes("--debug") ? "DEBUG" : "INFO";
   // const NO_COLORS = Deno.args.includes("--no-colors");
+  showDiffs = Deno.args.includes("--show-diffs");
 
   log.setup({
     handlers: {

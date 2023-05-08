@@ -15,6 +15,7 @@ import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
 import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
+import { showDiffs } from "./main.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -48,7 +49,7 @@ export function isSuperset(
 ): boolean {
   return Object.keys(subset).every((key) => {
     const eq = equal(subset[key], superset[key]);
-    if (!eq) {
+    if (!eq && showDiffs) {
       const sub = subset[key];
       const supers = superset[key];
       if (!supers) {
@@ -102,25 +103,25 @@ export function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  raw: boolean
+  checkForCreate: boolean
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj, raw);
+    pushApp(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "folder") {
-    pushFolder(workspace, p, befObj, newObj, raw);
+    pushFolder(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "script") {
     pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    pushVariable(workspace, p, befObj, newObj, plainSecrets, raw);
+    pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
     pushFlow(workspace, flowName, flowName + ".flow", workspace);
   } else if (typeEnding === "resource") {
-    pushResource(workspace, p, befObj, newObj, raw);
+    pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
-    pushResourceType(workspace, p, befObj, newObj, raw);
+    pushResourceType(workspace, p, befObj, newObj, checkForCreate);
   } else {
     throw new Error("infer type unreachable");
   }
