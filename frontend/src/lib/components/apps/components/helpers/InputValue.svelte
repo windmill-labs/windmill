@@ -6,6 +6,7 @@
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
+	import { deepEqual } from 'fast-equals'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -76,7 +77,7 @@
 		$state &&
 		debounce(async () => {
 			let nvalue = await getValue(lastInput)
-			if (!deepEqualWithOrderedArray(nvalue, value)) {
+			if (!deepEqual(nvalue, value)) {
 				value = nvalue
 			}
 			dispatch('done')
@@ -88,7 +89,7 @@
 		$state &&
 		debounce2(async () => {
 			let nvalue = await evalExpr(lastInput)
-			if (!deepEqualWithOrderedArray(nvalue, value)) {
+			if (!deepEqual(nvalue, value)) {
 				value = nvalue
 			}
 		})
