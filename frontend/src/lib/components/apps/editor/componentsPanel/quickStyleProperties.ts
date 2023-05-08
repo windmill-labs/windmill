@@ -556,10 +556,6 @@ export const quickStyleProperties: Record<
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
-	schemaformcomponent: {
-		container: containerDefaultProps,
-		button: buttonDefaultProps
-	},
 	formcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
@@ -614,6 +610,9 @@ export const quickStyleProperties: Record<
 		button: buttonDefaultProps
 	},
 	drawercomponent: {
+		container: containerDefaultProps
+	},
+	modalcomponent: {
 		container: containerDefaultProps
 	},
 	plotlycomponent: {},
@@ -696,5 +695,9 @@ export const quickStyleProperties: Record<
 	},
 	horizontalsplitpanescomponent: {
 		container: containerDefaultProps
+	},
+	schemaformcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
 	}
 }
