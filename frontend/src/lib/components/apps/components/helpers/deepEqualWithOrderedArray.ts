@@ -1,6 +1,9 @@
 import { createCustomEqual } from 'fast-equals'
 
-function compareObjects(obj1: { [key: string]: any }, obj2: { [key: string]: any }): boolean {
+function compareObjectsKeysOrder(
+	obj1: { [key: string]: any },
+	obj2: { [key: string]: any }
+): boolean {
 	const keys1 = Object.keys(obj1)
 	const keys2 = Object.keys(obj2)
 
@@ -31,7 +34,7 @@ const deepEqualWithOrderedArray = createCustomEqual({
 	createCustomConfig: (defaultConfig) => ({
 		...defaultConfig,
 		areObjectsEqual: (a, b, state) => {
-			return defaultConfig.areObjectsEqual(a, b, state) && compareObjects(a, b)
+			return defaultConfig.areObjectsEqual(a, b, state) && compareObjectsKeysOrder(a, b)
 		}
 	})
 })
