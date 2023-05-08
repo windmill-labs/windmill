@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.96.2](https://github.com/windmill-labs/windmill/compare/v1.96.1...v1.96.2) (2023-05-08)
+
+
+### Bug Fixes
+
+* **cli:** add debug mode to CLI + improve error output ([8f1cdf1](https://github.com/windmill-labs/windmill/commit/8f1cdf1d61adf80bf0d7c4a5160fd3085d3814ac))
+
 ## [1.96.1](https://github.com/windmill-labs/windmill/compare/v1.96.0...v1.96.1) (2023-05-08)
 
 
