@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.96.1](https://github.com/windmill-labs/windmill/compare/v1.96.0...v1.96.1) (2023-05-08)
+
+
+### Bug Fixes
+
+* **cli:** fix cli folder sync ([239f401](https://github.com/windmill-labs/windmill/commit/239f40199955d47e4943be4c72c3d150a58f2dd9))
+* **cli:** fix cli folder sync ([a90514b](https://github.com/windmill-labs/windmill/commit/a90514b8e99a419c26512eb370895322088b6aa9))
+
 ## [1.96.0](https://github.com/windmill-labs/windmill/compare/v1.95.1...v1.96.0) (2023-05-08)
 
 
