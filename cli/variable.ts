@@ -50,9 +50,22 @@ export async function pushVariable(
   remotePath: string,
   variable: VariableFile | ListableVariable | undefined,
   localVariable: VariableFile,
-  plainSecrets: boolean
+  plainSecrets: boolean,
+  raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
+
+  if (raw) {
+    try {
+      variable = await VariableService.getVariable({
+        workspace: workspace,
+        path: remotePath,
+        decryptSecret: plainSecrets,
+      });
+    } catch {
+      // resource type doesn't exist
+    }
+  }
 
   if (variable) {
     if (isSuperset(localVariable, variable)) {
@@ -99,22 +112,13 @@ async function push(
 
   console.log(colors.bold.yellow("Pushing variable..."));
 
-  let variable: ListableVariable | undefined = undefined;
-  try {
-    variable = await VariableService.getVariable({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // resource type doesn't exist
-  }
-
   await pushVariable(
     workspace.workspaceId,
     remotePath,
-    variable,
+    undefined,
     parseFromFile(filePath),
-    opts.plainSecrets
+    opts.plainSecrets,
+    true
   );
   console.log(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
