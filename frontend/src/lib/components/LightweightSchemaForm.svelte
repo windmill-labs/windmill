@@ -1,9 +1,13 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import LightweightArgInput from './LightweightArgInput.svelte'
+	import type { ComponentCustomCSS } from './apps/types'
+
+	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
 	export let schema: Schema
 	export let args: Record<string, any> | undefined = undefined
+	export let displayType: boolean = true
 
 	$: if (args === undefined) {
 		args = {}
@@ -29,6 +33,8 @@
 					itemsType={schema.properties[argName].items}
 					extra={schema.properties[argName]}
 					on:inputClicked
+					{displayType}
+					{css}
 				/>
 			{/if}
 		</div>
