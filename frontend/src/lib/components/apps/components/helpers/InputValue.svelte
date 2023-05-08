@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { deepEqual } from 'fast-equals'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
+	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -28,7 +28,7 @@
 
 	onDestroy(() => (lastInput = undefined))
 
-	$: if (input && !deepEqual(input, lastInput)) {
+	$: if (input && !deepEqualWithOrderedArray(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
 		// Needed because of file uploads
 		if (input?.['value'] instanceof ArrayBuffer) {
@@ -76,7 +76,7 @@
 		$state &&
 		debounce(async () => {
 			let nvalue = await getValue(lastInput)
-			if (!deepEqual(nvalue, value)) {
+			if (!deepEqualWithOrderedArray(nvalue, value)) {
 				value = nvalue
 			}
 			dispatch('done')
@@ -88,7 +88,7 @@
 		$state &&
 		debounce2(async () => {
 			let nvalue = await evalExpr(lastInput)
-			if (!deepEqual(nvalue, value)) {
+			if (!deepEqualWithOrderedArray(nvalue, value)) {
 				value = nvalue
 			}
 		})
