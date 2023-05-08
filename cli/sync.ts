@@ -700,7 +700,7 @@ async function push(
           undefined,
           obj,
           opts.plainSecrets ?? false,
-          opts.raw || opts.skipPull
+          opts.raw
         );
 
         if (!opts.raw && stateExists) {
