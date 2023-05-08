@@ -219,7 +219,8 @@ export const selectOptions = {
 		'en-CA'
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
-	splitPanelOptions: ['2', '3', '4']
+	splitPanelOptions: ['2', '3', '4'],
+	formorientationOptions: ['Horizontal', 'Vertical']
 }
 
 const onSuccessClick = {
@@ -1691,7 +1692,9 @@ Hello \${ctx.username}
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			label: { class: '', style: '' },
+			description: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: {
@@ -1704,7 +1707,18 @@ Hello \${ctx.username}
 					type: 'object'
 				}
 			},
-			configuration: {}
+			configuration: {
+				displayType: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				},
+				largeGap: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				}
+			}
 		}
 	}
 } as const
