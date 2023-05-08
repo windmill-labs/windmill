@@ -1688,7 +1688,6 @@ Hello \${ctx.username}
 			}
 		}
 	},
-<<<<<<< HEAD
 	modalcomponent: {
 		name: 'Modal',
 		icon: SidebarClose,
@@ -1741,7 +1740,8 @@ Hello \${ctx.username}
 			componentInput: undefined,
 
 			numberOfSubgrids: 1
-=======
+		}
+	},
 	schemaformcomponent: {
 		name: 'Schema Form',
 		icon: FileText,
@@ -1761,7 +1761,6 @@ Hello \${ctx.username}
 				}
 			},
 			configuration: {}
->>>>>>> main
 		}
 	}
 } as const
