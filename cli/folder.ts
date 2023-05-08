@@ -21,6 +21,7 @@ export async function pushFolder(
   if (name.startsWith("f/")) {
     name = name.substring(2);
   }
+  name = name.split("/")[0];
 
   if (folder) {
     if (isSuperset(localFolder, folder)) {
