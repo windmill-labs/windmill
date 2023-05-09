@@ -11,7 +11,8 @@ const layout: ComponentSet = {
 		'verticalsplitpanescomponent',
 		'horizontalsplitpanescomponent',
 		'modalcomponent',
-		'steppercomponent'
+		'steppercomponent',
+		'conditionalwrapper'
 	]
 } as const
 

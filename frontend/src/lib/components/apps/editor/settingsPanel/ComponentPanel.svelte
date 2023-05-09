@@ -27,6 +27,7 @@
 	import { secondaryMenu } from './secondaryMenu'
 	import StylePanel from './StylePanel.svelte'
 	import { Delete } from 'lucide-svelte'
+	import GridCondition from './GridCondition.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -244,6 +245,8 @@
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
+		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
+			<GridCondition bind:conditions={componentSettings.item.data.conditions} {component} />
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}

@@ -34,7 +34,8 @@ import {
 	FlipHorizontal,
 	FlipVertical,
 	FileText,
-	AtSignIcon
+	AtSignIcon,
+	Split
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -44,7 +45,7 @@ import type {
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
-import type { ResultAppInput, StaticAppInput } from '../../inputType'
+import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -109,6 +110,10 @@ export type ModalComponent = BaseComponent<'modalcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
+export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
+	conditions: AppInputSpec<'boolean', boolean>[]
+}
+
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 
 export type TypedComponent =
@@ -154,6 +159,7 @@ export type TypedComponent =
 	| ModalComponent
 	| StepperComponent
 	| Schemaformcomponent
+	| ConditionalWrapperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -196,6 +202,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	actionButtons?: boolean
 	tabs?: string[]
 	panes?: number[]
+	conditions?: AppInputSpec<'boolean', boolean>[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -1775,6 +1782,32 @@ Hello \${ctx.username}
 					value: false
 				}
 			}
+		}
+	},
+	conditionalwrapper: {
+		name: 'Conditional wrapper',
+		icon: Split,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 2,
+			conditions: [
+				{
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				{
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				}
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	}
 } as const
