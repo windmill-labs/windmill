@@ -139,6 +139,17 @@
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
 		{/if}
+		<!-- {#if flow.path != ''}
+			<Button
+				btnClasses="h-full truncate"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					capturePayload.openDrawer()
+				}}>Input library</Button
+			>
+		{/if} -->
+
 		<Button
 			btnClasses="h-full truncate"
 			size="sm"
