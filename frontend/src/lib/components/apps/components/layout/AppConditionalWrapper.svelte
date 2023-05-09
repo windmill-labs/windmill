@@ -41,9 +41,11 @@
 
 		const firstTrueIndex = forcedIndex !== -1 ? forcedIndex : slicedArray.findIndex((c) => c)
 
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: firstTrueIndex
+		if ($focusedGrid?.parentComponentId === id) {
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: firstTrueIndex
+			}
 		}
 
 		selectedConditionIndex = firstTrueIndex
