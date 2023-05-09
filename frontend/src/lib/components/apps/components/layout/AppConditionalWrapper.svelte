@@ -2,17 +2,16 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import type { AppInputSpec } from '../../inputType'
 	import { InputValue } from '../helpers'
 
 	export let id: string
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
-	export let conditions: AppInputSpec<'boolean', boolean>[]
+	export let conditions: RichConfiguration[]
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')

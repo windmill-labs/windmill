@@ -99,9 +99,9 @@
 									)}
 								>
 									{#if index === component.conditions.length - 1}
-										{`Manually set default condition`}
+										{`Debug default condition`}
 									{:else}
-										{`Manually set condition ${index + 1}`}
+										{`Debug condition ${index + 1}`}
 									{/if}
 								</div>
 							</MenuItem>
@@ -117,7 +117,7 @@
 									'!text-red-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
 								)}
 							>
-								{`Select subgrid based on conditions`}
+								{`Reset debug mode`}
 							</div>
 						</MenuItem>
 					</svelte:fragment>

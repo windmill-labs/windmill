@@ -42,6 +42,7 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	RichConfiguration,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
@@ -112,7 +113,7 @@ export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
 export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
-	conditions: AppInputSpec<'boolean', boolean>[]
+	conditions: RichConfiguration[]
 }
 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>

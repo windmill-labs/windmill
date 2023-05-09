@@ -9,13 +9,13 @@
 	import { generateRandomString } from '$lib/utils'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { getContext, tick } from 'svelte'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	export let conditions: AppInputSpec<'boolean', boolean>[] = []
+	export let conditions: RichConfiguration[] = []
 	export let component: AppComponent
 	let dragDisabled = true
 
