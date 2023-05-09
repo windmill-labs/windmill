@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, path } from "./deps.ts";
+import { colors, log, path } from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import {
   parse as yamlParse,
@@ -15,6 +15,7 @@ import { pushResourceType } from "./resource-type.ts";
 import { pushVariable } from "./variable.ts";
 import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
+import { showDiffs } from "./main.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -48,13 +49,13 @@ export function isSuperset(
 ): boolean {
   return Object.keys(subset).every((key) => {
     const eq = equal(subset[key], superset[key]);
-    if (!eq) {
+    if (!eq && showDiffs) {
       const sub = subset[key];
       const supers = superset[key];
       if (!supers) {
-        console.log(`Key ${key} not found in remote`);
+        log.info(`Key ${key} not found in remote`);
       } else {
-        console.log(`Found diff for ${key}:`);
+        log.info(`Found diff for ${key}:`);
         showDiff(
           yamlStringify(sub, yamlOptions),
           yamlStringify(supers, yamlOptions)
@@ -86,14 +87,14 @@ export function showDiff(local: string, remote: string) {
       finalString += `\x1b[37m${lines.join("\n")}\x1b[0m`;
     }
   }
-  console.log(finalString);
+  log.info(finalString);
 }
 
 export function showConflict(path: string, local: string, remote: string) {
-  console.log(colors.yellow(`- ${path}`));
+  log.info(colors.yellow(`- ${path}`));
   showDiff(local, remote);
-  console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
-  console.log();
+  log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
+  log.info("\n");
 }
 
 export function pushObj(
@@ -102,25 +103,25 @@ export function pushObj(
   befObj: any,
   newObj: any,
   plainSecrets: boolean,
-  raw: boolean
+  checkForCreate: boolean
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    pushApp(workspace, p, befObj, newObj, raw);
+    pushApp(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "folder") {
-    pushFolder(workspace, p, befObj, newObj, raw);
+    pushFolder(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "script") {
     pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    pushVariable(workspace, p, befObj, newObj, plainSecrets, raw);
+    pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
     pushFlow(workspace, flowName, flowName + ".flow", workspace);
   } else if (typeEnding === "resource") {
-    pushResource(workspace, p, befObj, newObj, raw);
+    pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
-    pushResourceType(workspace, p, befObj, newObj, raw);
+    pushResourceType(workspace, p, befObj, newObj, checkForCreate);
   } else {
     throw new Error("infer type unreachable");
   }

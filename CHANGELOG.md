@@ -1,6 +1,49 @@
 # Changelog
 
 
+## [1.98.0](https://github.com/windmill-labs/windmill/compare/v1.97.0...v1.98.0) (2023-05-09)
+
+
+### Features
+
+* **frontend:** if member of a single workspace, autoset at login ([2dfb74e](https://github.com/windmill-labs/windmill/commit/2dfb74e7e45b279f5169ac89b483ed336e0bd109))
+
+
+### Bug Fixes
+
+* **backend:** grant all on raw_app ([c62670f](https://github.com/windmill-labs/windmill/commit/c62670f735da8378a896b538f3c3afeef100f7ab))
+
+## [1.97.0](https://github.com/windmill-labs/windmill/compare/v1.96.3...v1.97.0) (2023-05-09)
+
+
+### Features
+
+* **backend:** add windmill_status_code to run_wait_result ([38ec7d3](https://github.com/windmill-labs/windmill/commit/38ec7d3a857a19e474f0a1b07b73b85aa5f10f41))
+* **backend:** cache hub scripts in the worker cache ([7537f1a](https://github.com/windmill-labs/windmill/commit/7537f1a1d7162610f78a7e84a53d57f8478a5965))
+* **backend:** in python, if a value is bytes, it is encoded to base64 automaticaly ([6b5ceed](https://github.com/windmill-labs/windmill/commit/6b5ceed6525d4251517627351a15a4fe604629fc))
+
+
+### Bug Fixes
+
+* **lsp:** handle write_message errors ([9392890](https://github.com/windmill-labs/windmill/commit/939289030ba667afc9b517dfdc90f26378fa44a6))
+
+## [1.96.3](https://github.com/windmill-labs/windmill/compare/v1.96.2...v1.96.3) (2023-05-08)
+
+
+### Bug Fixes
+
+* **cli:** add folder listing ([c598083](https://github.com/windmill-labs/windmill/commit/c5980839251cdc759c5afc688e7084f5d58ad57f))
+* **cli:** show diffs only with --show-diffs ([d254088](https://github.com/windmill-labs/windmill/commit/d254088fce00091352ad95888deeaf88bc6c9d6f))
+* **cli:** show diffs only with --show-diffs ([37f08e9](https://github.com/windmill-labs/windmill/commit/37f08e9357c7a74a1c6cdc18bad2d6dc4de5d33d))
+* **cli:** variable updating ([2639250](https://github.com/windmill-labs/windmill/commit/2639250b43c3c55f5b9a43f4020fc2f0747e792b))
+
+## [1.96.2](https://github.com/windmill-labs/windmill/compare/v1.96.1...v1.96.2) (2023-05-08)
+
+
+### Bug Fixes
+
+* **cli:** add debug mode to CLI + improve error output ([8f1cdf1](https://github.com/windmill-labs/windmill/commit/8f1cdf1d61adf80bf0d7c4a5160fd3085d3814ac))
+
 ## [1.96.1](https://github.com/windmill-labs/windmill/compare/v1.96.0...v1.96.1) (2023-05-08)
 
 

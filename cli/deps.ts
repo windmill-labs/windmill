@@ -37,3 +37,4 @@ export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
 export { default as gitignore_parser } from "npm:gitignore-parser";
 export { default as JSZip } from "npm:jszip@3.7.1";
+export * as log from "https://deno.land/std@0.186.0/log/mod.ts";

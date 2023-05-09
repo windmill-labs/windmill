@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, GlobalUserInfo, setClient, UserService } from "./deps.ts";
+import { colors, GlobalUserInfo, log, setClient, UserService } from "./deps.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import {
@@ -53,7 +53,7 @@ export async function resolveWorkspace(
 ): Promise<Workspace> {
   const res = await tryResolveWorkspace(opts);
   if (res.isError) {
-    console.log(colors.red.bold(res.error));
+    log.info(colors.red.bold(res.error));
     return Deno.exit(-1);
   } else {
     return res.value;
@@ -75,7 +75,7 @@ export async function requireLogin(
   try {
     return await UserService.globalWhoami();
   } catch {
-    console.log(
+    log.info(
       "! Could not reach API given existing credentials. Attempting to reauth..."
     );
     const newToken = await loginInteractive(workspace.remote);
@@ -119,7 +119,7 @@ export async function tryResolveVersion(
 
 export function validatePath(path: string): boolean {
   if (!(path.startsWith("g") || path.startsWith("u") || path.startsWith("f"))) {
-    console.log(
+    log.info(
       colors.red(
         "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/..."
       )

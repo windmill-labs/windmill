@@ -44,7 +44,14 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
             # Start a tornado IOLoop for reading/writing to the process in this thread
             self.loop = ioloop.IOLoop()
             reader = streams.JsonRpcStreamReader(self.proc.stdout)
-            reader.listen(lambda msg: self.write_message(json.dumps(msg)))
+
+            def on_listen(msg):
+                try:
+                    self.write_message(json.dumps(msg))
+                except Exception as e:
+                    log.error("Error writing message", e)
+
+            reader.listen(on_listen)
 
         self.thread = threading.Thread(target=consume)
         self.thread.daemon = True

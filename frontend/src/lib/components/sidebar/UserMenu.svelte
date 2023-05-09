@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import { userStore, usersWorkspaceStore, superadmin, usageStore, premiumStore } from '$lib/stores'
+	import {
+		userStore,
+		usersWorkspaceStore,
+		superadmin,
+		usageStore,
+		premiumStore,
+		switchWorkspace,
+		workspaceStore
+	} from '$lib/stores'
 	import { classNames, isCloudHosted } from '$lib/utils'
 	import { faCog, faCrown, faHardHat, faSignOut, faUser } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -69,6 +77,23 @@
 					tabindex="-1"
 				>
 					<Icon class="pr-0.5" data={faCog} /> Superadmin settings
+				</a>
+			</div>
+			<div class="py-1" role="none">
+				<a
+					on:click={() => {
+						if ($workspaceStore === 'admins') {
+							return
+						}
+						switchWorkspace('admins')
+						close()
+					}}
+					href=""
+					class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					role="menuitem"
+					tabindex="-1"
+				>
+					<Icon class="pr-0.5" data={faCog} /> Superadmin workspace
 				</a>
 			</div>
 		{/if}

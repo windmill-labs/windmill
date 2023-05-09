@@ -2,7 +2,7 @@
 	import { Job, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Kbd } from './common'
+	import { Button, Drawer, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { dfs } from './flows/flowStore'
@@ -14,6 +14,8 @@
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { getModifierKey } from '$lib/utils'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import SavedInputs from './SavedInputs.svelte'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -24,7 +26,7 @@
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
-	const { selectedId, previewArgs, flowStateStore, flowStore } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -88,11 +90,27 @@
 	$: if (job?.type === 'CompletedJob') {
 		isRunning = false
 	}
+
+	let inputLibraryDrawer: Drawer
 </script>
 
 <CapturePayload bind:this={capturePayload} />
 
 <svelte:window on:keydown={onKeyDown} />
+
+<Drawer bind:this={inputLibraryDrawer}>
+	<DrawerContent title="Input library {initialPath}" on:close={inputLibraryDrawer?.toggleDrawer}>
+		<SavedInputs
+			flowPath={initialPath}
+			isValid={true}
+			args={$previewArgs}
+			on:selected_args={(e) => {
+				$previewArgs = JSON.parse(JSON.stringify(e.detail))
+				inputLibraryDrawer?.closeDrawer()
+			}}
+		/>
+	</DrawerContent>
+</Drawer>
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
@@ -139,14 +157,27 @@
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
 		{/if}
-		<Button
-			btnClasses="h-full truncate"
-			size="sm"
-			variant="border"
-			on:click={() => {
-				capturePayload.openDrawer()
-			}}>Fill args from a request</Button
-		>
+		<div class="flex gap-2">
+			{#if initialPath != ''}
+				<Button
+					btnClasses="h-full truncate"
+					size="sm"
+					variant="border"
+					on:click={() => {
+						inputLibraryDrawer?.openDrawer()
+					}}>Input library</Button
+				>
+			{/if}
+
+			<Button
+				btnClasses="h-full truncate"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					capturePayload.openDrawer()
+				}}>Fill args from a request</Button
+			>
+		</div>
 	</div>
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 

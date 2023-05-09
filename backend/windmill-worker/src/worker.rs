@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use anyhow::Result;
+use anyhow::{Result};
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
@@ -23,11 +23,11 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
-    scripts::{ScriptHash, ScriptLang},
-    utils::{rd_string},
+    scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path},
+    utils::{rd_string, StripPath},
     variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob}, IS_READY,
 };
-use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT};
 
 use serde_json::{json, Value};
 
@@ -127,9 +127,12 @@ pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+
 pub const TAR_PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "tar/pip");
 pub const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
 pub const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
+pub const HUB_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "hub");
 
 const NUM_SECS_PING: u64 = 5;
 
@@ -1130,13 +1133,34 @@ async fn handle_code_execution_job(
 
 ) -> error::Result<serde_json::Value> {
     let (inner_content, requirements_o, language) = match job.job_kind {
-        JobKind::Preview | JobKind::Script_Hub => (
+        JobKind::Preview  => (
             job.raw_code
                 .clone()
                 .unwrap_or_else(|| "no raw code".to_owned()),
             job.raw_lock.clone(),
             job.language.to_owned(),
         ),
+        JobKind::Script_Hub => {
+            let script_path = job.script_path.clone().ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
+            let mut script_path_iterator = script_path.split("/");
+            script_path_iterator.next();
+            let version = script_path_iterator.next().ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+            let cache_path = format!("{HUB_CACHE_DIR}/{version}");
+            let script;
+            if tokio::fs::metadata(&cache_path).await.is_err() {
+                script =  get_full_hub_script_by_path(&job.email, StripPath(script_path.clone()), &HTTP_CLIENT).await?;
+                write_file(HUB_CACHE_DIR, &version, &serde_json::to_string(&script).map_err(to_anyhow)?).await?;
+                tracing::info!("wrote hub script {script_path} to cache");
+            } else {
+                let cache_content = tokio::fs::read_to_string(cache_path).await?;
+                script = serde_json::from_str(&cache_content).unwrap();
+                tracing::info!("read hub script {script_path} from cache");
+            }
+            (
+            script.content,
+            script.lockfile,
+            Some(script.language)
+        )},
         JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
             "SELECT content, lock, language FROM script WHERE hash = $1 AND workspace_id = $2",
         )

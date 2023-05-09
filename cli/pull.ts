@@ -30,7 +30,7 @@ export async function downloadZip(
     throw new Error(await zipResponse.text());
   }
   const blob = await zipResponse.blob();
-  return await JSZip.loadAsync(blob);
+  return await JSZip.loadAsync(blob as any);
 }
 
 async function stub(
