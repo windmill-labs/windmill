@@ -7,7 +7,6 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
-	export let initialPath: string
 	export let loading: boolean
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -38,7 +37,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel {initialPath} />
+				<FlowEditorPanel />
 			{/if}
 		</Pane>
 	</Splitpanes>

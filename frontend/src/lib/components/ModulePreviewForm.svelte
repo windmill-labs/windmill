@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 
 	import { allTrue } from '$lib/utils'
-	import { Plug } from 'lucide-svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import { getContext } from 'svelte'
@@ -10,6 +10,7 @@
 	import { evalValue } from './flows/utils'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
+	import type SimpleEditor from './SimpleEditor.svelte'
 
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -49,7 +50,14 @@
 
 	function plugIt(argName: string) {
 		args[argName] = evalValue(argName, mod, testStepStore, pickableProperties, true)
+		try {
+			editor?.[argName]?.setCode(JSON.stringify(args[argName], null, 4))
+		} catch {
+			//ignore
+		}
 	}
+
+	let editor: Record<string, SimpleEditor | undefined> = {}
 </script>
 
 <div class="w-full pt-2">
@@ -67,6 +75,7 @@
 							type={schema.properties[argName].type}
 							required={schema.required.includes(argName)}
 							pattern={schema.properties[argName].pattern}
+							bind:editor={editor[argName]}
 							bind:valid={inputCheck[argName]}
 							defaultValue={schema.properties[argName].default}
 							enum_={schema.properties[argName].enum}
@@ -83,7 +92,7 @@
 							size="sm"
 							variant="border"
 							color="light"
-							title="Eval input component"><Plug size={14} /></Button
+							title="Re-evaluate input step"><RefreshCw size={14} /></Button
 						>
 					</div>
 				</div>

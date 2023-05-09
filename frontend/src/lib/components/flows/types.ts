@@ -16,4 +16,5 @@ export type FlowEditorContext = {
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
+	initialPath: string
 }
