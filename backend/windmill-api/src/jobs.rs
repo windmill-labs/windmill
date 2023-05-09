@@ -1421,6 +1421,13 @@ async fn run_wait_result<T>(
     }
     if let Some(result) = result {
         g.done = true;
+        let status_code = result
+            .get("windmill_status_code")
+            .and_then(|x| x.as_i64())
+            .and_then(|x| StatusCode::from_u16(x as u16).ok());
+        if let Some(status_code) = status_code {
+            return Err(Error::CustomStatusCode(status_code, result));
+        }
         Ok(Json(result))
     } else {
         Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
