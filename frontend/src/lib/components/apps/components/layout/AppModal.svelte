@@ -15,7 +15,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
-	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -56,7 +56,7 @@
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
 			btnClasses={twMerge(
-				$app.css?.['buttoncomponent']?.['button']?.class,
+				css?.button?.class,
 				resolvedConfig.buttonFillContainer ? 'w-full h-full' : ''
 			)}
 			disabled={resolvedConfig.buttonDisabled}
@@ -95,12 +95,16 @@
 <Portal target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
-			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
-			open ? 'z-50 bg-black bg-opacity-60' : 'hidden'
+			'fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
+			open ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
 		)}
 	>
 		<div
-			class="m-24 h-[80%] bg-white overflow-y-auto rounded-lg relative"
+			style={css?.popup?.style}
+			class={twMerge(
+				'm-24 h-[80%] bg-white overflow-y-auto rounded-lg relative',
+				css?.popup?.class
+			)}
 			use:clickOutside
 			on:click_outside={() => {
 				if ($mode !== 'dnd') {
@@ -115,6 +119,7 @@
 						on:click={() => {
 							open = false
 						}}
+						style={css?.button?.style}
 						class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
 					>
 						<X class="text-gray-500" />
@@ -137,8 +142,8 @@
 					<SubGridEditor
 						visible={open && render}
 						{id}
-						class={css?.container?.class}
-						style={css?.container?.style}
+						noPadding
+						noYPadding
 						subGridId={`${id}-0`}
 						on:focus={() => {
 							if (!$connectingInput.opened) {
