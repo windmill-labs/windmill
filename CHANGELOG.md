@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.97.0](https://github.com/windmill-labs/windmill/compare/v1.96.3...v1.97.0) (2023-05-09)
+
+
+### Features
+
+* **backend:** add windmill_status_code to run_wait_result ([38ec7d3](https://github.com/windmill-labs/windmill/commit/38ec7d3a857a19e474f0a1b07b73b85aa5f10f41))
+* **backend:** cache hub scripts in the worker cache ([7537f1a](https://github.com/windmill-labs/windmill/commit/7537f1a1d7162610f78a7e84a53d57f8478a5965))
+* **backend:** in python, if a value is bytes, it is encoded to base64 automaticaly ([6b5ceed](https://github.com/windmill-labs/windmill/commit/6b5ceed6525d4251517627351a15a4fe604629fc))
+
+
+### Bug Fixes
+
+* **lsp:** handle write_message errors ([9392890](https://github.com/windmill-labs/windmill/commit/939289030ba667afc9b517dfdc90f26378fa44a6))
+
 ## [1.96.3](https://github.com/windmill-labs/windmill/compare/v1.96.2...v1.96.3) (2023-05-08)
 
 
