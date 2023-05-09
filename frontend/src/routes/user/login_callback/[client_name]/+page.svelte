@@ -3,10 +3,10 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
-	import { UserService } from '$lib/gen'
+	import { UserService, WorkspaceService } from '$lib/gen'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logout'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -40,6 +40,22 @@
 				$userStore = await getUserExt($workspaceStore)
 				goto(rd ?? '/')
 			} else {
+				if (!$usersWorkspaceStore) {
+					try {
+						usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+					} catch {}
+				}
+				const allWorkspaces = $usersWorkspaceStore?.workspaces
+				if (allWorkspaces?.length == 1) {
+					$workspaceStore = allWorkspaces[0].id
+					if (rd) {
+						goto(rd, { replaceState: true })
+					} else {
+						goto('/', { replaceState: true })
+					}
+					return
+				}
+
 				if (rd) {
 					goto('/user/workspaces?rd=' + encodeURIComponent(rd), { replaceState: true })
 				} else {

@@ -67,7 +67,7 @@
 		redirectUser()
 	}
 
-	function redirectUser() {
+	async function redirectUser() {
 		const firstTimeCookie =
 			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
 		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
@@ -82,6 +82,17 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
+			if (!$usersWorkspaceStore) {
+				try {
+					usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				} catch {}
+			}
+			const allWorkspaces = $usersWorkspaceStore?.workspaces
+			if (allWorkspaces?.length == 1) {
+				$workspaceStore = allWorkspaces[0].id
+				goto('/')
+				return
+			}
 			if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
 			} else {
