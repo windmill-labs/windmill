@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.98.0](https://github.com/windmill-labs/windmill/compare/v1.97.0...v1.98.0) (2023-05-09)
+
+
+### Features
+
+* **frontend:** if member of a single workspace, autoset at login ([2dfb74e](https://github.com/windmill-labs/windmill/commit/2dfb74e7e45b279f5169ac89b483ed336e0bd109))
+
+
+### Bug Fixes
+
+* **backend:** grant all on raw_app ([c62670f](https://github.com/windmill-labs/windmill/commit/c62670f735da8378a896b538f3c3afeef100f7ab))
+
 ## [1.97.0](https://github.com/windmill-labs/windmill/compare/v1.96.3...v1.97.0) (2023-05-09)
 
 
