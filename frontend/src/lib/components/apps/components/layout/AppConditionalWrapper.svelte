@@ -14,7 +14,7 @@
 	export let render: boolean
 	export let conditions: AppInputSpec<'boolean', boolean>[]
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
@@ -33,14 +33,13 @@
 
 	let resolvedConditions: boolean[] = []
 	let selectedConditionIndex = 0
-	let forcedIndex: number | undefined = undefined
+	let forcedIndex: number = -1
 
 	function handleResolvedConditions() {
-		console.log('handleResolvedConditions', resolvedConditions, conditions)
 		const slicedArray = resolvedConditions.slice(0, conditions.length)
 		outputs.conditions.set(slicedArray, true)
 
-		const firstTrueIndex = forcedIndex !== undefined ? forcedIndex : slicedArray.findIndex((c) => c)
+		const firstTrueIndex = forcedIndex !== -1 ? forcedIndex : slicedArray.findIndex((c) => c)
 
 		$focusedGrid = {
 			parentComponentId: id,
@@ -51,7 +50,14 @@
 		outputs.selectedConditionIndex.set(firstTrueIndex)
 	}
 
-	$: resolvedConditions && handleResolvedConditions()
+	$: (resolvedConditions || conditions) && handleResolvedConditions()
+
+	$componentControl[id] = {
+		setTab: (conditionIndex: number) => {
+			forcedIndex = conditionIndex
+			handleResolvedConditions()
+		}
+	}
 </script>
 
 {#each conditions ?? [] as condition, index}

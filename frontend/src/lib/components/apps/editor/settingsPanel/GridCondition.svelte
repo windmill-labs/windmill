@@ -71,7 +71,11 @@
 		dragDisabled = false
 	}
 
-	function handleKeyDown(event: KeyboardEvent): void {}
+	function handleKeyDown(event: KeyboardEvent): void {
+		if ((event.key === 'Enter' || event.key === ' ') && dragDisabled) {
+			dragDisabled = false
+		}
+	}
 
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
@@ -87,6 +91,10 @@
 		}
 
 		items.splice(index, 1)
+
+		items = [...items]
+
+		component.numberOfSubgrids = items.length
 	}
 
 	function addCondition(): void {
@@ -101,13 +109,12 @@
 		)
 
 		$app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
-
 		$app.subgrids[`${component.id}-${numberOfConditions}`] = lastSubgrid
 		component.numberOfSubgrids = items.length
 
 		const newCondition: AppInputSpec<'boolean', boolean> = {
-			type: 'static',
-			value: false,
+			type: 'eval',
+			expr: 'false',
 			fieldType: 'boolean'
 		}
 
@@ -116,6 +123,8 @@
 			id: generateRandomString(),
 			originalIndex: items.length - 1
 		})
+
+		component.numberOfSubgrids = items.length
 	}
 </script>
 

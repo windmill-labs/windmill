@@ -45,6 +45,7 @@ import type {
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
+
 import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
@@ -1798,13 +1799,13 @@ Hello \${ctx.username}
 			numberOfSubgrids: 2,
 			conditions: [
 				{
-					type: 'static',
-					value: false,
+					type: 'eval',
+					expr: 'false',
 					fieldType: 'boolean'
 				},
 				{
-					type: 'static',
-					value: true,
+					type: 'eval',
+					expr: 'true',
 					fieldType: 'boolean'
 				}
 			] as AppInputSpec<'boolean', boolean>[]
