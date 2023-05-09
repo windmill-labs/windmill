@@ -62,6 +62,9 @@ export function evalValue(
 			}
 		}
 	}
+	if (v == NEVER_TESTED_THIS_FAR) {
+		return undefined
+	}
 	return v
 }
 

@@ -217,7 +217,8 @@
 		flowStateStore,
 		flowStore,
 		testStepStore,
-		saveDraft
+		saveDraft,
+		initialPath
 	})
 
 	async function loadSchedule() {
@@ -419,7 +420,7 @@
 
 		<!-- metadata -->
 		{#if $flowStateStore}
-			<FlowEditor {initialPath} {loading} />
+			<FlowEditor {loading} />
 		{:else}
 			<CenteredPage>Loading...</CenteredPage>
 		{/if}
