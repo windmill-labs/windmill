@@ -16,7 +16,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { COMPONENT_SETS, ccomponents } from '../component'
+	import { ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -28,6 +28,7 @@
 	import StylePanel from './StylePanel.svelte'
 	import { Delete } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
+	import { isTriggerable } from './script/utils'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -128,7 +129,7 @@
 	$: componentSettings?.item?.data && ($app = $app)
 
 	const hasInteraction = componentSettings?.item.data.type
-		? COMPONENT_SETS[1].components.includes(componentSettings?.item.data.type)
+		? isTriggerable(componentSettings?.item.data.type)
 		: false
 </script>
 

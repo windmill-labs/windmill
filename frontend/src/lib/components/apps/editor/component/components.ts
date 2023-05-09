@@ -454,7 +454,7 @@ export const components = {
 		}
 	},
 	formcomponent: {
-		name: 'Form',
+		name: 'Submit form',
 		icon: FormInput,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
@@ -1753,7 +1753,7 @@ Hello \${ctx.username}
 		}
 	},
 	schemaformcomponent: {
-		name: 'Schema Form',
+		name: 'Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
