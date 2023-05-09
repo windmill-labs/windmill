@@ -8,7 +8,6 @@
 
 use std::collections::HashMap;
 
-use anyhow::Context;
 use itertools::Itertools;
 use reqwest::Client;
 use sqlx::{Pool, Postgres, Transaction};
@@ -21,8 +20,7 @@ use windmill_common::{
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     jobs::{JobKind, JobPayload, QueuedJob, RawCode},
-    scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
-    utils::StripPath,
+    scripts::{ScriptHash, ScriptLang},
     METRICS_ENABLED,
 };
 
@@ -457,13 +455,11 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 )
             }
             JobPayload::ScriptHub { path } => {
-                let script = get_hub_script(&HTTP_CLIENT, path.clone(), email)
-                    .await
-                    .context("error fetching hub script")?;
                 (
                     None,
                     Some(path),
-                    Some((script.content, script.lockfile)),
+                    None,
+                    // Some((script.content, script.lockfile)),
                     JobKind::Script_Hub,
                     None,
                     None,
@@ -687,14 +683,4 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
         .unwrap_or_else(|| "no reason given");
     let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
-}
-
-pub async fn get_hub_script(
-    client: &reqwest::Client,
-    path: String,
-    email: &str,
-) -> error::Result<HubScript> {
-    get_full_hub_script_by_path(email, StripPath(path), client)
-        .await
-        .map(|e| e)
 }
