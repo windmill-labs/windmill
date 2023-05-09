@@ -37,6 +37,7 @@
 			class="resize-y duration-200 {inputClass}"
 			{...$$restProps}
 			on:input={handleInput}
+			on:keydown|stopPropagation
 			on:focus
 			on:blur
 		/>
@@ -48,6 +49,7 @@
 			class="duration-200 {(type === 'number' && value ? '!pr-[26px] ' : '') + inputClass}"
 			{...$$restProps}
 			on:input={handleInput}
+			on:keydown|stopPropagation
 			on:focus
 			on:blur
 		/>
