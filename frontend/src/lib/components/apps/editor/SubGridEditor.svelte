@@ -75,7 +75,7 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="height: {containerHeight}px; {style ?? ''}"
+		style="{containerHeight ? `height: ${containerHeight}px;` : ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
