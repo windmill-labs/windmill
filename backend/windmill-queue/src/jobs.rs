@@ -466,7 +466,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     Some((script.content, script.lockfile)),
                     JobKind::Script_Hub,
                     None,
-                    Some(script.language),
+                    None,
                 )
             }
             JobPayload::Code(RawCode { content, path, language, lock }) => (
