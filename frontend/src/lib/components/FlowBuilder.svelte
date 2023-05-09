@@ -216,7 +216,8 @@
 		history,
 		flowStateStore,
 		flowStore,
-		testStepStore
+		testStepStore,
+		saveDraft
 	})
 
 	async function loadSchedule() {
