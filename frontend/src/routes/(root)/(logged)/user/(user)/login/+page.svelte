@@ -167,7 +167,7 @@
 		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
 	>
 		<div class="bg-white px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
-			<div class="grid {providers?.length > 2 ? 'grid-cols-2' : ''} gap-4">
+			<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
 				{#if !logins}
 					{#each Array(4) as _}
 						<Skeleton layout={[0.5, [2.375]]} />
