@@ -1787,7 +1787,7 @@ Hello \${ctx.username}
 		}
 	},
 	conditionalwrapper: {
-		name: 'Conditional wrapper',
+		name: 'Conditional tabs',
 		icon: Split,
 		dims: '2:8-6:8' as AppComponentDimensions,
 
