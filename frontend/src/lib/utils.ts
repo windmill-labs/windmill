@@ -87,7 +87,8 @@ export type ToastAction = {
 export function sendUserToast(
 	message: string,
 	error: boolean = false,
-	actions: ToastAction[] = []
+	actions: ToastAction[] = [],
+	errorMessage: string | undefined = undefined
 ): void {
 	toast.push({
 		component: {
@@ -95,7 +96,8 @@ export function sendUserToast(
 			props: {
 				message,
 				error,
-				actions
+				actions,
+				errorMessage
 			},
 			sendIdTo: 'toastId'
 		},

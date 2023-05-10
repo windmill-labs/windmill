@@ -21,6 +21,9 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'formcomponent'> | undefined = undefined
 	export let render: boolean
+	export let errorHandledByComponent: boolean | undefined = false
+
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -65,6 +68,8 @@
 	{componentInput}
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnError={resolvedConfig.onError}
+	{errorHandledByComponent}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}

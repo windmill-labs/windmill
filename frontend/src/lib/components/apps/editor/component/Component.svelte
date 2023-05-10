@@ -59,6 +59,7 @@
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
 	let initializing: boolean | undefined = undefined
+	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
 
 	let inlineEditorOpened: boolean = false
@@ -94,6 +95,7 @@
 			on:triggerInlineEditor={() => {
 				inlineEditorOpened = !inlineEditorOpened
 			}}
+			{errorHandledByComponent}
 		/>
 	{/if}
 
@@ -234,6 +236,7 @@
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
 				bind:initializing
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
@@ -262,6 +265,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
@@ -273,6 +277,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'checkboxcomponent'}

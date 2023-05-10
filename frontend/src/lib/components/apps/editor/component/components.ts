@@ -236,16 +236,20 @@ export const selectOptions = {
 	formorientationOptions: ['Horizontal', 'Vertical']
 }
 
+const labels = {
+	none: 'Do nothing',
+	errorOverlay: 'Show error overlay',
+	gotoUrl: 'Go to an url',
+	setTab: 'Set the tab of a tabs component',
+	sendToast: 'Display a toast notification',
+	sendErrorToast: 'Display an error toast notification'
+}
+
 const onSuccessClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on success',
 	selected: 'none',
-	labels: {
-		none: 'Do nothing',
-		gotoUrl: 'Go to an url',
-		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
-	},
+	labels,
 	configuration: {
 		none: {},
 		gotoUrl: {
@@ -279,6 +283,55 @@ const onSuccessClick = {
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there'
+			}
+		}
+	}
+} as const
+
+const onErrorClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on error',
+	selected: 'errorOverlay',
+	labels,
+	configuration: {
+		errorOverlay: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo'
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on error'
+			}
+		},
+		sendErrorToast: {
+			message: {
+				tooltip: 'The message of the toast to diplay',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there'
+			},
+			appendError: {
+				tooltip: 'Append the error message to the toast',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
 			}
 		}
 	}
@@ -451,7 +504,8 @@ export const components = {
 					fieldType: 'boolean',
 					onlyStatic: true
 				},
-				onSuccess: onSuccessClick
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
@@ -492,7 +546,8 @@ export const components = {
 					onlyStatic: true,
 					selectOptions: selectOptions.buttonSizeOptions
 				},
-				onSuccess: onSuccessClick
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
@@ -535,6 +590,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onError: onErrorClick,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
