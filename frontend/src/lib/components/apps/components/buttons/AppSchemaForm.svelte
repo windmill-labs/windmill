@@ -61,7 +61,7 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	{#if result && Object.keys(result.properties).length > 0}
+	{#if result && Object.keys(result?.properties ?? {}).length > 0}
 		<div
 			class={twMerge('m-2', css?.container?.class)}
 			style={css?.container?.style}

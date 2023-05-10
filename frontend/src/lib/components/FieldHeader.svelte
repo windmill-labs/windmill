@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
+	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 
 	export let label: string
 	export let format: string = ''
@@ -13,7 +14,7 @@
 
 <div class="inline-flex flex-row items-center truncated">
 	<span class={twMerge('font-semibold', labelClass)}>
-		{label}
+		{addWhitespaceBeforeCapitals(label.replace(/_/g, ' ')).split(' ').map(capitalize).join(' ')}
 	</span>
 	<Required {required} class="!ml-0" />
 
