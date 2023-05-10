@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.99.0](https://github.com/windmill-labs/windmill/compare/v1.98.0...v1.99.0) (2023-05-10)
+
+
+### Features
+
+* **backend:** run endpoints also support support x-www-form-urlencoded encoded payloads ([2b57418](https://github.com/windmill-labs/windmill/commit/2b57418427e9417599f9f969cb78088c5166958a))
+* **frontend:** add hide refresh button ([ef089ab](https://github.com/windmill-labs/windmill/commit/ef089ab56c5ef493118574076d9512ae3b6a42bf))
+* **frontend:** add input library to flow builder ([957fd81](https://github.com/windmill-labs/windmill/commit/957fd81576dfe65326cad2ed8487121e157e0953))
+* **frontend:** allow copy pasting nested containers ([742ee3a](https://github.com/windmill-labs/windmill/commit/742ee3a5181fdcfba1f59889a8d99347fd0c4610))
+* **frontend:** app on error ([#1556](https://github.com/windmill-labs/windmill/issues/1556)) ([6c2ba05](https://github.com/windmill-labs/windmill/commit/6c2ba053a1a023e454296a5ebf2842abf90362a8))
+* **frontend:** App select tabs ([#1557](https://github.com/windmill-labs/windmill/issues/1557)) ([4ad530f](https://github.com/windmill-labs/windmill/commit/4ad530f2f004cb33cbc95d5c3b1591a44f93bdee))
+* **frontend:** conditional rendering ([#1555](https://github.com/windmill-labs/windmill/issues/1555)) ([3d371d5](https://github.com/windmill-labs/windmill/commit/3d371d5b6524a4ec0152b15d001d8758900de457))
+* increase timeout to 900 ([018b504](https://github.com/windmill-labs/windmill/commit/018b504986a6c36c1e5ecbc5e92a763a6b6e613b))
+
+
+### Bug Fixes
+
+* **backend:** run endpoints also support support x-www-form-urlencoded encoded payloads ([5601d04](https://github.com/windmill-labs/windmill/commit/5601d047fe4736a996d064dc8ff34af5d70706a5))
+
 ## [1.98.0](https://github.com/windmill-labs/windmill/compare/v1.97.0...v1.98.0) (2023-05-09)
 
 
