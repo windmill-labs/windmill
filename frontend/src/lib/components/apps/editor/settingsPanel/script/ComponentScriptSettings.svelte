@@ -58,11 +58,13 @@
 			: ''}
 		{actions}
 	/>
-	<div class="flex items-center justify-between w-full px-2">
-		<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
+	{#if !isTriggerable(appComponent.type)}
+		<div class="flex items-center justify-between w-full px-2">
+			<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
 
-		<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />
-	</div>
+			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />
+		</div>
+	{/if}
 	{#if hasScript}
 		<ScriptTransformer bind:appInput bind:appComponent />
 		<ScriptRunConfiguration
