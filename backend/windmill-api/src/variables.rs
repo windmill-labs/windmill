@@ -338,14 +338,18 @@ async fn update_variable(
         sqlb.set_str("path", npath);
     }
     if let Some(nvalue) = ns.value {
-        let is_secret = sqlx::query_scalar!(
-            "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
-            &path,
-            &w_id
-        )
-        .fetch_optional(&mut tx)
-        .await?
-        .unwrap_or(false);
+        let is_secret = if ns.is_secret.is_some() {
+            ns.is_secret.unwrap()
+        } else {
+            sqlx::query_scalar!(
+                "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
+                &path,
+                &w_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .unwrap_or(false)
+        };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
             let mc = build_crypt(&mut tx, &w_id).await?;
@@ -361,11 +365,6 @@ async fn update_variable(
     }
 
     if let Some(nbool) = ns.is_secret {
-        if !nbool {
-            return Err(Error::BadRequest(
-                "A variable can not be updated to be non secret".to_owned(),
-            ));
-        }
         sqlb.set_str("is_secret", nbool);
     }
     sqlb.returning("path");
