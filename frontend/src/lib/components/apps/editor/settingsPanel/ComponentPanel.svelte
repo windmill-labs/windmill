@@ -16,7 +16,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { COMPONENT_SETS, ccomponents } from '../component'
+	import { ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -27,6 +27,8 @@
 	import { secondaryMenu } from './secondaryMenu'
 	import StylePanel from './StylePanel.svelte'
 	import { Delete } from 'lucide-svelte'
+	import GridCondition from './GridCondition.svelte'
+	import { isTriggerable } from './script/utils'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -127,7 +129,7 @@
 	$: componentSettings?.item?.data && ($app = $app)
 
 	const hasInteraction = componentSettings?.item.data.type
-		? COMPONENT_SETS[1].components.includes(componentSettings?.item.data.type)
+		? isTriggerable(componentSettings?.item.data.type)
 		: false
 </script>
 
@@ -244,6 +246,8 @@
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
+		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
+			<GridCondition bind:conditions={componentSettings.item.data.conditions} {component} />
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
 			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
