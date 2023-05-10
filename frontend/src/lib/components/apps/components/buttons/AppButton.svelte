@@ -38,7 +38,7 @@
 	)
 
 	$: initializing = resolvedConfig?.label == undefined
-	$: errorHandledByComponent = resolvedConfig.onError.selected !== 'errorOverlay'
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -114,7 +114,7 @@
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
-	errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
+	errorHandledByComponent={resolvedConfig?.onError?.selected !== 'errorOverlay'}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

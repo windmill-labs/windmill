@@ -28,7 +28,7 @@
 	export let render: boolean
 	export let errorHandledByComponent: boolean | undefined = false
 
-	$: errorHandledByComponent = resolvedConfig.onError.selected !== 'errorOverlay'
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -95,7 +95,7 @@
 		{outputs}
 		doOnSuccess={resolvedConfig.onSuccess}
 		doOnError={resolvedConfig.onError}
-		errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
+		errorHandledByComponent={resolvedConfig?.onError?.selected !== 'errorOverlay'}
 		triggerable
 	>
 		<div class="flex flex-col gap-2 px-4 w-full">

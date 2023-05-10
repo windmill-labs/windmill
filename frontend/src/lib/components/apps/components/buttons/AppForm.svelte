@@ -23,7 +23,7 @@
 	export let render: boolean
 	export let errorHandledByComponent: boolean | undefined = false
 
-	$: errorHandledByComponent = resolvedConfig.onError.selected !== 'errorOverlay'
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -69,7 +69,7 @@
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
-	errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
+	errorHandledByComponent={resolvedConfig?.onError?.selected !== 'errorOverlay'}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
