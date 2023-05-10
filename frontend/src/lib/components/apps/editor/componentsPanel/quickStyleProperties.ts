@@ -702,5 +702,10 @@ export const quickStyleProperties: Record<
 	schemaformcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
+	},
+	selecttabcomponent: {
+		tabRow: containerDefaultProps,
+		allTabs: [typographyGrouping, sizeGrouping],
+		selectedTab: [typographyGrouping, sizeGrouping]
 	}
 }

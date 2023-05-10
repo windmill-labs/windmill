@@ -117,6 +117,7 @@ export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & 
 }
 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
+export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -161,6 +162,7 @@ export type TypedComponent =
 	| ModalComponent
 	| StepperComponent
 	| Schemaformcomponent
+	| SelectTabComponent
 	| ConditionalWrapperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
@@ -1788,6 +1790,44 @@ Hello \${ctx.username}
 					type: 'static',
 					value: false,
 					onlyStatic: true
+				}
+			}
+		}
+	},
+	selecttabcomponent: {
+		name: 'Select Tab',
+		icon: List,
+		dims: '2:1-3:1' as AppComponentDimensions,
+
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				} as StaticAppInput,
+
+				defaultValue: {
+					type: 'static',
+					value: undefined as { value: string; label: string } | undefined,
+					fieldType: 'object'
+				},
+				tabSize: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: selectOptions.buttonSizeOptions
 				}
 			}
 		}
