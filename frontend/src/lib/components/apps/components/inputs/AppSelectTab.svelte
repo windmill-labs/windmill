@@ -77,6 +77,7 @@
 					style={css?.allTabs?.style}
 					selectedClass={css?.selectedTab?.class}
 					selectedStyle={css?.selectedTab?.style}
+					size={resolvedConfig?.tabSize}
 				>
 					<span class="font-semibold text-md">{item.label}</span>
 				</Tab>

@@ -1822,6 +1822,12 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined as { value: string; label: string } | undefined,
 					fieldType: 'object'
+				},
+				tabSize: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: selectOptions.buttonSizeOptions
 				}
 			}
 		}
