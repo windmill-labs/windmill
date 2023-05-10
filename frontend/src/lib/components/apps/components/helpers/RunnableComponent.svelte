@@ -37,6 +37,7 @@
 	export let refreshOnStart: boolean = false
 	export let recomputableByRefreshButton: boolean
 	export let errorHandledByComponent: boolean = false
+	export let hideRefreshButton: boolean = false
 
 	const {
 		worldStore,
@@ -458,7 +459,7 @@
 				<slot />
 			</div>
 		{/if}
-		{#if !initializing && autoRefresh === true}
+		{#if !initializing && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50">
 				<RefreshButton {loading} componentId={id} />
 			</div>
