@@ -17,11 +17,11 @@ use axum::{
     extract::{FromRequest, Json, Path, Query},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Router,
+    Extension, Form, RequestExt, Router,
 };
 use base64::Engine;
 use hmac::Mac;
-use hyper::{http, HeaderMap, Request, StatusCode};
+use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
@@ -1217,6 +1217,40 @@ struct PreviewFlow {
     args: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+pub struct JsonOrForm<T>(T);
+
+#[axum::async_trait]
+impl<S, T> FromRequest<S, axum::body::Body> for JsonOrForm<T>
+where
+    S: Send + Sync,
+    Json<T>: FromRequest<(), axum::body::Body>,
+    Form<T>: FromRequest<(), axum::body::Body>,
+    T: 'static,
+{
+    type Rejection = Response;
+
+    async fn from_request(
+        req: Request<axum::body::Body>,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let content_type_header = req.headers().get(CONTENT_TYPE);
+        let content_type = content_type_header.and_then(|value| value.to_str().ok());
+
+        if let Some(content_type) = content_type {
+            if content_type.starts_with("application/json") {
+                let Json(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
+                return Ok(Self(payload));
+            }
+
+            if content_type.starts_with("application/x-www-form-urlencoded") {
+                let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
+                return Ok(Self(payload));
+            }
+        }
+
+        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+    }
+}
 pub struct QueryOrBody<D>(pub Option<D>);
 
 #[axum::async_trait]
@@ -1270,7 +1304,7 @@ pub async fn run_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -1306,7 +1340,7 @@ pub async fn run_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -1551,7 +1585,7 @@ pub async fn run_wait_result_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -1600,7 +1634,7 @@ pub async fn run_wait_result_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
@@ -1649,7 +1683,7 @@ pub async fn run_wait_result_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
@@ -1775,7 +1809,7 @@ pub async fn run_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
