@@ -424,9 +424,10 @@ async fn create_app(
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
             (app_id, value, created_by)
-            VALUES ($1, $2, $3) RETURNING id",
+            VALUES ($1, $2::text::json, $3) RETURNING id",
         id,
-        app.value,
+        //to preserve key orders
+        serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
     .fetch_one(&mut tx)
@@ -610,9 +611,10 @@ async fn update_app(
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
                 (app_id, value, created_by)
-                VALUES ($1, $2, $3) RETURNING id",
+                VALUES ($1, $2::text::json, $3) RETURNING id",
             app_id,
-            nvalue,
+            //to preserve key orders
+            serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
         .fetch_one(&mut tx)
