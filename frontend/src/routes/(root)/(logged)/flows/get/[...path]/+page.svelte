@@ -314,7 +314,7 @@
 				<FlowViewer {flow} noSummary={true} />
 
 				<h2 bind:this={webhook} class="mt-10 text-gray-700 pb-1 mb-3 border-b"
-					>Webhook<Tooltip>
+					>Webhoosk<Tooltip>
 						Pass the input as a json payload, the token as a Bearer token or as query arg
 						`?token=XXX` and pass as header: 'Content-Type: application/json <a
 							href="https://docs.windmill.dev/docs/core_concepts/webhooks">See docs</a
@@ -326,7 +326,7 @@
 						<a
 							on:click={(e) => {
 								e.preventDefault()
-								copyToClipboard(urlAsync)
+								copyToClipboard($page.url.protocol + '//' + urlAsync)
 							}}
 							href={$page.url.protocol + '//' + urlAsync}
 							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
@@ -342,7 +342,7 @@
 						<a
 							on:click={(e) => {
 								e.preventDefault()
-								copyToClipboard(urlSync)
+								copyToClipboard($page.url.protocol + '//' + urlSync)
 							}}
 							href={$page.url.protocol + '//' + urlSync}
 							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
