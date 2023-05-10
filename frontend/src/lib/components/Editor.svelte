@@ -37,6 +37,8 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import * as vscode from 'vscode'
+	import { MonacoBinding } from 'y-monaco'
+
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
 		definitions: false,
@@ -72,6 +74,7 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
+	import type { Text } from 'yjs'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -85,6 +88,8 @@
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
+	export let ytsType: Text | undefined = undefined
+	export let awareness: any | undefined = undefined
 
 	if (path == '' || path == undefined || path.startsWith('/')) {
 		path = randomHash()
@@ -505,8 +510,15 @@
 	}
 
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+	let model: meditor.ITextModel
+
+	let monacoBinding: MonacoBinding | undefined = undefined
+	// @ts-ignore
+	$: if (ytsType && awareness && model && editor && !monacoBinding) {
+		monacoBinding = new MonacoBinding(ytsType, model, new Set([editor]), awareness)
+	}
+
 	async function loadMonaco() {
-		let model: meditor.ITextModel
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -563,6 +575,7 @@
 		reloadWebsocket()
 
 		return () => {
+			console.log('disposing editor')
 			try {
 				closeWebsockets()
 				model?.dispose()
@@ -605,8 +618,27 @@
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 
-<style lang="postcss">
+<style global lang="postcss">
 	.editor {
 		@apply p-0 border rounded-md border-gray-50;
+	}
+	.yRemoteSelection {
+		background-color: rgb(250, 129, 0, 0.5);
+	}
+	.yRemoteSelectionHead {
+		position: absolute;
+		border-left: orange solid 2px;
+		border-top: orange solid 2px;
+		border-bottom: orange solid 2px;
+		height: 100%;
+		box-sizing: border-box;
+	}
+	.yRemoteSelectionHead::after {
+		position: absolute;
+		content: ' ';
+		border: 3px solid orange;
+		border-radius: 4px;
+		left: -4px;
+		top: -5px;
 	}
 </style>

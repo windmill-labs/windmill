@@ -13,10 +13,12 @@
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import * as Y from 'yjs'
+	import { WebsocketProvider } from 'y-websocket'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -100,6 +102,51 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		setCollaborationMode()
+	})
+
+	let wsProvider: WebsocketProvider | undefined = undefined
+	let type: Y.Text | undefined = undefined
+
+	let yArgs: Y.Map<any> | undefined = undefined
+
+	$: args && yArgs && Object.entries(args).forEach(([k, v]) => yArgs?.set(k, v))
+
+	function setCollaborationMode() {
+		const ydoc = new Y.Doc()
+		wsProvider = new WebsocketProvider('ws://localhost:1234', 'my-roomname', ydoc)
+		type = ydoc.getText('monaco')
+		yArgs = ydoc.getMap('args')
+
+		const lang2 = ydoc.getText('lang')
+		yArgs.observeDeep(() => {
+			args = yArgs?.toJSON() ?? {}
+		})
+		lang2.observeDeep(() => {
+			lang = lang2.toString() as Preview.language
+		})
+
+		// All of our network providers implement the awareness crdt
+		const awareness = wsProvider.awareness
+		// You can observe when a user updates their awareness information
+		awareness.on('change', (changes) => {
+			// Whenever somebody updates their awareness information,
+			// we log all awareness information from all users.
+			console.log(Array.from(awareness.getStates().values()))
+		})
+
+		// You can think of your own awareness information as a key-value store.
+		// We update our "user" field to propagate relevant user information.
+		awareness.setLocalStateField('user', {
+			// Define a print name that should be displayed
+			name: $userStore?.username,
+			// Define a color that should be associated to the user:
+			color: '#999999' // should be a hex color
+		})
+	}
+
+	onDestroy(() => {
+		wsProvider?.disconnect()
 	})
 
 	const dispatch = createEventDispatcher()
@@ -156,6 +203,8 @@
 						bind:code
 						bind:websocketAlive
 						bind:this={editor}
+						ytsType={type}
+						awareness={wsProvider?.awareness}
 						on:change={(e) => {
 							inferSchema(e.detail)
 						}}
