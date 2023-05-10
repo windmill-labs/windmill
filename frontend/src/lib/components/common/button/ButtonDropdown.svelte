@@ -1,10 +1,13 @@
-<script>
+<script lang="ts">
 	import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
 	import { ChevronDown } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
+
+	export let hasPadding: boolean = true
 </script>
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
-	<MenuButton class="h-full w-full px-2">
+	<MenuButton class={twMerge('h-full w-full', hasPadding ? 'px-2' : '')}>
 		<ChevronDown class="w-5 h-5" />
 	</MenuButton>
 	<Transition

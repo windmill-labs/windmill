@@ -248,6 +248,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			componentInput: init.componentInput,
 			panes: init.panes,
 			tabs: init.tabs,
+			conditions: init.conditions,
 			customCss: {},
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,

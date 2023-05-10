@@ -8,6 +8,8 @@
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
 	import { getErrorFromLatestResult } from './appUtils'
+	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -18,9 +20,11 @@
 	export let inlineEditorOpened: boolean = false
 	export let errorHandledByComponent: boolean = false
 
+	let isConditionalWrapperManuallySelected: boolean = false
+
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun, jobs, connectingInput } =
+	const { errorByComponent, openDebugRun, jobs, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$: error = getErrorFromLatestResult(component.id, $errorByComponent, $jobs)
@@ -69,6 +73,58 @@
 				{/if}
 			</button>
 		{/if}
+		{#if component.type === 'conditionalwrapper'}
+			<button
+				title="Conditions"
+				class={classNames(
+					'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+					isConditionalWrapperManuallySelected
+						? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
+						: 'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+				)}
+				on:click={() => dispatch('triggerInlineEditor')}
+				on:pointerdown|stopPropagation
+			>
+				<ButtonDropdown hasPadding={false}>
+					<svelte:fragment slot="items">
+						{#each component.conditions ?? [] as { }, index}
+							<MenuItem
+								on:click={() => {
+									$componentControl?.[component.id]?.setTab?.(index)
+									isConditionalWrapperManuallySelected = true
+								}}
+							>
+								<div
+									class={classNames(
+										'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+									)}
+								>
+									{#if index === component.conditions.length - 1}
+										{`Debug default condition`}
+									{:else}
+										{`Debug condition ${index + 1}`}
+									{/if}
+								</div>
+							</MenuItem>
+						{/each}
+						<MenuItem
+							on:click={() => {
+								$componentControl?.[component.id]?.setTab?.(-1)
+								isConditionalWrapperManuallySelected = false
+							}}
+						>
+							<div
+								class={classNames(
+									'!text-red-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+								)}
+							>
+								{`Reset debug mode`}
+							</div>
+						</MenuItem>
+					</svelte:fragment>
+				</ButtonDropdown>
+			</button>
+		{/if}
 		<button
 			title="Expand"
 			class={classNames(
@@ -95,17 +151,18 @@
 				<Anchor aria-label="Lock position" size={14} />
 			{/if}
 		</button>
-		<span
+		<div
 			draggable="false"
 			title="Move"
 			on:mousedown|stopPropagation|capture
 			class={classNames(
 				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-move rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800',
+				'flex items-center justify-center'
 			)}
 		>
 			<Move size={14} />
-		</span>
+		</div>
 	</div>
 {/if}
 
