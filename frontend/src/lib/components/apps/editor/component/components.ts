@@ -1757,10 +1757,14 @@ Hello \${ctx.username}
 				type: 'static',
 				fieldType: 'schema',
 				value: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: [],
-					type: 'object'
+					properties: {
+						first_name: {
+							type: 'string',
+							description: 'your name',
+							default: 'default'
+						}
+					},
+					required: []
 				}
 			},
 			configuration: {
@@ -1768,13 +1772,13 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					staticOnly: true
+					onlyStatic: true
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					staticOnly: true
+					onlyStatic: true
 				}
 			}
 		}
