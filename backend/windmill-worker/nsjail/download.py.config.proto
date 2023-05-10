@@ -3,7 +3,7 @@ name: "python download pip"
 mode: ONCE
 hostname: "python"
 log_level: ERROR
-time_limit: 300
+time_limit: 900
 
 rlimit_as: 2048
 rlimit_cpu: 1000

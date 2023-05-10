@@ -146,8 +146,7 @@ pub struct Metrics {
     pub worker_execution_failed: prometheus::IntCounter,
 }
 
-
-pub const DEFAULT_TIMEOUT: u64 = 300;
+pub const DEFAULT_TIMEOUT: u64 = 900;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 lazy_static::lazy_static! {
