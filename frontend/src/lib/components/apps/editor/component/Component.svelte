@@ -42,6 +42,7 @@
 	import AppModal from '../../components/layout/AppModal.svelte'
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 	import AppStepper from '../../components/layout/AppStepper.svelte'
+	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -488,6 +489,15 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				{initializing}
+				{render}
+			/>
+		{:else if component.type === 'selecttabcomponent'}
+			<AppSelectTab
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{/if}

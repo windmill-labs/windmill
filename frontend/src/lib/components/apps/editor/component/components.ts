@@ -110,8 +110,7 @@ export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
-export type SelectTabComponent = BaseComponent<'selecttabscomponent'>
-export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
+export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -157,7 +156,6 @@ export type TypedComponent =
 	| StepperComponent
 	| Schemaformcomponent
 	| SelectTabComponent
-	| SelectStepComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1787,13 +1785,15 @@ Hello \${ctx.username}
 			}
 		}
 	},
-	selecttabcomponnet: {
+	selecttabcomponent: {
 		name: 'Select Tab',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
 		},
 		initialData: {
 			verticalAlignment: 'center',
@@ -1808,66 +1808,10 @@ Hello \${ctx.username}
 						{ value: 'bar', label: 'Bar' }
 					]
 				} as StaticAppInput,
-				create: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true,
-					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
-				},
-				placeholder: {
-					type: 'static',
-					fieldType: 'text',
-					value: 'Select an item',
-					onlyStatic: true
-				},
-				defaultValue: {
-					type: 'static',
-					value: undefined,
-					fieldType: 'object'
-				}
-			}
-		}
-	},
-	selectstepcomponent: {
-		name: 'Select',
-		icon: List,
-		dims: '2:1-3:1' as AppComponentDimensions,
 
-		customCss: {
-			input: { style: '' }
-		},
-		initialData: {
-			verticalAlignment: 'center',
-			componentInput: undefined,
-			configuration: {
-				items: {
-					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'labeledselect',
-					value: [
-						{ value: 'foo', label: 'Foo' },
-						{ value: 'bar', label: 'Bar' }
-					]
-				} as StaticAppInput,
-				create: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true,
-					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
-				},
-				placeholder: {
-					type: 'static',
-					fieldType: 'text',
-					value: 'Select an item',
-					onlyStatic: true
-				},
 				defaultValue: {
 					type: 'static',
-					value: undefined,
+					value: undefined as { value: string; label: string } | undefined,
 					fieldType: 'object'
 				}
 			}
