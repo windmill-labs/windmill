@@ -24,7 +24,7 @@
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
-			subGridIndex: 0
+			subGridIndex: selectedConditionIndex
 		}
 	}
 
@@ -43,11 +43,10 @@
 	}
 
 	function setSelectedIndex(index: number) {
-		if ($focusedGrid?.parentComponentId === id) {
-			$focusedGrid = {
-				parentComponentId: id,
-				subGridIndex: index
-			}
+		console.trace('setSelectedIndex', index)
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: index
 		}
 
 		selectedConditionIndex = index
@@ -58,7 +57,11 @@
 
 	$componentControl[id] = {
 		setTab: (conditionIndex: number) => {
-			setSelectedIndex(conditionIndex)
+			if (conditionIndex === -1) {
+				handleResolvedConditions()
+			} else {
+				setSelectedIndex(conditionIndex)
+			}
 		}
 	}
 </script>
