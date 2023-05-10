@@ -553,6 +553,9 @@ export const quickStyleProperties: Record<
 		selectedStep: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
+	conditionalwrapper: {
+		container: containerDefaultProps
+	},
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
