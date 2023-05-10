@@ -94,6 +94,7 @@ export type ResultInput = {
 	doNotRecomputeOnInputChanged?: boolean
 	recomputeOnInputChanged?: boolean
 	autoRefresh?: boolean
+	hideRefreshButton?: boolean
 }
 
 export type AppInputSpec<T extends InputType, U, V extends InputType = never> = (

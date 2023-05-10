@@ -24,7 +24,12 @@
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full">
 		<div class="mx-auto" bind:clientWidth>
-			<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
+			<ToggleButtonGroup
+				on:selected={() => {
+					onchange?.()
+				}}
+				bind:selected={componentInput.type}
+			>
 				{#if componentInput.fieldType === 'template'}
 					<ToggleButton
 						tooltip={`Templated string (use \$\{<output>.x\} )`}

@@ -20,6 +20,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let appInput: ResultAppInput
 	export let appComponent: AppComponent
@@ -57,7 +58,13 @@
 			: ''}
 		{actions}
 	/>
+	{#if !isTriggerable(appComponent.type)}
+		<div class="flex items-center justify-between w-full px-2">
+			<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
 
+			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />
+		</div>
+	{/if}
 	{#if hasScript}
 		<ScriptTransformer bind:appInput bind:appComponent />
 		<ScriptRunConfiguration

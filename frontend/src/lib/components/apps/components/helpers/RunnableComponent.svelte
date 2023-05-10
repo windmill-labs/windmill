@@ -15,7 +15,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
-	import { selectId } from '../../editor/appUtils'
+	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
 
 	// Component props
 	export let id: string
@@ -37,6 +37,7 @@
 	export let refreshOnStart: boolean = false
 	export let recomputableByRefreshButton: boolean
 	export let errorHandledByComponent: boolean = false
+	export let hideRefreshButton: boolean = false
 
 	const {
 		worldStore,
@@ -365,6 +366,9 @@
 
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
+		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		delete $runnableComponents[id]
+		$runnableComponents = $runnableComponents
 	})
 </script>
 
@@ -454,7 +458,7 @@
 				<slot />
 			</div>
 		{/if}
-		{#if !initializing && autoRefresh === true}
+		{#if !initializing && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50">
 				<RefreshButton {loading} componentId={id} />
 			</div>
