@@ -124,6 +124,7 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
+		hideRefreshButton={componentInput.hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
