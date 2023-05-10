@@ -111,6 +111,7 @@
 	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnError={resolvedConfig.onError}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

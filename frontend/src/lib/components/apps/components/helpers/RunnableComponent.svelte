@@ -312,6 +312,7 @@
 		result = res
 		if (res?.error) {
 			recordError(res.error)
+			dispatch('handleError')
 		} else {
 			dispatch('success')
 		}

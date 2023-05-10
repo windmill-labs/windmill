@@ -65,6 +65,7 @@
 	{componentInput}
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnError={resolvedConfig.onError}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}

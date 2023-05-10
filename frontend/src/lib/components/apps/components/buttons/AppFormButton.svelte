@@ -91,6 +91,7 @@
 		runnableClass="!block"
 		{outputs}
 		doOnSuccess={resolvedConfig.onSuccess}
+		doOnError={resolvedConfig.onError}
 		triggerable
 	>
 		<div class="flex flex-col gap-2 px-4 w-full">
