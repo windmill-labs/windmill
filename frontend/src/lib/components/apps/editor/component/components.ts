@@ -1767,12 +1767,14 @@ Hello \${ctx.username}
 				displayType: {
 					fieldType: 'boolean',
 					type: 'static',
-					value: false
+					value: false,
+					staticOnly: true
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
-					value: false
+					value: false,
+					staticOnly: true
 				}
 			}
 		}
