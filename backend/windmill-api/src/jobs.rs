@@ -41,11 +41,17 @@ use windmill_queue::{get_queued_job, push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/run/f/*script_path", post(run_flow_by_path))
-        .route("/run/p/*script_path", post(run_job_by_path))
+        .route(
+            "/run/f/*script_path",
+            post(run_flow_by_path).head(|| async { "" }),
+        )
+        .route(
+            "/run/p/*script_path",
+            post(run_job_by_path).head(|| async { "" }),
+        )
         .route(
             "/run_wait_result/p/*script_path",
-            post(run_wait_result_job_by_path),
+            post(run_wait_result_job_by_path).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/p/*script_path",
@@ -53,13 +59,13 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_job_by_hash),
+            post(run_wait_result_job_by_hash).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/f/*script_path",
-            post(run_wait_result_flow_by_path),
+            post(run_wait_result_flow_by_path).head(|| async { "" }),
         )
-        .route("/run/h/:hash", post(run_job_by_hash))
+        .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
