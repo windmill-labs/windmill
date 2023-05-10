@@ -112,6 +112,7 @@
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
+	errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

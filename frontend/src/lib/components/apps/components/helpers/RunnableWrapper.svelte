@@ -14,14 +14,18 @@
 
 	type SideEffectAction =
 		| {
-				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast'
+				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast' | 'sendErrorToast' | 'errorOverlay'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
 						setTab: { id: string; index: number }[] | undefined
 					}
-					sendToast: {
+					sendToast?: {
 						message: string | undefined
+					}
+					sendErrorToast?: {
+						message: string | undefined
+						appendError: boolean | undefined
 					}
 				}
 		  }
@@ -78,7 +82,7 @@
 		)
 	}
 
-	export function handleSideEffect(success: boolean) {
+	export function handleSideEffect(success: boolean, errorMessage?: string) {
 		const sideEffect = success ? doOnSuccess : doOnError
 
 		if (recomputeIds && success) {
@@ -109,10 +113,23 @@
 			}
 		} else if (
 			sideEffect.selected == 'sendToast' &&
+			sideEffect.configuration.sendToast &&
 			sideEffect.configuration.sendToast.message &&
 			sideEffect.configuration.sendToast.message != ''
 		) {
 			sendUserToast(sideEffect.configuration.sendToast.message, !success)
+		} else if (
+			sideEffect.selected == 'sendErrorToast' &&
+			sideEffect.configuration.sendErrorToast &&
+			sideEffect.configuration.sendErrorToast.message &&
+			sideEffect.configuration.sendErrorToast.message != ''
+		) {
+			sendUserToast(
+				sideEffect.configuration.sendErrorToast.message,
+				true,
+				[],
+				sideEffect.configuration.sendErrorToast.appendError ? errorMessage : undefined
+			)
 		}
 	}
 </script>
@@ -141,7 +158,7 @@
 		wrapperStyle={runnableStyle}
 		{render}
 		on:success={() => handleSideEffect(true)}
-		on:handleError={() => handleSideEffect(false)}
+		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
 		{errorHandledByComponent}
 	>

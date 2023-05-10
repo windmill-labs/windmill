@@ -225,16 +225,20 @@ export const selectOptions = {
 	formorientationOptions: ['Horizontal', 'Vertical']
 }
 
+const labels = {
+	none: 'Do nothing',
+	errorOverlay: 'Show error overlay',
+	gotoUrl: 'Go to an url',
+	setTab: 'Set the tab of a tabs component',
+	sendToast: 'Display a toast notification',
+	sendErrorToast: 'Display an error toast notification'
+}
+
 const onSuccessClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on success',
 	selected: 'none',
-	labels: {
-		none: 'Do nothing',
-		gotoUrl: 'Go to an url',
-		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
-	},
+	labels,
 	configuration: {
 		none: {},
 		gotoUrl: {
@@ -276,15 +280,10 @@ const onSuccessClick = {
 const onErrorClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on error',
-	selected: 'none',
-	labels: {
-		none: 'Do nothing',
-		gotoUrl: 'Go to an url',
-		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
-	},
+	selected: 'errorOverlay',
+	labels,
 	configuration: {
-		none: {},
+		errorOverlay: {},
 		gotoUrl: {
 			url: {
 				tooltip: 'Go to the given url, absolute or relative',
@@ -309,13 +308,19 @@ const onErrorClick = {
 				tooltip: 'Set the tabs id and index to go to on error'
 			}
 		},
-		sendToast: {
+		sendErrorToast: {
 			message: {
 				tooltip: 'The message of the toast to diplay',
 				fieldType: 'text',
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there'
+			},
+			appendError: {
+				tooltip: 'Append the error message to the toast',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
 			}
 		}
 	}

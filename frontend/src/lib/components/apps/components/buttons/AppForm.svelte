@@ -66,6 +66,7 @@
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
+	errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}

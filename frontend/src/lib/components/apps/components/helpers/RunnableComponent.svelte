@@ -312,7 +312,7 @@
 		result = res
 		if (res?.error) {
 			recordError(res.error)
-			dispatch('handleError')
+			dispatch('handleError', res.error.stack)
 		} else {
 			dispatch('success')
 		}
