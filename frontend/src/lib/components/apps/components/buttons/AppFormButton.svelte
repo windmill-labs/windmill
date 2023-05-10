@@ -92,7 +92,7 @@
 		{outputs}
 		doOnSuccess={resolvedConfig.onSuccess}
 		doOnError={resolvedConfig.onError}
-		errorHandledByComponent={resolvedConfig.onError.selected === 'errorOverlay'}
+		errorHandledByComponent={resolvedConfig.onError.selected !== 'errorOverlay'}
 		triggerable
 	>
 		<div class="flex flex-col gap-2 px-4 w-full">
