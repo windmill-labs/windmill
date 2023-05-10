@@ -32,31 +32,33 @@
 
 	let resolvedConditions: boolean[] = []
 	let selectedConditionIndex = 0
-	let forcedIndex: number = -1
 
 	function handleResolvedConditions() {
 		const slicedArray = resolvedConditions.slice(0, conditions.length)
+		const firstTrueIndex = slicedArray.findIndex((c) => c)
+
 		outputs.conditions.set(slicedArray, true)
 
-		const firstTrueIndex = forcedIndex !== -1 ? forcedIndex : slicedArray.findIndex((c) => c)
+		setSelectedIndex(firstTrueIndex)
+	}
 
+	function setSelectedIndex(index: number) {
 		if ($focusedGrid?.parentComponentId === id) {
 			$focusedGrid = {
 				parentComponentId: id,
-				subGridIndex: firstTrueIndex
+				subGridIndex: index
 			}
 		}
 
-		selectedConditionIndex = firstTrueIndex
-		outputs.selectedConditionIndex.set(firstTrueIndex)
+		selectedConditionIndex = index
+		outputs.selectedConditionIndex.set(index)
 	}
 
-	$: (resolvedConditions || conditions) && handleResolvedConditions()
+	$: resolvedConditions && handleResolvedConditions()
 
 	$componentControl[id] = {
 		setTab: (conditionIndex: number) => {
-			forcedIndex = conditionIndex
-			handleResolvedConditions()
+			setSelectedIndex(conditionIndex)
 		}
 	}
 </script>
