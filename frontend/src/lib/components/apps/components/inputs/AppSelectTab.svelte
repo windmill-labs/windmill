@@ -68,7 +68,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full" style="height: 34px;" on:pointerdown={onPointerDown}>
+	<div class="w-full" on:pointerdown={onPointerDown}>
 		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
 			{#each resolvedConfig?.items ?? [] as item}
 				<Tab
