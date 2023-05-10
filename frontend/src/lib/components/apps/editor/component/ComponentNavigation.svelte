@@ -6,7 +6,7 @@
 		getAllSubgridsAndComponentIds,
 		insertNewGridItem
 	} from '../appUtils'
-	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
+	import type { AppEditorContext, AppViewerContext, FocusedGrid, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
 	import { gridColumns } from '../../gridUtils'
@@ -197,19 +197,38 @@
 		} else if (copiedGridItems) {
 			let nitems: string[] = []
 			for (let copiedGridItem of copiedGridItems) {
-				nitems.push(
-					insertNewGridItem(
-						$app,
-						(id) => ({ ...copiedGridItem.data, id }),
-						$focusedGrid,
-						Object.fromEntries(gridColumns.map((column) => [column, copiedGridItem[column]]))
-					)
-				)
+				let newItem = copyComponent(copiedGridItem, $focusedGrid)
+				newItem && nitems.push(newItem)
 			}
 			$selectedComponent = nitems.map((x) => x)
 		}
 
 		$app = $app
+	}
+
+	function copyComponent(item: GridItem, parentGrid: FocusedGrid | undefined, doNotVisit?: string) {
+		if (item.id === doNotVisit) {
+			return
+		}
+		const newItem = insertNewGridItem(
+			$app,
+			(id) => ({ ...item.data, id }),
+			parentGrid,
+			Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
+		)
+
+		if ($app.subgrids && item.data.numberOfSubgrids) {
+			for (let i = 0; i < item.data.numberOfSubgrids; i++) {
+				$app.subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
+					copyComponent(
+						subgridItem,
+						{ parentComponentId: newItem, subGridIndex: i },
+						doNotVisit ?? newItem
+					)
+				})
+			}
+		}
+		return newItem
 	}
 
 	function keydown(event: KeyboardEvent) {
