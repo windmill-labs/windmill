@@ -13,7 +13,6 @@
 	import { getContext, tick } from 'svelte'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
-	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let conditions: RichConfiguration[] = []
 	export let component: AppComponent
