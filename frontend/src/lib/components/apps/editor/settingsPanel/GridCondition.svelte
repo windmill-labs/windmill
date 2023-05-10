@@ -194,12 +194,11 @@
 			{/each}
 		</section>
 		<div class="border rounded-md p-3 mb-2">
-			<div class="flex justify-between">
+			<div class="flex">
 				<span class="font-bold text-xs">Default</span>
-				<Toggle checked={true} disabled size="xs" />
 			</div>
 			<Alert title="Default" size="xs">
-				The default subgrid is rendered when no conditions evaluate to true.
+				The default container is rendered if no other conditions evaluate to true.
 			</Alert>
 		</div>
 		<Button
