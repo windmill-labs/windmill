@@ -43,6 +43,7 @@
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 	import AppStepper from '../../components/layout/AppStepper.svelte'
 	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
+	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -401,6 +402,14 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'conditionalwrapper' && component.conditions}
+			<AppConditionalWrapper
+				id={component.id}
+				conditions={component.conditions}
+				customCss={component.customCss}
+				{componentContainerHeight}
 				{render}
 			/>
 		{:else if component.type === 'containercomponent'}

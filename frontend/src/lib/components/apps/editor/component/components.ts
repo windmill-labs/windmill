@@ -34,17 +34,20 @@ import {
 	FlipHorizontal,
 	FlipVertical,
 	FileText,
-	AtSignIcon
+	AtSignIcon,
+	Split
 } from 'lucide-svelte'
 import type {
 	Aligned,
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	RichConfiguration,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
-import type { ResultAppInput, StaticAppInput } from '../../inputType'
+
+import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -109,6 +112,10 @@ export type ModalComponent = BaseComponent<'modalcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
+export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
+	conditions: RichConfiguration[]
+}
+
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 
@@ -156,6 +163,7 @@ export type TypedComponent =
 	| StepperComponent
 	| Schemaformcomponent
 	| SelectTabComponent
+	| ConditionalWrapperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -198,6 +206,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	actionButtons?: boolean
 	tabs?: string[]
 	panes?: number[]
+	conditions?: AppInputSpec<'boolean', boolean>[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -447,7 +456,7 @@ export const components = {
 		}
 	},
 	formcomponent: {
-		name: 'Form',
+		name: 'Submit form',
 		icon: FormInput,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
@@ -1746,7 +1755,7 @@ Hello \${ctx.username}
 		}
 	},
 	schemaformcomponent: {
-		name: 'Schema Form',
+		name: 'Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
@@ -1815,6 +1824,32 @@ Hello \${ctx.username}
 					fieldType: 'object'
 				}
 			}
+		}
+	},
+	conditionalwrapper: {
+		name: 'Conditional tabs',
+		icon: Split,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 2,
+			conditions: [
+				{
+					type: 'eval',
+					expr: 'false',
+					fieldType: 'boolean'
+				},
+				{
+					type: 'eval',
+					expr: 'true',
+					fieldType: 'boolean'
+				}
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	}
 } as const
