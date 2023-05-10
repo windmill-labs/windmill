@@ -15,7 +15,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
-	import { selectId } from '../../editor/appUtils'
+	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
 
 	// Component props
 	export let id: string
@@ -365,6 +365,9 @@
 
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
+		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+		delete $runnableComponents[id]
+		$runnableComponents = $runnableComponents
 	})
 </script>
 
