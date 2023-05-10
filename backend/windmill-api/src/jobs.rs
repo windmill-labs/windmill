@@ -21,7 +21,7 @@ use axum::{
 };
 use base64::Engine;
 use hmac::Mac;
-use hyper::{HeaderMap, Request, StatusCode};
+use hyper::{http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
@@ -1484,6 +1484,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    method: hyper::http::Method,
     authed: Authed,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
@@ -1491,6 +1492,9 @@ pub async fn run_wait_result_job_by_path_get(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::JsonResult<serde_json::Value> {
+    if method == http::Method::HEAD {
+        return Ok(Json(serde_json::json!("")));
+    }
     let payload_r = run_query
         .payload
         .map(decode_payload)
