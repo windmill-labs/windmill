@@ -12,6 +12,25 @@
 
 	export let componentInput: AppInput | undefined
 
+	type SideEffectAction =
+		| {
+				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast' | 'sendErrorToast' | 'errorOverlay'
+				configuration: {
+					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
+					setTab: {
+						setTab: { id: string; index: number }[] | undefined
+					}
+					sendToast?: {
+						message: string | undefined
+					}
+					sendErrorToast?: {
+						message: string | undefined
+						appendError: boolean | undefined
+					}
+				}
+		  }
+		| undefined
+
 	export let id: string
 	export let result: any = undefined
 	export let initializing: boolean = true
@@ -22,20 +41,8 @@
 	export let forceSchemaDisplay: boolean = false
 	export let runnableClass = ''
 	export let runnableStyle = ''
-	export let doOnSuccess:
-		| {
-				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast'
-				configuration: {
-					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
-					setTab: {
-						setTab: { id: string; index: number }[] | undefined
-					}
-					sendToast: {
-						message: string | undefined
-					}
-				}
-		  }
-		| undefined = undefined
+	export let doOnSuccess: SideEffectAction = undefined
+	export let doOnError: SideEffectAction = undefined
 
 	export let render: boolean
 	export let recomputeIds: string[] = []
@@ -75,17 +82,19 @@
 		)
 	}
 
-	export function onSuccess() {
-		if (recomputeIds) {
+	export function handleSideEffect(success: boolean, errorMessage?: string) {
+		const sideEffect = success ? doOnSuccess : doOnError
+
+		if (recomputeIds && success) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
 		}
-		if (!doOnSuccess) return
+		if (!sideEffect) return
 
-		if (doOnSuccess.selected == 'none') return
+		if (sideEffect.selected == 'none') return
 
-		if (doOnSuccess.selected == 'setTab') {
-			if (Array.isArray(doOnSuccess.configuration.setTab.setTab)) {
-				doOnSuccess.configuration.setTab?.setTab?.forEach((tab) => {
+		if (sideEffect.selected == 'setTab') {
+			if (Array.isArray(sideEffect.configuration.setTab.setTab)) {
+				sideEffect.configuration.setTab?.setTab?.forEach((tab) => {
 					if (tab) {
 						const { id, index } = tab
 						$componentControl[id].setTab?.(index)
@@ -93,21 +102,34 @@
 				})
 			}
 		} else if (
-			doOnSuccess.selected == 'gotoUrl' &&
-			doOnSuccess.configuration.gotoUrl.url &&
-			doOnSuccess.configuration.gotoUrl.url != ''
+			sideEffect.selected == 'gotoUrl' &&
+			sideEffect.configuration.gotoUrl.url &&
+			sideEffect.configuration.gotoUrl.url != ''
 		) {
-			if (doOnSuccess.configuration.gotoUrl.newTab) {
-				window.open(doOnSuccess.configuration.gotoUrl.url, '_blank')
+			if (sideEffect.configuration.gotoUrl.newTab) {
+				window.open(sideEffect.configuration.gotoUrl.url, '_blank')
 			} else {
-				goto(doOnSuccess.configuration.gotoUrl.url)
+				goto(sideEffect.configuration.gotoUrl.url)
 			}
 		} else if (
-			doOnSuccess.selected == 'sendToast' &&
-			doOnSuccess.configuration.sendToast.message &&
-			doOnSuccess.configuration.sendToast.message != ''
+			sideEffect.selected == 'sendToast' &&
+			sideEffect.configuration.sendToast &&
+			sideEffect.configuration.sendToast.message &&
+			sideEffect.configuration.sendToast.message != ''
 		) {
-			sendUserToast(doOnSuccess.configuration.sendToast.message)
+			sendUserToast(sideEffect.configuration.sendToast.message, !success)
+		} else if (
+			sideEffect.selected == 'sendErrorToast' &&
+			sideEffect.configuration.sendErrorToast &&
+			sideEffect.configuration.sendErrorToast.message &&
+			sideEffect.configuration.sendErrorToast.message != ''
+		) {
+			sendUserToast(
+				sideEffect.configuration.sendErrorToast.message,
+				true,
+				[],
+				sideEffect.configuration.sendErrorToast.appendError ? errorMessage : undefined
+			)
 		}
 	}
 </script>
@@ -136,7 +158,8 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
-		on:success={onSuccess}
+		on:success={() => handleSideEffect(true)}
+		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
 		{errorHandledByComponent}
 	>

@@ -24,6 +24,7 @@
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = false
+	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
@@ -37,6 +38,7 @@
 	)
 
 	$: initializing = resolvedConfig?.label == undefined
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -111,6 +113,8 @@
 	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnError={resolvedConfig.onError}
+	{errorHandledByComponent}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

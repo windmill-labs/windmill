@@ -18,6 +18,7 @@
 	export let shouldHideActions: boolean = false
 	export let hasInlineEditor: boolean = false
 	export let inlineEditorOpened: boolean = false
+	export let errorHandledByComponent: boolean = false
 
 	let isConditionalWrapperManuallySelected: boolean = false
 
@@ -165,7 +166,7 @@
 	</div>
 {/if}
 
-{#if error}
+{#if error && !errorHandledByComponent}
 	{@const json = JSON.parse(JSON.stringify(error))}
 	<span
 		title="Error"
