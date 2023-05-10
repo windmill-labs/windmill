@@ -1220,12 +1220,12 @@ struct PreviewFlow {
 pub struct JsonOrForm<T>(T);
 
 #[axum::async_trait]
-impl<S, T> FromRequest<S, axum::body::Body> for JsonOrForm<T>
+impl<S> FromRequest<S, axum::body::Body>
+    for JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>
 where
     S: Send + Sync,
-    Json<T>: FromRequest<(), axum::body::Body>,
-    Form<T>: FromRequest<(), axum::body::Body>,
-    T: 'static,
+    Json<Option<serde_json::Map<String, serde_json::Value>>>: FromRequest<(), axum::body::Body>,
+    Form<serde_json::Map<String, serde_json::Value>>: FromRequest<(), axum::body::Body>,
 {
     type Rejection = Response;
 
@@ -1244,7 +1244,7 @@ where
 
             if content_type.starts_with("application/x-www-form-urlencoded") {
                 let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-                return Ok(Self(payload));
+                return Ok(Self(Some(payload)));
             }
         }
 
