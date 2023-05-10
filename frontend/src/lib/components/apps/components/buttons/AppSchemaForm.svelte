@@ -61,9 +61,9 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	{#if result && Object.keys(result.properties).length > 0}
+	{#if result && Object.keys(result?.properties ?? {}).length > 0}
 		<div
-			class={twMerge('m-2', css?.container?.class)}
+			class={twMerge('p-2 overflow-auto h-full', css?.container?.class)}
 			style={css?.container?.style}
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -77,6 +77,6 @@
 			/>
 		</div>
 	{:else}
-		<p class="m-2 italic"> Empty form </p>
+		<p class="m-2 italic">Empty form (no propertie)</p>
 	{/if}
 </RunnableWrapper>

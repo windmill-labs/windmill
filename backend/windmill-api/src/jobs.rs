@@ -21,7 +21,7 @@ use axum::{
 };
 use base64::Engine;
 use hmac::Mac;
-use hyper::{HeaderMap, Request, StatusCode};
+use hyper::{http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
@@ -41,11 +41,17 @@ use windmill_queue::{get_queued_job, push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/run/f/*script_path", post(run_flow_by_path))
-        .route("/run/p/*script_path", post(run_job_by_path))
+        .route(
+            "/run/f/*script_path",
+            post(run_flow_by_path).head(|| async { "" }),
+        )
+        .route(
+            "/run/p/*script_path",
+            post(run_job_by_path).head(|| async { "" }),
+        )
         .route(
             "/run_wait_result/p/*script_path",
-            post(run_wait_result_job_by_path),
+            post(run_wait_result_job_by_path).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/p/*script_path",
@@ -53,13 +59,13 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_job_by_hash),
+            post(run_wait_result_job_by_hash).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/f/*script_path",
-            post(run_wait_result_flow_by_path),
+            post(run_wait_result_flow_by_path).head(|| async { "" }),
         )
-        .route("/run/h/:hash", post(run_job_by_hash))
+        .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
@@ -1478,6 +1484,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn run_wait_result_job_by_path_get(
+    method: hyper::http::Method,
     authed: Authed,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
@@ -1485,6 +1492,9 @@ pub async fn run_wait_result_job_by_path_get(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::JsonResult<serde_json::Value> {
+    if method == http::Method::HEAD {
+        return Ok(Json(serde_json::json!("")));
+    }
     let payload_r = run_query
         .payload
         .map(decode_payload)

@@ -9,6 +9,7 @@
 	export let toastId: string
 	export let error: boolean = false
 	export let actions: ToastAction[] = []
+	export let errorMessage: string | undefined = undefined
 
 	function handleClose() {
 		toast.pop(toastId)
@@ -36,7 +37,13 @@
 			</div>
 			<div class="ml-3 flex-1 w-0">
 				<p class="text-sm text-gray-500">{message}</p>
+				{#if errorMessage}
+					<p class="text-sm text-gray-500 border bg-gray-50 p-2 w-full overflow-auto mt-2">
+						{errorMessage}
+					</p>
+				{/if}
 			</div>
+
 			<div class="ml-4 flex flex-shrink-0">
 				<button
 					type="button"

@@ -94,9 +94,10 @@ export type ResultInput = {
 	doNotRecomputeOnInputChanged?: boolean
 	recomputeOnInputChanged?: boolean
 	autoRefresh?: boolean
+	hideRefreshButton?: boolean
 }
 
-type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
+export type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| StaticInput<U>
 	| ConnectedInput
 	| UserInput<U>

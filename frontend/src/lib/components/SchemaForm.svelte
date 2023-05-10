@@ -24,6 +24,7 @@
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
+	export let prettifyHeader = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -69,6 +70,7 @@
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
 							<ArgInput
+								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}
 								bind:description={schema.properties[argName].description}
@@ -94,6 +96,7 @@
 							/>
 						{:else}
 							<ArgInput
+								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}
 								description={schema.properties[argName].description}

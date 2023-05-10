@@ -132,7 +132,14 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm {noVariablePicker} {autofocus} schema={runnable.schema} bind:isValid bind:args />
+			<SchemaForm
+				prettifyHeader
+				{noVariablePicker}
+				{autofocus}
+				schema={runnable.schema}
+				bind:isValid
+				bind:args
+			/>
 		{/if}
 	{:else}
 		<div class="text-xs text-gray-600">No schema</div>
@@ -143,16 +150,16 @@
 			<div class="flex flex-col gap-4 mt-2 border p-2">
 				<div class="flex flex-col gap-2">
 					{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
-					<div class="flex">
-						<Button
-							color="light"
-							size="sm"
-							endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
-							on:click={() => (viewOptions = !viewOptions)}
-						>
-							Schedule to run later
-						</Button>
-					</div>
+						<div class="flex">
+							<Button
+								color="light"
+								size="sm"
+								endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
+								on:click={() => (viewOptions = !viewOptions)}
+							>
+								Schedule to run later
+							</Button>
+						</div>
 					{/if}
 					{#if viewOptions}
 						<div transition:slide|local class="mt-6">
@@ -226,16 +233,16 @@
 		<div>
 			<div class="my-20" />
 			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
-			<div class="flex">
-				<Button
-					color="light"
-					size="xs"
-					endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
-					on:click={() => (viewCliOptions = !viewCliOptions)}
-				>
-					Run it from the CLI
-				</Button>
-			</div>
+				<div class="flex">
+					<Button
+						color="light"
+						size="xs"
+						endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
+						on:click={() => (viewCliOptions = !viewCliOptions)}
+					>
+						Run it from the CLI
+					</Button>
+				</div>
 			{/if}
 			{#if viewCliOptions}
 				<div transition:slide|local class="mt-2 px-4 pt-2">

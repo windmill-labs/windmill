@@ -42,6 +42,8 @@
 	import AppModal from '../../components/layout/AppModal.svelte'
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 	import AppStepper from '../../components/layout/AppStepper.svelte'
+	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
+	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -57,6 +59,7 @@
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
 	let initializing: boolean | undefined = undefined
+	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
 
 	let inlineEditorOpened: boolean = false
@@ -92,6 +95,7 @@
 			on:triggerInlineEditor={() => {
 				inlineEditorOpened = !inlineEditorOpened
 			}}
+			{errorHandledByComponent}
 		/>
 	{/if}
 
@@ -232,6 +236,7 @@
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
 				bind:initializing
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
@@ -260,6 +265,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
@@ -271,6 +277,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
+				bind:errorHandledByComponent
 				{render}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
@@ -402,6 +409,14 @@
 				componentInput={component.componentInput}
 				{render}
 			/>
+		{:else if component.type === 'conditionalwrapper' && component.conditions}
+			<AppConditionalWrapper
+				id={component.id}
+				conditions={component.conditions}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
 				id={component.id}
@@ -488,6 +503,15 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				{initializing}
+				{render}
+			/>
+		{:else if component.type === 'selecttabcomponent'}
+			<AppSelectTab
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{/if}

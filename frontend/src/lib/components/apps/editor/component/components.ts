@@ -34,17 +34,20 @@ import {
 	FlipHorizontal,
 	FlipVertical,
 	FileText,
-	AtSignIcon
+	AtSignIcon,
+	Split
 } from 'lucide-svelte'
 import type {
 	Aligned,
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	RichConfiguration,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
-import type { ResultAppInput, StaticAppInput } from '../../inputType'
+
+import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -109,7 +112,12 @@ export type ModalComponent = BaseComponent<'modalcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
+export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
+	conditions: RichConfiguration[]
+}
+
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
+export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -154,6 +162,8 @@ export type TypedComponent =
 	| ModalComponent
 	| StepperComponent
 	| Schemaformcomponent
+	| SelectTabComponent
+	| ConditionalWrapperComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -196,6 +206,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	actionButtons?: boolean
 	tabs?: string[]
 	panes?: number[]
+	conditions?: AppInputSpec<'boolean', boolean>[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -225,16 +236,20 @@ export const selectOptions = {
 	formorientationOptions: ['Horizontal', 'Vertical']
 }
 
+const labels = {
+	none: 'Do nothing',
+	errorOverlay: 'Show error overlay',
+	gotoUrl: 'Go to an url',
+	setTab: 'Set the tab of a tabs component',
+	sendToast: 'Display a toast notification',
+	sendErrorToast: 'Display an error toast notification'
+}
+
 const onSuccessClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on success',
 	selected: 'none',
-	labels: {
-		none: 'Do nothing',
-		gotoUrl: 'Go to an url',
-		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
-	},
+	labels,
 	configuration: {
 		none: {},
 		gotoUrl: {
@@ -268,6 +283,55 @@ const onSuccessClick = {
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there'
+			}
+		}
+	}
+} as const
+
+const onErrorClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on error',
+	selected: 'errorOverlay',
+	labels,
+	configuration: {
+		errorOverlay: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo'
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on error'
+			}
+		},
+		sendErrorToast: {
+			message: {
+				tooltip: 'The message of the toast to diplay',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there'
+			},
+			appendError: {
+				tooltip: 'Append the error message to the toast',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
 			}
 		}
 	}
@@ -440,12 +504,13 @@ export const components = {
 					fieldType: 'boolean',
 					onlyStatic: true
 				},
-				onSuccess: onSuccessClick
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
 	formcomponent: {
-		name: 'Form',
+		name: 'Submit form',
 		icon: FormInput,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
@@ -481,7 +546,8 @@ export const components = {
 					onlyStatic: true,
 					selectOptions: selectOptions.buttonSizeOptions
 				},
-				onSuccess: onSuccessClick
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
@@ -524,6 +590,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onError: onErrorClick,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -1744,7 +1811,7 @@ Hello \${ctx.username}
 		}
 	},
 	schemaformcomponent: {
-		name: 'Schema Form',
+		name: 'Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
@@ -1757,24 +1824,94 @@ Hello \${ctx.username}
 				type: 'static',
 				fieldType: 'schema',
 				value: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: [],
-					type: 'object'
+					properties: {
+						first_name: {
+							type: 'string',
+							description: 'your name',
+							default: 'default'
+						}
+					},
+					required: []
 				}
 			},
 			configuration: {
 				displayType: {
 					fieldType: 'boolean',
 					type: 'static',
-					value: false
+					value: false,
+					onlyStatic: true
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
-					value: false
+					value: false,
+					onlyStatic: true
 				}
 			}
+		}
+	},
+	selecttabcomponent: {
+		name: 'Select Tab',
+		icon: List,
+		dims: '2:1-3:1' as AppComponentDimensions,
+
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				} as StaticAppInput,
+
+				defaultValue: {
+					type: 'static',
+					value: undefined as { value: string; label: string } | undefined,
+					fieldType: 'object'
+				},
+				tabSize: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: selectOptions.buttonSizeOptions
+				}
+			}
+		}
+	},
+	conditionalwrapper: {
+		name: 'Conditional tabs',
+		icon: Split,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 2,
+			conditions: [
+				{
+					type: 'eval',
+					expr: 'false',
+					fieldType: 'boolean'
+				},
+				{
+					type: 'eval',
+					expr: 'true',
+					fieldType: 'boolean'
+				}
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	}
 } as const

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
+	import { capitalize } from '$lib/utils'
 
 	export let label: string
 	export let format: string = ''
@@ -9,11 +10,16 @@
 	export let required = false
 	export let displayType: boolean = true
 	export let labelClass: string = ''
+	export let prettify = false
 </script>
 
 <div class="inline-flex flex-row items-center truncated">
 	<span class={twMerge('font-semibold', labelClass)}>
-		{label}
+		{#if prettify}
+			{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
+		{:else}
+			{label}
+		{/if}
 	</span>
 	<Required {required} class="!ml-0" />
 

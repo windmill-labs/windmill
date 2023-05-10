@@ -18,13 +18,8 @@
 		goto('?', { replaceState: true })
 	}
 
-	function restoreTempValue(tempValue) {
-		if (app) {
-			app.value = tempValue
-			app = app
-			redraw++
-		}
-	}
+	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
+	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	async function loadApp(): Promise<void> {
 		const app_w_draft = await AppService.getAppByPathWithDraft({
@@ -32,18 +27,15 @@
 			workspace: $workspaceStore!
 		})
 
-		const tempValue = app_w_draft.value
-
-		const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
-		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
-
 		if (stateLoadedFromUrl) {
 			const actions: ToastAction[] = []
-			if (JSON.stringify(app_w_draft.value) !== JSON.stringify(stateLoadedFromUrl)) {
+			if (stateLoadedFromUrl) {
 				actions.push({
-					label: 'Load from last save instead',
-					callback: () => {
-						restoreTempValue(tempValue)
+					label: 'Discard autosave and reload',
+					callback: async () => {
+						stateLoadedFromUrl = undefined
+						await loadApp()
+						redraw++
 					}
 				})
 			}

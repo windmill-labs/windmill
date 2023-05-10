@@ -165,7 +165,7 @@
 					variant="border"
 					on:click={() => {
 						inputLibraryDrawer?.openDrawer()
-					}}>Input library</Button
+					}}>Past Runs/Input library</Button
 				>
 			{/if}
 

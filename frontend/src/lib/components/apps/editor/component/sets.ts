@@ -1,9 +1,13 @@
 import type { ComponentSet } from '../../types'
 
+const tabs: ComponentSet = {
+	title: 'Tabs',
+	components: ['tabscomponent', 'conditionalwrapper']
+} as const
+
 const layout: ComponentSet = {
 	title: 'Layout',
 	components: [
-		'tabscomponent',
 		'containercomponent',
 		'horizontaldividercomponent',
 		'verticaldividercomponent',
@@ -23,6 +27,7 @@ const buttons: ComponentSet = {
 const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
+		'schemaformcomponent',
 		'textinputcomponent',
 		'textareainputcomponent',
 		'passwordinputcomponent',
@@ -37,7 +42,7 @@ const inputs: ComponentSet = {
 		'selectcomponent',
 		'resourceselectcomponent',
 		'multiselectcomponent',
-		'schemaformcomponent'
+		'selecttabcomponent'
 	]
 } as const
 
@@ -49,17 +54,26 @@ const display: ComponentSet = {
 		'imagecomponent',
 		'mapcomponent',
 		'htmlcomponent',
-		'tablecomponent',
-		'aggridcomponent',
-		'barchartcomponent',
-		'piechartcomponent',
-		'vegalitecomponent',
-		'plotlycomponent',
-		'scatterchartcomponent',
-		'timeseriescomponent',
 		'pdfcomponent',
 		'displaycomponent'
 	]
 } as const
 
-export const COMPONENT_SETS = [layout, buttons, inputs, display] as const
+const tables: ComponentSet = {
+	title: 'Tables',
+	components: ['tablecomponent', 'aggridcomponent']
+} as const
+
+const charts: ComponentSet = {
+	title: 'Charts',
+	components: [
+		'barchartcomponent',
+		'piechartcomponent',
+		'vegalitecomponent',
+		'plotlycomponent',
+		'scatterchartcomponent',
+		'timeseriescomponent'
+	]
+} as const
+
+export const COMPONENT_SETS = [tabs, layout, buttons, inputs, tables, display, charts] as const

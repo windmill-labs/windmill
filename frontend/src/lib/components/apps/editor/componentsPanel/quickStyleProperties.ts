@@ -553,6 +553,9 @@ export const quickStyleProperties: Record<
 		selectedStep: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
+	conditionalwrapper: {
+		container: containerDefaultProps
+	},
 	pdfcomponent: {
 		container: containerDefaultProps
 	},
@@ -699,5 +702,10 @@ export const quickStyleProperties: Record<
 	schemaformcomponent: {
 		container: containerDefaultProps,
 		button: buttonDefaultProps
+	},
+	selecttabcomponent: {
+		tabRow: containerDefaultProps,
+		allTabs: [typographyGrouping, sizeGrouping],
+		selectedTab: [typographyGrouping, sizeGrouping]
 	}
 }

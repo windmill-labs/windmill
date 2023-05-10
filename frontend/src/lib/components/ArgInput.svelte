@@ -58,6 +58,7 @@
 	export let noMargin = false
 	export let extra: Record<string, any> = {}
 	export let minW = true
+	export let prettifyHeader = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -175,7 +176,7 @@
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
-			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
+			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 		{#if editableSchema}
 			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
