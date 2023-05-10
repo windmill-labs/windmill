@@ -10,11 +10,16 @@
 	export let required = false
 	export let displayType: boolean = true
 	export let labelClass: string = ''
+	export let prettify = false
 </script>
 
 <div class="inline-flex flex-row items-center truncated">
 	<span class={twMerge('font-semibold', labelClass)}>
-		{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
+		{#if prettify}
+			{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
+		{:else}
+			{label}
+		{/if}
 	</span>
 	<Required {required} class="!ml-0" />
 

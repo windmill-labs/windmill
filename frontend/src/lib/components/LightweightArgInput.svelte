@@ -143,6 +143,7 @@
 	<div>
 		{#if displayHeader}
 			<FieldHeader
+				prettify
 				{label}
 				{required}
 				{type}
