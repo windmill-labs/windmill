@@ -75,7 +75,8 @@
 		username: $userStore?.username,
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
-		workspace: $workspaceStore
+		workspace: $workspaceStore,
+		mode: 'editor'
 	}
 
 	const worldStore = buildWorld(context)
@@ -135,7 +136,8 @@
 		context = context
 	}
 
-	$: previewing = $mode === 'preview'
+	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
+
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
@@ -207,7 +209,7 @@
 			<AppEditorHeader {policy} {fromHub} />
 		{/if}
 
-		{#if previewing}
+		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
 					class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}

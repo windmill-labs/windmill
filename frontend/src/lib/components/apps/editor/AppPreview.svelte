@@ -48,9 +48,16 @@
 
 	const allIdsInPath = writable<string[]>([])
 
+	let ncontext: any = { ...context, workspace, mode: 'viewer' }
+
+	function hashchange(e: HashChangeEvent) {
+		ncontext.hash = e.newURL.split('#')[1]
+		ncontext = ncontext
+	}
+
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(context),
+		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
@@ -76,13 +83,6 @@
 		hoverStore: writable(undefined),
 		allIdsInPath
 	})
-
-	let ncontext: any = { ...context, workspace }
-
-	function hashchange(e: HashChangeEvent) {
-		ncontext.hash = e.newURL.split('#')[1]
-		ncontext = ncontext
-	}
 
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
