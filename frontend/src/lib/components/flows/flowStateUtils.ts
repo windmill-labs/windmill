@@ -14,12 +14,8 @@ import { getScriptByPath } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 import { charsToNumber, numberToChars } from './idUtils'
-import {
-	emptyFlowModuleState,
-	findNextAvailablePath,
-	loadSchemaFromModule,
-	NEVER_TESTED_THIS_FAR
-} from './utils'
+import { emptyFlowModuleState, findNextAvailablePath, loadSchemaFromModule } from './utils'
+import { NEVER_TESTED_THIS_FAR } from './models'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {

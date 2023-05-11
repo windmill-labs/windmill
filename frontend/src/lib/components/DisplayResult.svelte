@@ -7,6 +7,7 @@
 	import autosize from 'svelte-autosize'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
+	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -236,10 +237,14 @@
 		{:else}
 			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 			{#if jsonStr.length > 10000}
-				JSON too large. <a
-					download="{filename ?? 'result'}.json"
-					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
-				>
+				<div class="text-sm mb-2 text-gray-600">
+					<a
+						download="{filename ?? 'result'}.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+					>
+					JSON is too large to be displayed in full.
+				</div>
+				<ObjectViewer json={result} />
 			{:else}
 				<Highlight language={json} code={jsonStr} />
 			{/if}
@@ -264,10 +269,13 @@
 				</svelte:fragment>
 				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 				{#if str.length > 100000}
-					JSON too large. <a
-						download="{filename ?? 'result'}.json"
-						href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
-					>
+					<div class="text-sm mb-2 text-gray-600">
+						<a
+							download="{filename ?? 'result'}.json"
+							href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+						>
+						JSON is too large to be displayed in full.
+					</div>
 				{:else}
 					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
 				{/if}

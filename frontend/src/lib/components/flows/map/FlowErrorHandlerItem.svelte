@@ -6,7 +6,7 @@
 	import { classNames, emptySchema } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { NEVER_TESTED_THIS_FAR } from '../utils'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
 
 	const { selectedId, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
