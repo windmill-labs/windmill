@@ -154,7 +154,11 @@
 					/>
 				</div>
 				<div class="mt-4">
-					<Toggle bind:checked={variable.is_secret} options={{ right: 'Secret' }} />
+					<Toggle
+						on:change={() => loadVariable(initialPath)}
+						bind:checked={variable.is_secret}
+						options={{ right: 'Secret' }}
+					/>
 					<div class="mb-2" />
 					{#if variable.is_secret}
 						<Alert type="warning" title="Audit log for each access">
