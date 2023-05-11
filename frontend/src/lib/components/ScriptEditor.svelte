@@ -32,6 +32,7 @@
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
 	export let editor: Editor | undefined = undefined
+	export let collabMode = false
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -103,7 +104,6 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
-		setCollaborationMode()
 	})
 
 	let wsProvider: WebsocketProvider | undefined = undefined
@@ -111,11 +111,14 @@
 
 	let yArgs: Y.Map<any> | undefined = undefined
 
-	$: args &&
+	$: collabLive &&
+		args &&
 		yArgs &&
 		Object.entries(args).forEach(([k, v]) => !deepEqual(yArgs?.get(k), v) && yArgs?.set(k, v))
 
-	function setCollaborationMode() {
+	let collabLive = false
+	export function setCollaborationMode() {
+		collabLive = false
 		const ydoc = new Y.Doc()
 		wsProvider = new WebsocketProvider('ws://localhost:1234', 'my-roomname', ydoc)
 		type = ydoc.getText('monaco')
@@ -149,6 +152,11 @@
 		})
 	}
 
+	export function disableCollaboration() {
+		collabLive = false
+		wsProvider?.disconnect()
+	}
+
 	onDestroy(() => {
 		wsProvider?.disconnect()
 	})
@@ -172,6 +180,8 @@
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
+			bind:collabLive
+			{collabMode}
 			{validCode}
 			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 			{editor}

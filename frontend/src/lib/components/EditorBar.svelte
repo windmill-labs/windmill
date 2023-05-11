@@ -12,7 +12,8 @@
 		faEye,
 		faPlus,
 		faRotate,
-		faRotateLeft
+		faRotateLeft,
+		faUsers
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { workspaceStore } from '$lib/stores'
@@ -37,6 +38,8 @@
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
+	export let collabMode = false
+	export let collabLive = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -244,117 +247,94 @@
 			{validCode ? 'Valid' : 'Invalid'}
 		</Badge>
 		<div class="flex items-center divide-x">
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="pr-1"
-				disablePopup={!iconOnly}
+			<Button
+				title="Add context variable"
+				color="light"
+				btnClasses="!font-medium !h-full"
+				on:click={contextualVariablePicker.openDrawer}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faDollarSign }}
+				{iconOnly}
 			>
-				<Button
-					color="light"
-					btnClasses="!font-medium !h-full"
-					on:click={contextualVariablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
-					{iconOnly}
-				>
-					+Context Var
-				</Button>
-				<svelte:fragment slot="text">Add context variable</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				+Context Var
+			</Button>
+
+			<Button
+				title="Add variable"
+				color="light"
+				btnClasses="!font-medium !h-full"
+				on:click={variablePicker.openDrawer}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faDollarSign }}
+				{iconOnly}
 			>
-				<Button
-					color="light"
-					btnClasses="!font-medium !h-full"
-					on:click={variablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
-					{iconOnly}
-				>
-					+Variable
-				</Button>
-				<svelte:fragment slot="text">Add variable</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				+Variable
+			</Button>
+
+			<Button
+				title="Add resource"
+				btnClasses="!font-medium !h-full"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={resourcePicker.openDrawer}
+				{iconOnly}
+				startIcon={{ icon: faCube }}
 			>
-				<Button
-					btnClasses="!font-medium !h-full"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={resourcePicker.openDrawer}
-					{iconOnly}
-					startIcon={{ icon: faCube }}
-				>
-					+Resource
-				</Button>
-				<svelte:fragment slot="text">Add resource</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				+Resource
+			</Button>
+
+			<Button
+				title="Reset"
+				btnClasses="!font-medium !h-full"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor?.clearContent}
+				{iconOnly}
+				startIcon={{ icon: faRotateLeft }}
 			>
-				<Button
-					btnClasses="!font-medium !h-full"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={editor?.clearContent}
-					{iconOnly}
-					startIcon={{ icon: faRotateLeft }}
-				>
-					Reset
-				</Button>
-				<svelte:fragment slot="text">Reset</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				Reset
+			</Button>
+
+			<Button
+				btnClasses="!font-medium !h-full"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor?.reloadWebsocket}
+				startIcon={{ icon: faRotate }}
 			>
+				{#if !iconOnly}
+					Assistant
+				{/if}
+				<span class="ml-1 -my-1">
+					{#if lang == 'deno'}
+						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+					{:else if lang == 'go'}
+						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+					{:else if lang == 'python3'}
+						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
+					{/if}
+				</span>
+			</Button>
+			{#if collabMode}
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
 					spacingSize="md"
 					color="light"
 					on:click={editor?.reloadWebsocket}
-					startIcon={{ icon: faRotate }}
+					startIcon={{ icon: faUsers }}
 				>
 					{#if !iconOnly}
-						Assistant
+						Live Sharing
 					{/if}
-					<span class="ml-1 -my-1">
-						{#if lang == 'deno'}
-							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-						{:else if lang == 'go'}
-							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-						{:else if lang == 'python3'}
-							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
-						{/if}
-					</span>
 				</Button>
-				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
-			</Popover>
+			{/if}
 			<!-- <Popover
 				notClickable
 				placement="bottom"
@@ -381,28 +361,21 @@
 			</Popover> -->
 		</div>
 	</div>
-	<Popover
-		notClickable
-		placement="bottom"
-		disappearTimeout={0}
-		class="px-1"
-		disablePopup={!iconOnly}
-	>
-		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
-			<Button
-				btnClasses="!font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={scriptPicker.openDrawer}
-				{iconOnly}
-				startIcon={{ icon: faEye }}
-			>
-				Explore other scripts
-			</Button>
-		{/if}
-		<svelte:fragment slot="text">Script</svelte:fragment>
-	</Popover>
+
+	{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
+		<Button
+			btnClasses="!font-medium"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={scriptPicker.openDrawer}
+			{iconOnly}
+			startIcon={{ icon: faEye }}
+			title="Explore other scripts"
+		>
+			Explore other scripts
+		</Button>
+	{/if}
 </div>
 
 <style lang="postcss">

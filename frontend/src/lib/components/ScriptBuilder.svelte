@@ -499,6 +499,7 @@
 			</DrawerContent>
 		</Drawer>
 		<ScriptEditor
+			collabMode
 			on:format={() => {
 				saveDraft()
 			}}

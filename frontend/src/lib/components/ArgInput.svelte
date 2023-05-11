@@ -71,32 +71,39 @@
 
 	export let editor: SimpleEditor | undefined = undefined
 
+	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 
-	$: {
-		if (rawValue) {
-			try {
-				value = JSON.parse(rawValue)
-				error = ''
-			} catch (err) {
-				error = err.toString()
+	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
+		if (value == undefined || value == null) {
+			value = defaultValue
+			if (defaultValue === undefined || defaultValue === null) {
+				if (inputCat === 'string') {
+					value = ''
+				} else if (inputCat == 'enum') {
+					value = enum_?.[0]
+				} else if (inputCat == 'boolean') {
+					value = false
+				} else if (inputCat == 'list') {
+					value = []
+				}
+			} else if (inputCat === 'object') {
+				evalValueToRaw()
 			}
 		}
 	}
 
-	$: {
-		error = ''
-		if (inputCat === 'object') {
-			evalValueToRaw()
-			validateInput(pattern, value)
-		}
+	computeDefaultValue()
+
+	$: computeDefaultValue(value, inputCat, defaultValue)
+
+	function evalValueToRaw() {
+		rawValue = inputCat === 'object' ? JSON.stringify(value, null, 2) : undefined
 	}
 
-	export function evalValueToRaw() {
-		if (value) {
-			rawValue = JSON.stringify(value, null, 2)
-		}
-	}
+	evalValueToRaw()
 
 	function fileChanged(e: any, cb: (v: string | undefined) => void) {
 		let t = e.target
@@ -149,24 +156,7 @@
 		}
 		e.stopPropagation()
 	}
-	$: {
-		if (value == undefined || value == null) {
-			value = defaultValue
-			if (defaultValue === undefined || defaultValue === null) {
-				if (inputCat === 'string') {
-					value = ''
-				} else if (inputCat == 'enum') {
-					value = enum_?.[0]
-				} else if (inputCat == 'boolean') {
-					value = false
-				} else if (inputCat == 'list') {
-					value = []
-				}
-			}
-		}
-	}
 
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let redraw = 0
 
 	let itemsLimit = 50
