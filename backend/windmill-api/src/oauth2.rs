@@ -19,6 +19,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::Engine;
 use hmac::Mac;
 use hyper::StatusCode;
 use itertools::Itertools;
@@ -119,7 +120,14 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     ))?;
 
     let path = "./oauth.json";
-    let content = if std::path::Path::new(path).exists() {
+    let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
+        str::from_utf8(
+            &base64::engine::general_purpose::STANDARD
+                .decode(e)
+                .map_err(to_anyhow)?,
+        )?
+        .to_string()
+    } else if std::path::Path::new(path).exists() {
         fs::read_to_string(path).map_err(to_anyhow)?
     } else {
         "{}".to_string()
