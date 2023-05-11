@@ -3,8 +3,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { AppService, type CompletedJob } from '$lib/gen'
+	import { AppService } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
@@ -16,6 +15,7 @@
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
+	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 
 	// Component props
 	export let id: string
@@ -65,7 +65,6 @@
 	$runnableComponents = $runnableComponents
 
 	let args: Record<string, any> | undefined = undefined
-	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
@@ -96,7 +95,7 @@
 	}
 
 	$: (runnableInputValues || extraQueryParams || args) &&
-		testJobLoader &&
+		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
 	$: refreshOn =
@@ -113,8 +112,7 @@
 	}
 
 	// Test job internal state
-	let testJob: CompletedJob | undefined = undefined
-	let testJobLoader: TestJobLoader | undefined = undefined
+	let resultJobLoader: ResultJobLoader | undefined = undefined
 
 	let schemaStripped: Schema | undefined =
 		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
@@ -171,7 +169,7 @@
 					$worldStore,
 					$runnableComponents
 				)
-				await setResult(r)
+				await setResult(r, undefined)
 
 				$state = $state
 			} catch (e) {
@@ -190,18 +188,20 @@
 				$jobs = [{ job, component: id, error }, ...$jobs]
 			}
 			loading = false
+			donePromise?.()
 			return
 		} else if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
+			donePromise?.()
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
 
-		if (!testJobLoader) {
+		if (!resultJobLoader) {
 			console.warn('No test job loader')
 			return
 		}
@@ -209,7 +209,7 @@
 		loading = true
 
 		try {
-			let njob = await testJobLoader?.abstractRun(() => {
+			let njob = await resultJobLoader?.abstractRun(() => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
 				Object.keys(fields ?? {}).forEach((k) => {
@@ -255,7 +255,7 @@
 				$jobs = [{ job: njob, component: id }, ...$jobs]
 			}
 		} catch (e) {
-			setResult({ error: e.body ?? e.message })
+			setResult({ error: e.body ?? e.message }, undefined)
 			loading = false
 		}
 	}
@@ -264,36 +264,42 @@
 		try {
 			await executeComponent()
 		} catch (e) {
-			setResult({ error: e.body ?? e.message })
+			setResult({ error: e.body ?? e.message }, undefined)
 		}
 	}
 
-	let lastStartedAt: number = -1
-
-	function recordError(error: string) {
-		if (testJob) {
-			$errorByComponent[testJob.id] = {
-				error: error,
-				componentId: id
-			}
+	function recordError(error: string, jobId: string) {
+		$errorByComponent[jobId] = {
+			error: error,
+			componentId: id
 		}
 	}
 
-	async function setResult(res: any) {
+	async function setResult(res: any, jobId: string | undefined) {
 		const hasRes = res !== undefined && res !== null
 
 		if (transformer) {
-			$worldStore.newOutput(id, 'raw', res)
-			res = await eval_like(
-				transformer.content,
-				computeGlobalContext($worldStore, { result: res }),
-				false,
-				$state,
-				$mode == 'dnd',
-				$componentControl,
-				$worldStore,
-				$runnableComponents
-			)
+			try {
+				$worldStore.newOutput(id, 'raw', res)
+				res = await eval_like(
+					transformer.content,
+					computeGlobalContext($worldStore, { result: res }),
+					false,
+					$state,
+					$mode == 'dnd',
+					$componentControl,
+					$worldStore,
+					$runnableComponents
+				)
+			} catch (err) {
+				res = {
+					error: {
+						name: 'TransformerError',
+						message: 'An error occured in the transformer',
+						stack: err.message
+					}
+				}
+			}
 
 			if (hasRes && res === undefined) {
 				res = {
@@ -312,7 +318,7 @@
 
 		result = res
 		if (res?.error) {
-			recordError(res.error)
+			jobId && recordError(res.error, jobId)
 			dispatch('handleError', res.error.message)
 		} else {
 			dispatch('success')
@@ -346,7 +352,7 @@
 				executeComponent(true, inlineScript).catch(reject)
 			})
 			p.cancel = () => {
-				testJobLoader?.cancelJob()
+				resultJobLoader?.cancelJob()
 				loading = false
 				rejectCb(new Error('Canceled'))
 			}
@@ -371,6 +377,8 @@
 		delete $runnableComponents[id]
 		$runnableComponents = $runnableComponents
 	})
+
+	let lastJobId: string | undefined = undefined
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -396,21 +404,18 @@
 	{/each}
 {/if}
 
-<TestJobLoader
+<ResultJobLoader
 	workspaceOverride={workspace}
 	on:done={(e) => {
-		if (testJob) {
-			const startedAt = new Date(testJob.started_at).getTime()
-			if (startedAt > lastStartedAt) {
-				lastStartedAt = startedAt
-				setResult(e.detail.result)
-			}
-		}
+		lastJobId = e.detail.id
+		setResult(e.detail.result, e.detail.id)
 		loading = false
 	}}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-	bind:this={testJobLoader}
+	on:doneError={(e) => {
+		setResult({ error: e.detail }, e.detail.id)
+		loading = false
+	}}
+	bind:this={resultJobLoader}
 />
 
 {#if render}
@@ -444,7 +449,7 @@
 							<Alert type="error" title="Error during execution">
 								<div class="flex flex-col gap-2">
 									An error occured, please contact the app author.
-									<span class="font-semibold">Job id: {testJob?.id}</span>
+									<span class="font-semibold">Job id: {lastJobId}</span>
 								</div>
 							</Alert>
 						</div>
