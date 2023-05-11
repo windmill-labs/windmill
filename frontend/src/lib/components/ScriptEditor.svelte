@@ -19,6 +19,7 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
 	import { WebsocketProvider } from 'y-websocket'
+	import { deepEqual } from 'fast-equals'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -110,7 +111,9 @@
 
 	let yArgs: Y.Map<any> | undefined = undefined
 
-	$: args && yArgs && Object.entries(args).forEach(([k, v]) => yArgs?.set(k, v))
+	$: args &&
+		yArgs &&
+		Object.entries(args).forEach(([k, v]) => !deepEqual(yArgs?.get(k), v) && yArgs?.set(k, v))
 
 	function setCollaborationMode() {
 		const ydoc = new Y.Doc()
@@ -121,6 +124,7 @@
 		const lang2 = ydoc.getText('lang')
 		yArgs.observeDeep(() => {
 			args = yArgs?.toJSON() ?? {}
+			console.log(args)
 		})
 		lang2.observeDeep(() => {
 			lang = lang2.toString() as Preview.language
