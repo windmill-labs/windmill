@@ -3675,6 +3675,30 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/completed/get_result_maybe/{id}:
+    get:
+      summary: get completed job result if job is completed
+      operationId: getCompletedJobResultMaybe
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  completed:
+                    type: boolean
+                  result: {}
+                required:
+                  - completed
+                  - result
+
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
       summary: delete completed job (erase content but keep run id)
