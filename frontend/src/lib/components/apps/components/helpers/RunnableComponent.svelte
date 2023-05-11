@@ -268,7 +268,7 @@
 		}
 	}
 
-	let lastStartedAt: number = Date.now()
+	let lastStartedAt: number = -1
 
 	function recordError(error: string) {
 		if (testJob) {
