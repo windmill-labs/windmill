@@ -77,7 +77,22 @@
 				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
-					return 'filename'
+					return 'file'
+				} else if (
+					keys.length === 3 &&
+					keys.includes('file') &&
+					keys.includes('filename') &&
+					keys.includes('autodownload')
+				) {
+					if (result.autodownload) {
+						const a = document.createElement('a')
+
+						a.href = 'data:application/octet-stream;base64,' + result.file
+						a.download = result.filename
+						a.click()
+						console.log('autodownload', result.file, result.filename)
+					}
+					return 'file'
 				} else if (
 					keys.length == 3 &&
 					keys.includes('resume') &&
@@ -192,15 +207,10 @@
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
-				><a download="windmill.file" href="data:application/octet-stream;base64,{result.file}"
-					>Download</a
+				><a
+					download={result.filename ?? 'windmill.file'}
+					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
-			</div>
-		{:else if !forceJson && resultKind === 'filename'}
-			<div>
-				<a download={result.filename} href="data:application/octet-stream;base64,{result.file}">
-					Download
-				</a>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
