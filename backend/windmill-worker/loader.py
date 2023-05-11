@@ -30,7 +30,7 @@ class WindmillFinder(MetaPathFinder):
             script_path = "/".join(splitted)
             import requests
 
-            url = f"{os.environ.get('BASE_INTERNAL_URL')}/api/w/{os.environ.get('WM_WORKSPACE')}/scripts/raw/p/{script_path}"
+            url = f"{os.environ.get('BASE_INTERNAL_URL')}/api/w/{os.environ.get('WM_WORKSPACE')}/scripts/raw/p/{script_path}.py"
 
             r = requests.get(
                 url, headers={"Authorization": f"Bearer {os.environ.get('WM_TOKEN')}"}
