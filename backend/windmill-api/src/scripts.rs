@@ -600,7 +600,22 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let path = path.to_path().split(".").next().unwrap_or_default();
+    let path = path.to_path();
+    if !path.ends_with(".py")
+        && !path.ends_with(".ts")
+        && !path.ends_with(".go")
+        && !path.ends_with(".sh")
+    {
+        return Err(Error::BadRequest(format!(
+            "Path must ends with a .py, .ts, .go. or .sh extension: {}",
+            path
+        )));
+    }
+    let path = path
+        .trim_end_matches(".py")
+        .trim_end_matches(".ts")
+        .trim_end_matches(".go")
+        .trim_end_matches(".sh");
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
