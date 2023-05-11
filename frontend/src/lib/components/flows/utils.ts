@@ -14,6 +14,7 @@ import { emptySchema, sendUserToast } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import type { PickableProperties } from './previousResults'
+import { NEVER_TESTED_THIS_FAR } from './models'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -94,15 +95,6 @@ export function cleanExpr(expr: string): string {
 		.split('\n')
 		.filter((x) => x != '' && !x.startsWith(`import `))
 		.join('\n')
-}
-export function getTypeAsString(arg: any): string {
-	if (arg === null) {
-		return 'null'
-	}
-	if (arg === undefined) {
-		return 'undefined'
-	}
-	return typeof arg
 }
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
@@ -214,8 +206,6 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	}
 	return undefined
 }
-
-export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
 export function emptyFlowModuleState(): FlowModuleState {
 	return {
