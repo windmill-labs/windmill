@@ -74,6 +74,10 @@ pub fn workspaced_service() -> Router {
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route(
+            "/completed/get_result_maybe/:id",
+            get(get_completed_job_result_maybe),
+        )
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
         .route(
@@ -2071,6 +2075,31 @@ async fn get_completed_job_result(
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
     Ok(Json(result))
+}
+
+#[derive(Serialize)]
+struct CompletedJobResult {
+    completed: bool,
+    result: Option<serde_json::Value>,
+}
+
+async fn get_completed_job_result_maybe(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<CompletedJobResult> {
+    let result_o = sqlx::query_scalar!(
+        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(result) = result_o {
+        Ok(Json(CompletedJobResult { completed: true, result }))
+    } else {
+        Ok(Json(CompletedJobResult { completed: false, result: None }))
+    }
 }
 
 async fn delete_completed_job(

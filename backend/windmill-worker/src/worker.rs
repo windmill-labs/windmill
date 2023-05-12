@@ -12,6 +12,7 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
+use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration},
@@ -1415,26 +1416,36 @@ async fn handle_deno_job(
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
-        let spread =  windmill_parser_ts::parse_deno_signature(inner_content, true)?.args.into_iter().map(|x| x.name).join(",");
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
+            Some(i) 
+        } else {
+            None
+        }).map(|x| {
+            return format!("args[{x}] = new Date(args[{x}])")
+        }).join("\n");
+
+        let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let wrapper_content: String = format!(
             r#"
-    import {{ main }} from "./main.ts";
+import {{ main }} from "./main.ts";
 
-    const args = await Deno.readTextFile("args.json")
-        .then(JSON.parse)
-        .then(({{ {spread} }}) => [ {spread} ])
+const args = await Deno.readTextFile("args.json")
+    .then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
 
-    async function run() {{
-        let res: any = await main(...args);
-        const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-        await Deno.writeTextFile("result.json", res_json);
-        Deno.exit(0);
-    }}
-    run().catch(async (e) => {{
-        await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-        Deno.exit(1);
-    }});
+{dates}
+async function run() {{
+    let res: any = await main(...args);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await Deno.writeTextFile("result.json", res_json);
+    Deno.exit(0);
+}}
+run().catch(async (e) => {{
+    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    Deno.exit(1);
+}});
     "#,
         );
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;

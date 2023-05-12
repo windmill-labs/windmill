@@ -35,7 +35,8 @@ import {
 	FlipVertical,
 	FileText,
 	AtSignIcon,
-	Split
+	Split,
+	Download
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -72,6 +73,7 @@ export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
+export type DownloadComponent = BaseComponent<'downloadcomponent'>
 export type FormComponent = BaseComponent<'formcomponent'> & RecomputeOthersSource
 export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & RecomputeOthersSource
 
@@ -164,6 +166,7 @@ export type TypedComponent =
 	| Schemaformcomponent
 	| SelectTabComponent
 	| ConditionalWrapperComponent
+	| DownloadComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -506,6 +509,72 @@ export const components = {
 				},
 				onSuccess: onSuccessClick,
 				onError: onErrorClick
+			}
+		}
+	},
+	downloadcomponent: {
+		name: 'Download Button',
+		icon: Download,
+		dims: '1:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			configuration: {
+				source: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					fileUpload: {
+						accept: '*',
+						convertTo: 'base64'
+					},
+					placeholder: 'Enter URL or upload file'
+				},
+				filename: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'windmill.file'
+				},
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				}
 			}
 		}
 	},
@@ -1746,7 +1815,8 @@ Hello \${ctx.username}
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
-					}
+					},
+					placeholder: 'Enter URL or upload file'
 				},
 				zoom: {
 					fieldType: 'number',
