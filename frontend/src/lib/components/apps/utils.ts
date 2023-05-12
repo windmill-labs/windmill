@@ -41,21 +41,21 @@ export async function loadSchema(
 	workspace: string,
 	path: string,
 	runType: 'script' | 'flow' | 'hubscript'
-): Promise<Schema> {
+): Promise<{ schema: Schema; summary: string | undefined }> {
 	if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,
 			path
 		})
 
-		return script.schema
+		return { schema: script.schema, summary: script.summary }
 	} else if (runType === 'flow') {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
 		})
 
-		return flow.schema
+		return { schema: flow.schema, summary: flow.summary }
 	} else {
 		const script = await ScriptService.getHubScriptByPath({
 			path
@@ -69,7 +69,7 @@ export async function loadSchema(
 		}
 
 		await inferArgs(script.language, script.content, script.schema)
-		return script.schema
+		return { schema: script.schema, summary: script.summary }
 	}
 }
 
@@ -318,4 +318,15 @@ export const TailwindClassPatterns = {
 
 export function hasTailwindClass(classes: string | undefined, pattern: RegExp) {
 	return Boolean(classes?.match(pattern))
+}
+
+export function transformBareBase64IfNecessary(source: string | undefined) {
+	if (!source) {
+		return source
+	}
+	if (source.startsWith('data:') || !source.includes(',')) {
+		return source
+	} else {
+		return `data:application/octet-stream;base64,${source}`
+	}
 }

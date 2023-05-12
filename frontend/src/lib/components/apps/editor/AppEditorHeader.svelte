@@ -538,7 +538,7 @@
 										on:click={() => (selectedJobId = job)}
 									>
 										<span class="text-xs truncate">{job}</span>
-										<Badge color="dark-indigo">{component}</Badge>
+										<Badge color="indigo">{component}</Badge>
 									</div>
 								{/each}
 							</div>

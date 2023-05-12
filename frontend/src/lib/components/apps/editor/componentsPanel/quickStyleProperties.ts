@@ -612,6 +612,9 @@ export const quickStyleProperties: Record<
 	buttoncomponent: {
 		button: buttonDefaultProps
 	},
+	downloadcomponent: {
+		button: buttonDefaultProps
+	},
 	drawercomponent: {
 		container: containerDefaultProps
 	},

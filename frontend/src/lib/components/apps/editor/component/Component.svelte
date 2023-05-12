@@ -44,6 +44,7 @@
 	import AppStepper from '../../components/layout/AppStepper.svelte'
 	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
 	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
+	import AppDownload from '../../components/display/AppDownload.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -237,6 +238,15 @@
 				recomputeIds={component.recomputeIds}
 				bind:initializing
 				bind:errorHandledByComponent
+				{render}
+			/>
+		{:else if component.type === 'downloadcomponent'}
+			<AppDownload
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}

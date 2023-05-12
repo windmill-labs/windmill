@@ -3,10 +3,9 @@
 
 	import { createEventDispatcher } from 'svelte'
 	import { Badge } from '../common'
-	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
-	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
+	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 
 	export let json: Object
 	export let level = 0
@@ -29,6 +28,16 @@
 		isArray = Array.isArray(json)
 		openBracket = isArray ? '[' : '{'
 		closeBracket = isArray ? ']' : '}'
+	}
+
+	export function getTypeAsString(arg: any): string {
+		if (arg === null) {
+			return 'null'
+		}
+		if (arg === undefined) {
+			return 'undefined'
+		}
+		return typeof arg
 	}
 
 	function collapse() {
