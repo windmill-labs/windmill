@@ -85,7 +85,7 @@
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<div>
-									<Badge color="dark-indigo">{id}</Badge>
+									<Badge color="indigo">{id}</Badge>
 								</div>
 							</button>
 							{#if transformer}
@@ -113,7 +113,7 @@
 						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
-						<Badge color="dark-indigo">{id}</Badge>
+						<Badge color="indigo">{id}</Badge>
 					</button>
 					{#if transformer}
 						<div class="w-full pl-4">
@@ -189,7 +189,7 @@
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
-								<Badge color="dark-indigo">{id}</Badge>
+								<Badge color="indigo">{id}</Badge>
 							</button>
 						{/if}
 					{/each}
