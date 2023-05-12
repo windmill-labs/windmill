@@ -1515,9 +1515,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.18"
+version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17f8a914c2987b688368b5138aa05321db91f4090cf26118185672ad588bce21"
+checksum = "d357c7ae988e7d2182f7d7871d0b963962420b0678b0997ce7de72001aeab782"
 dependencies = [
  "bytes",
  "fnv",
@@ -2774,7 +2774,7 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.3.0"
-source = "git+https://github.com/oxidecomputer/progenitor#87749a11ee31f9d12e804727e291c70a830cc1af"
+source = "git+https://github.com/oxidecomputer/progenitor#b94123e5ac5b11c4ff457bc160efb9650e67cc91"
 dependencies = [
  "anyhow",
  "built",
@@ -2793,7 +2793,7 @@ dependencies = [
 [[package]]
 name = "progenitor-client"
 version = "0.3.0"
-source = "git+https://github.com/oxidecomputer/progenitor#87749a11ee31f9d12e804727e291c70a830cc1af"
+source = "git+https://github.com/oxidecomputer/progenitor#b94123e5ac5b11c4ff457bc160efb9650e67cc91"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2807,7 +2807,7 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.3.0"
-source = "git+https://github.com/oxidecomputer/progenitor#87749a11ee31f9d12e804727e291c70a830cc1af"
+source = "git+https://github.com/oxidecomputer/progenitor#b94123e5ac5b11c4ff457bc160efb9650e67cc91"
 dependencies = [
  "getopts",
  "heck",
@@ -2829,7 +2829,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.3.0"
-source = "git+https://github.com/oxidecomputer/progenitor#87749a11ee31f9d12e804727e291c70a830cc1af"
+source = "git+https://github.com/oxidecomputer/progenitor#b94123e5ac5b11c4ff457bc160efb9650e67cc91"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -5087,7 +5087,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5121,7 +5121,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5180,7 +5180,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5197,7 +5197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5210,7 +5210,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5235,7 +5235,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5243,7 +5243,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5258,7 +5258,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5271,7 +5271,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5286,7 +5286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5300,7 +5300,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5328,7 +5328,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.100.0"
+version = "1.100.1"
 dependencies = [
  "anyhow",
  "async-recursion",
