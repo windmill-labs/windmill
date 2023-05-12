@@ -4,9 +4,9 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { NEVER_TESTED_THIS_FAR } from '../utils'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
