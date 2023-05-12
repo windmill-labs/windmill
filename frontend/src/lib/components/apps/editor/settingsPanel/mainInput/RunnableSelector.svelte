@@ -11,7 +11,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
-	import { emptySchema } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -34,18 +34,19 @@
 	async function loadSchemaFromTriggerable(
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
-	): Promise<Schema> {
+	): Promise<{ schema: Schema; summary: string | undefined }> {
 		return loadSchema(workspace, path, runType) ?? emptySchema()
 	}
 
 	async function pickScript(path: string) {
 		const schema = await loadSchemaFromTriggerable(path, 'script')
-		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
 			type: 'runnableByPath',
 			path,
 			runType: 'script',
-			schema
+			schema,
+			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 
 		dispatch('pick', {
@@ -56,12 +57,13 @@
 
 	async function pickFlow(path: string) {
 		const schema = await loadSchemaFromTriggerable(path, 'flow')
-		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
 			type: 'runnableByPath',
 			path,
 			runType: 'flow',
-			schema
+			schema,
+			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 		dispatch('pick', {
 			runnable,
@@ -71,12 +73,13 @@
 
 	async function pickHubScript(path: string) {
 		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
-		const fields = schemaToInputsSpec(schema, defaultUserInput)
+		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
 			type: 'runnableByPath',
 			path,
 			runType: 'hubscript',
-			schema
+			schema,
+			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 		dispatch('pick', {
 			runnable,

@@ -69,6 +69,7 @@ export type TemplateInput = {
 }
 
 export type RunnableByPath = {
+	name: string
 	path: string
 	schema: any
 	runType: 'script' | 'flow' | 'hubscript'

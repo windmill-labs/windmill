@@ -48,7 +48,7 @@
 	}
 
 	async function refreshFlow(x: RunnableByPath) {
-		const schema = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
+		const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
 		if (!deepEqual(x.schema, schema)) {
 			x.schema = schema
 			fields = computeFields(schema, false, fields)
@@ -158,6 +158,12 @@
 				Fork
 			</Button>
 		{/if}
+		<input
+			on:keydown|stopPropagation
+			bind:value={runnable.name}
+			placeholder="Background runnable name"
+			class="!text-xs !rounded-xs"
+		/>
 	</div>
 	<div class="w-full">
 		{#key $stateId}
