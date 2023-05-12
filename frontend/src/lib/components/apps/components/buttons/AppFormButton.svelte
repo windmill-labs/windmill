@@ -75,12 +75,7 @@
 	/>
 {/each}
 
-<AlwaysMountedModal
-	title={resolvedConfig.label ?? ''}
-	class={css?.popup?.class}
-	style={css?.popup?.style}
-	bind:this={modal}
->
+<AlwaysMountedModal title={resolvedConfig.label ?? ''} bind:this={modal}>
 	<RunnableWrapper
 		bind:this={runnableWrapper}
 		{recomputeIds}
@@ -121,7 +116,7 @@
 					}}
 					on:click={async () => {
 						if (!runnableComponent) {
-							runnableWrapper.onSuccess()
+							runnableWrapper?.onSuccess()
 						} else {
 							await runnableComponent?.runComponent()
 						}

@@ -73,6 +73,8 @@
 	}
 </script>
 
+<div id="headlessui-portal-root" />
+
 {#key redraw}
 	{#if app}
 		<div class="h-screen">
