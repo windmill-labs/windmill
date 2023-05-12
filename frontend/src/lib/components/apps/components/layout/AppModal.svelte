@@ -29,7 +29,7 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	$: css = concatCustomCss($app.css?.modalcomponent, customCss)
 	let open = false
 
 	function handleKeyUp(event: KeyboardEvent): void {
@@ -95,7 +95,9 @@
 <Portal target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
-			'fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
+			`${
+				$mode == 'dnd' ? 'absolute' : 'fixed'
+			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
 			open ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
 		)}
 	>

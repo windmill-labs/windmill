@@ -309,3 +309,14 @@ export function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
 	}
 	return classes[alignment]
 }
+
+export function transformBareBase64IfNecessary(source: string | undefined) {
+	if (!source) {
+		return source
+	}
+	if (source.startsWith('data:') || !source.includes(',')) {
+		return source
+	} else {
+		return `data:application/octet-stream;base64,${source}`
+	}
+}
