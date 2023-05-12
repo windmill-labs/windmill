@@ -77,5 +77,10 @@
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
     "req_body_auth": true
+  },
+  "myfitnesspal": {
+    "auth_url": "https://api.myfitnesspal.com/oauth2/auth",
+    "token_url": "https://api.myfitnesspal.com/oauth2/token",
+    "scopes": ["measurements", "diary", "privateexercises", "subscriptions"]
   }
 }
