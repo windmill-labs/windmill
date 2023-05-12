@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.100.1](https://github.com/windmill-labs/windmill/compare/v1.100.0...v1.100.1) (2023-05-12)
+
+
+### Bug Fixes
+
+* update setup step ([178ed6f](https://github.com/windmill-labs/windmill/commit/178ed6f426020c9966380392088562e27aa77cf3))
+
 ## [1.100.0](https://github.com/windmill-labs/windmill/compare/v1.99.0...v1.100.0) (2023-05-12)
 
 
