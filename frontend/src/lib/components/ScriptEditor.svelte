@@ -2,7 +2,13 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
+	import {
+		emptySchema,
+		getModifierKey,
+		isCloudHosted,
+		scriptLangToEditorLang,
+		sendUserToast
+	} from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -19,7 +25,6 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
 	import { WebsocketProvider } from 'y-websocket'
-	import { deepEqual } from 'fast-equals'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -107,30 +112,38 @@
 	})
 
 	let wsProvider: WebsocketProvider | undefined = undefined
-	let type: Y.Text | undefined = undefined
+	let yContent: Y.Text | undefined = undefined
+	let yMeta: Y.Map<any> | undefined = undefined
 
-	let yArgs: Y.Map<any> | undefined = undefined
-
-	$: collabLive &&
-		args &&
-		yArgs &&
-		Object.entries(args).forEach(([k, v]) => !deepEqual(yArgs?.get(k), v) && yArgs?.set(k, v))
+	$: collabLive && lang && yMeta && yMeta?.set('lang', lang)
 
 	let collabLive = false
 	export function setCollaborationMode() {
-		collabLive = false
-		const ydoc = new Y.Doc()
+		sendUserToast(
+			`Live sharing enabled. ${
+				isCloudHosted()
+					? ''
+					: 'Premium feature available during beta and only on premium plans afterwards.'
+			}`
+		)
+		console.log('collab mode')
+		collabLive = true
+		const ydoc = new Y.Doc({})
+		yContent = ydoc.getText('content')
 		wsProvider = new WebsocketProvider('ws://localhost:1234', 'my-roomname', ydoc)
-		type = ydoc.getText('monaco')
-		yArgs = ydoc.getMap('args')
-
-		const lang2 = ydoc.getText('lang')
-		yArgs.observeDeep(() => {
-			args = yArgs?.toJSON() ?? {}
-			console.log(args)
+		wsProvider.on('status', (event) => {
+			console.log(event.status)
+			if (yContent?.toJSON() == '') {
+				ydoc.store()
+			}
 		})
-		lang2.observeDeep(() => {
-			lang = lang2.toString() as Preview.language
+
+		yMeta = ydoc.getMap('meta')
+
+		yMeta.observeDeep(() => {
+			if (yMeta?.get('lang') != undefined) {
+				lang = yMeta?.get('lang')
+			}
 		})
 
 		// All of our network providers implement the awareness crdt
@@ -153,6 +166,7 @@
 	}
 
 	export function disableCollaboration() {
+		console.log('collab mode disabled')
 		collabLive = false
 		wsProvider?.disconnect()
 	}
@@ -180,6 +194,13 @@
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
+			on:toggleCollabMode={() => {
+				if (collabLive) {
+					disableCollaboration()
+				} else {
+					setCollaborationMode()
+				}
+			}}
 			bind:collabLive
 			{collabMode}
 			{validCode}
@@ -217,7 +238,7 @@
 						bind:code
 						bind:websocketAlive
 						bind:this={editor}
-						ytsType={type}
+						{yContent}
 						awareness={wsProvider?.awareness}
 						on:change={(e) => {
 							inferSchema(e.detail)
@@ -261,7 +282,9 @@
 					{:else}
 						<Button
 							color="dark"
-							on:click={runTest}
+							on:click={() => {
+								runTest()
+							}}
 							btnClasses="w-full"
 							size="xs"
 							startIcon={{

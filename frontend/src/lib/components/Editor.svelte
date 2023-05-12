@@ -88,7 +88,7 @@
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
-	export let ytsType: Text | undefined = undefined
+	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
 
 	if (path == '' || path == undefined || path.startsWith('/')) {
@@ -514,8 +514,9 @@
 
 	let monacoBinding: MonacoBinding | undefined = undefined
 	// @ts-ignore
-	$: if (ytsType && awareness && model && editor && !monacoBinding) {
-		monacoBinding = new MonacoBinding(ytsType, model, new Set([editor]), awareness)
+	$: if (yContent && awareness && model && editor) {
+		monacoBinding && monacoBinding.destroy()
+		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
 	}
 
 	async function loadMonaco() {

@@ -29,8 +29,8 @@
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import Popover from './Popover.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
+	import { createEventDispatcher } from 'svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -83,6 +83,8 @@
 	}
 
 	let version = __pkg__.version
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <Drawer bind:this={scriptPicker} size="900px">
@@ -327,11 +329,15 @@
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor?.reloadWebsocket}
+					on:click={() => {
+						dispatch('toggleCollabMode')
+					}}
 					startIcon={{ icon: faUsers }}
 				>
+					{collabLive}
+
 					{#if !iconOnly}
-						Live Sharing
+						<span class={collabLive ? 'green' : ''}>Live Sharing</span>
 					{/if}
 				</Button>
 			{/if}
