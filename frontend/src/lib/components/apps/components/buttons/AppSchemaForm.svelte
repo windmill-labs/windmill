@@ -45,7 +45,7 @@
 	$: args && handleArgsChange()
 	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['schemaformcomponent'].initialData.configuration,
 		configuration
 	)

@@ -8,7 +8,6 @@
 	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { getModal } from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
 	import { X } from 'lucide-svelte'
@@ -52,13 +51,27 @@
 	)
 </script>
 
+<InitializeComponent {id} />
+
+{#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
+<svelte:window on:keyup={handleKeyUp} />
+
 <div class="h-full w-full">
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
-			btnClasses={twMerge(
-				css?.button?.class,
-				resolvedConfig.buttonFillContainer ? 'w-full h-full' : ''
+			btnClasses={css?.button?.class}
+			wrapperClasses={twMerge(
+				resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
+				css?.buttonContainer?.class
 			)}
+			wrapperStyle={css?.buttonContainer?.style}
 			disabled={resolvedConfig.buttonDisabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
@@ -68,7 +81,6 @@
 					parentComponentId: id,
 					subGridIndex: 0
 				}
-				getModal(id)?.open()
 				open = true
 			}}
 			size={resolvedConfig.buttonSize}
@@ -79,23 +91,10 @@
 	</AlignWrapper>
 </div>
 
-{#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
-	<ResolveConfig
-		{id}
-		{key}
-		bind:resolvedConfig={resolvedConfig[key]}
-		configuration={configuration[key]}
-	/>
-{/each}
-
-<InitializeComponent {id} />
-
-<svelte:window on:keyup={handleKeyUp} />
-
 <Portal target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
-			'fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
+			'absolute top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden',
 			open ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
 		)}
 	>

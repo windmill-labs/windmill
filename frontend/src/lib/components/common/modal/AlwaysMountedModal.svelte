@@ -1,78 +1,50 @@
-<script context="module" lang="ts">
-	let onTop: HTMLDivElement
-	const modals = {}
-
-	export function getModal(id = '') {
-		return modals[id]
-	}
-</script>
-
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Badge } from '..'
 	import Button from '../button/Button.svelte'
 
-	let topDiv: HTMLDivElement
-	let visible: boolean = false
-	let prevOnTop: HTMLDivElement
-
 	export let title: string
-	export let style = ''
+	export let style: string = ''
 
-	export let id = ''
+	let isVisible: boolean = false
+	let modalDiv: HTMLDivElement
 
 	function onKeyDown(event: KeyboardEvent) {
-		if (onTop == topDiv) {
-			switch (event.key) {
-				case 'Enter':
-					event.stopPropagation()
-					event.preventDefault()
-					break
-				case 'Escape':
-					event.stopPropagation()
-					event.preventDefault()
-					close()
-					break
-			}
+		switch (event.key) {
+			case 'Enter':
+				event.stopPropagation()
+				event.preventDefault()
+				break
+			case 'Escape':
+				event.stopPropagation()
+				event.preventDefault()
+				close()
+				break
 		}
 	}
 
-	function open() {
-		if (visible) {
-			return
-		}
-		prevOnTop = onTop
-		onTop = topDiv
+	export function open() {
+		isVisible = true
 		window.addEventListener('keydown', onKeyDown)
 		document.body.style.overflow = 'hidden'
-		visible = true
-		document.body.appendChild(topDiv)
+		document.body.appendChild(modalDiv)
 	}
 
-	function close() {
-		if (!visible) {
-			return
-		}
+	export function close() {
+		isVisible = false
 		window.removeEventListener('keydown', onKeyDown)
-
-		onTop = prevOnTop
-		if (onTop == null) {
-			document.body.style.overflow = ''
-		}
-		visible = false
+		document.body.style.overflow = ''
+		document.body.removeChild(modalDiv)
 	}
-
-	modals[id] = { open, close }
 
 	onDestroy(() => {
-		delete modals[id]
 		window.removeEventListener('keydown', onKeyDown)
 	})
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div id="topModal" class:visible bind:this={topDiv} on:click={() => close()}>
+<div id="topModal" class:visible={isVisible} bind:this={modalDiv} on:click={() => close()}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div class="relative bg-white p-4 rounded-md" on:click|stopPropagation={() => {}}>
 		<div class={twMerge('max-w-screen-lg max-h-screen-80 overflow-auto', $$props.class)} {style}>
