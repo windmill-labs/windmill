@@ -87,7 +87,6 @@ pub async fn run_server(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
-    let x = &OAUTH_CLIENTS.logins;
     let user_db = UserDB::new(db.clone());
 
     let auth_cache = Arc::new(users::AuthCache::new(
