@@ -10,7 +10,6 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
-	import Popover from '../../../Popover.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -145,18 +144,16 @@
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
 
-				<Popover notClickable placement="bottom">
-					<Button
-						size="xs"
-						color="light"
-						btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
-						aria-label="Delete"
-						on:click={() => dispatch('delete')}
-					>
-						<Trash2 size={14} class="text-red-800" />
-					</Button>
-					<svelte:fragment slot="text">Delete</svelte:fragment>
-				</Popover>
+				<Button
+					title="Delete"
+					size="xs"
+					color="light"
+					btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
+					aria-label="Delete"
+					on:click={() => dispatch('delete')}
+				>
+					<Trash2 size={14} class="text-red-800" />
+				</Button>
 				{#if inlineScript.language != 'frontend'}
 					<Button
 						size="xs"
