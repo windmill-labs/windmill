@@ -77,5 +77,13 @@
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
     "req_body_auth": true
+  },
+  "withings-healthmate": {
+    "auth_url": "https://account.withings.com/oauth2_user/authorize2",
+    "token_url": "https://wbsapi.withings.net/v2/oauth2",
+    "scopes": ["user.activity", "user.metrics"],
+    "extra_params": {
+      "action": "requesttoken"
+    }
   }
 }
