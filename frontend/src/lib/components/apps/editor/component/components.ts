@@ -1665,7 +1665,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.objectFitOptions,
-					value: 'contain'
+					value: 'contain',
+					tooltip:
+						'The image fit property can be overridden by the `object-fit` property in the styling menu'
 				},
 				altText: {
 					type: 'static',
