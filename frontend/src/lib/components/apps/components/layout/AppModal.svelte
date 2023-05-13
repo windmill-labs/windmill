@@ -8,7 +8,6 @@
 	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { getModal } from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
 	import { X } from 'lucide-svelte'
@@ -52,32 +51,7 @@
 	)
 </script>
 
-<div class="h-full w-full">
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
-		<Button
-			btnClasses={twMerge(
-				css?.button?.class,
-				resolvedConfig.buttonFillContainer ? 'w-full h-full' : ''
-			)}
-			disabled={resolvedConfig.buttonDisabled}
-			on:pointerdown={(e) => {
-				e?.stopPropagation()
-			}}
-			on:click={async (e) => {
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: 0
-				}
-				getModal(id)?.open()
-				open = true
-			}}
-			size={resolvedConfig.buttonSize}
-			color={resolvedConfig.buttonColor}
-		>
-			<div>{resolvedConfig.buttonLabel}</div>
-		</Button>
-	</AlignWrapper>
-</div>
+<InitializeComponent {id} />
 
 {#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -87,10 +61,35 @@
 		configuration={configuration[key]}
 	/>
 {/each}
-
-<InitializeComponent {id} />
-
 <svelte:window on:keyup={handleKeyUp} />
+
+<div class="h-full w-full">
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+		<Button
+			btnClasses={css?.button?.class}
+			wrapperClasses={twMerge(
+				resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
+				css?.buttonContainer?.class
+			)}
+			wrapperStyle={css?.buttonContainer?.style}
+			disabled={resolvedConfig.buttonDisabled}
+			on:pointerdown={(e) => {
+				e?.stopPropagation()
+			}}
+			on:click={async (e) => {
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: 0
+				}
+				open = true
+			}}
+			size={resolvedConfig.buttonSize}
+			color={resolvedConfig.buttonColor}
+		>
+			<div>{resolvedConfig.buttonLabel}</div>
+		</Button>
+	</AlignWrapper>
+</div>
 
 <Portal target="#app-editor-top-level-drawer">
 	<div

@@ -310,6 +310,16 @@ export function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
 	return classes[alignment]
 }
 
+export const TailwindClassPatterns = {
+	bg: /bg-(?:[^-\s]+-)?(?:[^-\s]+)/g,
+	height: /(h-[^\s]+)/g,
+	width: /(w-[^\s]+)/g
+}
+
+export function hasTailwindClass(classes: string | undefined, pattern: RegExp) {
+	return Boolean(classes?.match(pattern))
+}
+
 export function transformBareBase64IfNecessary(source: string | undefined) {
 	if (!source) {
 		return source

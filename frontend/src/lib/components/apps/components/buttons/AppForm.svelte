@@ -29,26 +29,25 @@
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['formcomponent'].initialData.configuration,
 		configuration
 	)
-	let runnableComponent: RunnableComponent
 
+	let runnableComponent: RunnableComponent
 	let isLoading: boolean = false
+	let loading = false
 
 	$: noInputs =
 		$stateId != undefined &&
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
 
 	$: css = concatCustomCss($app.css?.formcomponent, customCss)
-
-	let loading = false
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
@@ -73,7 +72,7 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
-	runnableClass="!block"
+	runnableClass={css?.container?.class}
 	runnableStyle={css?.container?.style}
 	{outputs}
 	triggerable
@@ -96,11 +95,11 @@
 					</div>
 				{/if}
 			</div>
-			<div class="flex justify-end">
+			<div class="flex justify-end my-1">
 				{#if !noInputs}
 					<Button
 						loading={isLoading}
-						btnClasses="my-1 {css?.button?.class ?? ''}"
+						btnClasses={css?.button?.class}
 						style={css?.button?.style ?? ''}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()

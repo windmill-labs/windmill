@@ -67,7 +67,7 @@
 						? capitalize(addWhitespaceBeforeCapitals(key))
 						: key}
 					{#if tooltip}
-						<Tooltip>
+						<Tooltip light>
 							{tooltip}
 						</Tooltip>
 					{/if}
