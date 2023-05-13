@@ -76,4 +76,4 @@ const charts: ComponentSet = {
 	]
 } as const
 
-export const COMPONENT_SETS = [tabs, layout, buttons, inputs, tables, display, charts] as const
+export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, charts] as const

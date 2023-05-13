@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['imagecomponent'].initialData.configuration,
 		configuration
 	)
