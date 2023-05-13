@@ -95,8 +95,6 @@
 	$dirtyStore = false
 </script>
 
-<div id="headlessui-portal-root" />
-
 {#if value}
 	<div class="h-screen">
 		{#key value}

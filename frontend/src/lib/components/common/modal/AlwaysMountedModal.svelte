@@ -51,7 +51,7 @@
 					<!-- This element is to trick the browser into centering the modal contents. -->
 					<span class="inline-block h-screen align-middle" aria-hidden="true"> &#8203; </span>
 					<div
-						class="inline-block w-full max-w-md p-6 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-md"
+						class="inline-block w-full max-w-md p-6 text-left align-middle transition-all transform bg-white shadow-xl rounded-md"
 					>
 						<DialogTitle class="text-lg font-medium leading-6 text-gray-900">
 							{title}
