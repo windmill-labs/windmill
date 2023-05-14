@@ -9,7 +9,7 @@
 		RichConfigurations,
 		VerticalAlignment
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { TailwindClassPatterns, concatCustomCss, hasTailwindClass } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -32,11 +32,22 @@
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
+
+	function getSize() {
+		if (position === 'horizontal') {
+			return hasTailwindClass(css?.divider?.class, TailwindClassPatterns.height)
+				? ''
+				: `height: ${size}px;`
+		} else if (position === 'vertical') {
+			return hasTailwindClass(css?.divider?.class, TailwindClassPatterns.width)
+				? ''
+				: `width: ${size}px;`
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.color} bind:value={color} />
-
 <InitializeComponent {id} />
 
 <AlignWrapper
@@ -52,9 +63,11 @@
 			css?.divider?.class ?? ''
 		)}
 		style="
-			{position === 'horizontal' ? 'height' : 'width'}: {size}px;
-			background-color: {color};
+			{getSize()}
 			{css?.divider?.style ?? ''}
+			{hasTailwindClass(css?.divider?.class, TailwindClassPatterns.bg)
+			? ''
+			: `background-color: ${color};`}
 		"
 	/>
 </AlignWrapper>

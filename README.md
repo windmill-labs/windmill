@@ -224,9 +224,9 @@ be AGPLv3 or you must get a commercial license. Contact us at
 <ruben@windmill.dev> if you have any doubts.
 
 In addition, a commercial license grants you a dedicated engineer to transition
-your current infrastructure to Windmill, support with tight SLA, audit logs
-export features, SSO, unlimited users creation, advanced permission managing
-features such as groups and the ability to create more than one workspace.
+your current infrastructure to Windmill, support with tight SLA, and our global
+cache sync for high-performance/no dependency cache miss of cluster from 10+
+nodes to 200+ nodes.
 
 ### OAuth for self-hosting
 

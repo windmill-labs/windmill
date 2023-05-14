@@ -229,6 +229,7 @@
 
 				const requestBody = {
 					args: nonStaticRunnableInputs,
+					component: id,
 					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 				}
 

@@ -192,7 +192,7 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border h-full">
+		<div class="border-y h-full">
 			{#if inlineScript.language != 'frontend'}
 				<Editor
 					path={inlineScript.path}

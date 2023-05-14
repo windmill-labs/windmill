@@ -10,6 +10,7 @@
 		type ComponentCustomCSS
 	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -25,6 +26,8 @@
 		result: undefined,
 		loading: false
 	})
+
+	$: css = concatCustomCss($app.css?.displaycomponent, customCss)
 </script>
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
@@ -32,9 +35,9 @@
 		<div
 			class={twMerge(
 				'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
-				$app.css?.['displaycomponent']?.['header']?.class,
-				customCss?.header?.class
+				css?.header?.class
 			)}
+			style={css?.header?.style}
 		>
 			Results
 		</div>

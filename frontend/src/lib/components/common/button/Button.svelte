@@ -15,6 +15,7 @@
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let wrapperClasses: string = ''
+	export let wrapperStyle: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: ButtonType.Target = '_self'
@@ -144,7 +145,10 @@
 	)
 </script>
 
-<div class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row">
+<div
+	class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row"
+	style={wrapperStyle}
+>
 	<svelte:element
 		this={href ? 'a' : 'button'}
 		bind:this={element}

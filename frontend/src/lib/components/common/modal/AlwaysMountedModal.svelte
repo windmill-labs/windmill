@@ -1,122 +1,83 @@
-<script context="module" lang="ts">
-	let onTop: HTMLDivElement
-	const modals = {}
-
-	export function getModal(id = '') {
-		return modals[id]
-	}
-</script>
-
 <script lang="ts">
-	import { onDestroy } from 'svelte'
+	import {
+		Dialog,
+		DialogOverlay,
+		DialogTitle,
+		Transition,
+		TransitionChild
+	} from '@rgossiaux/svelte-headlessui'
+	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
-	import { Badge } from '..'
 	import Button from '../button/Button.svelte'
-
-	let topDiv: HTMLDivElement
-	let visible: boolean = false
-	let prevOnTop: HTMLDivElement
+	import Badge from '../badge/Badge.svelte'
 
 	export let title: string
-	export let style = ''
+	export let style: string = ''
 
-	export let id = ''
+	let isOpen = false
 
-	function onKeyDown(event: KeyboardEvent) {
-		if (onTop == topDiv) {
-			switch (event.key) {
-				case 'Enter':
-					event.stopPropagation()
-					event.preventDefault()
-					break
-				case 'Escape':
-					event.stopPropagation()
-					event.preventDefault()
-					close()
-					break
-			}
-		}
+	export function close() {
+		isOpen = false
 	}
 
-	function open() {
-		if (visible) {
-			return
-		}
-		prevOnTop = onTop
-		onTop = topDiv
-		window.addEventListener('keydown', onKeyDown)
-		document.body.style.overflow = 'hidden'
-		visible = true
-		document.body.appendChild(topDiv)
+	export function open() {
+		isOpen = true
 	}
-
-	function close() {
-		if (!visible) {
-			return
-		}
-		window.removeEventListener('keydown', onKeyDown)
-
-		onTop = prevOnTop
-		if (onTop == null) {
-			document.body.style.overflow = ''
-		}
-		visible = false
-	}
-
-	modals[id] = { open, close }
-
-	onDestroy(() => {
-		delete modals[id]
-		window.removeEventListener('keydown', onKeyDown)
-	})
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div id="topModal" class:visible bind:this={topDiv} on:click={() => close()}>
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="relative bg-white p-4 rounded-md" on:click|stopPropagation={() => {}}>
-		<div class={twMerge('max-w-screen-lg max-h-screen-80 overflow-auto', $$props.class)} {style}>
-			<div class="flex">
-				<div class="ml-4 text-left flex-1">
-					<h3 class="text-lg font-medium text-gray-900">
-						{title}
-					</h3>
-					<div class="mt-2 text-sm text-gray-500">
-						<slot />
-					</div>
-				</div>
-			</div>
-			<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-				<Button
-					on:click={() => {
-						close()
-					}}
-					color="light"
-					size="sm"
+<Portal target="#app-editor-top-level-drawer">
+	<Transition show={isOpen}>
+		<Dialog as="div" class="absolute inset-0 overflow-y-auto z-50" on:close={close}>
+			<div class="min-h-screen px-4 text-center">
+				<TransitionChild
+					enter="ease-out duration-100"
+					enterFrom="opacity-0"
+					enterTo="opacity-100"
+					leave="ease-in duration-100"
+					leaveFrom="opacity-100"
+					leaveTo="opacity-0"
 				>
-					<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
-				</Button>
+					<DialogOverlay class="fixed inset-0 bg-gray-800/50 " />
+				</TransitionChild>
+
+				<TransitionChild
+					enter="ease-out duration-[50ms]"
+					enterFrom="opacity-0 scale-95"
+					enterTo="opacity-100 scale-100"
+					leave="ease-in dduration-[50ms]"
+					leaveFrom="opacity-100 scale-100"
+					leaveTo="opacity-0 scale-95"
+				>
+					<!-- This element is to trick the browser into centering the modal contents. -->
+					<span class="inline-block h-screen align-middle" aria-hidden="true"> &#8203; </span>
+					<div
+						class="inline-block w-full max-w-md p-6 text-left align-middle transition-all transform bg-white shadow-xl rounded-md"
+					>
+						<DialogTitle class="text-lg font-medium leading-6 text-gray-900">
+							{title}
+						</DialogTitle>
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
+							<div
+								class={twMerge(
+									'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
+									$$props.class
+								)}
+								{style}
+							>
+								<div class="flex-1">
+									<slot />
+								</div>
+								<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+									<Button on:click={close} color="light" size="sm">
+										<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
+									</Button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</TransitionChild>
 			</div>
-		</div>
-	</div>
-</div>
-
-<style>
-	#topModal {
-		visibility: hidden;
-		z-index: 9999;
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: #4448;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.visible {
-		visibility: visible !important;
-	}
-</style>
+		</Dialog>
+	</Transition>
+</Portal>
