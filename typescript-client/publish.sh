@@ -1,3 +1,3 @@
 ./build.sh
 tsc
-npm run publish
+npm publish
