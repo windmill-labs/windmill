@@ -8,7 +8,6 @@ import {
 } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/equal.ts";
 import { pushFolder } from "./folder.ts";
-import { pushScript } from "./script.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
 import { pushResourceType } from "./resource-type.ts";
@@ -111,13 +110,11 @@ export function pushObj(
     pushApp(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "folder") {
     pushFolder(workspace, p, befObj, newObj, checkForCreate);
-  } else if (typeEnding === "script") {
-    pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
-    pushFlow(workspace, flowName, flowName + ".flow", workspace);
+    pushFlow(workspace, flowName, flowName + ".flow");
   } else if (typeEnding === "resource") {
     pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
