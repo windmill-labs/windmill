@@ -16,25 +16,24 @@
 		[RawScript.language.BASH]: 'dark-yellow'
 	}
 
-	let newHash: string | undefined = undefined
+	let latestHash: string | undefined = undefined
 	async function loadLatestHash(value: PathScript) {
 		let script = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
 			path: value.path
 		})
-		if (script.hash != value.hash) {
-			newHash = script.hash
-		}
+		latestHash = script.hash
 	}
 
 	$: $workspaceStore &&
 		flowModule?.value.type === 'script' &&
-		flowModule.value.hash &&
+		flowModule.value.path &&
+		!flowModule.value.path.startsWith('hub/') &&
 		loadLatestHash(flowModule.value)
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2  h-full max-h-12 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2 h-full max-h-12 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm w-full mr-4">
@@ -48,16 +47,40 @@
 					<input bind:value={flowModule.summary} placeholder={'Summary'} class="w-full grow" />
 				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
 					<IconedPath path={flowModule.value.path} hash={flowModule.value.hash} class="grow" />
-					{#if newHash}
+
+					{#if flowModule.value.hash}
+						{#if latestHash != flowModule.value.hash}
+							<Button
+								color="light"
+								size="xs"
+								variant="border"
+								on:click={() => {
+									if (flowModule?.value.type == 'script') {
+										flowModule.value.hash = latestHash
+									}
+								}}>Update to latest hash</Button
+							>
+						{/if}
 						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							on:click={() => {
+								if (flowModule?.value.type == 'script') {
+									flowModule.value.hash = undefined
+								}
+							}}>Unlock hash</Button
+						>
+					{:else}
+						<Button
+							color="light"
 							size="xs"
 							variant="border"
 							on:click={() => {
 								if (flowModule?.value.type == 'script') {
-									flowModule.value.hash = newHash
-									newHash = undefined
+									flowModule.value.hash = latestHash
 								}
-							}}>Update to latest hash</Button
+							}}>Lock hash</Button
 						>
 					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />

@@ -88,7 +88,7 @@
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
-					fixedOverflowWidgets={false}
+					fixedOverflowWidgets={true}
 					bind:code={script.content}
 					bind:schema={script.schema}
 					tag={undefined}
