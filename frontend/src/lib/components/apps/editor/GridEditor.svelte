@@ -16,6 +16,7 @@
 	import { classNames } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { BG_PREFIX } from '../utils'
 
 	export let policy: Policy
 
@@ -129,7 +130,7 @@
 {#if $app.hiddenInlineScripts}
 	{#each $app.hiddenInlineScripts as runnable, index}
 		{#if runnable}
-			<HiddenComponent id={`bg_${index}`} {runnable} />
+			<HiddenComponent id={BG_PREFIX + index} {runnable} />
 		{/if}
 	{/each}
 {/if}

@@ -44,7 +44,7 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
-	import { migrateApp } from '../utils'
+	import { BG_PREFIX, migrateApp } from '../utils'
 
 	export let app: App
 	export let path: string
@@ -148,7 +148,7 @@
 		selectedTab = 'settings'
 
 		if (befSelected) {
-			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
+			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
 				if (item?.data.type === 'containercomponent') {
 					$focusedGrid = {
