@@ -28,9 +28,8 @@ export interface ScriptFile {
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
-  const remotePath = filePath.split(".")[0];
 
-  if (!validatePath(remotePath)) {
+  if (!validatePath(filePath)) {
     return;
   }
 
@@ -47,7 +46,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   await requireLogin(opts);
   await handleFile(filePath, workspace.workspaceId, []);
-  log.info(colors.bold.underline.green(`Script ${remotePath} pushed`));
+  log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
 export async function handleScriptMetadata(
