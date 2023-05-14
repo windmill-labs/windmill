@@ -63,8 +63,6 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
-	$: validateInput(pattern, value)
-
 	let error: string = ''
 
 	let el: HTMLTextAreaElement | undefined = undefined
@@ -160,6 +158,8 @@
 	let redraw = 0
 
 	let itemsLimit = 50
+
+	$: validateInput(pattern, value)
 </script>
 
 <!-- svelte-ignore a11y-autofocus -->

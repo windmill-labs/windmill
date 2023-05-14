@@ -131,10 +131,13 @@
 		const ydoc = new Y.Doc({})
 		yContent = ydoc.getText('content')
 		wsProvider = new WebsocketProvider('ws://localhost:1234', 'my-roomname', ydoc)
-		wsProvider.on('status', (event) => {
-			console.log(event.status)
+
+		wsProvider.on('sync', (isSynced) => {
 			if (yContent?.toJSON() == '') {
-				ydoc.store()
+				yContent?.insert(0, code)
+			}
+			if (yMeta?.get('lang') == undefined) {
+				yMeta?.set('lang', lang)
 			}
 		})
 
