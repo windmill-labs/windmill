@@ -535,7 +535,7 @@
 				<div class="my-4">
 					<Slider text="What is a computation ?">
 						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called a "computation". An computation corresponds to a
+							The single credit-unit is called a "computation". A computation corresponds to a
 							single job whose duration is less than 1s. For any additional seconds of computation,
 							an additional computation is accounted for. Jobs are executed on one powerful virtual
 							CPU with 2Gb of memory. Most jobs will take less than 200ms to execute.
