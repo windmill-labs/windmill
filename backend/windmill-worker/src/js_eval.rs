@@ -216,13 +216,18 @@ async function resource(path) {{
         (String::new(), String::new())
     };
 
+    let f = if expr.contains("return ") {
+        expr.to_string()
+    } else {
+        format!("return {expr}")
+    };
     let code = format!(
         r#"
 {api_code}
 {}
 {by_id_code}
 (async () => {{ 
-    return {expr};
+    {f};
 }})()
         "#,
         env.into_iter()

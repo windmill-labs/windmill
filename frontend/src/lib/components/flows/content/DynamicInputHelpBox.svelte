@@ -39,5 +39,6 @@
 				<b>resource(path)</b>: the function returning the resource at a given path as an object
 			</li>
 		</ul>
+		If using multiple statements, the last statement shall finish with a return. e.g: `return x`
 	</div>
 {/if}
