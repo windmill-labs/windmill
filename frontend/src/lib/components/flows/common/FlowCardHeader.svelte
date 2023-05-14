@@ -71,7 +71,7 @@
 								}
 							}}>Unlock hash</Button
 						>
-					{:else}
+					{:else if latestHash}
 						<Button
 							color="light"
 							size="xs"
