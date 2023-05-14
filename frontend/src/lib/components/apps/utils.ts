@@ -14,6 +14,8 @@ import type {
 	VerticalAlignment
 } from './types'
 
+export const BG_PREFIX = 'bg_'
+
 export function migrateApp(app: App) {
 	app.hiddenInlineScripts.forEach((x) => {
 		if (x.type == undefined) {
@@ -184,7 +186,7 @@ export function toStatic(
 	})
 
 	newApp.hiddenInlineScripts?.forEach((x, i) => {
-		x.noBackendValue = staticExporter[`bg_` + i]()
+		x.noBackendValue = staticExporter[BG_PREFIX + i]()
 	})
 
 	return { app: newApp, summary }

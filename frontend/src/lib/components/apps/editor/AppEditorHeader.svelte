@@ -39,7 +39,7 @@
 		UserAppInput
 	} from '../inputType'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { allItems, toStatic } from '../utils'
+	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
@@ -139,16 +139,17 @@
 					if (c.type === 'tablecomponent') {
 						r.push(...c.actionButtons.map((x) => x.componentInput))
 					}
-					return r.filter((x) => x)
-				})
-				.map(async (input) => {
-					if (input?.type == 'runnable') {
-						return await processRunnable(input.runnable, input.fields)
-					}
+					return r
+						.filter((x) => x)
+						.map(async (input) => {
+							if (input?.type == 'runnable') {
+								return await processRunnable(x.id, input.runnable, input.fields)
+							}
+						})
 				})
 				.concat(
-					Object.values($app.hiddenInlineScripts ?? {}).map(async (v) => {
-						return await processRunnable(v, v.fields)
+					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
+						return await processRunnable(BG_PREFIX + i, v, v.fields)
 					})
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
@@ -158,16 +159,17 @@
 	}
 
 	async function processRunnable(
+		id: string,
 		runnable: Runnable,
 		fields: Record<string, any>
 	): Promise<[string, Record<string, any>] | undefined> {
 		const staticInputs = collectStaticFields(fields)
 		if (runnable?.type == 'runnableByName') {
 			let hex = await hash(runnable.inlineScript?.content)
-			return [`rawscript/${hex}`, staticInputs]
+			return [`${id}:rawscript/${hex}`, staticInputs]
 		} else if (runnable?.type == 'runnableByPath') {
 			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-			return [`${prefix}/${runnable.path}`, staticInputs]
+			return [`${id}:${prefix}/${runnable.path}`, staticInputs]
 		}
 	}
 	async function createApp(path: string) {

@@ -8,6 +8,7 @@
 	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
 	import { findGridItem } from '../appUtils'
 	import InlineScriptHiddenRunnable from './InlineScriptHiddenRunnable.svelte'
+	import { BG_PREFIX } from '../../utils'
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
@@ -30,16 +31,16 @@
 		}
 
 		$selectedComponentInEditor = undefined
-		delete $runnableComponents[`bg_${index}`]
+		delete $runnableComponents[BG_PREFIX + index]
 	}
 
 	$: gridItem =
-		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith('bg_')
+		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith(BG_PREFIX)
 			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
 			: undefined
 
 	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex(
-		(k_, index) => `bg_${index}` === $selectedComponentInEditor
+		(k_, index) => BG_PREFIX + index === $selectedComponentInEditor
 	)
 
 	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
@@ -79,7 +80,7 @@
 					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
 						<InlineScriptHiddenRunnable
 							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-							id={`bg_${hiddenInlineScript}`}
+							id={BG_PREFIX + hiddenInlineScript}
 							bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
 						/>{/if}{/key}
 			{:else}
