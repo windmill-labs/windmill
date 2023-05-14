@@ -143,7 +143,6 @@ fn add_closing_bracket(s: &str) -> String {
     s
 }
 
-const SPLIT_PAT: &str = ";";
 async fn eval(
     context: &mut JsRuntime,
     expr: &str,
@@ -151,21 +150,6 @@ async fn eval(
     by_id: Option<IdContext>,
     has_client: bool,
 ) -> anyhow::Result<serde_json::Value> {
-    let exprs = expr
-        .trim()
-        .split(SPLIT_PAT)
-        .map(|x| x.trim())
-        .filter(|x| !x.is_empty())
-        .collect::<Vec<&str>>();
-    let expr = if exprs.is_empty() {
-        "return undefined;".to_string()
-    } else {
-        format!(
-            "{};\n    return {};",
-            exprs.iter().take(exprs.len() - 1).join(";\n"),
-            exprs.last().unwrap()
-        )
-    };
     let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
@@ -238,7 +222,7 @@ async function resource(path) {{
 {}
 {by_id_code}
 (async () => {{ 
-    {expr} 
+    return {expr};
 }})()
         "#,
         env.into_iter()
@@ -251,7 +235,6 @@ async function resource(path) {{
             })
             .join(""),
     );
-    tracing::debug!("{}", code);
     let global = context.execute_script("<anon>", code.into())?;
     let global = context.resolve_value(global).await?;
 

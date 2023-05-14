@@ -26,12 +26,7 @@
 		role="alert"
 		id="dynamic-input-help-box"
 	>
-		the last line must always be the final expression.
-		<p>
-			If it is multiline, the statement before the final expression <b
-				>MUST END WITH ; and a newline</b
-			>
-		</p>
+		Single javascript expression. The following functions and objects are available:
 		<ul class="ml-4">
 			<li><b>{'results.<id>'}</b>: the result of step at id 'id'</li>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
