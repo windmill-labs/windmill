@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.100.2](https://github.com/windmill-labs/windmill/compare/v1.100.1...v1.100.2) (2023-05-14)
+
+
+### Bug Fixes
+
+* **cli:** update wmill script push ([678b574](https://github.com/windmill-labs/windmill/commit/678b574efcae66801a115d576db9d00aa9e4145d))
+* discriminate execute apps by component ([908358e](https://github.com/windmill-labs/windmill/commit/908358eb08614d07b5e846630743242b68b9e149))
+* transform_inputs now only support single line expressions ([c252b76](https://github.com/windmill-labs/windmill/commit/c252b765f1b1fd38f07cbe06548ca5cbe4047ea1))
+
 ## [1.100.1](https://github.com/windmill-labs/windmill/compare/v1.100.0...v1.100.1) (2023-05-12)
 
 
