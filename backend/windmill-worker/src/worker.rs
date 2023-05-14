@@ -1422,7 +1422,7 @@ async fn handle_deno_job(
         } else {
             None
         }).map(|x| {
-            return format!("args[{x}] = new Date(args[{x}])")
+            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
         }).join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
