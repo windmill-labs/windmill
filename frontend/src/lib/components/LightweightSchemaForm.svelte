@@ -25,7 +25,7 @@
 					description={schema.properties[argName].description}
 					bind:value={args[argName]}
 					type={schema.properties[argName].type}
-					required={schema.required.includes(argName)}
+					required={schema.required?.includes(argName) ?? false}
 					pattern={schema.properties[argName].pattern}
 					defaultValue={schema.properties[argName].default}
 					enum_={schema.properties[argName].enum}
