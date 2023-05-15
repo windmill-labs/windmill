@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.101.0](https://github.com/windmill-labs/windmill/compare/v1.100.2...v1.101.0) (2023-05-15)
+
+
+### Features
+
+* **backend:** add job_id as a query arg to force set the new job_id ([b6c0018](https://github.com/windmill-labs/windmill/commit/b6c0018e2acaaed324832dfc715853ea58a4a268))
+* **frontend:** stepper standalone ([#1558](https://github.com/windmill-labs/windmill/issues/1558)) ([ad6e967](https://github.com/windmill-labs/windmill/commit/ad6e967205550b86cc8744f1ce08bb86215ce3e6))
+
+
+### Bug Fixes
+
+* **frontend:** Handle empty required in SchemaForm ([#1571](https://github.com/windmill-labs/windmill/issues/1571)) ([efc4e9c](https://github.com/windmill-labs/windmill/commit/efc4e9ce8a988aacb8e8dda264702dc08d25f7e0))
+
 ## [1.100.2](https://github.com/windmill-labs/windmill/compare/v1.100.1...v1.100.2) (2023-05-14)
 
 
