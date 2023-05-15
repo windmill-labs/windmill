@@ -5515,6 +5515,26 @@
     },
     "query": "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4"
   },
+  "cb0eecb1130617f2132b8ec74a401ac3fb932bbeafe3aecc0b14465cce7e192d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT 1 FROM queue WHERE id = $1 UNION ALL select 1 FROM completed_job WHERE id = $1"
+  },
   "cb12aee5f8e04cb196d4b8fad81699fcbb1ae7b0c84090d5705b14eac76074ff": {
     "describe": {
       "columns": [],
