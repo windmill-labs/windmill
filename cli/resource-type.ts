@@ -9,6 +9,7 @@ import { requireLogin, resolveWorkspace } from "./context.ts";
 import {
   colors,
   Command,
+  log,
   ResourceService,
   ResourceType,
   Table,
@@ -23,9 +24,20 @@ export async function pushResourceType(
   workspace: string,
   remotePath: string,
   resource: ResourceTypeFile | ResourceType | undefined,
-  localResource: ResourceTypeFile
+  localResource: ResourceTypeFile,
+  raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource-type");
+  if (raw) {
+    try {
+      resource = await ResourceService.getResourceType({
+        workspace: workspace,
+        path: remotePath,
+      });
+    } catch {
+      // resource type doesn't exist
+    }
+  }
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
@@ -39,7 +51,7 @@ export async function pushResourceType(
       },
     });
   } else {
-    console.log(colors.yellow.bold("Creating new resource type..."));
+    log.info(colors.yellow.bold("Creating new resource type..."));
     await ResourceService.createResourceType({
       workspace: workspace,
       requestBody: {
@@ -59,25 +71,16 @@ async function push(opts: PushOptions, filePath: string, name: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  console.log(colors.bold.yellow("Pushing resource..."));
-
-  let resourceType: ResourceType | undefined = undefined;
-  try {
-    resourceType = await ResourceService.getResourceType({
-      workspace: workspace.workspaceId,
-      path: name,
-    });
-  } catch {
-    // resource type doesn't exist
-  }
+  log.info(colors.bold.yellow("Pushing resource..."));
 
   await pushResourceType(
     workspace.workspaceId,
     name,
-    resourceType,
-    parseFromFile(filePath)
+    undefined,
+    parseFromFile(filePath),
+    true
   );
-  console.log(colors.bold.underline.green("Resource pushed"));
+  log.info(colors.bold.underline.green("Resource pushed"));
 }
 
 async function list(opts: GlobalOptions) {

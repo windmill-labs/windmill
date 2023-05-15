@@ -2,14 +2,11 @@
 import { colors, Command } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 
-async function stub(
-  _opts: GlobalOptions,
-  _dir?: string,
-) {
-  console.log(
+async function stub(_opts: GlobalOptions, _dir?: string) {
+  log.info(
     colors.red.underline(
-      'Push is deprecated. Use "sync push --raw" instead. See <TODO_LINK_HERE> for more information.',
-    ),
+      'Push is deprecated. Use "sync push --raw" instead. See <TODO_LINK_HERE> for more information.'
+    )
   );
 }
 

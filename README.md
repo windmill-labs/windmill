@@ -224,9 +224,9 @@ be AGPLv3 or you must get a commercial license. Contact us at
 <ruben@windmill.dev> if you have any doubts.
 
 In addition, a commercial license grants you a dedicated engineer to transition
-your current infrastructure to Windmill, support with tight SLA, audit logs
-export features, SSO, unlimited users creation, advanced permission managing
-features such as groups and the ability to create more than one workspace.
+your current infrastructure to Windmill, support with tight SLA, and our global
+cache sync for high-performance/no dependency cache miss of cluster from 10+
+nodes to 200+ nodes.
 
 ### OAuth for self-hosting
 
@@ -343,6 +343,7 @@ it being synced automatically everyday.
 | WAIT_RESULT_SLOW_POLL_INTERVAL_MS   | 200                                        | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_FAST_POLL_DURATION_SECS | 2                                          | The duration of fast poll mode before switching to slow poll                                                                                                                                       | Server                |
 | EXIT_AFTER_NO_JOB_FOR_SECS          | None                                       | Exit worker if no job is received after duration in secs if defined                                                                                                                                | Worker                |
+| OAUTH_JSON_AS_BASE64                | None                                       | Base64 encoded JSON of the OAuth configuration. e.g `OAUTH_JSON_AS_BASE64=$(base64 oauth.json \| tr -d '\n')` to encode it                                                                         | Server                |
 
 ## Run a local dev setup
 

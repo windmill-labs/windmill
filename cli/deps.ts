@@ -1,6 +1,6 @@
 // windmill
-export { setClient } from "https://deno.land/x/windmill@v1.69.3/mod.ts";
-export * from "https://deno.land/x/windmill@v1.69.3/windmill-api/index.ts";
+export { setClient } from "https://deno.land/x/windmill@v1.95.1/mod.ts";
+export * from "https://deno.land/x/windmill@v1.95.1/windmill-api/index.ts";
 
 // cliffy
 export { Command } from "https://deno.land/x/cliffy@v0.25.7/command/command.ts";
@@ -37,3 +37,4 @@ export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
 export { default as gitignore_parser } from "npm:gitignore-parser";
 export { default as JSZip } from "npm:jszip@3.7.1";
+export * as log from "https://deno.land/std@0.186.0/log/mod.ts";

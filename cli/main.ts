@@ -18,8 +18,16 @@ import folder from "./folder.ts";
 import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
+import * as log from "https://deno.land/std@0.186.0/log/mod.ts";
 
-export const VERSION = "v1.95.1";
+addEventListener("error", (event) => {
+  if (event.error) {
+    console.error("Error details of: " + event.error.message);
+    console.error(JSON.stringify(event.error, null, 4));
+  }
+});
+
+export const VERSION = "v1.100.2";
 
 let command: any = new Command()
   .name("wmill")
@@ -27,6 +35,11 @@ let command: any = new Command()
   .globalOption(
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace."
+  )
+  .globalOption("--debug", "Show debug logs")
+  .globalOption(
+    "--show-diffs",
+    "Show diff informations when syncing (may show sensitive informations)"
   )
   .globalOption(
     "--token <token:string>",
@@ -73,7 +86,26 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
   command = command.command("push", push).command("pull", pull);
 }
 
+export let showDiffs = false;
 try {
+  const LOG_LEVEL = Deno.args.includes("--debug") ? "DEBUG" : "INFO";
+  // const NO_COLORS = Deno.args.includes("--no-colors");
+  showDiffs = Deno.args.includes("--show-diffs");
+
+  log.setup({
+    handlers: {
+      console: new log.handlers.ConsoleHandler(LOG_LEVEL, {
+        formatter: "{msg}",
+      }),
+    },
+    loggers: {
+      default: {
+        level: LOG_LEVEL,
+        handlers: ["console"],
+      },
+    },
+  });
+  log.debug("Debug logging enabled. CLI build against " + VERSION);
   await command.parse(Deno.args);
 } catch (e) {
   if (e.name === "ApiError") {

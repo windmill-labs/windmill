@@ -20,9 +20,7 @@
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	export let initialPath: string
+	const { selectedId, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
 	$: syncedUrl = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`

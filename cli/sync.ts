@@ -16,6 +16,7 @@ import {
   OpenFlow,
   FlowModule,
   RawScript,
+  log,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -284,11 +285,20 @@ type Change = Added | Deleted | Edit;
 
 async function elementsToMap(
   els: DynFSElement,
-  ignore: (path: string, isDirectory: boolean) => boolean
+  ignore: (path: string, isDirectory: boolean) => boolean,
+  json: boolean
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     if (entry.isDirectory || entry.ignored) continue;
+    if (json && entry.path.endsWith(".yaml")) continue;
+    if (!json && entry.path.endsWith(".json")) continue;
+    if (
+      !["json", "yaml", "go", "sh", "ts", "py"].includes(
+        entry.path.split(".").pop() ?? ""
+      )
+    )
+      continue;
     const content = await entry.getContentText();
     map[entry.path] = content;
   }
@@ -298,14 +308,15 @@ async function elementsToMap(
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
-  ignore: (path: string, isDirectory: boolean) => boolean
+  ignore: (path: string, isDirectory: boolean) => boolean,
+  json: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore),
-        elementsToMap(els2, ignore),
+        elementsToMap(els1, ignore, json),
+        elementsToMap(els2, ignore, json),
       ])
-    : [await elementsToMap(els1, ignore), {}];
+    : [await elementsToMap(els1, ignore, json), {}];
 
   const changes: Change[] = [];
 
@@ -388,7 +399,7 @@ async function pull(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  console.log(
+  log.info(
     colors.gray(
       "Computing the files to update locally to match remote (taking .wmillignore into account)"
     )
@@ -399,10 +410,15 @@ async function pull(
   );
   const local = opts.raw
     ? undefined
-    : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
-  const changes = await compareDynFSElement(remote, local, await ignoreF());
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
+  const changes = await compareDynFSElement(
+    remote,
+    local,
+    await ignoreF(),
+    opts.json ?? false
+  );
 
-  console.log(
+  log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
   );
   if (changes.length > 0) {
@@ -419,7 +435,7 @@ async function pull(
     }
 
     const conflicts = [];
-    console.log(colors.gray(`Applying changes to files ...`));
+    log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -427,7 +443,7 @@ async function pull(
         try {
           const currentLocal = await Deno.readTextFile(target);
           if (currentLocal !== change.before && currentLocal !== change.after) {
-            console.log(
+            log.info(
               colors.red(
                 `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
               )
@@ -440,7 +456,7 @@ async function pull(
               });
               continue;
             } else if (opts.yes) {
-              console.log(
+              log.info(
                 colors.red(
                   `Override local version with remote since --yes was passed and no --fail-conflicts.`
                 )
@@ -460,11 +476,9 @@ async function pull(
           // ignore
         }
         if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
-          console.log(`Editing script content of ${change.path}`);
+          log.info(`Editing script content of ${change.path}`);
         } else {
-          console.log(
-            `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
-          );
+          log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.after);
 
@@ -476,9 +490,7 @@ async function pull(
         await ensureDir(path.dirname(target));
         if (!opts.raw) {
           await ensureDir(path.dirname(stateTarget));
-          console.log(
-            `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
-          );
+          log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.content);
         if (!opts.raw) {
@@ -486,7 +498,7 @@ async function pull(
         }
       } else if (change.name === "deleted") {
         try {
-          console.log(
+          log.info(
             `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
           );
           await Deno.remove(target);
@@ -503,11 +515,11 @@ async function pull(
     if (opts.failConflicts) {
       if (conflicts.length > 0) {
         console.error(colors.red(`Conflicts were found`));
-        console.log("Conflicts:");
+        log.info("Conflicts:");
         for (const conflict of conflicts) {
           showConflict(conflict.path, conflict.local, conflict.change.after);
         }
-        console.log(
+        log.info(
           colors.red(`Please resolve theses conflicts manually by either:
   - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
@@ -516,7 +528,7 @@ async function pull(
         Deno.exit(1);
       }
     }
-    console.log(
+    log.info(
       colors.green.underline(
         `Done! All ${changes.length} changes applied locally.`
       )
@@ -527,15 +539,15 @@ async function pull(
 function prettyChanges(changes: Change[]) {
   for (const change of changes) {
     if (change.name === "added") {
-      console.log(
+      log.info(
         colors.green(`+ ${getTypeStrFromPath(change.path)} ` + change.path)
       );
     } else if (change.name === "deleted") {
-      console.log(
+      log.info(
         colors.red(`- ${getTypeStrFromPath(change.path)} ` + change.path)
       );
     } else if (change.name === "edited") {
-      console.log(
+      log.info(
         colors.yellow(`~ ${getTypeStrFromPath(change.path)} ` + change.path)
       );
       showDiff(change.before, change.after);
@@ -557,10 +569,10 @@ function prettyChanges(changes: Change[]) {
 //       }
 //     }
 //     if (diff.type === "REMOVE" || diff.type === "CHANGE") {
-//       console.log(colors.red("- " + pathString + " = " + diff.oldValue));
+//      log.info(colors.red("- " + pathString + " = " + diff.oldValue));
 //     }
 //     if (diff.type === "CREATE" || diff.type === "CHANGE") {
-//       console.log(colors.green("+ " + pathString + " = " + diff.value));
+//      log.info(colors.green("+ " + pathString + " = " + diff.value));
 //     }
 //   }
 // }
@@ -581,19 +593,19 @@ async function push(
 ) {
   if (!opts.raw) {
     if (!opts.skipPull) {
-      console.log(
+      log.info(
         colors.gray("You need to be up-to-date before pushing, pulling first.")
       );
       await pull(opts);
-      console.log(colors.green("Pull done, now pushing."));
-      console.log();
+      log.info(colors.green("Pull done, now pushing."));
+      log.info("\n");
     }
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  console.log(
+  log.info(
     colors.gray(
       "Computing the files to update on the remote to match local (taking .wmillignore into account)"
     )
@@ -605,9 +617,14 @@ async function push(
         !opts.json
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
-  const changes = await compareDynFSElement(local, remote, await ignoreF());
+  const changes = await compareDynFSElement(
+    local,
+    remote,
+    await ignoreF(),
+    opts.json ?? false
+  );
 
-  console.log(
+  log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
   );
   if (changes.length > 0) {
@@ -621,7 +638,7 @@ async function push(
     ) {
       return;
     }
-    console.log(colors.gray(`Applying changes to files ...`));
+    log.info(colors.gray(`Applying changes to files ...`));
     const alreadySynced: string[] = [];
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -645,12 +662,7 @@ async function push(
           }
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.after,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
@@ -659,9 +671,7 @@ async function push(
         }
         if (!opts.raw) {
           await ensureDir(path.dirname(stateTarget));
-          console.log(
-            `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
-          );
+          log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         const oldObj = parseFromPath(change.path, change.before);
         const newObj = parseFromPath(change.path, change.after);
@@ -671,7 +681,8 @@ async function push(
           change.path,
           oldObj,
           newObj,
-          opts.plainSecrets ?? false
+          opts.plainSecrets ?? false,
+          opts.raw
         );
 
         if (!opts.raw && stateExists) {
@@ -684,20 +695,13 @@ async function push(
         ) {
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.content,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           continue;
         }
         if (!opts.raw && stateExists) {
           await ensureDir(path.dirname(stateTarget));
-          console.log(
-            `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
-          );
+          log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         const obj = parseFromPath(change.path, change.content);
         pushObj(
@@ -705,7 +709,8 @@ async function push(
           change.path,
           undefined,
           obj,
-          opts.plainSecrets ?? false
+          opts.plainSecrets ?? false,
+          opts.raw
         );
 
         if (!opts.raw && stateExists) {
@@ -715,9 +720,7 @@ async function push(
         if (!change.path.includes(".json") && !change.path.includes(".yaml")) {
           continue;
         }
-        console.log(
-          `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
-        );
+        log.info(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`);
         const typ = getTypeStrFromPath(change.path);
         const workspaceId = workspace.workspaceId;
         switch (typ) {
@@ -778,7 +781,7 @@ async function push(
         }
       }
     }
-    console.log(
+    log.info(
       colors.green.underline(
         `Done! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
       )

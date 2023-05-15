@@ -1,11 +1,11 @@
 import { GlobalOptions } from "./types.ts";
-import { colors, getAvailablePort, Secret, Select } from "./deps.ts";
-import { open } from 'https://deno.land/x/open/index.ts';
+import { colors, getAvailablePort, log, Secret, Select } from "./deps.ts";
+import { open } from "https://deno.land/x/open/index.ts";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
   if (
-    await Select.prompt({
+    (await Select.prompt({
       message: "How do you want to login",
       options: [
         {
@@ -17,7 +17,7 @@ export async function loginInteractive(remote: string) {
           value: "t",
         },
       ],
-    }) === "b"
+    })) === "b"
   ) {
     token = await browserLogin(remote);
   } else {
@@ -29,7 +29,7 @@ export async function loginInteractive(remote: string) {
 
 // deno-lint-ignore require-await
 export async function tryGetLoginInfo(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<string | undefined> {
   if (opts.token) {
     return opts.token;
@@ -39,22 +39,22 @@ export async function tryGetLoginInfo(
 }
 
 export async function browserLogin(
-  baseUrl: string,
+  baseUrl: string
 ): Promise<string | undefined> {
   const port = await getAvailablePort();
   if (port == undefined) {
-    console.log(colors.red.underline("failed to aquire port"));
+    log.info(colors.red.underline("failed to aquire port"));
     return undefined;
   }
 
   const server = Deno.listen({ transport: "tcp", port });
-  const url = `${baseUrl}user/cli?port=${port}`
-  console.log(`Login by going to ${url}`);
+  const url = `${baseUrl}user/cli?port=${port}`;
+  log.info(`Login by going to ${url}`);
   try {
-    await open(url)
-    console.log("Opened browser for you");
+    await open(url);
+    log.info("Opened browser for you");
   } catch {
-    console.error(`Failed to open browser, please navigate to ${url}`)
+    console.error(`Failed to open browser, please navigate to ${url}`);
   }
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
@@ -63,7 +63,7 @@ export async function browserLogin(
   const token = params.get("token");
   // const _workspace = params.get("workspace");
   await firstRequest?.respondWith(
-    Response.redirect(baseUrl + "user/cli-success", 302),
+    Response.redirect(baseUrl + "user/cli-success", 302)
   );
 
   setTimeout(() => {

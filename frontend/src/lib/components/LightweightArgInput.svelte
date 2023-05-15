@@ -13,7 +13,10 @@
 	import Toggle from './Toggle.svelte'
 	import Range from './Range.svelte'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
+	import type { ComponentCustomCSS } from './apps/types'
+	import { twMerge } from 'tailwind-merge'
 
+	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
 	export let value: any
 
@@ -34,6 +37,7 @@
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let extra: Record<string, any> = {}
+	export let displayType: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -138,11 +142,20 @@
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
-			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
+			<FieldHeader
+				prettify
+				{label}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{displayType}
+				labelClass={css?.label?.class}
+			/>
 		{/if}
 
 		{#if description}
-			<div class="text-sm italic pb-1">
+			<div class={twMerge('text-sm italic pb-1', css?.description?.class)}>
 				{description}
 			</div>
 		{/if}
@@ -164,9 +177,11 @@
 							dispatch('focus')
 						}}
 						type="number"
-						class={valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						class={twMerge(
+							valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+						)}
 						placeholder={defaultValue ?? ''}
 						bind:value
 						min={extra['min']}

@@ -44,7 +44,7 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
-	import { migrateApp } from '../utils'
+	import { BG_PREFIX, migrateApp } from '../utils'
 
 	export let app: App
 	export let path: string
@@ -75,7 +75,8 @@
 		username: $userStore?.username,
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
-		workspace: $workspaceStore
+		workspace: $workspaceStore,
+		mode: 'editor'
 	}
 
 	const worldStore = buildWorld(context)
@@ -135,7 +136,8 @@
 		context = context
 	}
 
-	$: previewing = $mode === 'preview'
+	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
+
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
@@ -146,7 +148,7 @@
 		selectedTab = 'settings'
 
 		if (befSelected) {
-			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
+			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
 				if (item?.data.type === 'containercomponent') {
 					$focusedGrid = {
@@ -207,7 +209,7 @@
 			<AppEditorHeader {policy} {fromHub} />
 		{/if}
 
-		{#if previewing}
+		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
 					class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}

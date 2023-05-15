@@ -13,6 +13,7 @@ use axum::{
     response::Json,
 };
 
+use hyper::StatusCode;
 #[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
@@ -60,6 +61,8 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
+    #[error("Custom Status Code: {0:#?}")]
+    CustomStatusCode(StatusCode, serde_json::Value),
 }
 
 impl Error {
@@ -82,6 +85,7 @@ impl IntoResponse for Error {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
+            Self::CustomStatusCode(code, _) => code,
             Self::SqlErr(_) | Self::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };

@@ -38,6 +38,7 @@
 					}
 				}
 			])
+			topHash = scriptLoadedFromUrl.hash
 		} else {
 			if (hash) {
 				const scriptByHash = await ScriptService.getScriptByHash({

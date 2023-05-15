@@ -325,6 +325,11 @@ for k, v in list(args.items()):
     if v == '<function call>':
         del args[k]
 
+def to_b_64(v: bytes):
+    import base64
+    b64 = base64.b64encode(v)
+    return b64.decode('ascii')
+    
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -333,6 +338,12 @@ try:
             res = res.values.tolist()
         elif typ.__module__ == 'polars.dataframe.frame':
             res = res.rows()
+    elif typ.__name__ == 'bytes':
+        res = to_b_64(res)
+    elif typ.__name__ == 'dict':
+        for k, v in res.items():
+            if type(v).__name__ == 'bytes':
+                res[k] = to_b_64(v)
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     with open("result.json", 'w') as f:
         f.write(res_json)

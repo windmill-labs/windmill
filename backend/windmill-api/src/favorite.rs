@@ -29,6 +29,8 @@ pub enum FavoriteKind {
     Script,
     Flow,
     App,
+    #[allow(non_camel_case_types)]
+    Raw_App,
 }
 #[derive(Deserialize)]
 pub struct Favorite {

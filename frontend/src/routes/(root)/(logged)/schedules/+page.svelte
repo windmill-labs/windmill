@@ -89,12 +89,16 @@
 
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 <CenteredPage>
-	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule" documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling">
+	<PageHeader
+		title="Schedules"
+		tooltip="Trigger Scripts and Flows according to a cron schedule"
+		documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling"
+	>
 		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
 			New&nbsp;schedule
 		</Button>
 	</PageHeader>
-	<div class="mt-10 mb-40 overflow-auto">
+	<div class="mt-10 pb-60 overflow-auto">
 		{#if loading}
 			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}

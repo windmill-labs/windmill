@@ -7,6 +7,7 @@
 	import autosize from 'svelte-autosize'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
+	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -76,7 +77,22 @@
 				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
-					return 'filename'
+					return 'file'
+				} else if (
+					keys.length === 3 &&
+					keys.includes('file') &&
+					keys.includes('filename') &&
+					keys.includes('autodownload')
+				) {
+					if (result.autodownload) {
+						const a = document.createElement('a')
+
+						a.href = 'data:application/octet-stream;base64,' + result.file
+						a.download = result.filename
+						a.click()
+						console.log('autodownload', result.file, result.filename)
+					}
+					return 'file'
 				} else if (
 					keys.length == 3 &&
 					keys.includes('resume') &&
@@ -191,15 +207,10 @@
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
-				><a download="windmill.file" href="data:application/octet-stream;base64,{result.file}"
-					>Download</a
+				><a
+					download={result.filename ?? 'windmill.file'}
+					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
-			</div>
-		{:else if !forceJson && resultKind === 'filename'}
-			<div>
-				<a download={result.filename} href="data:application/octet-stream;base64,{result.file}">
-					Download
-				</a>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
@@ -236,10 +247,14 @@
 		{:else}
 			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 			{#if jsonStr.length > 10000}
-				JSON too large. <a
-					download="{filename ?? 'result'}.json"
-					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
-				>
+				<div class="text-sm mb-2 text-gray-600">
+					<a
+						download="{filename ?? 'result'}.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+					>
+					JSON is too large to be displayed in full.
+				</div>
+				<ObjectViewer json={result} />
 			{:else}
 				<Highlight language={json} code={jsonStr} />
 			{/if}
@@ -264,10 +279,13 @@
 				</svelte:fragment>
 				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 				{#if str.length > 100000}
-					JSON too large. <a
-						download="{filename ?? 'result'}.json"
-						href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
-					>
+					<div class="text-sm mb-2 text-gray-600">
+						<a
+							download="{filename ?? 'result'}.json"
+							href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+						>
+						JSON is too large to be displayed in full.
+					</div>
 				{:else}
 					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
 				{/if}

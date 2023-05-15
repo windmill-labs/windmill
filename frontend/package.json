@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.95.1",
+	"version": "1.100.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -16,10 +16,10 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.32.3",
+		"@playwright/test": "^1.33.0",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
-		"@sveltejs/kit": "^1.15.9",
+		"@sveltejs/kit": "^1.16.2",
 		"@sveltejs/package": "^2.0.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
@@ -28,13 +28,13 @@
 		"@types/lodash": "^4.14.194",
 		"@types/node": "^18.16.3",
 		"@types/vscode": "~1.77.0",
-		"@typescript-eslint/eslint-plugin": "^5.59.2",
+		"@typescript-eslint/eslint-plugin": "^5.59.5",
 		"@typescript-eslint/parser": "^5.59.1",
 		"@zerodevx/svelte-toast": "^0.9.3",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
 		"d3-dag": "^0.11.5",
-		"eslint": "^8.38.0",
+		"eslint": "^8.40.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"monaco-editor-workers": "0.37.0",
@@ -60,7 +60,7 @@
 		"svelte-preprocess": "^5.0.1",
 		"svelte-range-slider-pips": "^2.1.1",
 		"svelte-splitpanes": "^0.7.3",
-		"svelte2tsx": "^0.6.11",
+		"svelte2tsx": "^0.6.14",
 		"tailwindcss": "^3.3.2",
 		"tslib": "^2.4.1",
 		"typescript": "^5.0.4",
@@ -75,7 +75,7 @@
 		"@leeoniya/ufuzzy": "^1.0.6",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.8.5",
+		"@tanstack/svelte-table": "^8.9.1",
 		"ag-grid-svelte": "^0.1.4",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
@@ -85,7 +85,7 @@
 		"fast-equals": "^5.0.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.192.0",
+		"lucide-svelte": "^0.214.0",
 		"monaco-editor": "0.36.1",
 		"monaco-languageclient": "5.0.1",
 		"svelte-autosize": "^1.0.1",
@@ -99,7 +99,7 @@
 		"vscode-ws-jsonrpc": "3.0.0"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.15.9",
+		"@sveltejs/kit": "^1.16.2",
 		"svelte": "^3.55.1"
 	},
 	"exports": {

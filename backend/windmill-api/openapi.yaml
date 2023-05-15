@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.95.1
+  version: 1.100.2
   title: Windmill API
 
   contact:
@@ -2888,6 +2888,80 @@ paths:
                 items:
                   $ref: "#/components/schemas/Input"
 
+  /w/{workspace}/raw_apps/list:
+    get:
+      summary: list all available raw apps
+      operationId: listRawApps
+      tags:
+        - raw_app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/OrderDesc"
+        - $ref: "#/components/parameters/CreatedBy"
+        - name: path_start
+          description: mask to filter matching starting path
+          in: query
+          schema:
+            type: string
+        - name: path_exact
+          description: mask to filter exact matching path
+          in: query
+          schema:
+            type: string
+        - name: starred_only
+          description: |
+            (default false)
+            show only the starred items
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: All available raw apps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ListableRawApp"
+
+  /w/{workspace}/raw_apps/exists/{path}:
+    get:
+      summary: does an app exisst at path
+      operationId: existsRawApp
+      tags:
+        - raw_app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/apps/get_data/{version}/{path}:
+    get:
+      summary: get app by path
+      operationId: getRawAppData
+      tags:
+        - raw_app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/VersionId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app details
+          content:
+            text/javascript:
+              schema:
+                type: string
+
   /w/{workspace}/apps/list:
     get:
       summary: list all available apps
@@ -2926,6 +3000,44 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ListableApp"
+
+  /w/{workspace}/apps/create:
+    post:
+      summary: create app
+      operationId: createApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                value: {}
+                summary:
+                  type: string
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                draft_only:
+                  type: boolean
+              required:
+                - path
+                - value
+                - summary
+                - policy
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/apps/exists/{path}:
     get:
@@ -3030,16 +3142,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/apps/create:
+  /w/{workspace}/raw_apps/create:
     post:
-      summary: create app
-      operationId: createApp
+      summary: create raw app
+      operationId: createRawApp
       tags:
-        - app
+        - raw_app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: new app
+        description: new raw app
         required: true
         content:
           application/json:
@@ -3048,21 +3160,65 @@ paths:
               properties:
                 path:
                   type: string
-                value: {}
+                value:
+                  type: string
                 summary:
                   type: string
-                policy:
-                  $ref: "#/components/schemas/Policy"
-                draft_only:
-                  type: boolean
               required:
                 - path
                 - value
                 - summary
-                - policy
       responses:
         "201":
-          description: app created
+          description: raw app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/raw_apps/update/{path}:
+    post:
+      summary: update app
+      operationId: updateRawApp
+      tags:
+        - raw_app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: updateraw  app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: string
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/raw_apps/delete/{path}:
+    delete:
+      summary: delete raw app
+      operationId: deleteRawApp
+      tags:
+        - raw_app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app deleted
           content:
             text/plain:
               schema:
@@ -3134,6 +3290,8 @@ paths:
             schema:
               type: object
               properties:
+                component:
+                  type: string
                 #script: script/<path>
                 #flow: flow/<path>
                 path:
@@ -3155,6 +3313,7 @@ paths:
                   type: object
               required:
                 - args
+                - component
 
       responses:
         "200":
@@ -3518,6 +3677,30 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs/completed/get_result_maybe/{id}:
+    get:
+      summary: get completed job result if job is completed
+      operationId: getCompletedJobResultMaybe
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  completed:
+                    type: boolean
+                  result: {}
+                required:
+                  - completed
+                  - result
 
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
@@ -4499,7 +4682,7 @@ paths:
           schema:
             type: string
             enum:
-              [script, group_, resource, schedule, variable, flow, folder, app]
+              [script, group_, resource, schedule, variable, flow, folder, app, raw_app]
       responses:
         "200":
           description: acls
@@ -4525,7 +4708,7 @@ paths:
           schema:
             type: string
             enum:
-              [script, group_, resource, schedule, variable, flow, folder, app]
+              [script, group_, resource, schedule, variable, flow, folder, app, raw_app]
       requestBody:
         description: acl to add
         required: true
@@ -4562,7 +4745,7 @@ paths:
           schema:
             type: string
             enum:
-              [script, group_, resource, schedule, variable, flow, folder, app]
+              [script, group_, resource, schedule, variable, flow, folder, app, raw_app]
       requestBody:
         description: acl to add
         required: true
@@ -4642,7 +4825,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script]
+                  enum: [flow, app, script, raw_app]
       responses:
         "200":
           description: star item
@@ -4665,7 +4848,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script]
+                  enum: [flow, app, script, raw_app]
       responses:
         "200":
           description: unstar item
@@ -4799,6 +4982,12 @@ components:
       required: true
       schema:
         type: string
+    VersionId:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: number
     Token:
       name: token
       in: path
@@ -6268,6 +6457,34 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
+    ListableRawApp:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        starred:
+          type: boolean
+        version:
+          type: number
+        edited_at:
+          type: string
+          format: date-time
+      required:
+        - workspace_id
+        - path
+        - summary
+        - extra_perms
+        - version
+        - edited_at
 
     AppWithLastVersion:
       type: object

@@ -13,9 +13,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import AlwaysMountedModal, {
-		getModal
-	} from '$lib/components/common/modal/AlwaysMountedModal.svelte'
+	import AlwaysMountedModal from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -26,12 +24,15 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
 	export let render: boolean
+	export let errorHandledByComponent: boolean | undefined = false
+
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	$componentControl[id] = {
 		onDelete: () => {
-			getModal().close()
+			modal?.close()
 		}
 	}
 
@@ -62,6 +63,7 @@
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 	let runnableWrapper: RunnableWrapper
 	let loading = false
+	let modal: AlwaysMountedModal
 </script>
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
@@ -73,11 +75,7 @@
 	/>
 {/each}
 
-<AlwaysMountedModal
-	title={resolvedConfig.label ?? ''}
-	class={css?.popup?.class}
-	style={css?.popup?.style}
->
+<AlwaysMountedModal title={resolvedConfig.label ?? ''} bind:this={modal}>
 	<RunnableWrapper
 		bind:this={runnableWrapper}
 		{recomputeIds}
@@ -91,6 +89,8 @@
 		runnableClass="!block"
 		{outputs}
 		doOnSuccess={resolvedConfig.onSuccess}
+		doOnError={resolvedConfig.onError}
+		{errorHandledByComponent}
 		triggerable
 	>
 		<div class="flex flex-col gap-2 px-4 w-full">
@@ -116,11 +116,11 @@
 					}}
 					on:click={async () => {
 						if (!runnableComponent) {
-							runnableWrapper.onSuccess()
+							runnableWrapper?.onSuccess()
 						} else {
 							await runnableComponent?.runComponent()
 						}
-						getModal().close()
+						modal?.close()
 					}}
 					size="xs"
 					color="dark"
@@ -143,7 +143,7 @@
 		btnClasses={css?.button?.class ?? ''}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
-			getModal().open()
+			modal?.open()
 		}}
 	>
 		{resolvedConfig.label}

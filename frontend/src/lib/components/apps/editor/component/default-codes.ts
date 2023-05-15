@@ -474,5 +474,31 @@ export async function main(db: Resource<"postgresql">) {
 }`,
 		python3: `def main():
 	return "Smile"`
+	},
+	schemaformcomponent: {
+		deno: `export async function main() {
+return {
+		properties: {
+			first_name: {
+				type: 'string',
+				description: 'your name',
+				default: 'default'
+			}
+		},
+		required: []
+	}
+}`,
+		python3: `def main():
+	return {
+		"properties": {
+			"first_name": {
+				"type": "string",
+				"description": "your name",
+				"default": "default"
+			}
+		},
+		"required": []
+	}
+`
 	}
 } as const

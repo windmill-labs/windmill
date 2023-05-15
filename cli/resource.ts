@@ -6,7 +6,14 @@ import {
   removeType,
 } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
+import {
+  colors,
+  Command,
+  log,
+  Resource,
+  ResourceService,
+  Table,
+} from "./deps.ts";
 
 export interface ResourceFile {
   value: any;
@@ -19,10 +26,20 @@ export async function pushResource(
   workspace: string,
   remotePath: string,
   resource: ResourceFile | Resource | undefined,
-  localResource: ResourceFile
+  localResource: ResourceFile,
+  raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
-
+  if (raw) {
+    try {
+      resource = await ResourceService.getResource({
+        workspace: workspace,
+        path: remotePath,
+      });
+    } catch {
+      // flow doesn't exist
+    }
+  }
   if (resource) {
     if (isSuperset(localResource, resource)) {
       return;
@@ -35,14 +52,14 @@ export async function pushResource(
     });
   } else {
     if (localResource.is_oauth) {
-      console.log(
+      log.info(
         colors.yellow(
           "! is_oauth has been removed in newer versions. Ignoring."
         )
       );
     }
 
-    console.log(colors.yellow.bold("Creating new resource..."));
+    log.info(colors.yellow.bold("Creating new resource..."));
     await ResourceService.createResource({
       workspace: workspace,
       requestBody: {
@@ -67,24 +84,16 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
     throw new Error("file path must refer to a file.");
   }
 
-  console.log(colors.bold.yellow("Pushing resource..."));
-  let resource: Resource | undefined = undefined;
-  try {
-    resource = await ResourceService.getResource({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // flow doesn't exist
-  }
+  log.info(colors.bold.yellow("Pushing resource..."));
 
   await pushResource(
     workspace.workspaceId,
     remotePath,
-    resource,
-    parseFromFile(filePath)
+    undefined,
+    parseFromFile(filePath),
+    true
   );
-  console.log(colors.bold.underline.green(`Resource ${remotePath} pushed`));
+  log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }
 
 async function list(opts: GlobalOptions) {

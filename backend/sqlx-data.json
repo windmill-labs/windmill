@@ -85,7 +85,7 @@
         {
           "name": "value",
           "ordinal": 6,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         },
         {
           "name": "created_at",
@@ -692,32 +692,6 @@
     },
     "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1"
   },
-  "17c2a1abcff52cfb39ae55cfafb6b5945bb87eebfdb2e030e7de3db938d0c6c9": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "flow",
-                  "app"
-                ]
-              },
-              "name": "draft_type"
-            }
-          }
-        ]
-      }
-    },
-    "query": "INSERT INTO draft\n            (workspace_id, path, value, typ)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = $3"
-  },
   "187a27d18f78f068319a0ec684f71a76c49dd09c5c74c2c777e35233c4f5a281": {
     "describe": {
       "columns": [
@@ -1101,7 +1075,8 @@
                 "Enum": [
                   "app",
                   "script",
-                  "flow"
+                  "flow",
+                  "raw_app"
                 ]
               },
               "name": "favorite_kind"
@@ -1227,6 +1202,28 @@
       }
     },
     "query": "SELECT set_config('session.folders_read', $1, true)"
+  },
+  "2a3992b5e9abcfbb032d10e142d98efa969dae26a7242eb7ac12593ed5421ef3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n                (app_id, value, created_by)\n                VALUES ($1, $2::text::json, $3) RETURNING id"
   },
   "2a3ebe1b0eae5b2164894321e138cc4dc0293788aeb98d05d95d18dfc708d6a6": {
     "describe": {
@@ -1384,6 +1381,32 @@
       }
     },
     "query": "UPDATE folder SET owners = array_append(owners, $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name"
+  },
+  "366609f7e7fbd73ea807128b931eff2f1ab763fa630c8531f590fed2110c03d9": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "flow",
+                  "app"
+                ]
+              },
+              "name": "draft_type"
+            }
+          }
+        ]
+      }
+    },
+    "query": "INSERT INTO draft\n            (workspace_id, path, value, typ)\n            VALUES ($1, $2, $3::text::json, $4)\n            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = $3::text::json"
   },
   "372b0a81d37b6874727c1aa4dc1bec17f9475a5f446e8987ab7359f55b96436e": {
     "describe": {
@@ -1728,7 +1751,7 @@
         {
           "name": "value",
           "ordinal": 6,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         },
         {
           "name": "created_at",
@@ -2308,6 +2331,27 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)"
   },
+  "5a0333e29280c0814d62473b5e5e7b187c4d8cbf2caeb645bfef82f6880467a7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "data",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT data FROM raw_app\n        WHERE path = $1 AND workspace_id = $2"
+  },
   "5b9b58612ca0f703a5d154a76fab82ac2329aef965fa937bfab2810b6e1336a4": {
     "describe": {
       "columns": [],
@@ -2489,7 +2533,8 @@
                 "Enum": [
                   "app",
                   "script",
-                  "flow"
+                  "flow",
+                  "raw_app"
                 ]
               },
               "name": "favorite_kind"
@@ -3211,6 +3256,43 @@
       }
     },
     "query": "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3"
+  },
+  "83d18f4e1cda2c1867168551d855d5626e766b5469c6976c986bdafc8b9407c5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n            (app_id, value, created_by)\n            VALUES ($1, $2::text::json, $3) RETURNING id"
+  },
+  "84bbd11f7bb0c65dcfb2e12038b8a9cb51d303480ac3c5f8a5e833a53c40ed9b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO raw_app\n            (workspace_id, path, summary, extra_perms, data)\n            VALUES ($1, $2, $3, '{}', $4)"
   },
   "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2": {
     "describe": {
@@ -4141,7 +4223,7 @@
         {
           "name": "value",
           "ordinal": 6,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         },
         {
           "name": "created_at",
@@ -4722,6 +4804,19 @@
     },
     "query": "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3"
   },
+  "b2b2b7251be2b80207f47b10eeff78d61c84161caaf16b8fd25d82b97aac1186": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM raw_app WHERE path = $1 AND workspace_id = $2"
+  },
   "b3b80de52d0931a2fdb5d38b7603a2d69cc25ab1cda413228c363a5ffd777113": {
     "describe": {
       "columns": [
@@ -5232,6 +5327,27 @@
     },
     "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(\n                                     JSONB_SET(flow_status, ARRAY['failure_module'], $1),\n                                                            ARRAY['step'], $2)\n                 WHERE id = $3\n                  "
   },
+  "c4b3ab3d87f158b20f0557f78c6307c50620425aeb43636e19931c142b5ce0d7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)"
+  },
   "c4f1c14c3aae145b52ff39bdecd779cd3eba27a869fda68516dc68dc2abefd38": {
     "describe": {
       "columns": [],
@@ -5488,7 +5604,7 @@
         {
           "name": "value",
           "ordinal": 6,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         },
         {
           "name": "created_at",
@@ -5587,28 +5703,6 @@
     },
     "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
   },
-  "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO app_version\n                (app_id, value, created_by)\n                VALUES ($1, $2, $3) RETURNING id"
-  },
   "d4bf68b4c2bfd11db84787e41e92c13612fda7352e841f3cdef45ea762588f04": {
     "describe": {
       "columns": [],
@@ -5653,28 +5747,6 @@
       }
     },
     "query": "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2"
-  },
-  "d68eaf1533bbe9052f6b1737e2f212c969a18c9d7840fe419c20995404ed0be8": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO app_version\n            (app_id, value, created_by)\n            VALUES ($1, $2, $3) RETURNING id"
   },
   "d697b7311430e7bd5375ec5494179f4071e3bfe123d9600249cfa80c1103edd8": {
     "describe": {
@@ -6428,7 +6500,7 @@
         {
           "name": "value",
           "ordinal": 6,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         },
         {
           "name": "created_at",
@@ -6448,7 +6520,7 @@
         {
           "name": "draft?",
           "ordinal": 10,
-          "type_info": "Jsonb"
+          "type_info": "Json"
         }
       ],
       "nullable": [

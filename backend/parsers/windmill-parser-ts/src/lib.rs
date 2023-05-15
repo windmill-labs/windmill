@@ -255,6 +255,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                     ),
                     false,
                 ),
+                "Date" => (Typ::Datetime, false),
                 "Base64" => (Typ::Bytes, false),
                 "Email" => (Typ::Email, false),
                 "Sql" => (Typ::Sql, false),

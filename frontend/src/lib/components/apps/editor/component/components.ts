@@ -34,17 +34,21 @@ import {
 	FlipHorizontal,
 	FlipVertical,
 	FileText,
-	AtSignIcon
+	AtSignIcon,
+	Split,
+	Download
 } from 'lucide-svelte'
 import type {
 	Aligned,
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	RichConfiguration,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
-import type { ResultAppInput, StaticAppInput } from '../../inputType'
+
+import type { AppInputSpec, ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -69,6 +73,7 @@ export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
+export type DownloadComponent = BaseComponent<'downloadcomponent'>
 export type FormComponent = BaseComponent<'formcomponent'> & RecomputeOthersSource
 export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & RecomputeOthersSource
 
@@ -105,10 +110,16 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 	panes: number[]
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
+export type ModalComponent = BaseComponent<'modalcomponent'>
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
 }
+export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
+	conditions: RichConfiguration[]
+}
+
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
+export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -150,8 +161,12 @@ export type TypedComponent =
 	| VerticalSplitPanesComponent
 	| HorizontalSplitPanesComponent
 	| PdfComponent
+	| ModalComponent
 	| StepperComponent
 	| Schemaformcomponent
+	| SelectTabComponent
+	| ConditionalWrapperComponent
+	| DownloadComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -194,6 +209,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	actionButtons?: boolean
 	tabs?: string[]
 	panes?: number[]
+	conditions?: AppInputSpec<'boolean', boolean>[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -219,19 +235,24 @@ export const selectOptions = {
 		'en-CA'
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
-	splitPanelOptions: ['2', '3', '4']
+	splitPanelOptions: ['2', '3', '4'],
+	formorientationOptions: ['Horizontal', 'Vertical']
+}
+
+const labels = {
+	none: 'Do nothing',
+	errorOverlay: 'Show error overlay',
+	gotoUrl: 'Go to an url',
+	setTab: 'Set the tab of a tabs component',
+	sendToast: 'Display a toast notification',
+	sendErrorToast: 'Display an error toast notification'
 }
 
 const onSuccessClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on success',
 	selected: 'none',
-	labels: {
-		none: 'Do nothing',
-		gotoUrl: 'Go to an url',
-		setTab: 'Set the tab of a tabs component',
-		sendToast: 'Display a toast notification'
-	},
+	labels,
 	configuration: {
 		none: {},
 		gotoUrl: {
@@ -265,6 +286,55 @@ const onSuccessClick = {
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there'
+			}
+		}
+	}
+} as const
+
+const onErrorClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on error',
+	selected: 'errorOverlay',
+	labels,
+	configuration: {
+		errorOverlay: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo'
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on error'
+			}
+		},
+		sendErrorToast: {
+			message: {
+				tooltip: 'The message of the toast to diplay',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there'
+			},
+			appendError: {
+				tooltip: 'Append the error message to the toast',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
 			}
 		}
 	}
@@ -377,7 +447,8 @@ export const components = {
 		dims: '1:1-2:1' as AppComponentDimensions,
 
 		customCss: {
-			button: { style: '', class: '' }
+			button: { style: '', class: '' },
+			container: { style: '', class: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -389,6 +460,88 @@ export const components = {
 			},
 			recomputeIds: undefined,
 			configuration: {
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				},
+				triggerOnAppLoad: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true
+				},
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
+			}
+		}
+	},
+	downloadcomponent: {
+		name: 'Download Button',
+		icon: Download,
+		dims: '1:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			configuration: {
+				source: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					fileUpload: {
+						accept: '*',
+						convertTo: 'base64'
+					},
+					placeholder: 'Enter URL or upload file'
+				},
+				filename: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'windmill.file'
+				},
 				label: {
 					type: 'static',
 					fieldType: 'text',
@@ -414,11 +567,6 @@ export const components = {
 					onlyStatic: true,
 					value: false
 				},
-				disabled: {
-					fieldType: 'boolean',
-					type: 'static',
-					value: false
-				},
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
@@ -430,19 +578,12 @@ export const components = {
 					value: undefined,
 					fieldType: 'icon-select',
 					onlyStatic: true
-				},
-				triggerOnAppLoad: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
-				},
-				onSuccess: onSuccessClick
+				}
 			}
 		}
 	},
 	formcomponent: {
-		name: 'Form',
+		name: 'Submit form',
 		icon: FormInput,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
@@ -478,7 +619,8 @@ export const components = {
 					onlyStatic: true,
 					selectOptions: selectOptions.buttonSizeOptions
 				},
-				onSuccess: onSuccessClick
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
@@ -511,7 +653,8 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					selectOptions: buttonColorOptions
+					selectOptions: buttonColorOptions,
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -521,6 +664,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onError: onErrorClick,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -1405,7 +1549,11 @@ Hello \${ctx.username}
 		dims: '3:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
-			divider: { class: '', style: '' }
+			divider: {
+				class: '',
+				style: '',
+				tooltip: '`background-color` and `height` are handled by the component configuration'
+			}
 		},
 		initialData: {
 			verticalAlignment: 'center',
@@ -1415,13 +1563,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The height of the divider in pixels can be overridden by the `height` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1442,13 +1594,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The width of the divider in pixels can be overridden by the `width` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1509,7 +1665,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.objectFitOptions,
-					value: 'contain'
+					value: 'contain',
+					tooltip:
+						'The image fit property can be overridden by the `object-fit` property in the styling menu'
 				},
 				altText: {
 					type: 'static',
@@ -1527,6 +1685,7 @@ Hello \${ctx.username}
 		dims: '1:1-2:1' as AppComponentDimensions,
 
 		customCss: {
+			button: { style: '', class: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
@@ -1549,7 +1708,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip:
+						'The color of the button can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					fieldType: 'select',
@@ -1562,7 +1723,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -1571,7 +1734,6 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
@@ -1676,7 +1838,8 @@ Hello \${ctx.username}
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
-					}
+					},
+					placeholder: 'Enter URL or upload file'
 				},
 				zoom: {
 					fieldType: 'number',
@@ -1686,25 +1849,166 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	modalcomponent: {
+		name: 'Modal',
+		icon: SidebarClose,
+		dims: '1:1-2:1' as AppComponentDimensions,
+		customCss: {
+			button: { class: '', style: '' },
+			buttonContainer: { class: '', style: '' },
+			popup: { class: '', style: '' }
+		},
+		initialData: {
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
+			configuration: {
+				modalTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Modal title',
+					onlyStatic: true
+				},
+				buttonLabel: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				buttonColor: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: buttonColorOptions,
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
+				},
+				buttonSize: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				buttonFillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
+				},
+				buttonDisabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				}
+			},
+			componentInput: undefined,
+
+			numberOfSubgrids: 1
+		}
+	},
 	schemaformcomponent: {
-		name: 'Schema Form',
+		name: 'Form',
 		icon: FileText,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			label: { class: '', style: '' },
+			description: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: {
 				type: 'static',
 				fieldType: 'schema',
 				value: {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: [],
-					type: 'object'
+					properties: {
+						first_name: {
+							type: 'string',
+							description: 'your name',
+							default: 'default'
+						}
+					},
+					required: []
 				}
 			},
-			configuration: {}
+			configuration: {
+				displayType: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					onlyStatic: true
+				},
+				largeGap: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					onlyStatic: true
+				}
+			}
+		}
+	},
+	selecttabcomponent: {
+		name: 'Select Tab',
+		icon: List,
+		dims: '2:1-3:1' as AppComponentDimensions,
+
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				} as StaticAppInput,
+
+				defaultValue: {
+					type: 'static',
+					value: undefined as { value: string; label: string } | undefined,
+					fieldType: 'object'
+				},
+				tabSize: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: selectOptions.buttonSizeOptions
+				}
+			}
+		}
+	},
+	conditionalwrapper: {
+		name: 'Conditional tabs',
+		icon: Split,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 2,
+			conditions: [
+				{
+					type: 'eval',
+					expr: 'false',
+					fieldType: 'boolean'
+				},
+				{
+					type: 'eval',
+					expr: 'true',
+					fieldType: 'boolean'
+				}
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	}
 } as const

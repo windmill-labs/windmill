@@ -3,7 +3,14 @@
 	import Icon from 'svelte-awesome'
 
 	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
-	import { AppService, FlowService, OpenAPI, ScriptService, UserService } from '$lib/gen'
+	import {
+		AppService,
+		FlowService,
+		OpenAPI,
+		RawAppService,
+		ScriptService,
+		UserService
+	} from '$lib/gen'
 	import { classNames, isCloudHosted } from '$lib/utils'
 	import { browser } from '$app/environment'
 
@@ -48,7 +55,11 @@
 
 	let innerWidth = browser ? window.innerWidth : 2000
 
-	let favoriteLinks = [] as { label: string; href: string; kind: 'app' | 'script' | 'flow' }[]
+	let favoriteLinks = [] as {
+		label: string
+		href: string
+		kind: 'app' | 'script' | 'flow' | 'raw_app'
+	}[]
 	$: $workspaceStore && $starStore && onLoad()
 
 	function onLoad() {
@@ -75,6 +86,10 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
+		const raw_apps = await RawAppService.listRawApps({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
@@ -90,6 +105,11 @@
 				label: f.summary || f.path,
 				href: `/apps/get/${f.path}`,
 				kind: 'app' as 'app'
+			})),
+			...raw_apps.map((f) => ({
+				label: f.summary || f.path,
+				href: `/apps/get_raw/${f.version}/${f.path}`,
+				kind: 'raw_app' as 'raw_app'
 			}))
 		]
 	}

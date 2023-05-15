@@ -21,7 +21,7 @@
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
-	import { migrateApp } from '../utils'
+	import { BG_PREFIX, migrateApp } from '../utils'
 
 	export let app: App
 	export let appPath: string
@@ -48,9 +48,16 @@
 
 	const allIdsInPath = writable<string[]>([])
 
+	let ncontext: any = { ...context, workspace, mode: 'viewer' }
+
+	function hashchange(e: HashChangeEvent) {
+		ncontext.hash = e.newURL.split('#')[1]
+		ncontext = ncontext
+	}
+
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(context),
+		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
@@ -76,13 +83,6 @@
 		hoverStore: writable(undefined),
 		allIdsInPath
 	})
-
-	let ncontext: any = { ...context, workspace }
-
-	function hashchange(e: HashChangeEvent) {
-		ncontext.hash = e.newURL.split('#')[1]
-		ncontext = ncontext
-	}
 
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
@@ -168,7 +168,7 @@
 {#if app.hiddenInlineScripts}
 	{#each app.hiddenInlineScripts as runnable, index}
 		{#if runnable}
-			<HiddenComponent id={`bg_${index}`} {runnable} />
+			<HiddenComponent id={BG_PREFIX + index} {runnable} />
 		{/if}
 	{/each}
 {/if}

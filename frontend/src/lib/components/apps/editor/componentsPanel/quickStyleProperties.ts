@@ -553,12 +553,11 @@ export const quickStyleProperties: Record<
 		selectedStep: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
-	pdfcomponent: {
+	conditionalwrapper: {
 		container: containerDefaultProps
 	},
-	schemaformcomponent: {
-		container: containerDefaultProps,
-		button: buttonDefaultProps
+	pdfcomponent: {
+		container: containerDefaultProps
 	},
 	formcomponent: {
 		container: containerDefaultProps,
@@ -613,7 +612,13 @@ export const quickStyleProperties: Record<
 	buttoncomponent: {
 		button: buttonDefaultProps
 	},
+	downloadcomponent: {
+		button: buttonDefaultProps
+	},
 	drawercomponent: {
+		container: containerDefaultProps
+	},
+	modalcomponent: {
 		container: containerDefaultProps
 	},
 	plotlycomponent: {},
@@ -696,5 +701,14 @@ export const quickStyleProperties: Record<
 	},
 	horizontalsplitpanescomponent: {
 		container: containerDefaultProps
+	},
+	schemaformcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
+	},
+	selecttabcomponent: {
+		tabRow: containerDefaultProps,
+		allTabs: [typographyGrouping, sizeGrouping],
+		selectedTab: [typographyGrouping, sizeGrouping]
 	}
 }

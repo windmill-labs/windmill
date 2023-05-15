@@ -11,6 +11,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,6 +25,7 @@
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = false
+	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
@@ -37,6 +39,7 @@
 	)
 
 	$: initializing = resolvedConfig?.label == undefined
+	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -84,12 +87,14 @@
 		}
 
 		if (!runnableComponent) {
-			runnableWrapper.onSuccess()
+			runnableWrapper?.onSuccess?.()
 		} else {
 			await runnableComponent?.runComponent()
 		}
 	}
 	let loading = false
+
+	$: css = concatCustomCss($app.css?.buttoncomponent, customCss)
 </script>
 
 {#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
@@ -111,6 +116,8 @@
 	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnError={resolvedConfig.onError}
+	{errorHandledByComponent}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
@@ -126,13 +133,13 @@
 		{/if}
 		<Button
 			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={twMerge(
-				$app.css?.['buttoncomponent']?.['button']?.class,
-				customCss?.button?.class,
+			btnClasses={css?.button?.class}
+			wrapperClasses={twMerge(
+				css?.container?.class,
 				resolvedConfig.fillContainer ? 'w-full h-full' : ''
 			)}
-			wrapperClasses={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
-			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
+			wrapperStyle={css?.container?.style}
+			style={css?.button?.style}
 			disabled={resolvedConfig.disabled}
 			on:click={handleClick}
 			size={resolvedConfig.size}

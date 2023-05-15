@@ -42,6 +42,7 @@ mod groups;
 mod inputs;
 pub mod jobs;
 mod oauth2;
+mod raw_apps;
 mod resources;
 mod schedule;
 mod scripts;
@@ -123,6 +124,7 @@ pub async fn run_server(
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
+                        .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())

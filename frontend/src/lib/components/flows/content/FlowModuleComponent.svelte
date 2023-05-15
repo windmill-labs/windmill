@@ -28,7 +28,7 @@
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore } =
+	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -196,11 +196,13 @@
 								automaticLayout={true}
 								cmdEnterAction={async () => {
 									selected = 'test'
-									if (value.type === 'rawscript') {
-										value.content = editor.getCode()
+									if ($selectedId == flowModule.id) {
+										if (value.type === 'rawscript') {
+											value.content = editor.getCode()
+										}
+										await reload(flowModule)
+										modulePreview?.runTestWithStepArgs()
 									}
-									await reload(flowModule)
-									modulePreview?.runTestWithStepArgs()
 								}}
 								on:change={async (event) => {
 									if (flowModule.value.type === 'rawscript') {
@@ -208,7 +210,10 @@
 									}
 									await reload(flowModule)
 								}}
-								formatAction={() => reload(flowModule)}
+								formatAction={() => {
+									reload(flowModule)
+									saveDraft()
+								}}
 								fixedOverflowWidgets={true}
 							/>
 						{:else if value.type === 'script'}

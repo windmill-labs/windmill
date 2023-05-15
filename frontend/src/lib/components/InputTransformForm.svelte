@@ -196,7 +196,7 @@
 					>
 						{#if isStaticTemplate(inputCat)}
 							<ToggleButton
-								title={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`result\` to connect to another node\'s output.`}
+								title={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 								light
 								position="left"
 								value="static"
@@ -210,7 +210,7 @@
 
 						<ToggleButton
 							light
-							title="Write javascript expressions directly, using 'flow_input' or 'result'. You can use multiline javascript."
+							title="Javascript expression ('flow_input' or 'results')."
 							position="right"
 							value="javascript"
 							startIcon={{ icon: faCode }}

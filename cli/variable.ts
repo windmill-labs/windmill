@@ -10,6 +10,7 @@ import {
   colors,
   Command,
   ListableVariable,
+  log,
   Table,
   VariableService,
 } from "./deps.ts";
@@ -50,14 +51,31 @@ export async function pushVariable(
   remotePath: string,
   variable: VariableFile | ListableVariable | undefined,
   localVariable: VariableFile,
-  plainSecrets: boolean
+  plainSecrets: boolean,
+  raw: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
+  log.debug(`Processing local variable ${remotePath}`);
+
+  if (raw) {
+    try {
+      variable = await VariableService.getVariable({
+        workspace: workspace,
+        path: remotePath,
+        decryptSecret: plainSecrets,
+      });
+      log.debug(`Variable ${remotePath} exists on remote`);
+    } catch {
+      log.debug(`Variable ${remotePath} does not exist on remote`);
+    }
+  }
 
   if (variable) {
     if (isSuperset(localVariable, variable)) {
+      log.debug(`Variable ${remotePath} is up-to-date`);
       return;
     }
+    log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
     await VariableService.updateVariable({
       workspace,
@@ -65,10 +83,12 @@ export async function pushVariable(
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
+        is_secret:
+          localVariable.is_secret && !variable.is_secret ? true : undefined,
       },
     });
   } else {
-    console.log(colors.yellow.bold(`Creating new variable ${remotePath}...`));
+    log.info(colors.yellow.bold(`Creating new variable ${remotePath}...`));
     await VariableService.createVariable({
       workspace,
       alreadyEncrypted: !plainSecrets,
@@ -97,26 +117,17 @@ async function push(
     throw new Error("file path must refer to a file.");
   }
 
-  console.log(colors.bold.yellow("Pushing variable..."));
-
-  let variable: ListableVariable | undefined = undefined;
-  try {
-    variable = await VariableService.getVariable({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // resource type doesn't exist
-  }
+  log.info(colors.bold.yellow("Pushing variable..."));
 
   await pushVariable(
     workspace.workspaceId,
     remotePath,
-    variable,
+    undefined,
     parseFromFile(filePath),
-    opts.plainSecrets
+    opts.plainSecrets,
+    true
   );
-  console.log(colors.bold.underline.green(`Variable ${remotePath} pushed`));
+  log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 const command = new Command()

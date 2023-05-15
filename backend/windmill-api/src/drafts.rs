@@ -56,11 +56,12 @@ async fn create_draft(
     sqlx::query!(
         "INSERT INTO draft
             (workspace_id, path, value, typ)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = $3",
+            VALUES ($1, $2, $3::text::json, $4)
+            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = $3::text::json",
         &w_id,
         draft.path,
-        draft.value,
+        //to preserve key orders
+        serde_json::to_string(&draft.value).unwrap(),
         draft.typ: DraftType,
     )
     .execute(&mut tx)
