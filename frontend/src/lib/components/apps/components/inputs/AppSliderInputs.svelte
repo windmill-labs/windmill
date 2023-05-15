@@ -20,9 +20,10 @@
 	let min = 0
 	let max = 42
 	let step = 1
+
 	let slider: HTMLElement
 
-	let outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: (0 as number) || null
 	})
 
@@ -49,6 +50,27 @@
 			handle.style.cssText = css?.handle?.style ?? ''
 		}
 	}
+
+	let width = 0
+
+	function computeWidth() {
+		let text = max + step
+
+		if (typeof document !== 'undefined') {
+			const span = document.createElement('span')
+			span.style.visibility = 'hidden'
+			span.style.position = 'absolute'
+			span.style.whiteSpace = 'nowrap'
+			span.className =
+				'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
+			span.textContent = text.toString()
+			document.body.appendChild(span)
+			width = span.offsetWidth
+			document.body.removeChild(span)
+		}
+	}
+
+	$: step && max && computeWidth()
 </script>
 
 <InputValue {id} input={configuration.step} bind:value={step} />
@@ -81,10 +103,10 @@
 		<span class="mx-2">
 			<span
 				class={twMerge(
-					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
+					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5 inline-block',
 					css?.value?.class ?? ''
 				)}
-				style={css?.value?.style ?? ''}
+				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
 				{values[0]}
 			</span>
