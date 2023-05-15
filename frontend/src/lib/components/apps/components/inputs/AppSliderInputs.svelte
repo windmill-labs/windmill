@@ -53,6 +53,8 @@
 
 	let width = 0
 
+	const spanClass =
+		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
 	function computeWidth() {
 		let maxValue = max + step
 
@@ -61,8 +63,7 @@
 			span.style.visibility = 'hidden'
 			span.style.position = 'absolute'
 			span.style.whiteSpace = 'nowrap'
-			span.className =
-				'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
+			span.className = spanClass
 			span.textContent = maxValue.toString()
 			document.body.appendChild(span)
 			width = span?.offsetWidth
@@ -70,7 +71,7 @@
 		}
 	}
 
-	$: if (max && step) {
+	$: if (max && step && render) {
 		computeWidth()
 	}
 </script>
@@ -104,10 +105,7 @@
 		</span>
 		<span class="mx-2">
 			<span
-				class={twMerge(
-					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5 inline-block',
-					css?.value?.class ?? ''
-				)}
+				class={twMerge(spanClass, css?.value?.class ?? '')}
 				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
 				{values[0]}
