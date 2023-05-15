@@ -1537,9 +1537,6 @@ name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
-dependencies = [
- "ahash 0.7.6",
-]
 
 [[package]]
 name = "hashbrown"
@@ -1552,11 +1549,11 @@ dependencies = [
 
 [[package]]
 name = "hashlink"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69fe1fcf8b4278d860ad0548329f892a3631fb63f82574df68275f34cdbe0ffa"
+checksum = "0761a1b9491c4f2e3d66aa0f62d0fba0af9a0e2852e4d48ea506632a4b56e6aa"
 dependencies = [
- "hashbrown 0.12.3",
+ "hashbrown 0.13.2",
 ]
 
 [[package]]
@@ -2764,9 +2761,9 @@ checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.56"
+version = "1.0.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b63bdb0cd06f1f4dedf69b254734f9b45af66e4a031e42a7480257d9898b435"
+checksum = "c4ec6d5fe0b140acb27c9a0444118cf55bfbb4e0b259739429abb4521dd67c16"
 dependencies = [
  "unicode-ident",
 ]
@@ -3353,7 +3350,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.3.2",
+ "uuid 1.3.3",
 ]
 
 [[package]]
@@ -3845,7 +3842,7 @@ dependencies = [
  "thiserror",
  "tokio-stream",
  "url",
- "uuid 1.3.2",
+ "uuid 1.3.3",
  "webpki-roots",
  "whoami",
 ]
@@ -4650,7 +4647,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13a3aaa69b04e5b66cc27309710a569ea23593612387d67daaf102e73aa974fd"
 dependencies = [
  "rand 0.8.5",
- "uuid 1.3.2",
+ "uuid 1.3.3",
 ]
 
 [[package]]
@@ -4836,9 +4833,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.3.2"
+version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dad5567ad0cf5b760e5665964bec1b47dfd077ba8a2544b513f3556d3d239a2"
+checksum = "345444e32442451b267fc254ae85a209c64be56d2890e601a0c37ff0c3c5ecd2"
 dependencies = [
  "getrandom 0.2.9",
  "serde",
@@ -5090,7 +5087,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5114,7 +5111,7 @@ dependencies = [
  "tokio-metrics",
  "tracing",
  "url",
- "uuid 1.3.2",
+ "uuid 1.3.3",
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
@@ -5124,7 +5121,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5183,7 +5180,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5195,12 +5192,12 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.3.2",
+ "uuid 1.3.3",
 ]
 
 [[package]]
 name = "windmill-audit"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5213,7 +5210,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5233,12 +5230,12 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid 1.3.2",
+ "uuid 1.3.3",
 ]
 
 [[package]]
 name = "windmill-parser"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5246,7 +5243,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5261,7 +5258,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5274,7 +5271,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5289,7 +5286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5303,7 +5300,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5324,14 +5321,14 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.3.2",
+ "uuid 1.3.3",
  "windmill-audit",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-worker"
-version = "1.100.2"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5354,7 +5351,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "uuid 1.3.2",
+ "uuid 1.3.3",
  "windmill-api-client",
  "windmill-audit",
  "windmill-common",
