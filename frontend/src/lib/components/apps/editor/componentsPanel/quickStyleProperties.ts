@@ -548,9 +548,6 @@ export const quickStyleProperties: Record<
 		map: [spacingGrouping, borderGrouping]
 	},
 	steppercomponent: {
-		stepsRow: containerDefaultProps,
-		allSteps: [typographyGrouping, sizeGrouping],
-		selectedStep: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
 	conditionalwrapper: {
@@ -710,5 +707,6 @@ export const quickStyleProperties: Record<
 		tabRow: containerDefaultProps,
 		allTabs: [typographyGrouping, sizeGrouping],
 		selectedTab: [typographyGrouping, sizeGrouping]
-	}
+	},
+	selectstepcomponent: {}
 }
