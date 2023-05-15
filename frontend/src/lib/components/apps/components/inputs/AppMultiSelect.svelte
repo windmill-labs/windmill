@@ -38,10 +38,12 @@
 	let labels: string[] | undefined = []
 
 	function handleItems() {
-		if (labels) {
+		if (Array.isArray(labels)) {
 			items = labels?.map((label) => {
+				const stringLabel = typeof label === 'string' ? label : `NOT_STRING`
+
 				return {
-					label,
+					label: stringLabel,
 					value: label
 				}
 			})
