@@ -333,6 +333,33 @@
 	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
 />
 
+<!-- Storage in Windmill
+
+	In Windmill, [Resources](https://docs.windmill.dev/docs/core_concepts/resources_and_types)
+	serve as a powerful means to manage and share configurations,
+	credentials, or any other form of structured data (rich objects, JSON) among scripts and users.
+	[Variables](/variables), on the other hand, provide a dynamic way to store and retrieve data during
+	script execution, with the ability to control access through permissions.
+
+	<br/>
+	
+	When it comes to [Persistent Storage](https://docs.windmill.dev/docs/core_concepts/persistent_storage),
+	Windmill aims to provide a secure, reliable,
+	and accessible environment for your data. It ensures data integrity across multiple
+	executions and offers granular access control.
+
+	There are four main solutions for persistent storage in Windmill:
+
+	1. [Small data](https://docs.windmill.dev/docs/core_concepts/persistent_storage#within-windmill-not-recommended) that is relevant in between script/flow execution and can be persisted on Windmill itself.
+
+	2. [Big structured SQL data](https://docs.windmill.dev/docs/core_concepts/persistent_storage#structured-databases-postgres-supabase-neontech) that is critical to your services and that is stored externally on an SQL Database or Data Warehouse.
+
+	3. [Object storage for large data](https://docs.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio) such as S3.
+
+	4. [NoSQL and document database](https://docs.windmill.dev/docs/core_concepts/persistent_storage#key-value-stores-mongodb-atlas-redis-upstash) such as MongoDB and Key-Value stores.
+
+-->
+
 <CenteredPage>
 	<PageHeader
 		title="Resources"

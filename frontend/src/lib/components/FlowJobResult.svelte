@@ -2,6 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let result: any
 	export let logs: string
@@ -16,7 +17,8 @@
 	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow  border-gray-400 h-full max-h-screen"
 >
 	<div class="bg-white {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
-		<span class="text-gray-500">Result</span>
+		<span class="text-gray-500">Result <Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
+		</Tooltip></span>
 		{#if result}
 			<DisplayResult {filename} {result} />
 		{:else if loading}
