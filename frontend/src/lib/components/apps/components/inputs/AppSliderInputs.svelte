@@ -54,7 +54,7 @@
 	let width = 0
 
 	function computeWidth() {
-		let text = max + step
+		let maxValue = max + step
 
 		if (typeof document !== 'undefined') {
 			const span = document.createElement('span')
@@ -63,14 +63,16 @@
 			span.style.whiteSpace = 'nowrap'
 			span.className =
 				'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
-			span.textContent = text.toString()
+			span.textContent = maxValue.toString()
 			document.body.appendChild(span)
-			width = span.offsetWidth
+			width = span?.offsetWidth
 			document.body.removeChild(span)
 		}
 	}
 
-	$: step && max && computeWidth()
+	$: if (max && step) {
+		computeWidth()
+	}
 </script>
 
 <InputValue {id} input={configuration.step} bind:value={step} />
