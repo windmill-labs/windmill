@@ -1387,6 +1387,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.schedule_path.clone(),
             Some(flow_job.id),
             root_job,
+            None,
             true,
             continue_on_same_worker,
             err,

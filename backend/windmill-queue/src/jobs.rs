@@ -324,6 +324,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
+    job_id: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
@@ -331,7 +332,24 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut tag: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
-    let job_id: Uuid = Ulid::new().into();
+    let job_id: Uuid = if let Some(job_id) = job_id {
+        let conflicting_id = sqlx::query_scalar!(
+            "SELECT 1 FROM queue WHERE id = $1 UNION ALL select 1 FROM completed_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        if conflicting_id.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Job with id {job_id} already exists"
+            )));
+        }
+
+        job_id
+    } else {
+        Ulid::new().into()
+    };
 
     if cfg!(feature = "enterprise") {
         let premium_workspace = *CLOUD_HOSTED

@@ -102,6 +102,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Some(schedule.path.clone()),
         None,
         None,
+        None,
         false,
         false,
         None,
