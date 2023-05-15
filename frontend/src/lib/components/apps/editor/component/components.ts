@@ -120,6 +120,7 @@ export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & 
 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
+export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -166,6 +167,7 @@ export type TypedComponent =
 	| Schemaformcomponent
 	| SelectTabComponent
 	| ConditionalWrapperComponent
+	| SelectStepComponent
 	| DownloadComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
@@ -1487,9 +1489,6 @@ Hello \${ctx.username}
 		dims: '2:8-6:8' as AppComponentDimensions,
 
 		customCss: {
-			stepsRow: { class: '', style: '' },
-			allSteps: { class: '', style: '' },
-			selectedStep: { class: '', style: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
@@ -1981,6 +1980,37 @@ Hello \${ctx.username}
 					value: 'sm',
 					fieldType: 'select',
 					selectOptions: selectOptions.buttonSizeOptions
+				}
+			}
+		}
+	},
+	selectstepcomponent: {
+		name: 'Select Step',
+		icon: List,
+		dims: '2:1-3:1' as AppComponentDimensions,
+
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				} as StaticAppInput,
+				defaultValue: {
+					type: 'static',
+					value: undefined as { value: string; label: string } | undefined,
+					fieldType: 'object'
 				}
 			}
 		}

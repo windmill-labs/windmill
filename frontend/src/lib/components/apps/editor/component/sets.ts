@@ -42,7 +42,8 @@ const inputs: ComponentSet = {
 		'selectcomponent',
 		'resourceselectcomponent',
 		'multiselectcomponent',
-		'selecttabcomponent'
+		'selecttabcomponent',
+		'selectstepcomponent'
 	]
 } as const
 

@@ -44,6 +44,7 @@
 	import AppStepper from '../../components/layout/AppStepper.svelte'
 	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
 	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
+	import AppSelectStep from '../../components/inputs/AppSelectStep.svelte'
 	import AppDownload from '../../components/display/AppDownload.svelte'
 
 	export let component: AppComponent
@@ -522,6 +523,14 @@
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'selectstepcomponent'}
+			<AppSelectStep
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
 				{render}
 			/>
 		{/if}
