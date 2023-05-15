@@ -21,7 +21,7 @@ const layout: ComponentSet = {
 
 const buttons: ComponentSet = {
 	title: 'Buttons',
-	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent']
+	components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent', 'downloadcomponent']
 } as const
 
 const inputs: ComponentSet = {
@@ -77,4 +77,4 @@ const charts: ComponentSet = {
 	]
 } as const
 
-export const COMPONENT_SETS = [tabs, layout, buttons, inputs, tables, display, charts] as const
+export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, charts] as const

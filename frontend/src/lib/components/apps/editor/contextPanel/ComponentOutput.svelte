@@ -7,6 +7,7 @@
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import TableActionsOutput from './components/TableActionsOutput.svelte'
+	import { BG_PREFIX } from '../../utils'
 
 	export let gridItem: GridItem
 	export let first: boolean = false
@@ -21,7 +22,7 @@
 			return components[gridItem?.data.type].name
 		} else if (componentId == 'ctx') {
 			return 'Context'
-		} else if (componentId.startsWith('bg_')) {
+		} else if (componentId.startsWith(BG_PREFIX)) {
 			return 'Background'
 		} else {
 			return 'Table action'

@@ -19,7 +19,7 @@
 				<div class="flex items-center justify-between w-full">
 					<div class="flex flex-row items-center gap-2 text-xs">
 						Run on start and app refresh
-						<Tooltip wrapperClass="flex">
+						<Tooltip>
 							You may want to disable this so that the background runnable is only triggered by
 							changes to other values or triggered by another computation on a button (See
 							'Recompute Others')

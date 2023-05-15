@@ -263,8 +263,6 @@
 
 		<div class="grow shrink" />
 
-		<AlignmentEditor bind:component={componentSettings.item.data} />
-
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
 			<PanelSection title="Styling">
 				<div slot="action" class="flex justify-end flex-wrap gap-1">
@@ -286,6 +284,7 @@
 						Rich Editor
 					</Button>
 				</div>
+				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">
 						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}

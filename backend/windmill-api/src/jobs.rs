@@ -703,7 +703,7 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = get_suspended_prent_flow_info(job_id, &mut tx).await?;
+    let flow = get_suspended_parent_flow_info(job_id, &mut tx).await?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -794,7 +794,7 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_prent_flow_info<'c>(
+async fn get_suspended_parent_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<FlowInfo> {
@@ -865,8 +865,9 @@ pub async fn cancel_suspended_job(
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
 
     let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
-    let parent_flow = get_root_job(db, &w_id, job).await?;
-    let (mut tx, job) = windmill_queue::cancel_job(
+    let parent_flow = get_suspended_parent_flow_info(job, &mut tx).await?.id;
+
+    let (mut tx, cjob) = windmill_queue::cancel_job(
         &whom,
         Some("approval request disapproved".to_string()),
         parent_flow,
@@ -876,7 +877,7 @@ pub async fn cancel_suspended_job(
         false,
     )
     .await?;
-    if job.is_some() {
+    if cjob.is_some() {
         audit_log(
             &mut tx,
             &whom,
@@ -887,26 +888,13 @@ pub async fn cancel_suspended_job(
             None,
         )
         .await?;
-    }
-    tx.commit().await?;
-    Ok("Flow of job cancelled".to_string())
-}
+        tx.commit().await?;
 
-pub async fn get_root_job(db: DB, w_id: &str, job: Uuid) -> error::Result<Uuid> {
-    let mut tx = db.begin().await?;
-    let mut job_id = job;
-    loop {
-        let (job, ntx) = get_job_by_id(tx, w_id, job_id).await?;
-        tx = ntx;
-        let p_job = job.and_then(|x| match x {
-            Job::QueuedJob(job) => job.parent_job,
-            Job::CompletedJob(job) => job.parent_job,
-        });
-        if let Some(p_job) = p_job {
-            job_id = p_job;
-        } else {
-            return Ok(job_id);
-        }
+        Ok(format!("Flow {parent_flow} of job {job} cancelled"))
+    } else {
+        Ok(format!(
+            "Flow {parent_flow} of job {job} was not cancellable"
+        ))
     }
 }
 

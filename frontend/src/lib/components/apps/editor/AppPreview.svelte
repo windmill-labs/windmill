@@ -21,7 +21,7 @@
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
-	import { migrateApp } from '../utils'
+	import { BG_PREFIX, migrateApp } from '../utils'
 
 	export let app: App
 	export let appPath: string
@@ -168,7 +168,7 @@
 {#if app.hiddenInlineScripts}
 	{#each app.hiddenInlineScripts as runnable, index}
 		{#if runnable}
-			<HiddenComponent id={`bg_${index}`} {runnable} />
+			<HiddenComponent id={BG_PREFIX + index} {runnable} />
 		{/if}
 	{/each}
 {/if}

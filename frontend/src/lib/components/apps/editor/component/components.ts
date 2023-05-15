@@ -35,7 +35,8 @@ import {
 	FlipVertical,
 	FileText,
 	AtSignIcon,
-	Split
+	Split,
+	Download
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -72,6 +73,7 @@ export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & RecomputeOthersSource
+export type DownloadComponent = BaseComponent<'downloadcomponent'>
 export type FormComponent = BaseComponent<'formcomponent'> & RecomputeOthersSource
 export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & RecomputeOthersSource
 
@@ -166,6 +168,7 @@ export type TypedComponent =
 	| SelectTabComponent
 	| ConditionalWrapperComponent
 	| SelectStepComponent
+	| DownloadComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -446,7 +449,8 @@ export const components = {
 		dims: '1:1-2:1' as AppComponentDimensions,
 
 		customCss: {
-			button: { style: '', class: '' }
+			button: { style: '', class: '' },
+			container: { style: '', class: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -468,7 +472,8 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -481,7 +486,9 @@ export const components = {
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -508,6 +515,72 @@ export const components = {
 				},
 				onSuccess: onSuccessClick,
 				onError: onErrorClick
+			}
+		}
+	},
+	downloadcomponent: {
+		name: 'Download Button',
+		icon: Download,
+		dims: '1:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			configuration: {
+				source: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					fileUpload: {
+						accept: '*',
+						convertTo: 'base64'
+					},
+					placeholder: 'Enter URL or upload file'
+				},
+				filename: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'windmill.file'
+				},
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				}
 			}
 		}
 	},
@@ -582,7 +655,8 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					selectOptions: buttonColorOptions
+					selectOptions: buttonColorOptions,
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -1474,7 +1548,11 @@ Hello \${ctx.username}
 		dims: '3:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
-			divider: { class: '', style: '' }
+			divider: {
+				class: '',
+				style: '',
+				tooltip: '`background-color` and `height` are handled by the component configuration'
+			}
 		},
 		initialData: {
 			verticalAlignment: 'center',
@@ -1484,13 +1562,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The height of the divider in pixels can be overridden by the `height` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1511,13 +1593,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The width of the divider in pixels can be overridden by the `width` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1578,7 +1664,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.objectFitOptions,
-					value: 'contain'
+					value: 'contain',
+					tooltip:
+						'The image fit property can be overridden by the `object-fit` property in the styling menu'
 				},
 				altText: {
 					type: 'static',
@@ -1596,6 +1684,7 @@ Hello \${ctx.username}
 		dims: '1:1-2:1' as AppComponentDimensions,
 
 		customCss: {
+			button: { style: '', class: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
@@ -1618,7 +1707,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip:
+						'The color of the button can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					fieldType: 'select',
@@ -1631,7 +1722,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -1640,7 +1733,6 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
@@ -1745,7 +1837,8 @@ Hello \${ctx.username}
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
-					}
+					},
+					placeholder: 'Enter URL or upload file'
 				},
 				zoom: {
 					fieldType: 'number',
@@ -1761,6 +1854,7 @@ Hello \${ctx.username}
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
+			buttonContainer: { class: '', style: '' },
 			popup: { class: '', style: '' }
 		},
 		initialData: {
@@ -1783,7 +1877,8 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				buttonSize: {
 					fieldType: 'select',
@@ -1796,7 +1891,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				buttonDisabled: {
 					fieldType: 'boolean',

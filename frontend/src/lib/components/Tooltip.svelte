@@ -15,8 +15,8 @@
 <Popover notClickable {placement} class={wrapperClass}>
 	<Icon
 		class="{light
-			? 'text-gray-400'
-			: ' text-gray-500'} font-thin inline-block align-middle w-4 {$$props.class}"
+			? 'text-gray-400 hover:text-gray-500'
+			: ' text-gray-500 hover:text-gray-600'}  cursor-pointer transition-all font-thin flex h-4 p-0.5 w-4 justify-center items-center {$$props.class}"
 		data={faInfoCircle}
 		{scale}
 	/>

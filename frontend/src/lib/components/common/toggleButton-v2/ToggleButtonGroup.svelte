@@ -12,6 +12,7 @@
 	import { twMerge } from 'tailwind-merge'
 
 	export let selected: any
+	export let noWFull: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const selectedContent = writable(selected)
@@ -32,7 +33,7 @@
 	})
 </script>
 
-<TabGroup class={twMerge('h-8 flex w-full', $$props.class)}>
+<TabGroup class={twMerge(`h-8 flex ${noWFull ? '' : 'w-full'}`, $$props.class)}>
 	<TabList class="flex bg-gray-100 rounded-md p-0.5 gap-1 h-full">
 		<slot />
 	</TabList>

@@ -4,7 +4,7 @@
 	import { getContext } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
-	import { getAllScriptNames } from '../../utils'
+	import { BG_PREFIX, getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
 
@@ -15,7 +15,7 @@
 
 	function selectScript(id: string) {
 		$selectedComponentInEditor = id
-		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
+		if (!id.startsWith('unused-') || !id.startsWith(BG_PREFIX)) {
 			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
@@ -39,7 +39,7 @@
 			if (script.hidden) {
 				delete script.hidden
 				$app.hiddenInlineScripts = $app.hiddenInlineScripts
-				selectScript(`bg_${index}`)
+				selectScript(BG_PREFIX + index)
 				return
 			}
 		}
@@ -66,7 +66,7 @@
 			recomputeIds: undefined
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
-		selectScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
+		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
 </script>
 
@@ -85,7 +85,7 @@
 							>
 								<span class="text-2xs truncate">{name}</span>
 								<div>
-									<Badge color="dark-indigo">{id}</Badge>
+									<Badge color="indigo">{id}</Badge>
 								</div>
 							</button>
 							{#if transformer}
@@ -113,7 +113,7 @@
 						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
-						<Badge color="dark-indigo">{id}</Badge>
+						<Badge color="indigo">{id}</Badge>
 					</button>
 					{#if transformer}
 						<div class="w-full pl-4">
@@ -181,7 +181,7 @@
 				{#if $app.hiddenInlineScripts?.length > 0}
 					{#each $app.hiddenInlineScripts as { name, hidden }, index (index)}
 						{#if !hidden}
-							{@const id = `bg_${index}`}
+							{@const id = BG_PREFIX + index}
 							<button
 								id={PREFIX + id}
 								class="panel-item
@@ -189,7 +189,7 @@
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
-								<Badge color="dark-indigo">{id}</Badge>
+								<Badge color="indigo">{id}</Badge>
 							</button>
 						{/if}
 					{/each}

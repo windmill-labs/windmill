@@ -1,6 +1,36 @@
 # Changelog
 
 
+## [1.100.2](https://github.com/windmill-labs/windmill/compare/v1.100.1...v1.100.2) (2023-05-14)
+
+
+### Bug Fixes
+
+* **cli:** update wmill script push ([678b574](https://github.com/windmill-labs/windmill/commit/678b574efcae66801a115d576db9d00aa9e4145d))
+* discriminate execute apps by component ([908358e](https://github.com/windmill-labs/windmill/commit/908358eb08614d07b5e846630743242b68b9e149))
+* transform_inputs now only support single line expressions ([c252b76](https://github.com/windmill-labs/windmill/commit/c252b765f1b1fd38f07cbe06548ca5cbe4047ea1))
+
+## [1.100.1](https://github.com/windmill-labs/windmill/compare/v1.100.0...v1.100.1) (2023-05-12)
+
+
+### Bug Fixes
+
+* update setup step ([178ed6f](https://github.com/windmill-labs/windmill/commit/178ed6f426020c9966380392088562e27aa77cf3))
+
+## [1.100.0](https://github.com/windmill-labs/windmill/compare/v1.99.0...v1.100.0) (2023-05-12)
+
+
+### Features
+
+* **frontend:** add download button ([9b9730d](https://github.com/windmill-labs/windmill/commit/9b9730d2b7239827fd8dfe8f46b6bd98d535e8d0))
+
+
+### Bug Fixes
+
+* **backend:** handle Date type ([5e7e46e](https://github.com/windmill-labs/windmill/commit/5e7e46e0259bfc11e92f2446858ddbe9f1b4b08e))
+* **frontend:** apps rendering should not depend on local time ([8e785d8](https://github.com/windmill-labs/windmill/commit/8e785d8ba6da16d06816d0379cadfb899be99b06))
+* **frontend:** only download result for apps ([6bbd937](https://github.com/windmill-labs/windmill/commit/6bbd9374cbd2c516dd3b56551103fcfeba01f80f))
+
 ## [1.99.0](https://github.com/windmill-labs/windmill/compare/v1.98.0...v1.99.0) (2023-05-10)
 
 

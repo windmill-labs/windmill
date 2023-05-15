@@ -3,7 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import { allItems } from '../utils'
+	import { BG_PREFIX, allItems } from '../utils'
 	import AppComponentInput from './AppComponentInput.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
@@ -50,7 +50,7 @@
 					<span class="text-sm text-gray-600">No resource input</span>
 				{:else}
 					<InputsSpecsEditor
-						id={`bg_${index}`}
+						id={BG_PREFIX + index}
 						shouldCapitalize={false}
 						bind:inputSpecs={script.fields}
 						userInputEnabled={false}

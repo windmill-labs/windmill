@@ -667,6 +667,7 @@ pub struct ExecuteApp {
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
+    pub component: String,
     pub raw_code: Option<RawCode>,
     // if set, the app is executed as viewer with the given static fields
     pub force_viewer_static_fields: Option<StaticFields>,
@@ -705,11 +706,16 @@ async fn execute_component(
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
+
         if let Some(path) = payload.path.clone() {
-            hm.insert(path, static_fields);
+            hm.insert(format!("{}:{path}", payload.component), static_fields);
         } else {
             hm.insert(
-                digest(payload.raw_code.clone().unwrap().content.as_str()),
+                format!(
+                    "{}:{}",
+                    payload.component,
+                    digest(payload.raw_code.clone().unwrap().content.as_str())
+                ),
                 static_fields,
             );
         }
@@ -761,14 +767,14 @@ async fn execute_component(
     };
 
     let (job_payload, args, tag) = match &payload {
-        ExecuteApp { args, raw_code: Some(raw_code), path: None, .. } => {
+        ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
-            let args = build_args(policy, path, args)?;
+            let args = build_args(policy, component, path, args)?;
             (payload, args, None)
         }
-        ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
+        ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
             let (payload, tag) = if path.starts_with("script/") {
                 script_path_to_payload(
                     path.strip_prefix("script/").unwrap(),
@@ -787,7 +793,7 @@ async fn execute_component(
                     path
                 )));
             };
-            let args = build_args(policy, path.to_string(), args)?;
+            let args = build_args(policy, component, path.to_string(), args)?;
             (payload, args, tag)
         }
         _ => unreachable!(),
@@ -860,15 +866,18 @@ async fn exists_app(
 
 fn build_args(
     policy: Policy,
+    component: &str,
     path: String,
     args: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     // disallow var and res access in args coming from the user for security reasons
     args.into_iter()
         .try_for_each(|x| disallow_var_res_access(x.1))?;
+    let key = format!("{}:{}", component, &path);
     let static_args = policy
         .triggerables
-        .get(&path)
+        .get(&key)
+        .or_else(|| policy.triggerables.get(&path))
         .map(|x| x.clone())
         .or_else(|| {
             if matches!(policy.execution_mode, ExecutionMode::Viewer) {

@@ -39,10 +39,10 @@
 			<tbody>
 				{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
 					<tr>
-						<td class="whitespace-nowrap px-4 py-2 text-xs">
-							<Badge color="dark-indigo">{id}</Badge>
+						<td class="whitespace-nowrap px-4 text-xs">
+							<Badge color="indigo">{id}</Badge>
 						</td>
-						<td class="relative whitespace-nowrap px-4 py-2">
+						<td class="relative whitespace-nowrap px-4">
 							<Toggle
 								class="windmillapp"
 								size="xs"

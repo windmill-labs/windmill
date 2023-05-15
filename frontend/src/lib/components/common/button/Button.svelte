@@ -15,6 +15,7 @@
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let wrapperClasses: string = ''
+	export let wrapperStyle: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: ButtonType.Target = '_self'
@@ -28,6 +29,7 @@
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
+	export let download: string | undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -111,6 +113,9 @@
 			event.stopPropagation()
 			dispatch('click', event)
 			if (href) {
+				if (href.startsWith('data')) {
+					return
+				}
 				if (href.startsWith('http') || target == '_blank') {
 					window.open(href, target)
 				} else {
@@ -140,7 +145,10 @@
 	)
 </script>
 
-<div class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row">
+<div
+	class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row"
+	style={wrapperStyle}
+>
 	<svelte:element
 		this={href ? 'a' : 'button'}
 		bind:this={element}
@@ -148,6 +156,7 @@
 		on:click={onClick}
 		on:focus
 		on:blur
+		{download}
 		class={twMerge(buttonClass, disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '')}
 		{...buttonProps}
 		disabled={disabled || loading}

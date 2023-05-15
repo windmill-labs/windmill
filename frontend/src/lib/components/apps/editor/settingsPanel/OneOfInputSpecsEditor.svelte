@@ -48,7 +48,7 @@
 			<option value={choice}>{labels?.[choice] ?? choice}</option>
 		{/each}
 	</select>
-	{#if oneOf.selected !== 'none'}
+	{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
 		<div class="mb-4" />
 	{/if}
 	<div class="flex flex-col gap-4">

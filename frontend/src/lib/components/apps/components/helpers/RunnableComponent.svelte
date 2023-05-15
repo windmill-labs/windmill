@@ -138,7 +138,11 @@
 		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
-			if (['static', 'eval', 'connected'].includes(input.type) && schemaStripped !== undefined) {
+			if (
+				['static', 'eval', 'connected'].includes(input.type) &&
+				schemaStripped !== undefined &&
+				schemaStripped.properties
+			) {
 				delete schemaStripped.properties[key]
 			}
 		})
@@ -225,6 +229,7 @@
 
 				const requestBody = {
 					args: nonStaticRunnableInputs,
+					component: id,
 					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 				}
 
