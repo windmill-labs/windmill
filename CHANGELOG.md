@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.101.1](https://github.com/windmill-labs/windmill/compare/v1.101.0...v1.101.1) (2023-05-16)
+
+
+### Bug Fixes
+
+* **backend:** make result job endpoints public ([41f2d35](https://github.com/windmill-labs/windmill/commit/41f2d35c971c42b9a4842b1411dd21603cabf084))
+* **frontend:** add temp hidden span to compute the text max length ([#1573](https://github.com/windmill-labs/windmill/issues/1573)) ([2a17d60](https://github.com/windmill-labs/windmill/commit/2a17d60caaef11f4b6cce464e1905a52095fe228))
+* **frontend:** fix app multi select ([#1574](https://github.com/windmill-labs/windmill/issues/1574)) ([45acdc8](https://github.com/windmill-labs/windmill/commit/45acdc895b6b5047a17e59dfcd9ca8cba2dd234a))
+
 ## [1.101.0](https://github.com/windmill-labs/windmill/compare/v1.100.2...v1.101.0) (2023-05-15)
 
 
