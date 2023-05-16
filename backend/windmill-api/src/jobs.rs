@@ -111,6 +111,12 @@ pub fn global_service() -> Router {
             get(get_suspended_job_flow),
         )
         .route("/get/:id", get(get_job))
+        .route("/completed/get/:id", get(get_completed_job))
+        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route(
+            "/completed/get_result_maybe/:id",
+            get(get_completed_job_result_maybe),
+        )
         .route("/getupdate/:id", get(get_job_update))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/queue/force_cancel/:id", post(force_cancel))

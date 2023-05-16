@@ -3654,7 +3654,7 @@ paths:
                   mem_peak:
                     type: integer
 
-  /w/{workspace}/jobs/completed/get/{id}:
+  /w/{workspace}/jobs_u/completed/get/{id}:
     get:
       summary: get completed job
       operationId: getCompletedJob
@@ -3671,7 +3671,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/completed/get_result/{id}:
+  /w/{workspace}/jobs_u/completed/get_result/{id}:
     get:
       summary: get completed job result
       operationId: getCompletedJobResult
@@ -3687,7 +3687,7 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/jobs/completed/get_result_maybe/{id}:
+  /w/{workspace}/jobs_u/completed/get_result_maybe/{id}:
     get:
       summary: get completed job result if job is completed
       operationId: getCompletedJobResultMaybe
