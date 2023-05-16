@@ -45,6 +45,7 @@
 
 	let firstDebounce = true
 	const debounce_ms = 50
+
 	function debounce(cb: () => Promise<void>) {
 		if (firstDebounce) {
 			firstDebounce = false
@@ -66,7 +67,7 @@
 		if (timeout) {
 			clearTimeout(timeout)
 		}
-		timeout = setTimeout(cb, 1000)
+		timeout = setTimeout(cb, 50)
 	}
 
 	$: lastInput && $worldStore && debounce(handleConnection)
