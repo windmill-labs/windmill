@@ -43,7 +43,6 @@
 	}
 
 	function setSelectedIndex(index: number) {
-		console.trace('setSelectedIndex', index)
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: index
