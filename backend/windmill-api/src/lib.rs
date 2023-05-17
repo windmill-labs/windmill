@@ -15,6 +15,7 @@ use crate::{
     webhook_util::WebhookShared,
 };
 use argon2::Argon2;
+use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
@@ -60,8 +61,14 @@ pub const GIT_VERSION: &str =
 
 pub use users::delete_expired_items_perdiodically;
 
+pub const DEFAULT_BODY_LIMIT: usize = 2097152; // 2MB
 lazy_static::lazy_static! {
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+
+    pub static ref REQUEST_SIZE_LIMIT: usize = std::env::var("REQUEST_SIZE_LIMIT")
+    .ok()
+    .and_then(|x| x.parse::<usize>().ok())
+    .unwrap_or(DEFAULT_BODY_LIMIT);
 
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
@@ -107,7 +114,8 @@ pub async fn run_server(
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
+        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
+        .layer(DefaultBodyLimit::max(*REQUEST_SIZE_LIMIT));
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
