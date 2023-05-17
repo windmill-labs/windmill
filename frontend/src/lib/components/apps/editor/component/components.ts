@@ -1474,11 +1474,11 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tabsKindOptions,
-					value: 'tabs' as string
+					value: 'tabs' as string,
+					tooltip: `Tabs can be configured to be either horizontal (tabs), vertical (sidebar), or invisible.`
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab'] as string[]
 		}
@@ -1520,7 +1520,8 @@ Hello \${ctx.username}
 				icon: {
 					type: 'static',
 					value: 'Smile',
-					fieldType: 'icon-select'
+					fieldType: 'icon-select',
+					tooltip: 'The icons can be found at https://lucide.dev/'
 				},
 				color: {
 					type: 'static',
@@ -1802,7 +1803,6 @@ Hello \${ctx.username}
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
-
 			panes: [50, 50] as number[],
 			numberOfSubgrids: 2
 		}
@@ -1904,7 +1904,6 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
@@ -1937,13 +1936,15 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will diplay the type and/or the format on the field next to the label.'
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will add a large gap between the form elements.'
 				}
 			}
 		}
@@ -1981,7 +1982,9 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 'sm',
 					fieldType: 'select',
-					selectOptions: selectOptions.buttonSizeOptions
+					selectOptions: selectOptions.buttonSizeOptions,
+					tooltip:
+						'Size of the tabs can be overwritten with custom styles using `font-size` in CSS or using tailwind classes.'
 				}
 			}
 		}
