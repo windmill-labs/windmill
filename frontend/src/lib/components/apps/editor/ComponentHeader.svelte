@@ -72,7 +72,7 @@
 			</button>
 		{/if}
 		{#if component.type === 'conditionalwrapper'}
-			<TabsDebug id={component.id} tabs={component.conditions ?? []} />
+			<TabsDebug id={component.id} tabs={component.conditions ?? []} isConditionalDebugMode />
 		{/if}
 		{#if component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView'}
 			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
