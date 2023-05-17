@@ -33,16 +33,15 @@
 		}
 
 		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
-		component.numberOfSubgrids = items.length
-
 		items = [
 			...items,
 			{
 				value: `${word} ${items.length + 1}`,
 				id: generateRandomString(),
-				originalIndex: items.length - 1
+				originalIndex: items.length
 			}
 		]
+		component.numberOfSubgrids = items.length
 	}
 
 	function deleteSubgrid(index: number) {
@@ -54,6 +53,7 @@
 			}
 		}
 		$runnableComponents = $runnableComponents
+
 		for (let i = index; i < items.length - 1; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
 		}
@@ -62,12 +62,13 @@
 		items = items.filter((item) => item.originalIndex !== index)
 
 		component.numberOfSubgrids = items.length
-		$app = $app
-
 		// Update the originalIndex of the remaining items
 		items.forEach((item, i) => {
 			item.originalIndex = i
 		})
+		items = items
+		delete $app!.subgrids![items.length]
+		$app = $app
 	}
 
 	function handleConsider(e: CustomEvent): void {
