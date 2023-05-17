@@ -244,11 +244,12 @@
 											$focusedGrid = undefined
 										}}
 										class={twMerge(
-											'bg-gray-100 h-full w-full',
+											'bg-gray-100 h-full w-full relative',
 											$appStore.css?.['app']?.['viewer']?.class
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
+										<div id="app-editor-top-level-drawer" />
 										<div
 											class={classNames(
 												'relative mx-auto w-full h-full overflow-auto',
@@ -261,8 +262,6 @@
 												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
 													<GridEditor {policy} />
 												</div>
-
-												<div id="app-editor-top-level-drawer" />
 											{/if}
 										</div>
 									</div>
