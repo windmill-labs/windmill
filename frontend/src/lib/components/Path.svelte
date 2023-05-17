@@ -77,14 +77,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			if ($lastMetaUsed == undefined) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
 					ownerKind: 'user',
 					name: random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
-
-				meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+				if ($userStore?.username?.includes('@')) {
+					meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+				} else {
+					meta.owner = $userStore!.username!
+				}
 			} else {
 				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
 			}
