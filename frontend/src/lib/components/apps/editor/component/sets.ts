@@ -2,7 +2,8 @@ import type { ComponentSet } from '../../types'
 
 const tabs: ComponentSet = {
 	title: 'Tabs',
-	components: ['tabscomponent', 'conditionalwrapper']
+	components: ['tabscomponent', 'conditionalwrapper'],
+	presets: ['sidebartabscomponent', 'invisibletabscomponent']
 } as const
 
 const layout: ComponentSet = {
