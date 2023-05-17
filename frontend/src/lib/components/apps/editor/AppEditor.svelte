@@ -212,7 +212,7 @@
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
-					class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
+					class={twMerge('h-full w-full relative', $appStore.css?.['app']?.['viewer']?.class)}
 					style={$appStore.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
