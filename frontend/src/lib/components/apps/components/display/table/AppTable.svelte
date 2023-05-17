@@ -22,6 +22,7 @@
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
+	import AppSelect from '../../inputs/AppSelect.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -297,7 +298,7 @@
 										on:keypress={() => toggleRow(row, rowIndex)}
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1">
+										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 												<div
@@ -387,6 +388,19 @@
 																}}
 																{controls}
 															/>
+														{:else if actionButton.type == 'selectcomponent'}
+															<AppSelect
+																extraKey={'idx' + rowIndex}
+																{render}
+																id={actionButton.id}
+																customCss={actionButton.customCss}
+																configuration={actionButton.configuration}
+																recomputeIds={actionButton.recomputeIds}
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
+																{controls}
+															/>
 														{/if}
 													{:else if actionButton.type == 'buttoncomponent'}
 														<AppButton
@@ -405,6 +419,18 @@
 														/>
 													{:else if actionButton.type == 'checkboxcomponent'}
 														<AppCheckbox
+															extraKey={'idx' + rowIndex}
+															{render}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
+															preclickAction={async () => {
+																toggleRow(row, rowIndex)
+															}}
+														/>
+													{:else if actionButton.type == 'selectcomponent'}
+														<AppSelect
 															extraKey={'idx' + rowIndex}
 															{render}
 															id={actionButton.id}

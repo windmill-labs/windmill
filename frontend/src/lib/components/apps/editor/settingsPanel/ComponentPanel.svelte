@@ -254,7 +254,7 @@
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
+		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
 				ownId={component.id}

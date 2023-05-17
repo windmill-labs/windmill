@@ -1,12 +1,13 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { components } from '../../editor/component'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -24,12 +25,14 @@
 	const { app, worldStore, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	let resolvedConfig = initConfig(
+		components['checkboxcomponent'].initialData.configuration,
+		configuration
+	)
+
 	if (controls) {
 		$componentControl[id] = controls
 	}
-
-	let defaultValue: boolean | undefined = undefined
-	let labelValue: string = ''
 
 	// As the checkbox is a special case and has no input
 	// we need to manually set the output
@@ -38,22 +41,28 @@
 		result: false
 	})
 
-	$: defaultValue != undefined && outputs?.result.set(defaultValue)
+	$: resolvedConfig.defaultValue != undefined && outputs?.result.set(resolvedConfig.defaultValue)
 
 	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+{#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{extraKey}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		size="sm"
-		{extraKey}
-		checked={defaultValue}
-		options={{ right: labelValue }}
+		checked={resolvedConfig.defaultValue}
+		options={{ right: resolvedConfig.label }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {

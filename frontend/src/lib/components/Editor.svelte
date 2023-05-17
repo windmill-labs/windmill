@@ -1,18 +1,3 @@
-<script lang="ts" context="module">
-	import getDialogServiceOverride from 'vscode/service-override/dialogs'
-	import getNotificationServiceOverride from 'vscode/service-override/notifications'
-	import { StandaloneServices } from 'vscode/services'
-
-	try {
-		StandaloneServices?.initialize({
-			...getNotificationServiceOverride(document.body),
-			...getDialogServiceOverride()
-		})
-	} catch (e) {
-		console.error(e)
-	}
-</script>
-
 <script lang="ts">
 	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
@@ -33,7 +18,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
+	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import * as vscode from 'vscode'
@@ -180,13 +165,17 @@
 	}
 
 	let command: Disposable | undefined = undefined
-	let monacoServices: Disposable | undefined = undefined
 
 	export async function reloadWebsocket() {
 		await closeWebsockets()
-
-		monacoServices = MonacoServices.install()
-
+		await initServices({
+			enableThemeService: true,
+			enableModelEditorService: true,
+			modelEditorServiceConfig: {
+				useDefaultFunction: true
+			},
+			debugLogging: true
+		})
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,
@@ -487,8 +476,6 @@
 	async function closeWebsockets() {
 		command && command.dispose()
 		command = undefined
-		monacoServices && monacoServices.dispose()
-		monacoServices = undefined
 		for (const x of websockets) {
 			try {
 				await x[0].stop()

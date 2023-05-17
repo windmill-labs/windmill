@@ -90,8 +90,9 @@ export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'resourceselectcomponent'>
-export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
+export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
+	RecomputeOthersSource
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
 export type RadioComponent = BaseComponent<'radiocomponent'>
@@ -470,7 +471,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -480,7 +481,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue',
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -562,7 +562,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
@@ -610,7 +609,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -620,7 +619,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: selectOptions.buttonColorOptions
 				},
@@ -653,7 +651,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -663,7 +661,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: buttonColorOptions,
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -1060,7 +1057,7 @@ Hello \${ctx.username}
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -1135,6 +1132,7 @@ Hello \${ctx.username}
 			input: { style: '' }
 		},
 		initialData: {
+			recomputeIds: true,
 			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
@@ -1191,6 +1189,22 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select items',
 					onlyStatic: true
+				},
+				allowOverflow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
+				},
+				closeListOnChanges: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
 				}
 			}
 		}
@@ -1718,7 +1732,6 @@ Hello \${ctx.username}
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: buttonColorOptions,
 					value: 'blue',
 					tooltip:
