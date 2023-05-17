@@ -267,11 +267,13 @@
 										</div>
 									</div>
 								</Pane>
-								<Pane size={$connectingInput?.opened ? 0 : 30}>
-									<div class="relative h-full w-full">
-										<InlineScriptsPanel />
-									</div>
-								</Pane>
+								{#if $connectingInput?.opened == false}
+									<Pane size={$connectingInput?.opened ? 0 : 30}>
+										<div class="relative h-full w-full">
+											<InlineScriptsPanel />
+										</div>
+									</Pane>
+								{/if}
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
