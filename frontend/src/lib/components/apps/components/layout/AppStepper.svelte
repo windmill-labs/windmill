@@ -124,7 +124,6 @@
 	forceSchemaDisplay={true}
 	runnableClass="!block"
 	{outputs}
-	triggerable
 	bind:result
 	errorHandledByComponent={true}
 >

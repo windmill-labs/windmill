@@ -75,7 +75,6 @@
 	runnableClass={css?.container?.class}
 	runnableStyle={css?.container?.style}
 	{outputs}
-	triggerable
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div

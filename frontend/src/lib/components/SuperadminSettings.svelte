@@ -54,7 +54,7 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-gray-500 ">
+				<div class="text-xs pt-1 text-gray-500">
 					Windmill {version}
 				</div>
 
