@@ -209,6 +209,7 @@ export type PresetComponentConfig = {
 	icon: any
 	targetComponent: keyof typeof components
 	configuration: object
+	type: string
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -2061,7 +2062,8 @@ export const presetComponents = {
 			tabsKind: {
 				value: 'sidebar'
 			}
-		}
+		},
+		type: 'sidebartabscomponent'
 	},
 	invisibletabscomponent: {
 		name: 'Invisible Tabs',
@@ -2071,7 +2073,8 @@ export const presetComponents = {
 			tabsKind: {
 				value: 'invisibleOnView'
 			}
-		}
+		},
+		type: 'invisibletabscomponent'
 	}
 }
 
