@@ -49,7 +49,6 @@
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
-	export let triggerable: boolean = false
 	export let errorHandledByComponent: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
@@ -69,7 +68,7 @@
 	})
 
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
-	$: if (triggerable && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
+	$: if (!autoRefresh && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
 		componentInput.autoRefresh = false
 		componentInput.recomputeOnInputChanged = false
 	}

@@ -1525,7 +1525,9 @@ Hello \${ctx.username}
 				color: {
 					type: 'static',
 					value: 'currentColor',
-					fieldType: 'color'
+					fieldType: 'color',
+					tooltip:
+						'The color of the icon can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					type: 'static',

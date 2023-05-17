@@ -10,7 +10,7 @@
 
 <button
 	type="submit"
-	class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
+	class="mr-6 text-sm underline text-gray-700 inline-flex items-center"
 	on:click={() => {
 		viewOptions = !viewOptions
 	}}
