@@ -221,7 +221,7 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.99.0/mod.ts"
 
 export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
