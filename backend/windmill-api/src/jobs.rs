@@ -1223,8 +1223,6 @@ impl<S> FromRequest<S, axum::body::Body>
     for JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>
 where
     S: Send + Sync,
-    Json<Option<serde_json::Map<String, serde_json::Value>>>: FromRequest<(), axum::body::Body>,
-    Form<serde_json::Map<String, serde_json::Value>>: FromRequest<(), axum::body::Body>,
 {
     type Rejection = Response;
 
@@ -1237,8 +1235,17 @@ where
 
         if let Some(content_type) = content_type {
             if content_type.starts_with("application/json") {
-                let Json(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-                return Ok(Self(payload));
+                let Json(payload): Json<Option<serde_json::Value>> =
+                    req.extract().await.map_err(IntoResponse::into_response)?;
+                return match payload {
+                    Some(serde_json::Value::Object(map)) => Ok(Self(Some(map))),
+                    None => Ok(Self(None)),
+                    Some(x) => {
+                        let mut map = serde_json::Map::new();
+                        map.insert("body".to_string(), x);
+                        Ok(Self(Some(map)))
+                    }
+                };
             }
 
             if content_type.starts_with("application/x-www-form-urlencoded") {
