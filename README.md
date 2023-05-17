@@ -44,7 +44,7 @@ dedicated instance and commercial support and licenses.
 
 ![Windmill Diagram](./imgs/stacks.svg)
 
-https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2bd-3bacc1f0ec79.mp4
+https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-822f-0c7ee7104252
 
 - [Windmill - Turn scripts into workflows and UIs that you can share and run at scale](#windmill---turn-scripts-into-workflows-and-uis-that-you-can-share-and-run-at-scale)
   - [Main Concepts](#main-concepts)
