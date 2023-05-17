@@ -768,3 +768,23 @@ export function generateRandomString(): string {
 
 	return result
 }
+
+export function deepMergeWithPriority<T>(target: T, source: T): T {
+	if (typeof target !== 'object' || typeof source !== 'object') {
+		return source
+	}
+
+	const merged = { ...target }
+
+	for (const key in source) {
+		if (source.hasOwnProperty(key) && merged?.hasOwnProperty(key)) {
+			if (target?.hasOwnProperty(key)) {
+				merged[key] = deepMergeWithPriority(target[key], source[key])
+			} else {
+				merged[key] = source[key]
+			}
+		}
+	}
+
+	return merged
+}

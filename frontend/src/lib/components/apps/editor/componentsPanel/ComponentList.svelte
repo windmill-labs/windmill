@@ -5,6 +5,7 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import {
 		components as componentsRecord,
+		presets as presetsRecord,
 		COMPONENT_SETS,
 		type AppComponent,
 		type TypedComponent
@@ -27,6 +28,25 @@
 		const id = insertNewGridItem(
 			$app,
 			appComponentFromType(appComponentType) as (id: string) => AppComponent,
+			$focusedGrid
+		)
+
+		$selectedComponent = [id]
+		$app = $app
+	}
+
+	function addPresetComponent(appComponentType: string): void {
+		const preset = presetsRecord[appComponentType]
+
+		push(history, $app)
+
+		$dirtyStore = true
+
+		const id = insertNewGridItem(
+			$app,
+			appComponentFromType(preset.targetComponent, preset.configuration) as (
+				id: string
+			) => AppComponent,
 			$focusedGrid
 		)
 
@@ -61,7 +81,7 @@
 		</div>
 	{:else}
 		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
-			{#each componentsFiltered as { title, components }, index (index)}
+			{#each componentsFiltered as { title, components, presets }, index (index)}
 				{#if components.length}
 					<div transition:slide|local={{ duration: 100 }}>
 						<ListItem title={`${title} (${components.length})`}>
@@ -81,6 +101,26 @@
 										</div>
 									</div>
 								{/each}
+								{#if presets}
+									{#each presets as presetItem (presetItem)}
+										<div animate:flip={{ duration: 100 }} class="w-20">
+											<button
+												on:click={() => addPresetComponent(presetItem)}
+												title={presetsRecord[presetItem].name}
+												class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+										justify-center bg-white rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
+											>
+												<svelte:component
+													this={presetsRecord[presetItem].icon}
+													class="text-gray-600"
+												/>
+											</button>
+											<div class="text-xs text-center flex-wrap text-gray-600 mt-1">
+												{presetsRecord[presetItem].name}
+											</div>
+										</div>
+									{/each}
+								{/if}
 							</div>
 						</ListItem>
 					</div>
