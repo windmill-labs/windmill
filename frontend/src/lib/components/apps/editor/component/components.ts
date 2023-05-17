@@ -36,7 +36,9 @@ import {
 	FileText,
 	AtSignIcon,
 	Split,
-	Download
+	Download,
+	PanelLeft,
+	PanelTopInactive
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -200,6 +202,13 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+}
+
+export type PresetComponentConfig = {
+	name: string
+	icon: any
+	targetComponent: keyof typeof components
+	configuration: object
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -2042,6 +2051,33 @@ Hello \${ctx.username}
 		}
 	}
 } as const
+
+export const presetComponents = {
+	sidebartabscomponent: {
+		name: 'Sidebar Tabs',
+		icon: PanelLeft,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'sidebar'
+			}
+		}
+	},
+	invisibletabscomponent: {
+		name: 'Invisible Tabs',
+		icon: PanelTopInactive,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'invisibleOnView'
+			}
+		}
+	}
+}
+
+export const presets: {
+	[Property in keyof typeof presetComponents]: PresetComponentConfig
+} = presetComponents
 
 export const ccomponents: {
 	[Property in keyof typeof components]: AppComponentConfig<Property>
