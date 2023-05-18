@@ -617,6 +617,7 @@
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&
+				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
