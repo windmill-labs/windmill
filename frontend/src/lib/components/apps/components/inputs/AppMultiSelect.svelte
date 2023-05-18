@@ -8,7 +8,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import MultiSelect from 'svelte-multiselect'
+	import Multiselect from '$lib/components/Multiselect.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -70,7 +70,7 @@
 		}}
 	>
 		{#if !value || Array.isArray(value)}
-			<MultiSelect bind:selected={value} options={items} placeholder={resolvedConfig.placeholder} />
+			<Multiselect bind:value options={items} placeholder={resolvedConfig.placeholder} />
 			<!-- <Select
 				--border-radius="0"
 				--border-color="#999"
