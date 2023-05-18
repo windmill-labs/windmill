@@ -85,9 +85,8 @@
 {/if}
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
-	<h2 class="mb-4 inline-flex gap-2"
-		>Workspaces{#if loading}<WindmillIcon spin="fast" />
-		{/if}
+	<h2 class="mb-4 inline-flex gap-2">
+		Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
 	</h2>
 
 	{#if $superadmin}
