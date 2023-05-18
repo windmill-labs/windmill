@@ -306,6 +306,7 @@
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
+										tooltip={ccomponents[component.type].customCss[name].tooltip}
 										{name}
 										bind:value={componentSettings.item.data.customCss[name]}
 									/>

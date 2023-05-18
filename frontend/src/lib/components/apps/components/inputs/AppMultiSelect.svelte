@@ -8,14 +8,15 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import Multiselect from '$lib/components/Multiselect.svelte'
+	// @ts-ignore
+	import MultiSelect from 'svelte-multiselect'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	let items: string[]
 
 	let outputs = initOutput($worldStore, id, {
@@ -47,6 +48,9 @@
 	$: value ? outputs?.result.set(value) : outputs?.result.set([])
 
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
+
+	$: outerDiv && css?.multiselect?.style && outerDiv.setAttribute('style', css?.multiselect?.style)
+	let outerDiv: HTMLDivElement | undefined = undefined
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -62,7 +66,7 @@
 
 <AlignWrapper {render} hFull>
 	<div
-		class="app-select w-full overflow-auto"
+		class="app-select w-full h-full"
 		on:pointerdown={(e) => {
 			if (!e.shiftKey) {
 				e.stopPropagation()
@@ -70,35 +74,18 @@
 		}}
 	>
 		{#if !value || Array.isArray(value)}
-			<Multiselect bind:value options={items} placeholder={resolvedConfig.placeholder} />
-			<!-- <Select
-				--border-radius="0"
-				--border-color="#999"
-				multiple
-				clearable={false}
-				closeListOnChange={resolvedConfig.closeListOnChanges}
-				on:change={(e) => e.stopPropagation()}
-				{items}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: #999; overflow: auto;' +
-					SELECT_INPUT_DEFAULT_STYLE.containerStyles +
-					css?.input?.style}
-				bind:value
-				{placeholder}
-				on:click={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
+			<MultiSelect
+				bind:outerDiv
+				outerDivClass={' h-full'}
+				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto'} max-h-full`}
+				bind:selected={value}
+				options={items}
+				placeholder={resolvedConfig.placeholder}
+				allowUserOptions={resolvedConfig.create}
+				on:open={() => {
+					$selectedComponent = [id]
 				}}
-				on:focus={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-				}}
-				floatingConfig={{
-					strategy: 'fixed'
-				}}
-			/> -->
+			/>
 		{:else}
 			Value {value} is not an array
 		{/if}

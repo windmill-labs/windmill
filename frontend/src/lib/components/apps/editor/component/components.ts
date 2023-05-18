@@ -1129,7 +1129,10 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			input: {
+				style: '',
+				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+			}
 		},
 		initialData: {
 			recomputeIds: true,
@@ -1151,7 +1154,7 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true,
 					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
+					customTitle: 'User creatable'
 				},
 				placeholder: {
 					type: 'static',
@@ -1173,7 +1176,11 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			multiselect: {
+				style: '',
+				tooltip:
+					'See https://multiselect.janosh.dev/#with-css-variables for the available variables'
+			}
 		},
 		initialData: {
 			componentInput: undefined,
@@ -1190,15 +1197,15 @@ Hello \${ctx.username}
 					value: 'Select items',
 					onlyStatic: true
 				},
-				allowOverflow: {
+				create: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: true,
+					value: false,
 					onlyStatic: true,
-					tooltip:
-						'If too many items, the box overflow its container instead of having an internal scroll'
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'User creatable'
 				},
-				closeListOnChanges: {
+				allowOverflow: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
