@@ -90,8 +90,9 @@ export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'resourceselectcomponent'>
-export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
+export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
+	RecomputeOthersSource
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
 export type RadioComponent = BaseComponent<'radiocomponent'>
@@ -470,7 +471,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -480,7 +481,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue',
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -562,7 +562,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
@@ -610,7 +609,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -620,7 +619,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: selectOptions.buttonColorOptions
 				},
@@ -653,7 +651,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -663,7 +661,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: buttonColorOptions,
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -1060,7 +1057,7 @@ Hello \${ctx.username}
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -1132,9 +1129,13 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			input: {
+				style: '',
+				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+			}
 		},
 		initialData: {
+			recomputeIds: true,
 			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
@@ -1153,7 +1154,7 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true,
 					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
+					customTitle: 'User creatable'
 				},
 				placeholder: {
 					type: 'static',
@@ -1175,7 +1176,11 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			multiselect: {
+				style: '',
+				tooltip:
+					'See https://multiselect.janosh.dev/#with-css-variables for the available variables'
+			}
 		},
 		initialData: {
 			componentInput: undefined,
@@ -1191,6 +1196,22 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select items',
 					onlyStatic: true
+				},
+				create: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true,
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'User creatable'
+				},
+				allowOverflow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
 				}
 			}
 		}
@@ -1718,7 +1739,6 @@ Hello \${ctx.username}
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: buttonColorOptions,
 					value: 'blue',
 					tooltip:
