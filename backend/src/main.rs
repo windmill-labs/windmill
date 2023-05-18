@@ -170,6 +170,7 @@ Windmill Community Edition {GIT_VERSION}
         "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
         "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
         "EXIT_AFTER_NO_JOB_FOR_SECS",
+        "REQUEST_SIZE_LIMIT",
     ]);
 
     if server_mode || num_workers > 0 {

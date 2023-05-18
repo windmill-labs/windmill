@@ -32,7 +32,6 @@ Scripts are turned into UIs and no-code modules, no-code modules can be composed
 </a>
 </p>
 
-
 <p align="center">
   <a href="https://app.windmill.dev">Try it</a> - <a href="https://docs.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://docs.windmill.dev/docs/misc/contributing">Contributor's guide</a>
 </p>
@@ -74,8 +73,8 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
 ## Main Concepts
 
 1. Define a minimal and generic script in Python, Typescript, Go or Bash that
-   solves a specific task. Here sending a POST request. The code can be
-   defined in the provided Web IDE or synchronized with your own github repo:
+   solves a specific task. Here sending a POST request. The code can be defined
+   in the provided Web IDE or synchronized with your own github repo:
    ![Step 1](./imgs/windmill-editor.png)
 
 2. Your scripts parameters are automatically parsed and generate a frontend.
@@ -211,7 +210,7 @@ Go to http://localhost et voilà :)
 
 The default super-admin user is: admin@windmill.dev / changeme.
 
-From there, you can follow the setup app and creat other users.
+From there, you can follow the setup app and create other users.
 
 ### Kubernetes (k8s) and Helm charts
 
@@ -260,6 +259,10 @@ and mount it at `/usr/src/app/oauth.json`.
 
 The redirect url for the oauth clients is:
 `<instance_url>/user/login_callback/<client>`
+
+Even if you setup oauth, you will still want to **login as admin@windmill.dev /
+changeme** to setup your instance as a super-admin and give yourself admin
+rights.
 
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
@@ -357,6 +360,7 @@ it being synced automatically everyday.
 | WAIT_RESULT_FAST_POLL_DURATION_SECS | 2                                          | The duration of fast poll mode before switching to slow poll                                                                                                                                       | Server                |
 | EXIT_AFTER_NO_JOB_FOR_SECS          | None                                       | Exit worker if no job is received after duration in secs if defined                                                                                                                                | Worker                |
 | OAUTH_JSON_AS_BASE64                | None                                       | Base64 encoded JSON of the OAuth configuration. e.g `OAUTH_JSON_AS_BASE64=$(base64 oauth.json \| tr -d '\n')` to encode it                                                                         | Server                |
+| REQUEST_SIZE_LIMIT                  | 2097152 (2MB)                              | Max request size which impact the maximum size of resources and payload size of job args                                                                                                           | Server                |
 
 ## Run a local dev setup
 
