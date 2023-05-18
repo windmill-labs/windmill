@@ -5,6 +5,8 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
+	import * as vscode from 'vscode'
+
 	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
 		editor as meditor,
@@ -21,7 +23,7 @@
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import * as vscode from 'vscode'
+
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
 		definitions: false,
@@ -66,7 +68,14 @@
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	export let websocketAlive = {
+		pyright: false,
+		black: false,
+		ruff: false,
+		deno: false,
+		go: false,
+		shellcheck: false
+	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
@@ -77,7 +86,7 @@
 
 	let initialPath: string = path
 
-	$: path != initialPath && handlePathChange()
+	$: path != initialPath && lang == 'typescript' && handlePathChange()
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -87,11 +96,11 @@
 	const dispatch = createEventDispatcher()
 
 	const uri =
-		lang == 'go' ? `file:///tmp/monaco/${randomHash()}.go` : `file:///${path}.${langToExt(lang)}`
+		lang == 'typescript'
+			? `file:///${path}.${langToExt(lang)}`
+			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
-	// if (lang != 'typescript') {
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
-	// }
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -143,7 +152,9 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor?.getAction('editor.action.formatDocument')?.run()
+			if (lang != 'shell') {
+				editor?.getAction('editor.action.formatDocument')?.run()
+			}
 			if (formatAction) {
 				formatAction()
 			}
@@ -166,16 +177,36 @@
 
 	let command: Disposable | undefined = undefined
 
+	const outputChannel = {
+		name: 'Language Server Client',
+		appendLine: (msg: string) => {
+			console.log(msg)
+		},
+		append: (msg: string) => {
+			console.log(msg)
+		},
+		clear: () => {},
+		replace: () => {},
+		show: () => {},
+		hide: () => {},
+		dispose: () => {}
+	}
 	export async function reloadWebsocket() {
+		console.log('reloadWebsocket')
 		await closeWebsockets()
-		await initServices({
-			enableThemeService: true,
-			enableModelEditorService: true,
-			modelEditorServiceConfig: {
-				useDefaultFunction: true
-			},
-			debugLogging: true
-		})
+		try {
+			await initServices({
+				enableThemeService: false,
+				enableModelEditorService: true,
+				enableNotificationService: false,
+				modelEditorServiceConfig: {
+					useDefaultFunction: true
+				},
+				debugLogging: false
+			})
+		} catch (e) {
+			console.log('initServices failed', e.message)
+		}
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,
@@ -185,6 +216,7 @@
 			const client = new MonacoLanguageClient({
 				name: name,
 				clientOptions: {
+					outputChannel,
 					documentSelector: [lang],
 					errorHandler: {
 						error: () => ({ action: ErrorAction.Continue }),
@@ -195,7 +227,11 @@
 					markdown: {
 						isTrusted: true
 					},
-
+					workspaceFolder: {
+						uri: vscode.Uri.parse(uri),
+						name: 'windmill',
+						index: 0
+					},
 					initializationOptions,
 					middleware: {
 						workspace: {
@@ -411,8 +447,9 @@
 				}
 			)
 
+			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/ruff`, 'ruff', {}, undefined)
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/black`,
+				`${wsProtocol}://${$page.url.host}/ws/diagnostic`,
 				'black',
 				{
 					formatters: {
@@ -433,6 +470,42 @@
 				'go',
 				{
 					'build.allowImplicitNetworkAccess': true
+				},
+				undefined
+			)
+		} else if (lang === 'shell') {
+			connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/diagnostic`,
+				'shellcheck',
+				{
+					linters: {
+						shellcheck: {
+							command: 'shellcheck',
+							debounce: 100,
+							args: ['--format=gcc', '-'],
+							offsetLine: 0,
+							offsetColumn: 0,
+							sourceName: 'shellcheck',
+							formatLines: 1,
+							formatPattern: [
+								'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
+								{
+									line: 1,
+									column: 2,
+									message: 4,
+									security: 3
+								}
+							],
+							securities: {
+								error: 'error',
+								warning: 'warning',
+								note: 'info'
+							}
+						}
+					},
+					filetypes: {
+						shell: 'shellcheck'
+					}
 				},
 				undefined
 			)
@@ -478,15 +551,18 @@
 		command = undefined
 		for (const x of websockets) {
 			try {
-				await x[0].stop()
+				await x[0].dispose()
 				x[1].close()
 			} catch (err) {
+				console.log('error disposing language client, closing websocket', err)
 				try {
 					x[1].close()
-				} catch (err) {}
-				console.log('error disposing websocket', err)
+				} catch (err) {
+					console.log('error disposing websocket, closin', err)
+				}
 			}
 		}
+		console.log('disposed language client and closed websocket')
 		websockets = []
 		websocketInterval && clearInterval(websocketInterval)
 	}
@@ -540,6 +616,8 @@
 				!websocketAlive.black &&
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
+				!websocketAlive.ruff &&
+				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
@@ -554,6 +632,7 @@
 				closeWebsockets()
 				model?.dispose()
 				editor && editor.dispose()
+				console.log('disposed editor')
 			} catch (err) {
 				console.log('error disposing editor', err)
 			}

@@ -33,7 +33,14 @@
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
-	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
+	export let websocketAlive: {
+		pyright: boolean
+		black: boolean
+		ruff: boolean
+		deno: boolean
+		go: boolean
+		shellcheck: boolean
+	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
@@ -349,7 +356,10 @@
 							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 						{:else if lang == 'python3'}
 							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
+							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
+							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+						{:else if lang == 'bash'}
+							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
 						{/if}
 					</span>
 				</Button>
