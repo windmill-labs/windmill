@@ -116,11 +116,18 @@
 		inlineScript?.language == 'frontend' && worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
+
+	let drawerIsOpen: boolean | undefined = undefined
 </script>
 
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
-		<InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
+		<InlineScriptEditorDrawer
+			bind:isOpen={drawerIsOpen}
+			{editor}
+			bind:this={inlineScriptEditorDrawer}
+			bind:inlineScript
+		/>
 	{/if}
 
 	<div class="h-full flex flex-col gap-1">
@@ -193,7 +200,7 @@
 		<!-- {inlineScript.content} -->
 
 		<div class="border-y h-full">
-			{#if inlineScript.language != 'frontend'}
+			{#if inlineScript.language != 'frontend' && !drawerIsOpen}
 				<Editor
 					path={inlineScript.path}
 					bind:this={editor}
