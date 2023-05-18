@@ -23,11 +23,12 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 ENV GOROOT=/usr/local/go
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
-RUN pip3 install black tornado python-lsp-jsonrpc
+RUN pip3 install black tornado python-lsp-jsonrpc ruff-lsp
 COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
 # docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
 COPY --from=lukechannings/deno:latest /usr/bin/deno /usr/bin/deno-arm
+ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
 
 
