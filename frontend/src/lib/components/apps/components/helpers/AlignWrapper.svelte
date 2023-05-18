@@ -6,6 +6,7 @@
 	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let noWFull = false
+	export let hFull = false
 	let c = ''
 	export { c as class }
 	export let style = ''
@@ -16,7 +17,7 @@
 		noWFull ? '' : 'w-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment),
-		verticalAlignment ? 'h-full' : '',
+		verticalAlignment || hFull ? 'h-full' : '',
 		c
 	)
 </script>
