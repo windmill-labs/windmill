@@ -45,8 +45,6 @@
 		}
 	}
 
-	$: value ? outputs?.result.set(value) : outputs?.result.set([])
-
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 
 	$: outerDiv && css?.multiselect?.style && outerDiv.setAttribute('style', css?.multiselect?.style)
@@ -79,6 +77,9 @@
 				outerDivClass={' h-full'}
 				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto'} max-h-full`}
 				bind:selected={value}
+				on:change={() => {
+					outputs?.result.set([...(value ?? [])])
+				}}
 				options={items}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
