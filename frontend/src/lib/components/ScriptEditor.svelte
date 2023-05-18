@@ -30,7 +30,14 @@
 	export let noSyncFromGithub = false
 	export let editor: Editor | undefined = undefined
 
-	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	let websocketAlive = {
+		pyright: false,
+		black: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	}
 
 	let width = 1200
 
