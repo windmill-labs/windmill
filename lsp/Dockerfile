@@ -1,5 +1,7 @@
 FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
 
+RUN apt-get update \
+    && apt-get install -y shellcheck
 RUN yarn global add diagnostic-languageserver
 RUN yarn global add pyright
 RUN set -eux; \
