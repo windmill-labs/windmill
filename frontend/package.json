@@ -86,7 +86,7 @@
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.216.0",
 		"monaco-languageclient": "~6.0.1",
-		"monaco-editor-workers": "~0.37.1",
+		"monaco-editor-workers": "~0.37.0",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-dnd-action": "^0.9.22",
