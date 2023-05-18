@@ -267,15 +267,18 @@
 		</Pane>
 
 		<Pane size={$savedInputPaneSize}>
-			<SavedInputs
-				scriptHash={hash}
-				{isValid}
-				{args}
-				on:selected_args={(e) => {
-					args = JSON.parse(JSON.stringify(e.detail))
-					reloadArgs += 1
-				}}
-			/>
+			{#if $savedInputPaneSize > 0}
+				<SavedInputs
+					scriptPath={script?.path}
+					scriptHash={topHash}
+					{isValid}
+					{args}
+					on:selected_args={(e) => {
+						args = JSON.parse(JSON.stringify(e.detail))
+						reloadArgs += 1
+					}}
+				/>
+			{/if}
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

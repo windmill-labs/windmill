@@ -143,6 +143,7 @@ Windmill Community Edition {GIT_VERSION}
         "DENO_PATH",
         "GO_PATH",
         "GOPRIVATE",
+        "GOPROXY",
         "NETRC",
         "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
