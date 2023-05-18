@@ -143,7 +143,6 @@
 
 <svelte:window bind:innerWidth />
 <UserSettings bind:this={userSettings} />
-
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">
