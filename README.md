@@ -210,7 +210,7 @@ Go to http://localhost et voilà :)
 
 The default super-admin user is: admin@windmill.dev / changeme.
 
-From there, you can follow the setup app and creat other users.
+From there, you can follow the setup app and create other users.
 
 ### Kubernetes (k8s) and Helm charts
 
@@ -259,6 +259,10 @@ and mount it at `/usr/src/app/oauth.json`.
 
 The redirect url for the oauth clients is:
 `<instance_url>/user/login_callback/<client>`
+
+Even if you setup oauth, you will still want to **login as admin@windmill.dev /
+changeme** to setup your instance as a super-admin and give yourself admin
+rights.
 
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
