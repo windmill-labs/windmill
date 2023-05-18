@@ -169,7 +169,7 @@ async fn list_saved_inputs(
     let rows = sqlx::query_as::<_, InputRow>(
         "select * from input \
          where runnable_id = $1 and runnable_type = $2 and workspace_id = $3 \
-         and is_public IS true OR created_by = $4 \
+         and (is_public IS true OR created_by = $4) \
          order by created_at desc limit $5 offset $6",
     )
     .bind(&r.runnable_id)

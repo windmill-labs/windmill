@@ -178,6 +178,7 @@ lazy_static::lazy_static! {
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
     pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
+    pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
     static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")

@@ -17,8 +17,8 @@ use windmill_parser_go::parse_go_imports;
 use crate::{
     common::{capitalize, read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GO_CACHE_DIR, HOME_ENV,
-    NETRC, NSJAIL_PATH, PATH_ENV,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_CACHE_DIR,
+    HOME_ENV, NETRC, NSJAIL_PATH, PATH_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -207,16 +207,23 @@ func Run(req Req) (interface{{}}, error){{
         if let Some(ref netrc) = *NETRC {
             write_file(&HOME_ENV, ".netrc", netrc).await?;
         }
-        Command::new(GO_PATH.as_str())
-            .current_dir(job_dir)
+        let mut cmd = Command::new(GO_PATH.as_str());
+        cmd.current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
-            .env("GOPRIVATE", GOPRIVATE.as_ref().unwrap_or(&String::new()))
-            .env("HOME", HOME_ENV.as_str())
-            .args(vec!["run", "main.go"])
+            .env("HOME", HOME_ENV.as_str());
+
+        if let Some(ref goprivate) = *GOPRIVATE {
+            cmd.env("GOPRIVATE", goprivate);
+        }
+        if let Some(ref goproxy) = *GOPROXY {
+            cmd.env("GOPROXY", goproxy);
+        }
+
+        cmd.args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
