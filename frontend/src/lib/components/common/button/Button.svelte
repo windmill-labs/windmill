@@ -148,7 +148,7 @@
 				loading = true
 				dispatch('click', event)
 			}}
-			href="/scripts/add"
+			{href}
 			{download}
 			class={twMerge(
 				buttonClass,
