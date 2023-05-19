@@ -1,5 +1,9 @@
 FROM debian:buster-slim as nsjail
 
+RUN apt-get update \
+    && apt-get install -y libwebkit2gtk-4.0-37 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /nsjail
 
 ARG nsjail=""

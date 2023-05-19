@@ -20,12 +20,10 @@
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let path: string | undefined
 	export let lang: Preview.language
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
-	export let lastSave: string | null
 
 	type DrawerContent = {
 		mode: 'json' | Preview.language | 'plain'
@@ -67,9 +65,8 @@
 </Drawer>
 
 <Tabs bind:selected={selectedTab} class="mt-1">
-	<Tab value="logs" size="xs">Logs/Result</Tab>
+	<Tab value="logs" size="xs">Logs & Result</Tab>
 	<Tab value="history" size="xs">History</Tab>
-	<Tab value="last_save" size="xs">Last save</Tab>
 
 	<svelte:fragment slot="content">
 		<!--
@@ -179,17 +176,6 @@
 					{/each}
 				</tbody>
 			</TableCustom>
-		</TabContent>
-		<TabContent value="last_save" class="p-2">
-			{#if lastSave}
-				<div class="text-sm font-bold text-gray-600">
-					Last local save for path
-					<span class="italic">{path}</span>
-				</div>
-				<HighlightCode language={lang} code={lastSave} />
-			{:else}
-				No local save
-			{/if}
 		</TabContent>
 	</svelte:fragment>
 </Tabs>

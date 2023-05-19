@@ -17,14 +17,13 @@
 	export let wrapperStyle: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
-	export let target: ButtonType.Target = '_self'
+	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
-	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
@@ -96,15 +95,6 @@
 		}
 	}
 
-	$: buttonProps = {
-		id,
-		target,
-		tabindex: disabled ? -1 : 0,
-		type: buttonType,
-		title,
-		...$$restProps
-	}
-
 	async function onClick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
@@ -152,16 +142,22 @@
 			data-sveltekit-preload-code="hover"
 			bind:this={element}
 			on:pointerdown
-			on:click={onClick}
 			on:focus
 			on:blur
-			{href}
+			on:click={() => {
+				loading = true
+				dispatch('click', event)
+			}}
+			href="/scripts/add"
 			{download}
 			class={twMerge(
 				buttonClass,
 				disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
 			)}
-			{...buttonProps}
+			{id}
+			{target}
+			tabindex={disabled ? -1 : 0}
+			{...$$restProps}
 			{style}
 		>
 			{#if loading}
@@ -188,9 +184,11 @@
 				buttonClass,
 				disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
 			)}
-			{...buttonProps}
+			{id}
+			tabindex={disabled ? -1 : 0}
+			{title}
+			{...$$restProps}
 			disabled={disabled || loading}
-			type="submit"
 			{style}
 		>
 			{#if loading}

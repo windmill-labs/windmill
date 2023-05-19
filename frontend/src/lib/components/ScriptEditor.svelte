@@ -52,10 +52,7 @@
 	let testIsLoading = false
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
-	let lastSave: string | null
 	let validCode = true
-
-	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -178,7 +175,6 @@
 							} catch (e) {
 								console.error('Could not save last_save to local storage', e)
 							}
-							lastSave = code
 							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
@@ -232,14 +228,7 @@
 						</div>
 					</Pane>
 					<Pane size={67}>
-						<LogPanel
-							{path}
-							{lang}
-							previewJob={testJob}
-							{pastPreviews}
-							previewIsLoading={testIsLoading}
-							bind:lastSave
-						/>
+						<LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
 					</Pane>
 				</Splitpanes>
 			</div>
