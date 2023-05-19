@@ -167,7 +167,13 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	function set(x: T, force: boolean = false) {
 		if (!deepEqual(value, x) || force) {
 			state.update((x) => x + 1)
-			value = x
+
+			if (typeof x === 'object') {
+				value = JSON.parse(JSON.stringify(x))
+			} else {
+				value = x
+			}
+
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}
