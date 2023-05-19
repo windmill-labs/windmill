@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -17,6 +17,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 

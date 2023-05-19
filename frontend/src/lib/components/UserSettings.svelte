@@ -2,7 +2,7 @@
 	import { usersWorkspaceStore } from '$lib/stores'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService, SettingsService } from '$lib/gen'
-	import { displayDate, sendUserToast, copyToClipboard } from '$lib/utils'
+	import { displayDate, copyToClipboard } from '$lib/utils'
 	import { faClipboard, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
@@ -22,6 +22,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	let drawer: Drawer
 

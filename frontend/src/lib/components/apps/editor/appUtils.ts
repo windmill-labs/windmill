@@ -21,7 +21,8 @@ import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
 import { get, type Writable } from 'svelte/store'
-import { deepMergeWithPriority, sendUserToast } from '$lib/utils'
+import { deepMergeWithPriority } from '$lib/utils'
+import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 
 export function dfs(

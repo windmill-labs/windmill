@@ -2,13 +2,12 @@
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
 	import {
-		canWrite,
+	canWrite,
 		copyToClipboard,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
-		encodeState,
-		sendUserToast
+		encodeState
 	} from '$lib/utils'
 	import {
 		faArchive,
@@ -40,6 +39,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
+	import { sendUserToast } from '$lib/toast'
 
 	let userSettings: UserSettings
 

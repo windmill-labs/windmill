@@ -5,7 +5,7 @@
 	import { logoutWithRedirect } from '$lib/logout'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 

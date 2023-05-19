@@ -5,13 +5,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { userStore, workerTags, workspaceStore } from '$lib/stores'
-	import {
-		emptySchema,
-		encodeState,
-		getModifierKey,
-		sendUserToast,
-		setQueryWithoutLoad
-	} from '$lib/utils'
+	import { emptySchema, encodeState, getModifierKey, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
@@ -32,6 +26,7 @@
 		SCRIPT_CUSTOMISE_SHOW_KIND
 	} from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let script: NewScript
 	export let initialPath: string = ''

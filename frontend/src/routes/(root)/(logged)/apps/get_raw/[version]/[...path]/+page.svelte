@@ -2,7 +2,7 @@
 	import { page } from '$app/stores'
 	import { Skeleton } from '$lib/components/common'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 
 	let loaded = false

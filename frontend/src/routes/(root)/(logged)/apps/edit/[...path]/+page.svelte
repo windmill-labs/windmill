@@ -3,9 +3,10 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { decodeState, sendUserToast, type ToastAction } from '$lib/utils'
+	import { decodeState } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import { sendUserToast, type ToastAction } from '$lib/toast'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean }) | undefined
 

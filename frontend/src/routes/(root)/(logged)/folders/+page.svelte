@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Folder } from '$lib/gen'
 	import { FolderService } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -14,6 +13,7 @@
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
+	import { canWrite } from '$lib/utils'
 
 	type FolderW = Folder & { canWrite: boolean }
 
