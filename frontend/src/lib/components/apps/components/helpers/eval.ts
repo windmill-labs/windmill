@@ -1,6 +1,6 @@
-import { sendUserToast } from '$lib/utils'
 import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
+import { sendUserToast } from '$lib/toast'
 
 export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {

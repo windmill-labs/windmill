@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ScheduleService, type Schedule, JobService, type ScriptArgs } from '$lib/gen'
-	import { canWrite, displayDate, sendUserToast } from '$lib/utils'
+	import { canWrite, displayDate } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
@@ -26,6 +26,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 

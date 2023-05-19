@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Group } from '$lib/gen'
 	import { GroupService } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
@@ -13,6 +12,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { canWrite } from '$lib/utils'
 
 	type GroupW = Group & { canWrite: boolean }
 

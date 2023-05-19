@@ -4,8 +4,9 @@
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeState, sendUserToast } from '$lib/utils'
+	import { decodeState } from '$lib/utils'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	const initialState = $page.url.searchParams.get('state')
 	let initialArgs = {}

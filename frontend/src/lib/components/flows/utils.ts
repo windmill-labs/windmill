@@ -10,11 +10,12 @@ import {
 import { inferArgs } from '$lib/infer'
 import { loadSchema, loadSchemaFlow } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema, sendUserToast } from '$lib/utils'
+import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import type { PickableProperties } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
+import { sendUserToast } from '$lib/toast'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `

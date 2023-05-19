@@ -2,7 +2,9 @@
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getModifierKey, getScriptByPath } from '$lib/utils'
+	import { getModifierKey } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
+
 	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'

@@ -6,8 +6,9 @@
 	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
-	import { getLatestHashForScript, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import { workerTags } from '$lib/stores'
+	import { getLatestHashForScript } from '$lib/scripts'
 
 	export let module: FlowModule
 	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')

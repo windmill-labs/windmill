@@ -1,8 +1,8 @@
 <script lang="ts">
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { ScriptService } from '$lib/gen'
+	import { getScriptByPath } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
-	import { getScriptByPath } from '$lib/utils'
 
 	export let path: string
 	export let hash: string | undefined = undefined

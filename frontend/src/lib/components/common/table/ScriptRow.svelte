@@ -8,7 +8,6 @@
 
 	import { ScriptService, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { isOwner, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -27,6 +26,8 @@
 	import LanguageBadge from './LanguageBadge.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { isOwner } from '$lib/utils'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined

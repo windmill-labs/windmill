@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { browser } from '$app/environment'
-	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { BROWSER } from 'esm-env'
+
+	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -339,7 +339,8 @@
 			}
 		}
 
-		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
+		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
 		if (lang == 'typescript') {
@@ -349,14 +350,7 @@
 				const token = await UserService.createToken({
 					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
 				})
-				let root =
-					$page.url.protocol +
-					'//' +
-					$page.url.host +
-					'/api/scripts_u/tokened_raw/' +
-					$workspaceStore +
-					'/' +
-					token
+				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 				const importMap = {
 					imports: {
 						'file:///': root + '/'
@@ -375,7 +369,7 @@
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			}
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/deno`,
+				`${wsProtocol}://${window.location.host}/ws/deno`,
 				'deno',
 				{
 					certificateStores: null,
@@ -417,7 +411,7 @@
 			)
 		} else if (lang === 'python') {
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/pyright`,
+				`${wsProtocol}://${window.location.host}/ws/pyright`,
 				'pyright',
 				{},
 				(params, token, next) => {
@@ -447,9 +441,14 @@
 				}
 			)
 
-			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/ruff`, 'ruff', {}, undefined)
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/diagnostic`,
+				`${wsProtocol}://${window.location.host}/ws/ruff`,
+				'ruff',
+				{},
+				undefined
+			)
+			connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
 				'black',
 				{
 					formatters: {
@@ -466,7 +465,7 @@
 			)
 		} else if (lang === 'go') {
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/go`,
+				`${wsProtocol}://${window.location.host}/ws/go`,
 				'go',
 				{
 					'build.allowImplicitNetworkAccess': true
@@ -475,7 +474,7 @@
 			)
 		} else if (lang === 'shell') {
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/diagnostic`,
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
 				'shellcheck',
 				{
 					linters: {
@@ -658,7 +657,7 @@
 	}
 
 	onMount(() => {
-		if (browser) {
+		if (BROWSER) {
 			loadMonaco().then((x) => (disposeMethod = x))
 		}
 	})

@@ -6,7 +6,7 @@
 	import { WindmillIcon } from '$lib/components/icons'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 
 	let success = $page.url.searchParams.get('success') === 'true'
 

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { isOwner } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
 	import { AppService, FlowService, RawAppService, ScriptService } from '$lib/gen'
+	import { isOwner } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 

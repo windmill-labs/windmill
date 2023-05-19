@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { isCloudHosted } from '$lib/cloud'
 	import AddUser from '$lib/components/AddUser.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
@@ -24,7 +25,8 @@
 		type WorkspaceInvite
 	} from '$lib/gen'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { capitalize, isCloudHosted, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { capitalize } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 
@@ -208,9 +210,9 @@
 					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-				<Tab size="md" value="slack">
-					<div class="flex gap-2 items-center my-1"> Slack Command </div>
-				</Tab>
+					<Tab size="md" value="slack">
+						<div class="flex gap-2 items-center my-1"> Slack Command </div>
+					</Tab>
 				{/if}
 				{#if isCloudHosted()}
 					<Tab size="md" value="premium">
@@ -221,9 +223,9 @@
 					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-				<Tab size="md" value="webhook">
-					<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
-				</Tab>
+					<Tab size="md" value="webhook">
+						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
+					</Tab>
 				{/if}
 			</Tabs>
 		</div>

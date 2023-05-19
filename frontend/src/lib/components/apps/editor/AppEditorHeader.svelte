@@ -29,7 +29,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import { classNames, copyToClipboard } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -51,6 +51,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import { sendUserToast } from '$lib/toast'
 
 	async function hash(message) {
 		try {

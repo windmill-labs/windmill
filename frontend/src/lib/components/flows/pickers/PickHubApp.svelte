@@ -2,10 +2,10 @@
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { loadHubApps } from '$lib/utils'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import { loadHubApps } from '$lib/hub'
 
 	export let filter = ''
 
@@ -53,7 +53,7 @@
 						<div class="flex items-center gap-4">
 							<RowIcon kind="app" />
 
-							<div class="w-full text-left font-normal ">
+							<div class="w-full text-left font-normal">
 								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
 									{#if item.marked}
 										{@html item.marked ?? ''}

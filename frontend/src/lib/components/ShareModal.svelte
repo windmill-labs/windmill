@@ -2,7 +2,6 @@
 	import TableCustom from './TableCustom.svelte'
 
 	import { GranularAclService } from '$lib/gen/services/GranularAclService'
-	import { isOwner, sendUserToast } from '$lib/utils'
 	import { GroupService, UserService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
@@ -10,6 +9,8 @@
 	import { Alert, Button, Drawer, ToggleButton, ToggleButtonGroup } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { isOwner } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
