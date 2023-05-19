@@ -22,8 +22,7 @@ RUN set -eux; \
     wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz";
 
 ENV PATH="${PATH}:/usr/local/go/bin"
-ENV GO_PATH=/usr/local/go/bin/go
-ENV GOROOT=/usr/local/go
+ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 RUN pip3 install black tornado python-lsp-jsonrpc ruff-lsp
 COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
