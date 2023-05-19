@@ -1,0 +1,36 @@
+{
+  "name": "windmill-react-sdk",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist",
+    "index.d.ts"
+  ],
+  "main": "./dist/counter.umd.cjs",
+  "module": "./dist/counter.js",
+  "types": "./index.d.ts",
+  "exports": {
+    "types": "./index.d.ts",
+    "import": "./dist/counter.js",
+    "require": "./dist/counter.umd.cjs"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^2.2.0",
+    "@types/react": "^18.2.6",
+    "@types/react-dom": "^18.2.4",
+    "@vitejs/plugin-react": "^4.0.0",
+    "svelte-highlight": "^7.3.0",
+    "typescript": "^4.9.4",
+    "vite": "^4.0.4"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "svelte-preprocess-react": "^0.15.0",
+    "windmill-components": "file:../frontend"
+  }
+}
