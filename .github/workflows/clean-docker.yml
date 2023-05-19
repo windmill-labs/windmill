@@ -1,13 +1,17 @@
-name: Clean docker
+name: Clean Docker
+
 on:
   schedule:
-    # * is a special character in YAML so you have to quote this string
+    # Schedule the workflow to run every two days at midnight
     - cron: "0 0 */2 * *"
 
 jobs:
   build:
+    # Specify that the job should run on a self-hosted runner
     runs-on: [self-hosted, new]
     steps:
-      - name: clean docker
+      - name: Clean Docker
+        # Run the following commands to clean Docker resources
         run: |
+          # Use sudo to execute the Docker command with root privileges
           sudo docker system prune -f
