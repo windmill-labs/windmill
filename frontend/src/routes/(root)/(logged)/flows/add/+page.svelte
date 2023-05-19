@@ -106,6 +106,8 @@
 	loadFlow()
 
 	$dirtyStore = true
+
+	let getSelectedId: (() => string) | undefined = undefined
 </script>
 
 <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
@@ -113,15 +115,15 @@
 
 <FlowBuilder
 	on:saveInitial={() => {
-		goto(`/flows/edit/${$flowStore.path}`)
+		goto(`/flows/edit/${$flowStore.path}?selected=${getSelectedId?.()}`)
 	}}
 	on:deploy={() => {
-		window.history.replaceState(window.history.state, '', `/flows/edit/${$flowStore.path}`)
 		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 	}}
 	on:details={() => {
 		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 	}}
+	bind:getSelectedId
 	{flowStore}
 	{flowStateStore}
 	{selectedId}

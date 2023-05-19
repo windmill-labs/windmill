@@ -80,7 +80,7 @@
 
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
-		selectedId = stateLoadedFromUrl?.selectedId
+		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
 		$dirtyStore = false
 	}
 
@@ -97,7 +97,6 @@
 
 <FlowBuilder
 	on:deploy={() => {
-		window.history.replaceState(window.history.state, '', `/flows/edit/${$flowStore.path}`)
 		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 	}}
 	on:details={() => {

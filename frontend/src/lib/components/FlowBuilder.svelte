@@ -193,6 +193,10 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 
+	export function getSelectedId() {
+		return $selectedIdStore
+	}
+
 	const scheduleStore = writable<Schedule>({
 		args: {},
 		cron: '',
