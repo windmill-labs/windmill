@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment'
+	import { BROWSER } from 'esm-env'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 	import 'monaco-editor/esm/vs/editor/edcore.main'
@@ -181,7 +181,7 @@
 
 	let mounted = false
 	onMount(async () => {
-		if (browser) {
+		if (BROWSER) {
 			mounted = true
 			await loadMonaco()
 		}

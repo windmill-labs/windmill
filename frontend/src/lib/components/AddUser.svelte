@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Tooltip from './Tooltip.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 

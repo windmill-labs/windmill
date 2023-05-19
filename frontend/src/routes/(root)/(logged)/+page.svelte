@@ -5,7 +5,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
 	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
-	import { getScriptByPath } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import { faCodeFork } from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'

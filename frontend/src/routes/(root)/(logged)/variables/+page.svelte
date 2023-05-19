@@ -16,7 +16,8 @@
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, isOwner, sendUserToast, truncate } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import {
 		faChain,
 		faCircle,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { Copy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'

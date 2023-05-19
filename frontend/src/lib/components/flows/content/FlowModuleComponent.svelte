@@ -10,7 +10,7 @@
 	import { RawScript, type FlowModule, type PathFlow, type PathScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { getLatestHashForScript, schemaToObject, scriptLangToEditorLang } from '$lib/utils'
+	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -27,6 +27,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import { schemaToObject } from '$lib/schema'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')

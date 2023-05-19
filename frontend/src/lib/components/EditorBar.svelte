@@ -4,7 +4,6 @@
 
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
 		faCube,
@@ -30,6 +29,8 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Popover from './Popover.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
+	import { sendUserToast } from '$lib/toast'
+	import { getScriptByPath } from '$lib/scripts'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
