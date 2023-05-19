@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, forLater, sendUserToast, truncateHash } from '$lib/utils'
+	import { canWrite, displayDate, forLater, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -33,6 +33,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	let job: Job | undefined
 	const iconScale = 1

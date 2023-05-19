@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount } from 'svelte'

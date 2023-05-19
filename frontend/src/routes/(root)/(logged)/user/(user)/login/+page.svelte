@@ -5,10 +5,12 @@
 	import { onMount } from 'svelte'
 	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, isCloudHosted, sendUserToast } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
+	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''

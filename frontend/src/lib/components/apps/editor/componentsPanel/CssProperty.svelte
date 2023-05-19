@@ -16,6 +16,8 @@
 	export let forceClass: boolean = false
 	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
 	export let componentType: TypedComponent['type'] | undefined = undefined
+	export let tooltip: string | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
@@ -33,6 +35,9 @@
 </div>
 {#if value}
 	<div class="px-3">
+		{#if tooltip}
+			<div class="text-gray-600 text-2xs py-2">{tooltip}</div>
+		{/if}
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->

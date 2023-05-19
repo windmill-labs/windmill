@@ -10,19 +10,19 @@
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
-		canWrite,
+	canWrite,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptySchema,
 		emptyString,
 		getModifierKey,
-		sendUserToast
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -267,15 +267,18 @@
 		</Pane>
 
 		<Pane size={$savedInputPaneSize}>
-			<SavedInputs
-				scriptHash={hash}
-				{isValid}
-				{args}
-				on:selected_args={(e) => {
-					args = JSON.parse(JSON.stringify(e.detail))
-					reloadArgs += 1
-				}}
-			/>
+			{#if $savedInputPaneSize > 0}
+				<SavedInputs
+					scriptPath={script?.path}
+					scriptHash={topHash}
+					{isValid}
+					{args}
+					on:selected_args={(e) => {
+						args = JSON.parse(JSON.stringify(e.detail))
+						reloadArgs += 1
+					}}
+				/>
+			{/if}
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

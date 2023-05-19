@@ -1,12 +1,12 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
-import { schemaToObject } from '$lib/utils'
+import { schemaToObject } from '$lib/schema'
 import type { FlowState } from './flowState'
 
 export type PickableProperties = {
 	flow_input: Object
 	priorIds: Record<string, any>
-	previousId: string | undefined,
+	previousId: string | undefined
 	hasResume: boolean
 }
 
@@ -14,7 +14,6 @@ type StepPropPicker = {
 	pickableProperties: PickableProperties
 	extraLib: string
 }
-
 
 type ModuleBranches = FlowModule[][]
 
@@ -24,19 +23,18 @@ function getSubModules(flowModule: FlowModule): ModuleBranches {
 	} else if (flowModule.value.type === 'branchall') {
 		return flowModule.value.branches.map((branch) => branch.modules)
 	} else if (flowModule.value.type == 'branchone') {
-		return [
-			...flowModule.value.branches.map((branch) => branch.modules),
-			flowModule.value.default
-		]
+		return [...flowModule.value.branches.map((branch) => branch.modules), flowModule.value.default]
 	}
 	return []
 }
 
 function getAllSubmodules(flowModule: FlowModule): ModuleBranches {
 	return getSubModules(flowModule).map((modules) => {
-		return modules.map((module) => {
-			return [module, ...getAllSubmodules(module).flat()]
-		}).flat()
+		return modules
+			.map((module) => {
+				return [module, ...getAllSubmodules(module).flat()]
+			})
+			.flat()
 	})
 }
 
@@ -47,8 +45,6 @@ function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): Fl
 
 	function rec(id: string, moduleBranches: ModuleBranches): FlowModule[] | undefined {
 		for (let modules of moduleBranches) {
-
-
 			for (const [i, module] of modules.entries()) {
 				if (module.id === id) {
 					return getParents ? [module] : modules.slice(0, i + 1).reverse()
@@ -93,7 +89,7 @@ function getFlowInput(
 						value: "Iteration's value",
 						index: "Iteration's index"
 					},
-					...parentFlowInput,
+					...parentFlowInput
 				}
 			} else {
 				return parentFlowInput
@@ -111,38 +107,40 @@ export function getStepPropPicker(
 	id: string,
 	flow: Flow,
 	args: any,
-	include_node: boolean,
+	include_node: boolean
 ): StepPropPicker {
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
-	const previousIds = dfs(id, flow, false).map((x) => {
-		let submodules = getAllSubmodules(x).flat().map((x) => x.id)
+	const previousIds = dfs(id, flow, false)
+		.map((x) => {
+			let submodules = getAllSubmodules(x)
+				.flat()
+				.map((x) => x.id)
 
-		if (submodules.includes(id)) {
-			return [x.id]
-		} else {
-			return [x.id, ...submodules]
-		}
-	}).flat()
+			if (submodules.includes(id)) {
+				return [x.id]
+			} else {
+				return [x.id, ...submodules]
+			}
+		})
+		.flat()
 	if (!include_node) {
 		previousIds.shift()
 	}
 
-
-	let priorIds = Object.fromEntries(previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse())
-
+	let priorIds = Object.fromEntries(
+		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+	)
 
 	const pickableProperties = {
 		flow_input: flowInput,
 		priorIds: priorIds,
 		previousId: previousIds[0],
-		hasResume: previousModule?.suspend != undefined,
+		hasResume: previousModule?.suspend != undefined
 	}
 
-
-
 	if (pickableProperties.hasResume) {
-		pickableProperties["approvers"] = "The list of approvers"
+		pickableProperties['approvers'] = 'The list of approvers'
 	}
 
 	return {
@@ -151,7 +149,11 @@ export function getStepPropPicker(
 	}
 }
 
-export function buildExtraLib(flowInput: Record<string, any>, results: Record<string, any>, resume: boolean): string {
+export function buildExtraLib(
+	flowInput: Record<string, any>,
+	results: Record<string, any>,
+	resume: boolean
+): string {
 	return `
 /**
 * get variable (including secret) at path
@@ -180,7 +182,9 @@ declare const params: any;
  */
 declare const results = ${JSON.stringify(results)};
 
-${resume ? `
+${
+	resume
+		? `
 /**
  * resume payload
  */
@@ -190,7 +194,8 @@ declare const resume: any
  * The list of approvers separated by ,
  */
 declare const approvers: string
-` : ''}
 `
-
+		: ''
+}
+`
 }

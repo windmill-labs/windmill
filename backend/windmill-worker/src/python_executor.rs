@@ -74,7 +74,23 @@ pub async fn pip_compile(
 ) -> error::Result<String> {
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
-    logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
+    logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
+    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| {
+                if !deps.contains(&s.to_string()) {
+                    return true;
+                } else {
+                    logs.push_str(&format!("\nignoring local dependency: {}", s));
+                    return false;
+                }
+            })
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
     let req_hash = calculate_hash(&requirements);
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -87,15 +103,7 @@ pub async fn pip_compile(
         return Ok(cached);
     }
     let file = "requirements.in";
-    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
-        let deps = pip_local_dependencies.clone();
-        requirements
-            .lines()
-            .filter(|s| !deps.contains(&s.to_string()))
-            .join("\n")
-    } else {
-        requirements.to_string()
-    };
+
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];

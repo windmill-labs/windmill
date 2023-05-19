@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
 	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQuery, setQueryWithoutLoad } from '$lib/utils'
+	import {  setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -21,6 +21,7 @@
 	import Slider from '$lib/components/Slider.svelte'
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
+	import { setQuery } from '$lib/navigation'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined

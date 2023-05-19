@@ -3002,6 +3002,27 @@
     },
     "query": "DELETE FROM usr WHERE email = $1 RETURNING username"
   },
+  "7a819bbf0522315952fd94d9b320fdd58e5d71dbd7e5f79eaa83c14572159805": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM raw_app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
   "7aef087f9e10dd32417477109b97c99b85d68ce1be2bafdc145aed0aa8e5d989": {
     "describe": {
       "columns": [],

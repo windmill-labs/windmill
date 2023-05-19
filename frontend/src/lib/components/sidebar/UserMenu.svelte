@@ -10,11 +10,12 @@
 		switchWorkspace,
 		workspaceStore
 	} from '$lib/stores'
-	import { classNames, isCloudHosted } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 	import { faCog, faCrown, faHardHat, faSignOut, faUser } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
+	import { isCloudHosted } from '$lib/cloud'
 
 	export let isCollapsed: boolean = false
 </script>

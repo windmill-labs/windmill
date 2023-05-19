@@ -252,9 +252,9 @@
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
 			<AppSelect
+				recomputeIds={component.recomputeIds}
 				id={component.id}
 				verticalAlignment={component.verticalAlignment}
-				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				{render}
@@ -262,8 +262,6 @@
 		{:else if component.type === 'multiselectcomponent'}
 			<AppMultiSelect
 				id={component.id}
-				verticalAlignment={component.verticalAlignment}
-				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				{render}

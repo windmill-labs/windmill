@@ -38,7 +38,8 @@ const config = {
 		alias: {
 			path: 'path-browserify'
 		}
-	}
+	},
+	assetsInclude: ['**/*.wasm']
 }
 
 export default config

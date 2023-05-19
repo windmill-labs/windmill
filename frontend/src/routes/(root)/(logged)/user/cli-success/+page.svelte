@@ -3,7 +3,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 
 	sendUserToast('Sucess. You can return to your terminal now.')
 	goto('/')

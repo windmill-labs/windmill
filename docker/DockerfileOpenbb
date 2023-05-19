@@ -90,7 +90,7 @@ FROM python:3.10.8-slim-buster
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev libwebkit2gtk-4.0-37 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \

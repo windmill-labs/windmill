@@ -6,8 +6,7 @@
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
-	import { goto } from '$app/navigation'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
@@ -108,7 +107,7 @@
 			if (sideEffect.configuration.gotoUrl.newTab) {
 				window.open(sideEffect.configuration.gotoUrl.url, '_blank')
 			} else {
-				goto(sideEffect.configuration.gotoUrl.url)
+				window.location.href = sideEffect.configuration.gotoUrl.url
 			}
 		} else if (
 			sideEffect.selected == 'sendToast' &&
