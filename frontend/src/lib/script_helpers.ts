@@ -168,7 +168,8 @@ export const FETCH_INIT_CODE = `export async function main(
 		})
 }`
 
-export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
+export const BASH_INIT_CODE = `# shellcheck shell=bash
+# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
 
@@ -221,7 +222,7 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.99.0/mod.ts"
 
 export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)

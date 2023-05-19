@@ -36,7 +36,9 @@ import {
 	FileText,
 	AtSignIcon,
 	Split,
-	Download
+	Download,
+	PanelLeft,
+	PanelTopInactive
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -88,8 +90,9 @@ export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'resourceselectcomponent'>
-export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
+export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
+	RecomputeOthersSource
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
 export type RadioComponent = BaseComponent<'radiocomponent'>
@@ -200,6 +203,14 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+}
+
+export type PresetComponentConfig = {
+	name: string
+	icon: any
+	targetComponent: keyof typeof components
+	configuration: object
+	type: string
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -460,7 +471,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -470,7 +481,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue',
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -552,7 +562,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
@@ -600,7 +609,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -610,7 +619,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: selectOptions.buttonColorOptions
 				},
@@ -643,7 +651,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -653,7 +661,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: buttonColorOptions,
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -1050,7 +1057,7 @@ Hello \${ctx.username}
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -1122,9 +1129,13 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			input: {
+				style: '',
+				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+			}
 		},
 		initialData: {
+			recomputeIds: true,
 			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
@@ -1143,7 +1154,7 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true,
 					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
+					customTitle: 'User creatable'
 				},
 				placeholder: {
 					type: 'static',
@@ -1165,7 +1176,11 @@ Hello \${ctx.username}
 		dims: '2:1-3:1' as AppComponentDimensions,
 
 		customCss: {
-			input: { style: '' }
+			multiselect: {
+				style: '',
+				tooltip:
+					'See https://multiselect.janosh.dev/#with-css-variables for the available variables'
+			}
 		},
 		initialData: {
 			componentInput: undefined,
@@ -1181,6 +1196,22 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select items',
 					onlyStatic: true
+				},
+				create: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true,
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'User creatable'
+				},
+				allowOverflow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
 				}
 			}
 		}
@@ -1474,11 +1505,11 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tabsKindOptions,
-					value: 'tabs' as string
+					value: 'tabs' as string,
+					tooltip: `Tabs can be configured to be either horizontal (tabs), vertical (sidebar), or invisible.`
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab'] as string[]
 		}
@@ -1520,12 +1551,15 @@ Hello \${ctx.username}
 				icon: {
 					type: 'static',
 					value: 'Smile',
-					fieldType: 'icon-select'
+					fieldType: 'icon-select',
+					tooltip: 'The icons can be found at https://lucide.dev/'
 				},
 				color: {
 					type: 'static',
 					value: 'currentColor',
-					fieldType: 'color'
+					fieldType: 'color',
+					tooltip:
+						'The color of the icon can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					type: 'static',
@@ -1705,7 +1739,6 @@ Hello \${ctx.username}
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: buttonColorOptions,
 					value: 'blue',
 					tooltip:
@@ -1800,7 +1833,6 @@ Hello \${ctx.username}
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
-
 			panes: [50, 50] as number[],
 			numberOfSubgrids: 2
 		}
@@ -1902,7 +1934,6 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
@@ -1935,13 +1966,15 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will diplay the type and/or the format on the field next to the label.'
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will add a large gap between the form elements.'
 				}
 			}
 		}
@@ -1979,7 +2012,9 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 'sm',
 					fieldType: 'select',
-					selectOptions: selectOptions.buttonSizeOptions
+					selectOptions: selectOptions.buttonSizeOptions,
+					tooltip:
+						'Size of the tabs can be overwritten with custom styles using `font-size` in CSS or using tailwind classes.'
 				}
 			}
 		}
@@ -2042,6 +2077,35 @@ Hello \${ctx.username}
 		}
 	}
 } as const
+
+export const presetComponents = {
+	sidebartabscomponent: {
+		name: 'Sidebar Tabs',
+		icon: PanelLeft,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'sidebar'
+			}
+		},
+		type: 'sidebartabscomponent'
+	},
+	invisibletabscomponent: {
+		name: 'Invisible Tabs',
+		icon: PanelTopInactive,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'invisibleOnView'
+			}
+		},
+		type: 'invisibletabscomponent'
+	}
+}
+
+export const presets: {
+	[Property in keyof typeof presetComponents]: PresetComponentConfig
+} = presetComponents
 
 export const ccomponents: {
 	[Property in keyof typeof components]: AppComponentConfig<Property>

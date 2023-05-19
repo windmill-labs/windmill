@@ -69,7 +69,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-row  items-center gap-4 w-full">
+<div class="flex flex-row items-center gap-4 w-full">
 	{#if options.length > 1}
 		<div class="w-80 mt-1">
 			<RadioButton {disabled} bind:value={itemKind} {options} />

@@ -8,13 +8,14 @@
 	let scriptEditorDrawer: Drawer
 	export let inlineScript: InlineScript
 	export let editor: Editor | undefined = undefined
+	export let isOpen: boolean | undefined = undefined
 
 	export function openDrawer() {
 		scriptEditorDrawer.openDrawer?.()
 	}
 </script>
 
-<Drawer bind:this={scriptEditorDrawer} size="1200px">
+<Drawer bind:open={isOpen} bind:this={scriptEditorDrawer} size="1200px">
 	<DrawerContent
 		title="Script Editor"
 		noPadding

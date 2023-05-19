@@ -42,7 +42,14 @@
 
 	let editor: Editor
 	let modulePreview: ModulePreview
-	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	let websocketAlive = {
+		pyright: false,
+		black: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
 	let wrapper: HTMLDivElement

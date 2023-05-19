@@ -21,8 +21,8 @@
 						Run on start and app refresh
 						<Tooltip>
 							You may want to disable this so that the background runnable is only triggered by
-							changes to other values or triggered by another computation on a button (See
-							'Recompute Others')
+							changes to other values or triggered by another computation on a button (See 'Trigger
+							Runnables')
 						</Tooltip>
 					</div>
 					<Toggle

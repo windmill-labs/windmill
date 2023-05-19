@@ -5,22 +5,40 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { components } from '../../editor/component'
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'selectcomponent'> | undefined = undefined
 	export let render: boolean
+	export let extraKey: string | undefined = undefined
+	export let preclickAction: (() => Promise<void>) | undefined = undefined
+	export let recomputeIds: string[] | undefined = undefined
+	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
+		undefined
 
-	const { app, worldStore, connectingInput, selectedComponent } =
-		getContext<AppViewerContext>('AppViewerContext')
-	let items: { label: string; value: any; created?: boolean }[]
-	let placeholder: string = 'Select an item'
+	const {
+		app,
+		worldStore,
+		connectingInput,
+		selectedComponent,
+		runnableComponents,
+		componentControl
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	if (controls) {
+		$componentControl[id] = controls
+	}
+
+	let resolvedConfig = initConfig(
+		components['selectcomponent'].initialData.configuration,
+		configuration
+	)
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined
@@ -28,13 +46,13 @@
 
 	let value: string | undefined = outputs?.result.peak()
 
-	$: items && handleItems()
+	$: resolvedConfig.items && handleItems()
 
 	let listItems: { label: string; value: string; created?: boolean }[] = []
 
 	function handleItems() {
-		listItems = Array.isArray(items)
-			? items.map((item) => {
+		listItems = Array.isArray(resolvedConfig.items)
+			? resolvedConfig.items.map((item) => {
 					return {
 						label: item.label,
 						value: JSON.stringify(item.value)
@@ -42,10 +60,10 @@
 			  })
 			: []
 		let rawValue
-		if (defaultValue !== undefined) {
-			rawValue = defaultValue
+		if (resolvedConfig.defaultValue !== undefined) {
+			rawValue = resolvedConfig.defaultValue
 		} else if (listItems.length > 0) {
-			rawValue = items[0].value
+			rawValue = resolvedConfig.items[0].value
 		}
 		if (rawValue !== undefined) {
 			value = JSON.stringify(rawValue)
@@ -56,27 +74,29 @@
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 
-		if (create) {
+		if (resolvedConfig.create) {
 			listItems = listItems.map((i) => {
 				delete i.created
 				return i
 			})
 		}
 
+		preclickAction?.()
 		let result: any = undefined
 		try {
 			result = JSON.parse(e.detail?.['value'])
 		} catch (_) {}
 		value = e.detail?.['value']
 		outputs?.result.set(result)
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+		}
 	}
 
 	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
 
-	let defaultValue: any = undefined
-
 	function handleFilter(e) {
-		if (create) {
+		if (resolvedConfig.create) {
 			if (e.detail.length === 0 && filterText.length > 0) {
 				const prev = listItems.filter((i) => !i.created)
 				listItems = [
@@ -87,26 +107,29 @@
 		}
 	}
 
-	$: defaultValue && handleDefault()
+	$: resolvedConfig.defaultValue && handleDefault()
 
 	function handleDefault() {
-		if (defaultValue) {
-			value = JSON.stringify(defaultValue)
-			outputs?.result.set(defaultValue)
+		if (resolvedConfig.defaultValue) {
+			value = JSON.stringify(resolvedConfig.defaultValue)
+			outputs?.result.set(resolvedConfig.defaultValue)
 		}
 	}
-	let create = false
 	let filterText = ''
 </script>
 
-<InputValue {id} input={configuration.items} bind:value={items} />
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputValue {id} input={configuration.create} bind:value={create} />
-
+{#each Object.keys(components['selectcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{extraKey}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 <InitializeComponent {id} />
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} {verticalAlignment}>
 	<div
 		class="app-select w-full"
 		style="height: 34px;"
@@ -124,23 +147,21 @@
 			on:clear={onChange}
 			on:change={onChange}
 			items={listItems}
+			listAutoWidth={false}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={'border-color: #999;' +
 				SELECT_INPUT_DEFAULT_STYLE.containerStyles +
 				css?.input?.style}
 			{value}
-			{placeholder}
+			placeholder={resolvedConfig.placeholder}
 			on:focus={() => {
 				if (!$connectingInput.opened) {
 					$selectedComponent = [id]
 				}
 			}}
 		>
-			<div slot="item" let:item>
-				{#if create}
-					{item.created ? 'Add new: ' : ''}
-				{/if}
-				{item.label}
+			<div slot="item" let:item
+				>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
 			</div>
 		</Select>
 	</div>

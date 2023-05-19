@@ -12,18 +12,19 @@
 		clearErrorByComponentId,
 		clearJobsByComponentId
 	} from '../appUtils'
-	import type { ButtonComponent, CheckboxComponent } from '../component'
+	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
-	import { Inspect, ToggleRightIcon } from 'lucide-svelte'
+	import { Inspect, List, ToggleRightIcon } from 'lucide-svelte'
 
-	export let components: (BaseAppComponent & (ButtonComponent | CheckboxComponent))[]
+	export let components: (BaseAppComponent &
+		(ButtonComponent | CheckboxComponent | SelectComponent))[]
 	export let id: string
 
 	const { selectedComponent, app, errorByComponent, jobs } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent') {
+	function addComponent(typ: 'buttoncomponent' | 'checkboxcomponent' | 'selectcomponent') {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
 
 		const newComponent = {
@@ -95,6 +96,16 @@
 			title="Add Toggle"
 		>
 			+ <ToggleRightIcon size={14} />
+		</Button>
+		<Button
+			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			wrapperClasses="w-full"
+			color="light"
+			variant="border"
+			on:click={() => addComponent('selectcomponent')}
+			title="Add Select"
+		>
+			+ <List size={14} />
 		</Button>
 	</div>
 </PanelSection>

@@ -212,7 +212,7 @@
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
-					class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
+					class={twMerge('h-full w-full relative', $appStore.css?.['app']?.['viewer']?.class)}
 					style={$appStore.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
@@ -244,11 +244,12 @@
 											$focusedGrid = undefined
 										}}
 										class={twMerge(
-											'bg-gray-100 h-full w-full',
+											'bg-gray-100 h-full w-full relative',
 											$appStore.css?.['app']?.['viewer']?.class
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
+										<div id="app-editor-top-level-drawer" />
 										<div
 											class={classNames(
 												'relative mx-auto w-full h-full overflow-auto',
@@ -261,17 +262,17 @@
 												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
 													<GridEditor {policy} />
 												</div>
-
-												<div id="app-editor-top-level-drawer" />
 											{/if}
 										</div>
 									</div>
 								</Pane>
-								<Pane size={$connectingInput?.opened ? 0 : 30}>
-									<div class="relative h-full w-full">
-										<InlineScriptsPanel />
-									</div>
-								</Pane>
+								{#if $connectingInput?.opened == false}
+									<Pane size={$connectingInput?.opened ? 0 : 30}>
+										<div class="relative h-full w-full">
+											<InlineScriptsPanel />
+										</div>
+									</Pane>
+								{/if}
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>

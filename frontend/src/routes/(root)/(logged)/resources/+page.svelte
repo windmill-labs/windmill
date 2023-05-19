@@ -316,9 +316,9 @@
 			<div>
 				<div class="mb-1 font-semibold text-gray-700">Schema</div>
 				<div class="mb-2 w-full flex flex-row-reverse">
-					<Button on:click={openInferrer} size="sm" color="dark" variant="border"
-						>Infer schema from a json value</Button
-					>
+					<Button on:click={openInferrer} size="sm" color="dark" variant="border">
+						Infer schema from a json value
+					</Button>
 				</div>
 				<SchemaEditor bind:schema={newResourceType.schema} />
 			</div>
@@ -340,9 +340,9 @@
 		documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
 	>
 		<div class="flex flex-row justify-end gap-4">
-			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}
-				>Add a resource type</Button
-			>
+			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>
+				Add a resource type
+			</Button>
 			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
 				Add a resource/API
 			</Button>
@@ -357,19 +357,23 @@
 		</Tab>
 		<Tab size="md" value="types">
 			<div class="flex gap-2 items-center my-1">
-				Resource Types <Tooltip documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
-					>Every resources have Resource Types attached to them which contains its schema and make
-					it easy in scripts and flows to accept only resources of a specific resource type</Tooltip
+				Resource Types
+				<Tooltip
+					documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
 				>
+					Every resources have Resource Types attached to them which contains its schema and make it
+					easy in scripts and flows to accept only resources of a specific resource type
+				</Tooltip>
 			</div>
 		</Tab>
 		<Tab size="md" value="states">
 			<div class="flex gap-2 items-center my-1">
-				States <Tooltip
-					>States are actually resources (but excluded from the Workspace tab for clarity). States
+				States
+				<Tooltip>
+					States are actually resources (but excluded from the Workspace tab for clarity). States
 					are used by scripts to keep data persistent between runs of the same script by the same
-					trigger (schedule or user)</Tooltip
-				>
+					trigger (schedule or user)
+				</Tooltip>
 			</div>
 		</Tab>
 	</Tabs>
@@ -413,8 +417,8 @@
 											>{#if marked}{@html marked}{:else}{path}{/if}</a
 										>
 									</td>
-									<td class="px-2"
-										><a
+									<td class="px-2">
+										<a
 											href="#{name}"
 											on:click={() => {
 												const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
@@ -431,14 +435,16 @@
 														true
 													)
 												}
-											}}><IconedResourceType name={resource_type} after={true} /></a
-										></td
-									>
-									<td
-										><span class="text-gray-500 text-xs"
-											>{removeMarkdown(truncate(description ?? '', 30))}</span
-										></td
-									>
+											}}
+										>
+											<IconedResourceType name={resource_type} after={true} />
+										</a>
+									</td>
+									<td>
+										<span class="text-gray-500 text-xs">
+											{removeMarkdown(truncate(description ?? '', 30))}
+										</span>
+									</td>
 									<td class="text-center">
 										<div class="flex flex-row">
 											<div class="w-10">
@@ -595,8 +601,8 @@
 						{#if resourceTypes}
 							{#each resourceTypes as { name, description, schema, canWrite }}
 								<tr>
-									<td
-										><a
+									<td>
+										<a
 											href="#{name}"
 											on:click={() => {
 												resourceTypeViewerObj = {
@@ -606,22 +612,25 @@
 												}
 
 												resourceTypeViewer.openDrawer?.()
-											}}><IconedResourceType after={true} {name} /></a
-										></td
-									>
-									<td
-										><span class="text-gray-500 text-xs"
-											>{removeMarkdown(truncate(description ?? '', 200))}</span
-										></td
-									>
+											}}
+										>
+											<IconedResourceType after={true} {name} />
+										</a>
+									</td>
+									<td>
+										<span class="text-gray-500 text-xs">
+											{removeMarkdown(truncate(description ?? '', 200))}
+										</span>
+									</td>
 									<td>
 										{#if !canWrite}
-											<Badge
-												>Shared globally<Tooltip
-													>This resource type is from the 'admins' workspace shared with all
-													workspaces</Tooltip
-												></Badge
-											>
+											<Badge>
+												Shared globally
+												<Tooltip>
+													This resource type is from the 'admins' workspace shared with all
+													workspaces
+												</Tooltip>
+											</Badge>
 										{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 											<Button
 												size="sm"
@@ -633,12 +642,13 @@
 												Delete
 											</Button>
 										{:else}
-											<Badge
-												>Non Editable <Tooltip
-													>Since resource types are shared with the whole workspace, only admins can
-													edit/delete them</Tooltip
-												></Badge
-											>
+											<Badge>
+												Non Editable
+												<Tooltip>
+													Since resource types are shared with the whole workspace, only admins can
+													edit/delete them
+												</Tooltip>
+											</Badge>
 										{/if}
 									</td>
 								</tr>

@@ -243,18 +243,31 @@
 		{/if}
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:component={componentSettings.item.data}
+				word="Step"
+			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
-			<GridCondition bind:conditions={componentSettings.item.data.conditions} {component} />
+			<GridCondition
+				bind:conditions={componentSettings.item.data.conditions}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
-			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
+			<GridPane
+				bind:panes={componentSettings.item.data.panes}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
+		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
 				ownId={component.id}
@@ -293,6 +306,7 @@
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
+										tooltip={ccomponents[component.type].customCss[name].tooltip}
 										{name}
 										bind:value={componentSettings.item.data.customCss[name]}
 									/>
