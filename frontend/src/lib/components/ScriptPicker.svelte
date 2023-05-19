@@ -6,7 +6,7 @@
 
 	import Select from 'svelte-select'
 
-	import { getScriptByPath } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
 	import RadioButton from './RadioButton.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'

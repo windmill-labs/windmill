@@ -2,13 +2,15 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { decodeState, emptySchema } from '$lib/utils'
 	import { writable } from 'svelte/store'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -107,5 +109,21 @@
 </script>
 
 <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
+<UnsavedConfirmationModal />
 
-<FlowBuilder {flowStore} {flowStateStore} {selectedId} {loading} />
+<FlowBuilder
+	on:saveInitial={() => {
+		goto(`/flows/edit/${$flowStore.path}`)
+	}}
+	on:deploy={() => {
+		window.history.replaceState(window.history.state, '', `/flows/edit/${$flowStore.path}`)
+		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	}}
+	on:details={() => {
+		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	}}
+	{flowStore}
+	{flowStateStore}
+	{selectedId}
+	{loading}
+/>

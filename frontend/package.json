@@ -82,6 +82,7 @@
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
 		"date-fns": "^2.29.3",
+		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
@@ -157,6 +158,16 @@
 			"svelte": "./package/components/FlowViewer.svelte",
 			"default": "./package/components/FlowViewer.svelte"
 		},
+		"./components/FlowBuilder.svelte": {
+			"types": "./package/components/FlowBuilder.svelte.d.ts",
+			"svelte": "./package/components/FlowBuilder.svelte",
+			"default": "./package/components/FlowBuilder.svelte"
+		},
+		"./components/FlowEditor.svelte": {
+			"types": "./package/components/flows/FlowEditor.svelte.d.ts",
+			"svelte": "./package/components/flows/FlowEditor.svelte",
+			"default": "./package/components/flows/FlowEditor.svelte"
+		},
 		"./components/SchemaViewer.svelte": {
 			"types": "./package/components/SchemaViewer.svelte.d.ts",
 			"svelte": "./package/components/SchemaViewer.svelte",
@@ -226,6 +237,12 @@
 			],
 			"components/FlowViewer.svelte": [
 				"./package/components/FlowViewer.svelte.d.ts"
+			],
+			"components/FlowBuilder.svelte": [
+				"./package/components/FlowBuilder.svelte.d.ts"
+			],
+			"components/FlowEditor.svelte": [
+				"./package/components/flows/FlowEditor.svelte.d.ts"
 			],
 			"components/SchemaViewer.svelte": [
 				"./package/components/SchemaViewer.svelte.d.ts"

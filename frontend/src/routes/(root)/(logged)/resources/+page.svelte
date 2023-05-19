@@ -26,14 +26,8 @@
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
-	import {
-		canWrite,
-		classNames,
-		emptySchema,
-		removeMarkdown,
-		sendUserToast,
-		truncate
-	} from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import {
 		faChain,
 		faCircle,

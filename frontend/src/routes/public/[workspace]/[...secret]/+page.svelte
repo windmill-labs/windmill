@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment'
+	import { BROWSER } from 'esm-env'
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
@@ -30,7 +30,7 @@
 		}
 	}
 
-	if (browser) {
+	if (BROWSER) {
 		loadApp()
 	}
 

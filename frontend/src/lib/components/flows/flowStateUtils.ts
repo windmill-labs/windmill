@@ -10,7 +10,7 @@ import {
 } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
-import { getScriptByPath } from '$lib/utils'
+import { getScriptByPath } from '$lib/scripts'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 import { charsToNumber, numberToChars } from './idUtils'

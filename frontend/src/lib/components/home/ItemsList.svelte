@@ -14,7 +14,6 @@
 		RawAppService
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
 
@@ -35,6 +34,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import RawAppRow from '../common/table/RawAppRow.svelte'
+	import { canWrite } from '$lib/utils'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean

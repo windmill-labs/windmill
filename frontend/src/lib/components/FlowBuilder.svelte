@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import { FlowService, ScheduleService, type Flow, type FlowModule, DraftService } from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
+	import { encodeState, formatCron } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+
 	import { faCalendarAlt, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
@@ -20,7 +21,8 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { loadHubScripts } from '$lib/scripts'
+	import { createEventDispatcher } from 'svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -28,6 +30,8 @@
 	export let loading = false
 	export let flowStore: Writable<Flow>
 	export let flowStateStore: Writable<FlowState>
+
+	const dispatch = createEventDispatcher()
 
 	async function createSchedule(path: string) {
 		const { cron, timezone, args, enabled } = $scheduleStore
@@ -79,7 +83,7 @@
 			})
 			if (initialPath == '') {
 				$dirtyStore = false
-				goto(`/flows/edit/${flow.path}`)
+				dispatch('saveInitial')
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -155,8 +159,7 @@
 			}
 			loadingSave = false
 			$dirtyStore = false
-			window.history.replaceState(window.history.state, '', `/flows/edit/${flow.path}`)
-			goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+			dispatch('deploy')
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)
 			loadingSave = false
@@ -306,7 +309,7 @@
 	}> = [
 		{
 			label: 'Exit & see details',
-			onClick: () => goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+			onClick: () => dispatch('details')
 		}
 	]
 
@@ -319,8 +322,6 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-
-<UnsavedConfirmationModal />
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />

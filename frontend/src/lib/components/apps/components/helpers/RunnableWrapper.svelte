@@ -7,7 +7,7 @@
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 	import { goto } from '$app/navigation'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined

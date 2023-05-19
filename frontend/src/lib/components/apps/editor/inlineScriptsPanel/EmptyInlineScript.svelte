@@ -7,7 +7,9 @@
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { capitalize, emptySchema, getScriptByPath } from '$lib/utils'
+	import { capitalize, emptySchema } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
+
 	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'

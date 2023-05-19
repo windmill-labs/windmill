@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { BROWSER } from 'esm-env'
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -44,6 +44,8 @@
 		captureInput = capture
 		jsonSchema = { required: [], properties: {}, ...convert(capture) }
 	}
+
+	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 </script>
 
 <Drawer
@@ -63,14 +65,10 @@
 				class="text-2xl"
 				on:click={(e) => {
 					e.preventDefault()
-					copyToClipboard(
-						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path}`
-					)
+					copyToClipboard(`${hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path}`)
 				}}
-				href="{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}"
-				>{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}
+				href="{hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}"
+				>{hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}
 				<Icon data={faClipboard} /></a
 			>
 		</div>
@@ -78,7 +76,7 @@
 
 		<div class="text-xs box mb-4 b">
 			<pre class="overflow-auto"
-				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path} \\
+				>{`curl -X POST ${hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path} \\
    -H 'Content-Type: application/json' \\
    -d '{"foo": 42}'`}</pre
 			>

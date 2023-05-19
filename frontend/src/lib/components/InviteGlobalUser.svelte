@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import { Button } from './common'

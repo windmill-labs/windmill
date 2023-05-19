@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -17,6 +17,7 @@
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	// Exported
 	export let schema: Schema = emptySchema()

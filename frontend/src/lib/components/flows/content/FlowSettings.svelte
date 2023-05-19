@@ -3,6 +3,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
+	import { BROWSER } from 'esm-env'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -13,7 +14,6 @@
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
 	import Slider from '$lib/components/Slider.svelte'
-	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
@@ -22,8 +22,9 @@
 
 	const { selectedId, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
-	$: syncedUrl = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
+	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
+	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
+	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
 </script>
 
 <div class="h-full overflow-hidden">
@@ -107,7 +108,7 @@
 															e.preventDefault()
 															copyToClipboard(url)
 														}}
-														href={$page.url.protocol + '//' + url}
+														href={url}
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
@@ -123,7 +124,7 @@
 															e.preventDefault()
 															copyToClipboard(syncedUrl)
 														}}
-														href={$page.url.protocol + '//' + syncedUrl}
+														href={syncedUrl}
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{syncedUrl}

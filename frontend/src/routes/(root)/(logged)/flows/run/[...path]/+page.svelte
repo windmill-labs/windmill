@@ -12,8 +12,7 @@
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
-		getModifierKey,
-		sendUserToast
+		getModifierKey
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
@@ -21,6 +20,7 @@
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const path = $page.params.path
 	let flow: Flow | undefined

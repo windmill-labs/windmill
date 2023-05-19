@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { JobService, Preview, ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { emptySchema, emptyString } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let resource_type: string
 	export let args: Record<string, any> | any = {}

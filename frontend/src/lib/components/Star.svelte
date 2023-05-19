@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FavoriteService } from '$lib/gen'
 	import { starStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
 	import { Star, StarOff } from 'lucide-svelte'
 

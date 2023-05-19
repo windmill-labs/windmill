@@ -7,7 +7,6 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { isOwner, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -25,6 +24,8 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { isOwner } from '$lib/utils'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined

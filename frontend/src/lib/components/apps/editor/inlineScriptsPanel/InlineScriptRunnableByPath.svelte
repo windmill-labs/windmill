@@ -2,7 +2,7 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
-	import { emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type {
 		ConnectedAppInput,
@@ -27,6 +27,8 @@
 	import { loadSchema } from '../../utils'
 	import { inferArgs } from '$lib/infer'
 	import RunButton from './RunButton.svelte'
+	import { getScriptByPath } from '$lib/scripts'
+	import { sendUserToast } from '$lib/toast'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
