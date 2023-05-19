@@ -100,18 +100,6 @@
 			event.preventDefault()
 			event.stopPropagation()
 			dispatch('click', event)
-			// if (href) {
-			// 	if (href.startsWith('data')) {
-			// 		return
-			// 	}
-			// 	if (href.startsWith('http') || target == '_blank') {
-			// 		window.open(href, target)
-			// 	} else {
-			// 		loading = true
-			// 		await goto(href)
-			// 		loading = false
-			// 	}
-			// }
 		}
 	}
 
@@ -147,6 +135,7 @@
 			on:click={() => {
 				loading = true
 				dispatch('click', event)
+				loading = false
 			}}
 			{href}
 			{download}
