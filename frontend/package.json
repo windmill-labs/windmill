@@ -182,6 +182,10 @@
 			"types": "./package/common.d.ts",
 			"default": "./package/common.js"
 		},
+		"./stores": {
+			"types": "./package/stores.d.ts",
+			"default": "./package/stores.js"
+		},
 		"./components/icons": {
 			"types": "./package/components/icons/index.d.ts",
 			"svelte": "./package/components/icons/index.js",
@@ -252,6 +256,9 @@
 			],
 			"common": [
 				"./package/common.d.ts"
+			],
+			"stores": [
+				"./package/stores.d.ts"
 			],
 			"components/icons": [
 				"./package/components/icons/index.d.ts"
