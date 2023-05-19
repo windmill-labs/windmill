@@ -31,6 +31,7 @@
     "highlight.js": "^11.8.0",
     "react": "^18.2.0",
     "svelte-preprocess-react": "^0.15.0",
+    "windmill-client": "^0.3.1",
     "windmill-components": "file:../frontend"
   }
 }
