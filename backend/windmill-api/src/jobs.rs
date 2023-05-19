@@ -1243,9 +1243,25 @@ where
                     .map(|x| x.contains("raw=true"))
                     .unwrap_or(false)
                 {
-                    let bytes = Bytes::from_request(req, _state).await?;
-                    serde_json::from_slice::<serde_json::Value>(bytes);
-                    return Ok(Self(None, Some(bytes)));
+                    let bytes = Bytes::from_request(req, _state)
+                        .await
+                        .map_err(IntoResponse::into_response)?;
+                    let str = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                        Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
+                    })?;
+                    let payload =
+                        serde_json::from_str::<Option<serde_json::Value>>(&str).map_err(|e| {
+                            Error::BadRequest(format!("invalid json: {}", e)).into_response()
+                        })?;
+                    return match payload {
+                        Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), Some(str))),
+                        None => Ok(Self(None, Some(str))),
+                        Some(x) => {
+                            let mut map = serde_json::Map::new();
+                            map.insert("body".to_string(), x);
+                            Ok(Self(Some(map), Some(str)))
+                        }
+                    };
                 } else {
                     let Json(payload): Json<Option<serde_json::Value>> =
                         req.extract().await.map_err(IntoResponse::into_response)?;
@@ -1316,6 +1332,19 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
+
+fn add_raw_string(
+    raw_string: Option<String>,
+    mut args: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    if let Some(raw_string) = raw_string {
+        args.insert(
+            "raw_string".to_string(),
+            serde_json::Value::String(raw_string),
+        );
+    }
+    return args;
+}
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1323,12 +1352,13 @@ pub async fn run_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -1360,7 +1390,7 @@ pub async fn run_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
@@ -1368,6 +1398,7 @@ pub async fn run_job_by_path(
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1607,7 +1638,7 @@ pub async fn run_wait_result_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -1616,6 +1647,7 @@ pub async fn run_wait_result_job_by_path(
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1657,7 +1689,7 @@ pub async fn run_wait_result_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
@@ -1666,6 +1698,7 @@ pub async fn run_wait_result_job_by_hash(
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1707,7 +1740,7 @@ pub async fn run_wait_result_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
@@ -1715,6 +1748,7 @@ pub async fn run_wait_result_flow_by_path(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1836,13 +1870,14 @@ pub async fn run_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
