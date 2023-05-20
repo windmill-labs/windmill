@@ -13,7 +13,13 @@
 			<li class="flex pb-2 last:pb-0">
 				<span class="font-black text-gray-700 text-xs">{key}:</span>
 				{#if val.type == 'static'}
-					<ObjectViewer json={val.value} />
+					{#if typeof val.value == 'object'}
+						<ObjectViewer json={val.value} />
+					{:else}
+						<span class="text-xs text-black whitespace-pre-wrap ml-2">
+							{val.value}
+						</span>
+					{/if}
 				{:else}
 					<span class="text-xs text-black whitespace-pre-wrap ml-2">
 						{cleanExpr(val.expr)}
