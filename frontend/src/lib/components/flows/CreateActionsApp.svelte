@@ -93,10 +93,10 @@
 		<h2 class="border-b pb-1 mt-10 mb-4"
 			>IIFE JS code <Tooltip
 				documentationLink="https://docs.windmill.dev/docs/react_vue_svelte_apps/react"
-				>Bundle that contains an IIFE code that will mount itself to the root element. Any framework
-				of vanilla JS can be used to create an app and templates are provided for the major
+				>Bundle that contains an IIFE code that will mount itself to a "root" element. Any framework
+				or vanilla JS can be used to create an app and templates are provided for the major
 				frameworks: React/Vue/Svelte. In those frontend apps, it is possible to inline scripts
-				directly to be executed by windmill backend which make it a convenient way of building apps
+				directly to be executed by windmill backend which makes it a convenient way of building apps
 				with both frontend and backend all-in-one.</Tooltip
 			></h2
 		>
