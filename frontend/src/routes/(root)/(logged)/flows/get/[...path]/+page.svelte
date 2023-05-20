@@ -274,7 +274,7 @@
 						size="xs"
 						startIcon={{ icon: faCalendar }}
 					>
-						Schedule
+						New Schedule
 					</Button>
 					<Button
 						on:click={() => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow')}

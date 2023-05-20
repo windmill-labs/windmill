@@ -209,6 +209,10 @@
 				{:else if stepDetail.value.type == 'flow'}
 					<FlowPathViewer noSide path={stepDetail.value.path} />
 				{/if}
+			{:else}
+				<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					Step {stepDetail} selected
+				</p>
 			{/if}
 		</div>
 	{/if}
