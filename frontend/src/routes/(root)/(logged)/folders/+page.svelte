@@ -94,7 +94,7 @@
 		</div>
 	</PageHeader>
 
-	<div class="relative mb-20">
+	<div class="relative mb-20 pt-8">
 		<TableCustom>
 			<tr slot="header-row">
 				<th class="!px-0" />
