@@ -89,7 +89,7 @@
 						switchWorkspace('admins')
 						close()
 					}}
-					class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					class="text-gray-700 block px-4 py-2 font-normal text-sm hover:bg-gray-100 hover:text-gray-900"
 					role="menuitem"
 					tabindex="-1"
 				>
