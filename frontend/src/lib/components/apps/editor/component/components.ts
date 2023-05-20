@@ -1166,6 +1166,13 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'object'
+				},
+				fullWidth: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
 		}
@@ -1239,6 +1246,13 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
+				},
+				fullWidth: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
 		}
