@@ -74,8 +74,8 @@
 		{#if !value || Array.isArray(value)}
 			<MultiSelect
 				bind:outerDiv
-				outerDivClass={' h-full'}
-				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto'} max-h-full`}
+				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
+				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
 				bind:selected={value}
 				on:change={() => {
 					outputs?.result.set([...(value ?? [])])
