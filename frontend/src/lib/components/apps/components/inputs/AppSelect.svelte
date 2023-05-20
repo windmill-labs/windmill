@@ -147,7 +147,7 @@
 			on:clear={onChange}
 			on:change={onChange}
 			items={listItems}
-			listAutoWidth={false}
+			listAutoWidth={resolvedConfig.fullWidth}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={'border-color: #999;' +
 				SELECT_INPUT_DEFAULT_STYLE.containerStyles +
