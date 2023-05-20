@@ -169,7 +169,7 @@
 							size="xs"
 							variant="border"
 							disabled={flow == undefined}
-							color="dark"
+							color="light"
 							on:click={() => {
 								//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
 								savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)

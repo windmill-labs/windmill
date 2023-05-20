@@ -10,12 +10,12 @@
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
-	canWrite,
+		canWrite,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptySchema,
 		emptyString,
-		getModifierKey,
+		getModifierKey
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -229,7 +229,7 @@
 							<Button
 								variant="border"
 								size="xs"
-								color="dark"
+								color="light"
 								on:click={() => {
 									//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
 									savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)

@@ -90,19 +90,21 @@
 				bind:value={group.summary}
 				placeholder="Summary of the group"
 			/>
-			<Button
-				disabled={!can_write}
-				size="xs"
-				on:click={async () => {
-					await GroupService.updateGroup({
-						workspace: $workspaceStore ?? '',
-						name,
-						requestBody: { summary: group?.summary }
-					})
-					dispatch('update')
-					sendUserToast('New summary saved')
-				}}>Save Summary</Button
-			>
+			<div class="flex justify-end">
+				<Button
+					disabled={!can_write}
+					size="xs"
+					on:click={async () => {
+						await GroupService.updateGroup({
+							workspace: $workspaceStore ?? '',
+							name,
+							requestBody: { summary: group?.summary }
+						})
+						dispatch('update')
+						sendUserToast('New summary saved')
+					}}>Save Summary</Button
+				>
+			</div>
 		</div>
 	{:else}
 		<Skeleton layout={[[4]]} />
