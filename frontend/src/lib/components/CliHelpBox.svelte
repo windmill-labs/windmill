@@ -15,25 +15,25 @@
 
 <div class="text-sm mt-2 flex">
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<span
-		class="underline mr-4"
+	<button
+		class="underline mr-4 text-gray-600"
 		on:click={() => {
 			opened = !opened
 		}}
 	>
 		CLI quick setup
 		<Icon class="ml-2" data={opened ? faChevronUp : faChevronDown} scale={0.7} />
-	</span>
+	</button>
 </div>
 
 {#if opened}
 	<div
-		transition:slide|local
-		class="bg-gray-100 border-l-4 border-gray-600 text-gray-700 p-4 m-4"
+		transition:slide|local={{ duration: 100 }}
+		class="border border-gray-200 rounded-md p-4 mt-2 text-sm text-gray-600"
 		role="alert"
 		id="dynamic-input-help-box"
 	>
-		<ul class="pl-0 list-decimal list-inside">
+		<ul class="pl-0 pt-2 list-decimal list-inside">
 			<li
 				>Install the latest wmill CLI from deno.land: <InlineCodeCopy
 					content={'deno install --unstable -A https://deno.land/x/wmill/main.ts'}

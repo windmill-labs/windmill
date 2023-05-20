@@ -219,7 +219,7 @@
 												size="xs"
 												variant="border"
 												spacingSize="xs2"
-												btnClasses={'group-hover:block hidden'}
+												btnClasses={'group-hover:block hidden -my-2'}
 												on:click={(e) => {
 													e.stopPropagation()
 													i.isEditing = !i.isEditing
@@ -236,7 +236,7 @@
 												size="xs"
 												spacingSize="xs2"
 												variant="border"
-												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
+												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden -my-2'}
 												on:click={() => deleteInput(i)}
 											>
 												<X class="w-4 h-4" />
