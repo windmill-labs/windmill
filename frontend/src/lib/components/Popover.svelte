@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
+	import Portal from 'svelte-portal'
 
 	export let placement: PopoverPlacement = 'auto'
 	export let notClickable = false
@@ -46,15 +47,17 @@
 	</button>
 {/if}
 {#if showTooltip && !disablePopup}
-	<div
-		use:popperContent={popperOptions}
-		on:mouseenter={open}
-		on:mouseleave={close}
-		class="z-50 py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800
+	<Portal>
+		<div
+			use:popperContent={popperOptions}
+			on:mouseenter={open}
+			on:mouseleave={close}
+			class="z-[2000] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800
 		whitespace-normal text-left {popupClass}"
-	>
-		<div class="max-w-sm">
-			<slot name="text" />
+		>
+			<div class="max-w-sm">
+				<slot name="text" />
+			</div>
 		</div>
-	</div>
+	</Portal>
 {/if}

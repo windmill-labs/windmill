@@ -9,6 +9,7 @@
 	import type { TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { PropertyGroup } from './quickStyleProperties'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -90,7 +91,11 @@
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
-				<div class="text-sm font-medium text-gray-600 pb-0.5"> Tailwind classes </div>
+				<div class="text-sm font-medium text-gray-600 pb-0.5">
+					Tailwind classes<Tooltip documentationLink="https://tailwindcss.com/"
+						>Use any tailwind classes to style your component</Tooltip
+					></div
+				>
 				<div class="relative">
 					<ClearableInput bind:value={value.class} />
 				</div>
