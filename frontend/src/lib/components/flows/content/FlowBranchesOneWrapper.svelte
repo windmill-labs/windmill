@@ -44,7 +44,7 @@
 							</div>
 							{#each value.branches as branch, i}
 								<div class="flex flex-col gap-x-2 items-center">
-									<div class="w-full flex gap-2 px-2 pt-10 pb-2">
+									<div class="w-full flex gap-2 px-2 pt-4 pb-2">
 										<Badge large={true} color="blue">Branch {i + 1}</Badge>
 										<input
 											class="w-full"

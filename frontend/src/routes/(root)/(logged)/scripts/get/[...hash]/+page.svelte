@@ -331,7 +331,7 @@
 						size="xs"
 						startIcon={{ icon: faCalendar }}
 					>
-						Schedule
+						New Schedule
 					</Button>
 				{/if}
 				<Button
