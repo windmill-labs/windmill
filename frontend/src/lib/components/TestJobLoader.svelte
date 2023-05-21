@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 
@@ -166,6 +166,7 @@
 					//only CompletedJob has success property
 					isCompleted = true
 					if (currentId === id) {
+						await tick()
 						dispatch('done', job)
 						currentId = undefined
 					}

@@ -70,6 +70,7 @@
 					placeholder={config?.['placeholder']}
 					onlyStatic={config?.['onlyStatic']}
 					customTitle={config?.['customTitle']}
+					noVariablePicker={config?.['noVariablePicker']}
 				/>
 			{/if}
 		{/each}

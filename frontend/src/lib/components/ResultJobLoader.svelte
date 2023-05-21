@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 
@@ -35,6 +35,7 @@
 			if (lastStartedAt < startedAt) {
 				lastStartedAt = startedAt
 				if (testId) {
+					dispatch('started', testId)
 					try {
 						await watchJob(testId)
 					} catch {
@@ -149,6 +150,7 @@
 					isCompleted = true
 					if (currentId === id) {
 						job = { ...maybe_job, id }
+						await tick()
 						dispatch('done', job)
 						currentId = undefined
 					}

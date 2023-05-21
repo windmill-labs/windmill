@@ -14,7 +14,6 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'rangecomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean = true
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
@@ -48,12 +47,7 @@
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.defaultLow} bind:value={values[0]} />
-<InputValue
-	on:done={() => (initializing = false)}
-	{id}
-	input={configuration.defaultHigh}
-	bind:value={values[1]}
-/>
+<InputValue {id} input={configuration.defaultHigh} bind:value={values[1]} />
 
 <InitializeComponent {id} />
 

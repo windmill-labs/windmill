@@ -140,7 +140,7 @@
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
-				title={componentSettings?.item.data.type
+				title={componentSettings?.item.data.type == 'steppercomponent'
 					? 'Validations'
 					: hasInteraction
 					? 'Event handler'
@@ -205,8 +205,8 @@
 								>
 									<svelte:fragment slot="action">
 										<Tooltip>
-											The runnable inputs of a button component are not settable by the user. They
-											must be defined statically or connected.
+											The runnable inputs are inferred from the inputs of the flow or script
+											parameters this component is attached to.
 										</Tooltip>
 									</svelte:fragment>
 

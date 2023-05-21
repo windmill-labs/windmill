@@ -210,8 +210,6 @@
 			return
 		}
 
-		loading = true
-
 		try {
 			let njob = await resultJobLoader?.abstractRun(() => {
 				const nonStaticRunnableInputs = {}
@@ -281,6 +279,7 @@
 	}
 
 	async function setResult(res: any, jobId: string | undefined) {
+		dispatch('done')
 		const hasRes = res !== undefined && res !== null
 
 		if (transformer) {
@@ -410,6 +409,10 @@
 {/if}
 
 <ResultJobLoader
+	on:started={(e) => {
+		loading = true
+		dispatch('started', e.detail)
+	}}
 	workspaceOverride={workspace}
 	on:done={(e) => {
 		lastJobId = e.detail.id

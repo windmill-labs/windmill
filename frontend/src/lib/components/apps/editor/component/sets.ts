@@ -57,7 +57,9 @@ const display: ComponentSet = {
 		'mapcomponent',
 		'htmlcomponent',
 		'pdfcomponent',
-		'displaycomponent'
+		'displaycomponent',
+		'logcomponent',
+		'flowstatuscomponent'
 	]
 } as const
 

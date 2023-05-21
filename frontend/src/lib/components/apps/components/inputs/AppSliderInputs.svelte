@@ -14,7 +14,6 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean = true
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
@@ -79,12 +78,7 @@
 <InputValue {id} input={configuration.step} bind:value={step} />
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue
-	on:done={() => (initializing = false)}
-	{id}
-	input={configuration.defaultValue}
-	bind:value={values[0]}
-/>
+<InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>

@@ -88,6 +88,8 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type LogComponent = BaseComponent<'logcomponent'>
+export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
@@ -127,6 +129,8 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
+	| LogComponent
+	| FlowStatusComponent
 	| TextInputComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
@@ -298,7 +302,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				noVariablePicker: true
 			}
 		}
 	}
@@ -397,6 +402,42 @@ export const components = {
 				value: { foo: 42 }
 			},
 			configuration: {}
+		}
+	},
+	logcomponent: {
+		name: 'Log',
+		icon: Monitor,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			}
+		}
+	},
+	flowstatuscomponent: {
+		name: 'Flow Status',
+		icon: Monitor,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			}
 		}
 	},
 	containercomponent: {

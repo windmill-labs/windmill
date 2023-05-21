@@ -632,6 +632,14 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	logcomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
+	flowstatuscomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
 	barchartcomponent: {
 		container: containerDefaultProps
 	},
