@@ -227,11 +227,14 @@
 					markdown: {
 						isTrusted: true
 					},
-					workspaceFolder: {
-						uri: vscode.Uri.parse(uri),
-						name: 'windmill',
-						index: 0
-					},
+					workspaceFolder:
+						name != 'deno'
+							? {
+									uri: vscode.Uri.parse(uri),
+									name: 'windmill',
+									index: 0
+							  }
+							: undefined,
 					initializationOptions,
 					middleware: {
 						workspace: {
