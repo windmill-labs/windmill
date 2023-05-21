@@ -210,6 +210,39 @@ export async function getVariable(path: string): Promise<string | undefined> {
   }
 }
 
+/**
+ * Set a variable by path, create if not exist
+ * @param path path of the variable
+ * @param value value of the variable
+ * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
+ * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
+ */
+export async function setVariable(
+  path: string,
+  value: string,
+  isSecretIfNotExist?: boolean,
+  descriptionIfNotExist?: string
+): Promise<void> {
+  const workspace = getWorkspace();
+  if (await VariableService.existsVariable({ workspace, path })) {
+    await VariableService.updateVariable({
+      workspace,
+      path,
+      requestBody: { value },
+    });
+  } else {
+    await VariableService.createVariable({
+      workspace,
+      requestBody: {
+        path,
+        value,
+        is_secret: isSecretIfNotExist ?? false,
+        description: descriptionIfNotExist ?? "",
+      },
+    });
+  }
+}
+
 async function transformLeaves(d: {
   [key: string]: any;
 }): Promise<{ [key: string]: any }> {
