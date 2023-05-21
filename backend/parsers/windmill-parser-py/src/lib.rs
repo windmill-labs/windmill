@@ -183,6 +183,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "seleniumwire" => "selenium-wire",
     "openbb-terminal" => "openbb[all]",
     "riskfolio" => "riskfolio-lib",
+    "smb" => "pysmb",
 };
 
 fn replace_import(x: String) -> String {
