@@ -55,7 +55,14 @@
 		ncontext = ncontext
 	}
 
+	function resizeWindow() {
+		!isEditor && ($breakpoint = window.innerWidth < 769 ? 'sm' : 'lg')
+	}
+
+	resizeWindow()
+
 	const parentWidth = writable(0)
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
@@ -92,11 +99,11 @@
 			.filter((x) => x != undefined) as string[]
 	}
 
-	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[710px]'
+	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
-<svelte:window on:hashchange={hashchange} />
+<svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
 <div id="app-editor-top-level-drawer" />
 
