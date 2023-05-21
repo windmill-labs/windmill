@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.102.1](https://github.com/windmill-labs/windmill/compare/v1.102.0...v1.102.1) (2023-05-21)
+
+
+### Bug Fixes
+
+* add setVariable to deno-client ([501bb11](https://github.com/windmill-labs/windmill/commit/501bb11d9676439062be7a96c9f6655c2b609ee1))
+
 ## [1.102.0](https://github.com/windmill-labs/windmill/compare/v1.101.1...v1.102.0) (2023-05-19)
 
 
