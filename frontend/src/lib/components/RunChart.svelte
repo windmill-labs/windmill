@@ -110,11 +110,8 @@
 	function getMaxTime(jobs: CompletedJob[] | undefined): Date {
 		return addSeconds(new Date(jobs?.[0]?.started_at ?? new Date().toString()), 15)
 	}
-</script>
 
-<Scatter
-	{data}
-	options={{
+	$: scatterOptions = {
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
@@ -133,10 +130,10 @@
 
 		scales: {
 			x: {
+				type: 'time',
 				grid: {
 					display: false
 				},
-				type: 'time',
 				min: minTime,
 				max: maxTime
 			},
@@ -152,5 +149,7 @@
 			}
 		},
 		animation: false
-	}}
-/>
+	} as any
+</script>
+
+<Scatter {data} options={scatterOptions} />
