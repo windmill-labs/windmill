@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, createEventDispatcher } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
@@ -11,6 +11,8 @@
 	export let result: any
 	export let render: boolean
 
+	const dispatch = createEventDispatcher()
+
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -18,9 +20,9 @@
 		result: Output<any>
 	}
 
-	function setOutput(v: any) {
-		// console.log('setnr', id)
-		outputs?.result?.set(v, true)
+	function setOutput(newResult: any) {
+		dispatch('done')
+		outputs?.result?.set(newResult, true)
 	}
 
 	$: result && outputs && setOutput(result)

@@ -162,7 +162,13 @@
 		<slot />
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent
+		{render}
+		bind:result
+		{id}
+		{componentInput}
+		on:done={() => (initializing = false)}
+	>
 		<slot />
 	</NonRunnableComponent>
 {/if}
