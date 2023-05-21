@@ -62,6 +62,10 @@
 		}
 	})
 
+	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
+		initializing = false
+	}
+
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
 	$: if (!autoRefresh && componentInput?.type === 'runnable' && componentInput.autoRefresh) {
 		componentInput.autoRefresh = false
