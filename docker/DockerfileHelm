@@ -12,4 +12,4 @@ RUN apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/aw
     unzip awscliv2.zip && \
     ./aws/install 
 
-CMD ["./windmill"]
+CMD ["windmill"]
