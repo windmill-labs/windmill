@@ -24,7 +24,6 @@
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = false
 	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
 
@@ -38,7 +37,6 @@
 		configuration
 	)
 
-	$: initializing = resolvedConfig?.label == undefined
 	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	let outputs = initOutput($worldStore, id, {

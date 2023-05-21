@@ -168,6 +168,7 @@
 								placeholder={condition?.['placeholder']}
 								customTitle={condition?.['customTitle']}
 								displayType={false}
+								noVariablePicker={true}
 							/>
 						</div>
 

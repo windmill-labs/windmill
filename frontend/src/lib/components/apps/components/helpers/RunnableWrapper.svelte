@@ -53,10 +53,6 @@
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$: if (initializing && result != undefined) {
-		initializing = false
-	}
-
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
 	}
@@ -156,6 +152,8 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
+		on:started
+		on:done={() => (initializing = false)}
 		on:success={() => handleSideEffect(true)}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}

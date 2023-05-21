@@ -3,7 +3,7 @@
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
@@ -99,10 +99,11 @@
 			variant="border"
 			size="xs"
 			startIcon={{ icon: faRefresh }}
-			on:click={() => {
+			on:click={async () => {
 				sendUserToast('Refreshing inputs')
 				refresh()
 				$stateId = $stateId + 1
+				await tick()
 			}}
 		>
 			Refresh

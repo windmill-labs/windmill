@@ -46,6 +46,8 @@
 	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
 	import AppSelectStep from '../../components/inputs/AppSelectStep.svelte'
 	import AppDownload from '../../components/display/AppDownload.svelte'
+	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
+	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -132,6 +134,22 @@
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'logcomponent'}
+			<AppLogsComponent
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'flowstatuscomponent'}
+			<AppFlowStatusComponent
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
@@ -237,7 +255,6 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
-				bind:initializing
 				bind:errorHandledByComponent
 				{render}
 			/>
@@ -368,7 +385,6 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
-				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'horizontaldividercomponent'}
@@ -398,7 +414,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				{render}
-				bind:initializing
 			/>
 		{:else if component.type === 'tabscomponent' && component.tabs}
 			<AppTabs
