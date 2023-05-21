@@ -77,7 +77,7 @@
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.1",
 		"ag-grid-svelte": "^0.1.4",
-		"chart.js": "^3.9.1",
+		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
