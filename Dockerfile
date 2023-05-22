@@ -137,8 +137,10 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ 
 
 RUN mkdir -p ${APP}
 
+RUN ln -s ${APP}/windmill /usr/local/bin/windmill
+
 WORKDIR ${APP}
 
 EXPOSE 8000
 
-CMD ["./windmill"]
+CMD ["windmill"]
