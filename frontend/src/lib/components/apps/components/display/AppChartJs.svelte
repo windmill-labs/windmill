@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Chart } from 'svelte-chartjs'
-	import { Chart as ChartJS, registerables } from 'chart.js'
+	import { Chart as ChartJS, registerables, type ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -32,7 +32,7 @@
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false
-	}
+	} as ChartOptions
 
 	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
 
@@ -55,7 +55,7 @@
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result && resolvedConfig.type}
 			{#key resolvedConfig.type}
-				<Chart type={resolvedConfig.type} data={result} options={options ?? {}} />
+				<Chart type={resolvedConfig.type} data={result} {options} />
 			{/key}
 		{/if}
 	</div>
