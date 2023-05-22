@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.103.0](https://github.com/windmill-labs/windmill/compare/v1.102.1...v1.103.0) (2023-05-22)
+
+
+### Features
+
+* docker as a new supported language ([b8da43d](https://github.com/windmill-labs/windmill/commit/b8da43db2c31225b0ade8cd9995aeacf2c0eae86))
+* **frontend:** add flowstatus and log component for apps ([11a52f2](https://github.com/windmill-labs/windmill/commit/11a52f2d593a9b233fd138c7af52fc34fa1e6173))
+* **frontend:** add plain chartjs component ([#1621](https://github.com/windmill-labs/windmill/issues/1621)) ([eb99b73](https://github.com/windmill-labs/windmill/commit/eb99b73346a02993fcaeb6df906fcaf663db259d))
+* **frontend:** disable tabs ([#1623](https://github.com/windmill-labs/windmill/issues/1623)) ([5905d3b](https://github.com/windmill-labs/windmill/commit/5905d3b103b0d1466c4d11b248aec9adbe3bfaad))
+
 ## [1.102.1](https://github.com/windmill-labs/windmill/compare/v1.102.0...v1.102.1) (2023-05-21)
 
 
