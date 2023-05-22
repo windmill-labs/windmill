@@ -10,7 +10,7 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical } from 'lucide-svelte'
-	import InputsSpecEditor from './InputsSpecEditor.svelte'
+	import GridTabDisabled from './GridTabDisabled.svelte'
 
 	export let tabs: string[] = []
 	export let disabledTabs: RichConfiguration[] = []
@@ -20,8 +20,8 @@
 	// Migration code
 	$: if (tabs.length !== disabledTabs?.length && canDisableTabs) {
 		disabledTabs = Array(tabs.length).fill({
-			type: 'eval',
-			expr: 'false',
+			type: 'static',
+			value: false,
 			fieldType: 'boolean'
 		})
 	}
@@ -56,6 +56,8 @@
 			}
 		]
 		component.numberOfSubgrids = items.length
+
+		disabledTabs = [...disabledTabs, { type: 'static', value: false, fieldType: 'boolean' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -75,12 +77,16 @@
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 
+		// Delete the item in the disabledTabs array
+		disabledTabs = disabledTabs.filter((_, i) => i !== index)
+
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
 		items.forEach((item, i) => {
 			item.originalIndex = i
 		})
 		items = items
+
 		delete $app!.subgrids![items.length]
 		$app = $app
 	}
@@ -109,6 +115,12 @@
 				newSubgrids[`${component.id}-${i}`] =
 					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
+
+			const newDisabledTabs: RichConfiguration[] = []
+			for (let i = 0; i < items.length; i++) {
+				newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+			}
+			disabledTabs = newDisabledTabs
 
 			// update originalIndex
 			items.forEach((item, i) => {
@@ -159,7 +171,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div>
+				<div class="border rounded-md p-2 mb-2 bg-white">
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<input
 							on:keydown|stopPropagation
@@ -184,26 +196,7 @@
 						</div>
 					</div>
 
-					<InputsSpecEditor
-						key={`Condition ${index + 1}`}
-						bind:componentInput={disabledTabs[index]}
-						id={component.id}
-						userInputEnabled={false}
-						shouldCapitalize={true}
-						resourceOnly={false}
-						hasRows={false}
-						fieldType={disabledTabs[index]?.['fieldType']}
-						subFieldType={disabledTabs[index]?.['subFieldType']}
-						format={disabledTabs[index]?.['format']}
-						selectOptions={disabledTabs[index]?.['selectOptions']}
-						tooltip={disabledTabs[index]?.['tooltip']}
-						onlyStatic={disabledTabs[index]?.['onlyStatic']}
-						fileUpload={disabledTabs[index]?.['fileUpload']}
-						placeholder={disabledTabs[index]?.['placeholder']}
-						customTitle={disabledTabs[index]?.['customTitle']}
-						displayType={false}
-						noVariablePicker={true}
-					/>
+					<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
 				</div>
 			{/each}
 		</section>
