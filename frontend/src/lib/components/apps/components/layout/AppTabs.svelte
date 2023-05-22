@@ -4,7 +4,12 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -15,6 +20,7 @@
 	export let tabs: string[]
 	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
 	export let render: boolean
+	export let disabledTabs: RichConfiguration[]
 
 	let resolvedConfig = initConfig(
 		components['tabscomponent'].initialData.configuration,
@@ -76,23 +82,30 @@
 	$: selected != undefined && handleTabSelection()
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
+
+	let resolvedDisabledTabs: boolean[] = []
 </script>
 
 <InputValue {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
 
 <InitializeComponent {id} />
 
+{#each disabledTabs ?? [] as disableTab, index}
+	<InputValue {id} input={disableTab} bind:value={resolvedDisabledTabs[index]} />
+{/each}
+
 <div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
 	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 		<div bind:clientHeight={tabHeight}>
 			<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
-				{#each tabs ?? [] as res}
+				{#each tabs ?? [] as res, index}
 					<Tab
 						value={res}
 						class={css?.allTabs?.class}
 						style={css?.allTabs?.style}
 						selectedClass={css?.selectedTab?.class}
 						selectedStyle={css?.selectedTab?.style}
+						disabled={resolvedDisabledTabs[index]}
 					>
 						<span class="font-semibold">{res}</span>
 					</Tab>

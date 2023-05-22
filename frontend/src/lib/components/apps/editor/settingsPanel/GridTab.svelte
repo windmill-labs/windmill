@@ -3,15 +3,29 @@
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext, tick } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical } from 'lucide-svelte'
+	import GridTabDisabled from './GridTabDisabled.svelte'
 
 	export let tabs: string[] = []
+	export let disabledTabs: RichConfiguration[] = []
+
+	export let canDisableTabs: boolean = false
+
+	// Migration code
+	$: if (tabs.length !== disabledTabs?.length && canDisableTabs) {
+		disabledTabs = Array(tabs.length).fill({
+			type: 'static',
+			value: false,
+			fieldType: 'boolean'
+		})
+	}
+
 	export let word: string = 'Tab'
 
 	export let component: AppComponent
@@ -42,6 +56,8 @@
 			}
 		]
 		component.numberOfSubgrids = items.length
+
+		disabledTabs = [...disabledTabs, { type: 'static', value: false, fieldType: 'boolean' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -61,12 +77,16 @@
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 
+		// Delete the item in the disabledTabs array
+		disabledTabs = disabledTabs.filter((_, i) => i !== index)
+
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
 		items.forEach((item, i) => {
 			item.originalIndex = i
 		})
 		items = items
+
 		delete $app!.subgrids![items.length]
 		$app = $app
 	}
@@ -95,6 +115,12 @@
 				newSubgrids[`${component.id}-${i}`] =
 					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
+
+			const newDisabledTabs: RichConfiguration[] = []
+			for (let i = 0; i < items.length; i++) {
+				newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+			}
+			disabledTabs = newDisabledTabs
 
 			// update originalIndex
 			items.forEach((item, i) => {
@@ -145,26 +171,34 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="w-full flex flex-row gap-2 items-center relative my-1">
-					<input
-						on:keydown|stopPropagation
-						on:input={(e) => updateItemValue(index, e)}
-						type="text"
-						bind:value={items[index].value}
-					/>
-					<div class="absolute right-6">
-						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+				<div class="border rounded-md p-2 mb-2 bg-white">
+					<div class="w-full flex flex-row gap-2 items-center relative my-1">
+						<input
+							on:keydown|stopPropagation
+							on:input={(e) => updateItemValue(index, e)}
+							type="text"
+							bind:value={items[index].value}
+						/>
+						<div class="absolute right-6">
+							<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+						</div>
+
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+
+						<div
+							tabindex={dragDisabled ? 0 : -1}
+							class="w-4 h-4"
+							on:mousedown={startDrag}
+							on:touchstart={startDrag}
+							on:keydown={handleKeyDown}
+						>
+							<GripVertical size={16} />
+						</div>
 					</div>
-					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-					<div
-						tabindex={dragDisabled ? 0 : -1}
-						class="w-4 h-4"
-						on:mousedown={startDrag}
-						on:touchstart={startDrag}
-						on:keydown={handleKeyDown}
-					>
-						<GripVertical size={16} />
-					</div>
+
+					{#if canDisableTabs}
+						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
+					{/if}
 				</div>
 			{/each}
 		</section>

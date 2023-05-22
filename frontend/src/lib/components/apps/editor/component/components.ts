@@ -106,6 +106,7 @@ export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
+	disabledTabs: RichConfiguration[]
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
