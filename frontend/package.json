@@ -81,7 +81,7 @@
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
-		"date-fns": "^2.29.3",
+		"date-fns": "^2.30.0",
 		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
 		"highlight.js": "^11.8.0",
