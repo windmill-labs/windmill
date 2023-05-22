@@ -245,7 +245,9 @@
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
+				bind:disabledTabs={componentSettings.item.data.disabledTabs}
 				bind:component={componentSettings.item.data}
+				canDisableTabs
 			/>
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab
