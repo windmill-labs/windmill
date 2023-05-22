@@ -1,23 +1,14 @@
-<!-- <script lang="ts">
-	import { Doughnut, Pie } from 'svelte-chartjs'
-	import {
-		Chart as ChartJS,
-		Title,
-		Tooltip,
-		Legend,
-		LineElement,
-		LinearScale,
-		PointElement,
-		CategoryScale,
-		ArcElement
-	} from 'chart.js'
+<script lang="ts">
+	import { Chart } from 'svelte-chartjs'
+	import { Chart as ChartJS, registerables } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
-	import InputValue from '../helpers/InputValue.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -33,28 +24,9 @@
 		loading: false
 	})
 
-	ChartJS.register(
-		Title,
-		Tooltip,
-		Legend,
-		LineElement,
-		LinearScale,
-		PointElement,
-		CategoryScale,
-		ArcElement
-	)
+	ChartJS.register(...registerables)
 
-	let result: { data: number[]; labels?: string[] } | undefined = undefined
-	let theme: string = 'theme1'
-	let doughnut = false
-
-	$: backgroundColor = {
-		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
-		// blue theme
-		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
-		// red theme
-		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[theme]
+	let result: undefined = undefined
 
 	const options = {
 		responsive: true,
@@ -62,30 +34,29 @@
 		maintainAspectRatio: false
 	}
 
-	$: data = {
-		labels: result?.labels ?? [],
-		datasets: [
-			{
-				data: result?.data ?? [],
-				backgroundColor: backgroundColor
-			}
-		]
-	}
-
 	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
+
+	const resolvedConfig = initConfig(
+		components['chartjscomponent'].initialData.configuration,
+		configuration
+	)
 </script>
 
-<InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
+{#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
-		{#if result}
-			{#if doughnut}
-				<Doughnut {data} {options} />
-			{:else}
-				<Pie {data} {options} />
-			{/if}
+		{#if result && resolvedConfig.type}
+			{#key resolvedConfig.type}
+				<Chart type={resolvedConfig.type} data={result} {options} />
+			{/key}
 		{/if}
 	</div>
-</RunnableWrapper> -->
+</RunnableWrapper>
