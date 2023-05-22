@@ -228,6 +228,14 @@ export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
 }`
 
+export const DOCKER_INIT_CODE = `# shellcheck shell=bash
+# Bash script that calls docker as a client to the host daemon
+# See documentation: https://docs.windmill.dev/docs/advanced/docker
+msg="\${1:-world}"
+
+docker run --rm alpine /bin/echo "Hello $msg"
+`
+
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
 	PYTHON_INIT_CODE_TRIGGER,
@@ -252,7 +260,7 @@ export function isInitialCode(content: string): boolean {
 export function initialCode(
 	language: 'deno' | 'python3' | 'go' | 'bash',
 	kind: Script.kind | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | undefined
 ): string {
 	if (!kind) {
 		kind = Script.kind.SCRIPT
@@ -290,7 +298,11 @@ export function initialCode(
 			return PYTHON_INIT_CODE
 		}
 	} else if (language == 'bash') {
-		return BASH_INIT_CODE
+		if (subkind === 'docker') {
+			return DOCKER_INIT_CODE
+		} else {
+			return BASH_INIT_CODE
+		}
 	} else {
 		if (kind === 'failure') {
 			return GO_FAILURE_MODULE_CODE

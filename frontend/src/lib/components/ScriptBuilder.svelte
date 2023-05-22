@@ -27,10 +27,11 @@
 	} from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
 
 	export let script: NewScript
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let topHash: string | undefined = undefined
@@ -108,7 +109,7 @@
 	function initContent(
 		language: 'deno' | 'python3' | 'go' | 'bash',
 		kind: Script.kind | undefined,
-		template: 'pgsql' | 'mysql' | 'script'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker'
 	) {
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
@@ -308,6 +309,39 @@
 						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
 					</Button>
 				{/if}
+				<Button
+					size="sm"
+					variant="border"
+					color={template == 'docker' ? 'blue' : 'dark'}
+					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						if (isCloudHosted()) {
+							sendUserToast(
+								'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+								true,
+								[
+									{
+										label: 'Learn more',
+										callback: () => {
+											window.open('https://docs.windmill.dev/docs/advanced/docker', '_blank')
+										}
+									}
+								]
+							)
+							return
+						}
+						let lastTemplate = template
+						template = 'docker'
+						initContent(Script.language.BASH, script.kind, template)
+						script.language = Script.language.BASH
+						if (lastTemplate != template) {
+							setCode(script.content)
+						}
+					}}
+				>
+					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
+				</Button>
 				<!-- <Button
 					size="sm"
 					variant="border"

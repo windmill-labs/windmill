@@ -60,6 +60,8 @@ services:
     # to mount the worker folder to debug,, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
+      # mount the docker socket to allow to run docker containers from within the workers
+      # - /var/run/docker.sock:/var/run/docker.sock
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
