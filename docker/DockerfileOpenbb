@@ -132,8 +132,10 @@ RUN /usr/local/bin/python3 -m pip install openbb[all]
 
 RUN mkdir -p ${APP}
 
+RUN ln -s ${APP}/windmill /usr/local/bin/windmill
+
 WORKDIR ${APP}
 
 EXPOSE 8000
 
-CMD ["./windmill"]
+CMD ["windmill"]
