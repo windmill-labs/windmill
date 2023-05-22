@@ -2,6 +2,7 @@ import { ScriptService, type MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
 import { sortObject } from './utils.js'
+import { tick } from 'svelte'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
@@ -10,7 +11,7 @@ export async function inferArgs(
 	code: string,
 	schema: Schema
 ): Promise<void> {
-	let lastRun = get(loadSchemaLastRun)
+	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
 		inferedSchema = lastRun[1]
@@ -64,6 +65,7 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
+	await tick()
 }
 
 function argSigToJsonSchemaType(
@@ -135,6 +137,8 @@ function argSigToJsonSchemaType(
 				delete oldS[prop]
 			}
 		}
+	} else if (oldS.format == 'date-time' && newS.format != 'date-time') {
+		delete oldS.format
 	}
 
 	Object.assign(oldS, newS)
