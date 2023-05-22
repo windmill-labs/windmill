@@ -196,7 +196,9 @@
 						</div>
 					</div>
 
-					<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
+					{#if canDisableTabs}
+						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
+					{/if}
 				</div>
 			{/each}
 		</section>
