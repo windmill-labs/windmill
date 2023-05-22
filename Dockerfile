@@ -135,6 +135,9 @@ COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 COPY --from=lukechannings/deno:latest /usr/bin/deno /usr/bin/deno-arm
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
 
+# add the docker client to call docker from a worker if enabled
+COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+
 RUN mkdir -p ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
