@@ -420,6 +420,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				tabs={component.tabs}
+				disabledTabs={component.disabledTabs}
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}

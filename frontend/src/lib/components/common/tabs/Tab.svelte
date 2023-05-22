@@ -11,6 +11,8 @@
 	export let selectedClass = ''
 	export let selectedStyle = ''
 
+	export let disabled: boolean = false
+
 	const fontSizeClasses = {
 		xs: 'text-xs',
 		sm: 'text-sm',
@@ -41,6 +43,7 @@
 		}
 	}}
 	on:pointerdown|stopPropagation
+	{disabled}
 >
 	<slot />
 </button>

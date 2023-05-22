@@ -3,15 +3,29 @@
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext, tick } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical } from 'lucide-svelte'
+	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let tabs: string[] = []
+	export let disabledTabs: RichConfiguration[] = []
+
+	export let canDisableTabs: boolean = false
+
+	// Migration code
+	$: if (tabs.length !== disabledTabs?.length && canDisableTabs) {
+		disabledTabs = Array(tabs.length).fill({
+			type: 'eval',
+			expr: 'false',
+			fieldType: 'boolean'
+		})
+	}
+
 	export let word: string = 'Tab'
 
 	export let component: AppComponent
@@ -145,26 +159,51 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="w-full flex flex-row gap-2 items-center relative my-1">
-					<input
-						on:keydown|stopPropagation
-						on:input={(e) => updateItemValue(index, e)}
-						type="text"
-						bind:value={items[index].value}
+				<div>
+					<div class="w-full flex flex-row gap-2 items-center relative my-1">
+						<input
+							on:keydown|stopPropagation
+							on:input={(e) => updateItemValue(index, e)}
+							type="text"
+							bind:value={items[index].value}
+						/>
+						<div class="absolute right-6">
+							<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+						</div>
+
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+
+						<div
+							tabindex={dragDisabled ? 0 : -1}
+							class="w-4 h-4"
+							on:mousedown={startDrag}
+							on:touchstart={startDrag}
+							on:keydown={handleKeyDown}
+						>
+							<GripVertical size={16} />
+						</div>
+					</div>
+
+					<InputsSpecEditor
+						key={`Condition ${index + 1}`}
+						bind:componentInput={disabledTabs[index]}
+						id={component.id}
+						userInputEnabled={false}
+						shouldCapitalize={true}
+						resourceOnly={false}
+						hasRows={false}
+						fieldType={disabledTabs[index]?.['fieldType']}
+						subFieldType={disabledTabs[index]?.['subFieldType']}
+						format={disabledTabs[index]?.['format']}
+						selectOptions={disabledTabs[index]?.['selectOptions']}
+						tooltip={disabledTabs[index]?.['tooltip']}
+						onlyStatic={disabledTabs[index]?.['onlyStatic']}
+						fileUpload={disabledTabs[index]?.['fileUpload']}
+						placeholder={disabledTabs[index]?.['placeholder']}
+						customTitle={disabledTabs[index]?.['customTitle']}
+						displayType={false}
+						noVariablePicker={true}
 					/>
-					<div class="absolute right-6">
-						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
-					</div>
-					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-					<div
-						tabindex={dragDisabled ? 0 : -1}
-						class="w-4 h-4"
-						on:mousedown={startDrag}
-						on:touchstart={startDrag}
-						on:keydown={handleKeyDown}
-					>
-						<GripVertical size={16} />
-					</div>
 				</div>
 			{/each}
 		</section>
