@@ -6,8 +6,14 @@
 
 	export let disabled: boolean = false
 	export let label: string
-	export let lang: SupportedLanguage | 'pgsql' | 'mysql' | 'javascript' | 'fetch' | undefined =
-		undefined
+	export let lang:
+		| SupportedLanguage
+		| 'pgsql'
+		| 'mysql'
+		| 'javascript'
+		| 'fetch'
+		| 'docker'
+		| undefined = undefined
 	export let icon: IconDefinition | undefined = undefined
 	export let iconColor: string | undefined = undefined
 </script>
