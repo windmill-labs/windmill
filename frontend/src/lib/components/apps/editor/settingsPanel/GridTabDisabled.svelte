@@ -7,8 +7,6 @@
 	export let id: string
 	export let field: RichConfiguration
 
-	$: console.log(field)
-
 	let disablable = !(field.type === 'static' && field.value === false)
 </script>
 
