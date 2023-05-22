@@ -55,7 +55,7 @@
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result && resolvedConfig.type}
 			{#key resolvedConfig.type}
-				<Chart type={resolvedConfig.type} data={result} {options} />
+				<Chart type={resolvedConfig.type} data={result} options={options ?? {}} />
 			{/key}
 		{/if}
 	</div>
