@@ -1,7 +1,7 @@
 import type { IntRange } from '../../../../common'
 import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../../gridUtils'
 import { BUTTON_COLORS } from '../../../common'
-
+import type { ChartType } from 'chart.js'
 import { defaultAlignement } from '../componentsPanel/componentDefaultProps'
 import {
 	BarChart4,
@@ -82,6 +82,8 @@ export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & Recompu
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
+export type ChartJsComponent = BaseComponent<'chartjscomponent'>
+
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
@@ -177,6 +179,7 @@ export type TypedComponent =
 	| ConditionalWrapperComponent
 	| SelectStepComponent
 	| DownloadComponent
+	| ChartJsComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -254,9 +257,18 @@ export const selectOptions = {
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
 	splitPanelOptions: ['2', '3', '4'],
-	formorientationOptions: ['Horizontal', 'Vertical']
+	formorientationOptions: ['Horizontal', 'Vertical'],
+	chartTypeOptions: [
+		'bar',
+		'bubble',
+		'doughnut',
+		'line',
+		'pie',
+		'polarArea',
+		'radar',
+		'scatter'
+	] as ChartType[]
 }
-
 const labels = {
 	none: 'Do nothing',
 	errorOverlay: 'Show error overlay',
@@ -751,6 +763,38 @@ export const components = {
 				type: 'static',
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
+			}
+		}
+	},
+	chartjscomponent: {
+		name: 'ChartJs',
+		icon: PieChart,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'select',
+					selectOptions: selectOptions.chartTypeOptions,
+					value: 'pie'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					labels: ['Pie', 'Charts', '<3'],
+					datasets: [
+						{
+							data: [25, 50, 25],
+							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
+						}
+					]
+				}
 			}
 		}
 	},

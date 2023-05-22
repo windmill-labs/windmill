@@ -652,6 +652,9 @@ export const quickStyleProperties: Record<
 	piechartcomponent: {
 		container: containerDefaultProps
 	},
+	chartjscomponent: {
+		container: containerDefaultProps
+	},
 	vegalitecomponent: {},
 	containercomponent: {
 		container: containerDefaultProps

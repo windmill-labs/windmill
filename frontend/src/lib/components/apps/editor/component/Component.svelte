@@ -48,6 +48,7 @@
 	import AppDownload from '../../components/display/AppDownload.svelte'
 	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
 	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
+	import AppChartJs from '../../components/display/AppChartJs.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -545,6 +546,15 @@
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
+				{render}
+			/>
+		{:else if component.type === 'chartjscomponent'}
+			<AppChartJs
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
 				{render}
 			/>
 		{/if}
