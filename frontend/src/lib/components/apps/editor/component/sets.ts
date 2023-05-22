@@ -76,7 +76,8 @@ const charts: ComponentSet = {
 		'vegalitecomponent',
 		'plotlycomponent',
 		'scatterchartcomponent',
-		'timeseriescomponent'
+		'timeseriescomponent',
+		'chartjscomponent'
 	]
 } as const
 
