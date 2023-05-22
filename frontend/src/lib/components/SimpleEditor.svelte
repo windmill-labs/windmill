@@ -10,6 +10,7 @@
 		Uri as mUri,
 		languages
 	} from 'monaco-editor/esm/vs/editor/editor.api'
+	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
