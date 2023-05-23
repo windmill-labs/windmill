@@ -22,8 +22,9 @@ use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    jobs::JobKind,
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath}, jobs::JobKind,
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
@@ -51,6 +52,7 @@ pub struct NewSchedule {
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
     pub enabled: Option<bool>,
+    pub on_failure: Option<String>,
 }
 
 async fn check_path_conflict<'c>(
@@ -100,7 +102,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+         is_flow, args, enabled, email, on_failure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -110,7 +112,8 @@ async fn create_schedule(
         ns.is_flow,
         ns.args,
         ns.enabled.unwrap_or(false),
-        &authed.email
+        &authed.email,
+        ns.on_failure
     )
     .fetch_one(&mut tx)
     .await
@@ -154,7 +157,7 @@ async fn edit_schedule(
     let path = path.to_path();
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-      let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -170,11 +173,12 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3 WHERE path \
-         = $4 AND workspace_id = $5 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4 WHERE path \
+         = $5 AND workspace_id = $6 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
+        es.on_failure,
         path,
         w_id,
     )
@@ -386,6 +390,7 @@ pub struct EditSchedule {
     pub schedule: String,
     pub timezone: String,
     pub args: Option<serde_json::Value>,
+    pub on_failure: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

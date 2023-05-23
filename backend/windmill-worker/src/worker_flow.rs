@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::jobs::{add_completed_job, add_completed_job_error, schedule_again_if_scheduled};
+use crate::jobs::{add_completed_job, add_completed_job_error, handle_maybe_scheduled_job};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{worker, AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
@@ -525,12 +525,14 @@ pub async fn update_flow_status_after_job_completion_internal<
             && flow_job.schedule_path.is_some()
             && flow_job.script_path.is_some()
         {
-            tx = schedule_again_if_scheduled(
+            tx = handle_maybe_scheduled_job(
                 tx,
                 db,
                 flow_job.schedule_path.as_ref().unwrap(),
                 flow_job.script_path.as_ref().unwrap(),
                 &w_id,
+                success,
+                if success { None } else { Some(nresult.clone()) },
             )
             .await?;
         }

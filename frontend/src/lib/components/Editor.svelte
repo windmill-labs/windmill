@@ -596,8 +596,11 @@
 
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', code)
+				let ncode = getCode()
+				if (ncode != '') {
+					code = ncode
+					dispatch('change', code)
+				}
 			}, 500)
 		})
 
