@@ -233,7 +233,12 @@ export const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # See documentation: https://docs.windmill.dev/docs/advanced/docker
 msg="\${1:-world}"
 
-docker run --rm alpine /bin/echo "Hello $msg"
+IMAGE="alpine:latest"
+COMMAND="/bin/echo Hello $msg"
+
+# ensure that the image is up-to-date
+docker pull $IMAGE
+docker run --rm $IMAGE $COMMAND
 `
 
 const ALL_INITIAL_CODE = [

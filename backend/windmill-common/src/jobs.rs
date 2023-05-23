@@ -3,7 +3,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
-    error,
+    error::{self, Error},
     flow_status::FlowStatus,
     flows::FlowValue,
     get_latest_deployed_hash_for_path,
@@ -171,7 +171,7 @@ type Tag = String;
 pub async fn script_path_to_payload<'c>(
     script_path: &str,
     db: &mut Transaction<'c, Postgres>,
-    w_id: &String,
+    w_id: &str,
 ) -> error::Result<(JobPayload, Option<Tag>)> {
     let (job_payload, tag) = if script_path.starts_with("hub/") {
         (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
@@ -198,4 +198,25 @@ pub async fn script_hash_to_tag<'c>(
     .fetch_optional(db)
     .await?
     .flatten())
+}
+
+pub async fn get_payload_tag_from_prefixed_path<'c>(
+    path: &str,
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+) -> Result<(JobPayload, Option<String>), Error> {
+    let (payload, tag) = if path.starts_with("script/") {
+        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id).await?
+    } else if path.starts_with("flow/") {
+        (
+            JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),
+            None,
+        )
+    } else {
+        return Err(Error::BadRequest(format!(
+            "path must start with script/ or flow/ (got {})",
+            path
+        )));
+    };
+    Ok((payload, tag))
 }
