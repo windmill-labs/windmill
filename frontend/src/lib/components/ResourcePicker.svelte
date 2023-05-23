@@ -24,7 +24,6 @@
 			  }
 			: undefined
 
-	console.log(valueSelect)
 	let collection = [valueSelect]
 
 	async function loadResources(resourceType: string | undefined) {

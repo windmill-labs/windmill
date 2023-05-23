@@ -247,28 +247,28 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
 
     let schedule = schedule.unwrap();
 
-    if !success {
-        tracing::info!("called");
-        if let Some(on_failure_path) = schedule.on_failure.clone() {
-            let on_failure_result = handle_on_failure(
-                tx,
-                w_id,
-                schedule_path,
-                script_path,
-                &on_failure_path,
-                result,
-                &schedule_to_user(&schedule.path),
-                &schedule.email,
-                username_to_permissioned_as(&schedule.edited_by),
-            )
-            .await;
+    if schedule.enabled && script_path == schedule.script_path {
+        if !success {
+            if let Some(on_failure_path) = schedule.on_failure.clone() {
+                let on_failure_result = handle_on_failure(
+                    tx,
+                    schedule_path,
+                    script_path,
+                    w_id,
+                    &on_failure_path,
+                    result,
+                    &schedule.email,
+                    &schedule_to_user(&schedule.path),
+                    username_to_permissioned_as(&schedule.edited_by),
+                )
+                .await;
 
-            match on_failure_result {
-                Ok(ntx) => {
-                    tx = ntx;
-                }
-                Err(err) => {
-                    sqlx::query!(
+                match on_failure_result {
+                    Ok(ntx) => {
+                        tx = ntx;
+                    }
+                    Err(err) => {
+                        sqlx::query!(
                         "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
                         format!("Could not trigger error handler: {err}"),
                         &schedule.workspace_id,
@@ -276,18 +276,17 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                     )
                     .execute(db)
                     .await?;
-                    tracing::warn!(
-                        "Could not trigger error handler for {}: {}",
-                        schedule_path,
-                        err
-                    );
-                    return Err(err);
+                        tracing::warn!(
+                            "Could not trigger error handler for {}: {}",
+                            schedule_path,
+                            err
+                        );
+                        return Err(err);
+                    }
                 }
             }
         }
-    }
 
-    if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
             tx,
             Schedule {
@@ -344,10 +343,13 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     let (payload, tag) =
         get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
 
-    let args = json!({"schedule_path": schedule_path, "path": script_path, "payload": result})
+    let mut args = result
+        .unwrap_or_else(|| json!({}))
         .as_object()
         .unwrap()
         .clone();
+    args.insert("schedule_path".to_string(), json!(schedule_path));
+    args.insert("path".to_string(), json!(script_path));
     let (uuid, tx) = push(
         tx,
         w_id,

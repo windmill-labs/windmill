@@ -95,16 +95,15 @@
 			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
-			console.log('IN')
-			console.log(s.on_failure)
 			if (s.on_failure) {
 				console.log(s.on_failure)
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
+			} else {
+				errorHandlerPath = undefined
+				errorHandleritemKind = 'script'
 			}
-			errorHandlerPath = s.on_failure ?? ''
-			errorHandleritemKind = 'script'
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (err) {
@@ -271,10 +270,12 @@
 				bind:scriptPath={errorHandlerPath}
 				bind:itemKind={errorHandleritemKind}
 			/>
-			<div class="text-gray-600 italic text-sm"
-				>The current args will be passed to the error handler:
-				<ul>
-					<li>foo</li>
+			<div class="text-gray-600 italic text-sm mt-2"
+				>The following args will be passed to the error handler:
+				<ul class="mt-1 ml-2">
+					<li><b>path</b>: The path of the script or flow that errored</li>
+					<li><b>schedule_path</b>: The path of the schedule</li>
+					<li><b>error</b>: The error details</li>
 				</ul>
 			</div>
 		</div>
