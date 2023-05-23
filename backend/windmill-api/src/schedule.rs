@@ -22,8 +22,9 @@ use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    jobs::JobKind,
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath}, jobs::JobKind,
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
@@ -51,6 +52,7 @@ pub struct NewSchedule {
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
     pub enabled: Option<bool>,
+    pub on_failure: Option<String>,
 }
 
 async fn check_path_conflict<'c>(
@@ -154,7 +156,7 @@ async fn edit_schedule(
     let path = path.to_path();
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-      let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;

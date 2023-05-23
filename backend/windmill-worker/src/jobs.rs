@@ -6,17 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use serde_json::json;
 use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
     flow_status::FlowStatusModule,
-    jobs::{JobKind, QueuedJob},
-    schedule::Schedule,
+    jobs::{get_payload_tag_from_prefixed_path, JobKind, QueuedJob},
+    schedule::{schedule_to_user, Schedule},
+    users::username_to_permissioned_as,
     METRICS_ENABLED,
 };
-use windmill_queue::{delete_job, schedule::get_schedule_opt, QueueTransaction, CLOUD_HOSTED};
+use windmill_queue::{
+    delete_job, push, schedule::get_schedule_opt, QueueTransaction, CLOUD_HOSTED,
+};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
@@ -165,6 +169,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
+
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
@@ -172,12 +177,14 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
+        tx = handle_maybe_scheduled_job(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
+            success,
+            if success { None } else { Some(result) },
         )
         .await?;
     }
@@ -220,12 +227,14 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
+    success: bool,
+    result: Option<serde_json::Value>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
@@ -237,6 +246,46 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
     }
 
     let schedule = schedule.unwrap();
+
+    if !success {
+        tracing::info!("called");
+        if let Some(on_failure_path) = schedule.on_failure.clone() {
+            let on_failure_result = handle_on_failure(
+                tx,
+                w_id,
+                schedule_path,
+                script_path,
+                &on_failure_path,
+                result,
+                &schedule_to_user(&schedule.path),
+                &schedule.email,
+                username_to_permissioned_as(&schedule.edited_by),
+            )
+            .await;
+
+            match on_failure_result {
+                Ok(ntx) => {
+                    tx = ntx;
+                }
+                Err(err) => {
+                    sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        format!("Could not trigger error handler: {err}"),
+                        &schedule.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await?;
+                    tracing::warn!(
+                        "Could not trigger error handler for {}: {}",
+                        schedule_path,
+                        err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+    }
 
     if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
@@ -257,6 +306,7 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
                 extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
                 email: schedule.email,
                 error: None,
+                on_failure: schedule.on_failure,
             },
         )
         .await;
@@ -278,4 +328,50 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
     } else {
         Ok(tx)
     }
+}
+
+async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
+    schedule_path: &str,
+    script_path: &str,
+    w_id: &str,
+    on_failure_path: &str,
+    result: Option<serde_json::Value>,
+    username: &str,
+    email: &str,
+    permissioned_as: String,
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let (payload, tag) =
+        get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
+
+    let args = json!({"schedule_path": schedule_path, "path": script_path, "payload": result})
+        .as_object()
+        .unwrap()
+        .clone();
+    let (uuid, tx) = push(
+        tx,
+        w_id,
+        payload,
+        args,
+        username,
+        email,
+        permissioned_as,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+    )
+    .await?;
+    tracing::info!(
+        "Pushed on_failure job {} for {} to queue",
+        uuid,
+        schedule_path
+    );
+    return Ok(tx);
 }
