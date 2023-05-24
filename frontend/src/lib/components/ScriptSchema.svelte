@@ -9,7 +9,7 @@
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 
-	export let schema: Schema
+	export let schema: Schema | any
 
 	export function setSchema(newSchema: Schema) {
 		schema = newSchema

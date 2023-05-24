@@ -10,7 +10,14 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { Badge } from './common'
 
-	export let schema: Schema | undefined = emptySchema()
+	export let schema: Schema | undefined | any = emptySchema()
+
+	function getProperties(schema: Schema) {
+		if (schema.properties) {
+			return Object.entries(schema.properties)
+		}
+		return []
+	}
 </script>
 
 <div class="w-full">
@@ -32,7 +39,7 @@
 									<th>required</th>
 								</tr>
 								<tbody slot="body">
-									{#each Object.entries(schema.properties) as [name, property] (name)}
+									{#each getProperties(schema) as [name, property] (name)}
 										<tr>
 											<td class="font-semibold pl-1">{name}</td>
 											<td
