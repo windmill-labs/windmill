@@ -41,6 +41,20 @@ paths:
               schema:
                 type: string
 
+  /ee_license:
+    get:
+      summary: get license id
+      operationId: getLicenseId
+      tags:
+        - settings
+      responses:
+        "200":
+          description: get license id (empty if not ee)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /openapi.yaml:
     get:
       summary: get openapi yaml spec

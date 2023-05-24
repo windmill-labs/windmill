@@ -86,6 +86,8 @@ lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
         .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
         .unwrap();
+
+    pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
 }
 
 pub async fn run_server(
@@ -186,6 +188,7 @@ pub async fn run_server(
                 )
                 .nest("/oauth", oauth2::global_service())
                 .route("/version", get(git_v))
+                .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi)),
         )
         .fallback(static_assets::static_handler)
@@ -207,8 +210,30 @@ pub async fn run_server(
     Ok(())
 }
 
-async fn git_v() -> &'static str {
-    GIT_VERSION
+#[cfg(feature = "enterprise")]
+async fn git_v() -> String {
+    format!("EE {GIT_VERSION}")
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn git_v() -> String {
+    format!("CE {GIT_VERSION}")
+}
+
+#[cfg(feature = "enterprise")]
+async fn ee_license() -> &'static str {
+    ""
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn ee_license() -> String {
+    LICENSE_KEY
+        .as_ref()
+        .unwrap()
+        .split(".")
+        .next()
+        .unwrap()
+        .to_string()
 }
 
 async fn openapi() -> &'static str {
