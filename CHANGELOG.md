@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.104.0](https://github.com/windmill-labs/windmill/compare/v1.103.0...v1.104.0) (2023-05-24)
+
+
+### Features
+
+* schedule error handler ([#1636](https://github.com/windmill-labs/windmill/issues/1636)) ([34048f9](https://github.com/windmill-labs/windmill/commit/34048f9ea655a0afb1983a169b69b454023ec6a8))
+
+
+### Bug Fixes
+
+* **cli:** do not rely on x.nest.land ([ad66bfa](https://github.com/windmill-labs/windmill/commit/ad66bfadaf0c3153975f7452779ac664c0d0dd41))
+* **python:** handle nan ([de4042e](https://github.com/windmill-labs/windmill/commit/de4042e9dcc813d88ef872f694cf6568b087bd1f))
+
 ## [1.103.0](https://github.com/windmill-labs/windmill/compare/v1.102.1...v1.103.0) (2023-05-22)
 
 
