@@ -45,10 +45,11 @@
 
 <div class="relative w-full z-20 overflow-visible">
 	<div
-		class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
-			? ''
-			: 'bg-gray-50 '} px-4 py-1 items-center gap-4"
-		style="z-index: 1000;"
+		class={classNames(
+			'w-full sticky top-0 flex justify-between border-b px-4 py-1 items-center gap-4',
+			$connectingInput?.opened ? '' : 'bg-gray-50',
+			'z-[1000]'
+		)}
 	>
 		<h2 class="truncate">{$summary}</h2>
 		{#if !$connectingInput.opened}

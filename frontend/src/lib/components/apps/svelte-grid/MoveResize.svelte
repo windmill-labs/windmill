@@ -321,7 +321,7 @@
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {active ? newSize.width : width}px; height:{active ? newSize.height : height}px; 
-	{onTop ? 'z-index: 1000;' : ''}
+	{onTop && active ? 'z-index: 1000;' : 'z-index: 1;'}
   {active && rect
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px);top:${rect.top}px;left:${rect.left}px;`
 		: trans
