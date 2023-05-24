@@ -590,9 +590,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.12.2"
+version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c6ed94e98ecff0c12dd1b04c15ec0d7d9458ca8fe806cea6f12954efe74c63b"
+checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
 name = "byteorder"
@@ -3008,13 +3008,13 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.8.1"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af83e617f331cc6ae2da5443c602dfa5af81e517212d9d611a5b3ba1777b5370"
+checksum = "d1a59b5d8e97dee33696bf13c5ba8ab85341c002922fba050069326b9c498974"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.7.1",
+ "regex-syntax 0.7.2",
 ]
 
 [[package]]
@@ -3034,9 +3034,9 @@ checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5996294f19bd3aae0453a862ad728f60e6600695733dd5df01da90c54363a3c"
+checksum = "436b050e76ed2903236f032a59761c1eb99e1b0aead2c257922771dab1fc8c78"
 
 [[package]]
 name = "regress"
@@ -4094,9 +4094,9 @@ dependencies = [
 
 [[package]]
 name = "swc_visit"
-version = "0.5.5"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1d5999f23421c8e21a0f2bc53a0b9e8244f3b421de89471561af2fbe40b9cca"
+checksum = "5f412dd4fbc58f509a04e64f5c8038333142fc139e8232f01b883db0094b3b51"
 dependencies = [
  "either",
  "swc_visit_macros",
@@ -4104,9 +4104,9 @@ dependencies = [
 
 [[package]]
 name = "swc_visit_macros"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebeed7eb0f545f48ad30f5aab314e5208b735bcea1d1464f26e20f06db904989"
+checksum = "4cfc226380ba54a5feed2c12f3ccd33f1ae8e959160290e5d2d9b4e918b6472a"
 dependencies = [
  "Inflector",
  "pmutil",
@@ -4391,9 +4391,9 @@ checksum = "5a76a9312f5ba4c2dec6b9161fdf25d87ad8a09256ccea5a556fef03c706a10f"
 
 [[package]]
 name = "toml_edit"
-version = "0.19.9"
+version = "0.19.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92d964908cec0d030b812013af25a0e57fddfadb1e066ecc6681d86253129d4f"
+checksum = "2380d56e8670370eee6566b0bfd4265f65b3f432e8c6d85623f728d4fa31f739"
 dependencies = [
  "indexmap",
  "toml_datetime",
@@ -5088,7 +5088,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5122,7 +5122,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5181,7 +5181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "base64 0.21.1",
  "chrono",
@@ -5198,7 +5198,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5211,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5236,7 +5236,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5244,7 +5244,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5259,7 +5259,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5272,7 +5272,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5287,7 +5287,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5301,7 +5301,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5329,7 +5329,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.103.0"
+version = "1.104.0"
 dependencies = [
  "anyhow",
  "async-recursion",
