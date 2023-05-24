@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.104.1](https://github.com/windmill-labs/windmill/compare/v1.104.0...v1.104.1) (2023-05-24)
+
+
+### Bug Fixes
+
+* **cli:** avoid looping infinitely and avoid prompt if interactive ([97b4403](https://github.com/windmill-labs/windmill/commit/97b4403b7aaae80e4801487d7edfce62ccf116da))
+* **cli:** fix hub pull ([d892ca5](https://github.com/windmill-labs/windmill/commit/d892ca56b7d9fd4f006dfb9f666995d710036422))
+* **cli:** parse schema when pulling from hub ([6851b86](https://github.com/windmill-labs/windmill/commit/6851b86eb5781cc7c652458503be9374f123f53e))
+* **frontend:** Fix app toolbar z-index ([#1641](https://github.com/windmill-labs/windmill/issues/1641)) ([42af285](https://github.com/windmill-labs/windmill/commit/42af2854b28c4149c1def8f7e60c9cb4360a7182))
+
 ## [1.104.0](https://github.com/windmill-labs/windmill/compare/v1.103.0...v1.104.0) (2023-05-24)
 
 
