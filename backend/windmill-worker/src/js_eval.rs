@@ -367,7 +367,7 @@ mod tests {
     async fn test_eval_multiline() -> anyhow::Result<()> {
         let env = vec![];
         let code = "let x = 5;
-`my ${x}
+return `my ${x}
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());

@@ -17,6 +17,8 @@ import {
   FlowModule,
   RawScript,
   log,
+  yamlStringify,
+  yamlParse,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -31,11 +33,7 @@ import { downloadZip } from "./pull.ts";
 import { handleScriptMetadata } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
-import {
-  stringify as yamlStringify,
-  parse as yamlParse,
-} from "https://deno.land/std@0.184.0/yaml/mod.ts";
+import { deepEqual } from "./utils.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -325,8 +323,8 @@ async function compareDynFSElement(
       changes.push({ name: "added", path: k, content: v });
     } else if (
       m2[k] != v &&
-      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k]))) &&
-      (!k.endsWith(".yaml") || !equal(yamlParse(v), yamlParse(m2[k])))
+      (!k.endsWith(".json") || !deepEqual(JSON.parse(v), JSON.parse(m2[k]))) &&
+      (!k.endsWith(".yaml") || !deepEqual(yamlParse(v), yamlParse(m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
