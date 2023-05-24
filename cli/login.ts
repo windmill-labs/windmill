@@ -1,6 +1,5 @@
 import { GlobalOptions } from "./types.ts";
-import { colors, getAvailablePort, log, Secret, Select } from "./deps.ts";
-import { open } from "https://deno.land/x/open/index.ts";
+import { colors, getAvailablePort, log, open, Secret, Select } from "./deps.ts";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
