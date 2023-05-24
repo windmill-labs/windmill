@@ -5,6 +5,7 @@ BEGIN
 
 IF (NOT EXISTS (SELECT workspace_id FROM script  WHERE workspace_id = 'demo' UNION ALL SELECT workspace_id FROM flow  WHERE workspace_id = 'demo' UNION ALL SELECT workspace_id FROM app WHERE workspace_id = 'demo'))
 THEN
+    DELETE FROM usr_to_group WHERE workspace_id = 'demo';
     DELETE FROM raw_app WHERE workspace_id = 'demo';
     DELETE FROM variable WHERE workspace_id = 'demo';
     DELETE FROM schedule WHERE workspace_id = 'demo';
@@ -18,7 +19,7 @@ END IF;
 
 IF (NOT EXISTS (SELECT workspace_id FROM script  WHERE workspace_id = 'starter' UNION ALL SELECT workspace_id FROM flow  WHERE workspace_id = 'starter' UNION ALL SELECT workspace_id FROM app WHERE workspace_id = 'starter'))
 THEN
-    DELETE FROM raw_app WHERE workspace_id = 'starter';
+    DELETE FROM usr_to_group WHERE workspace_id = 'starter';
     DELETE FROM variable WHERE workspace_id = 'starter';
     DELETE FROM schedule WHERE workspace_id = 'starter';
     DELETE FROM resource WHERE workspace_id = 'starter';
