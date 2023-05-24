@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.104.2](https://github.com/windmill-labs/windmill/compare/v1.104.1...v1.104.2) (2023-05-24)
+
+
+### Bug Fixes
+
+* **python:** fix python execution ([3e19be1](https://github.com/windmill-labs/windmill/commit/3e19be10039ec21f207499361af0920da42607df))
+
 ## [1.104.1](https://github.com/windmill-labs/windmill/compare/v1.104.0...v1.104.1) (2023-05-24)
 
 
