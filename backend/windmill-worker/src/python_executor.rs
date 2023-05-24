@@ -322,7 +322,7 @@ import json
 import traceback
 import sys
 from {module_dir_dot} import {last} as inner_script
-import regex as re
+import re
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
