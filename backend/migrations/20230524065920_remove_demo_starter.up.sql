@@ -7,6 +7,8 @@ IF (NOT EXISTS (SELECT workspace_id FROM script  WHERE workspace_id = 'demo' UNI
 THEN
     DELETE FROM usr WHERE workspace_id = 'demo';
     DELETE FROM usr_to_group WHERE workspace_id = 'demo';
+    DELETE FROM queue WHERE workspace_id = 'demo';
+    DELETE FROM completed_job WHERE workspace_id = 'demo';
     DELETE FROM raw_app WHERE workspace_id = 'demo';
     DELETE FROM variable WHERE workspace_id = 'demo';
     DELETE FROM schedule WHERE workspace_id = 'demo';
@@ -22,6 +24,8 @@ IF (NOT EXISTS (SELECT workspace_id FROM script  WHERE workspace_id = 'starter' 
 THEN
     DELETE FROM usr WHERE workspace_id = 'starter';
     DELETE FROM usr_to_group WHERE workspace_id = 'starter';
+    DELETE FROM queue WHERE workspace_id = 'starter';
+    DELETE FROM completed_job WHERE workspace_id = 'starter';
     DELETE FROM raw_app WHERE workspace_id = 'starter';
     DELETE FROM variable WHERE workspace_id = 'starter';
     DELETE FROM schedule WHERE workspace_id = 'starter';
