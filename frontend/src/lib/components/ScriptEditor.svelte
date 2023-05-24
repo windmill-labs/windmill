@@ -20,7 +20,7 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	// Exported
-	export let schema: Schema = emptySchema()
+	export let schema: Schema | any = emptySchema()
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language

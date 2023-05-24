@@ -39,7 +39,7 @@
 		"eslint-plugin-svelte3": "^4.0.0",
 		"monaco-editor-workers": "~0.37.0",
 		"ol": "^7.2.2",
-		"openapi-typescript-codegen": "^0.23.0",
+		"openapi-typescript-codegen": "^0.24.0",
 		"path-browserify": "^1.0.1",
 		"pdfjs-dist": "^3.6.172",
 		"postcss": "^8.4.23",

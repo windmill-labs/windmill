@@ -22,7 +22,7 @@
 	export let runnable:
 		| {
 				summary?: string
-				schema?: Schema
+				schema?: Schema | any
 				description?: string
 				path?: string
 				is_template?: boolean
