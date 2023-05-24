@@ -72,13 +72,14 @@ services:
   caddy:
     image: caddy:2.5.2-alpine
     restart: unless-stopped
+
+    # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
     ports:
       - 80:80
-      - 443:443
     environment:
-      - BASE_URL=${CADDY_REVERSE_PROXY}
+      - BASE_URL=":80"
 
 volumes:
   db_data: null
