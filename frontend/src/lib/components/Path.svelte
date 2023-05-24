@@ -77,14 +77,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			if ($lastMetaUsed == undefined) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
 					ownerKind: 'user',
 					name: random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
-
-				meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+				if ($userStore?.username?.includes('@')) {
+					meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+				} else {
+					meta.owner = $userStore!.username!
+				}
 			} else {
 				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
 			}
@@ -320,6 +323,9 @@
 
 						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
+								{#if folders?.length == 0}
+									<option disabled>No folders</option>
+								{/if}
 								{#each folders as { name, write }}
 									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
 								{/each}
@@ -329,6 +335,7 @@
 								btnClasses="!p-1.5"
 								variant="border"
 								size="xs"
+								disabled={!meta.owner || meta.owner == ''}
 								on:click={viewFolder.openDrawer}
 							>
 								<Icon scale={0.8} data={faEye} /></Button

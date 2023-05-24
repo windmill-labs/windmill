@@ -2,7 +2,8 @@ import type { ComponentSet } from '../../types'
 
 const tabs: ComponentSet = {
 	title: 'Tabs',
-	components: ['tabscomponent', 'conditionalwrapper']
+	components: ['tabscomponent', 'conditionalwrapper'],
+	presets: ['sidebartabscomponent', 'invisibletabscomponent']
 } as const
 
 const layout: ComponentSet = {
@@ -42,7 +43,8 @@ const inputs: ComponentSet = {
 		'selectcomponent',
 		'resourceselectcomponent',
 		'multiselectcomponent',
-		'selecttabcomponent'
+		'selecttabcomponent',
+		'selectstepcomponent'
 	]
 } as const
 
@@ -55,7 +57,9 @@ const display: ComponentSet = {
 		'mapcomponent',
 		'htmlcomponent',
 		'pdfcomponent',
-		'displaycomponent'
+		'displaycomponent',
+		'logcomponent',
+		'flowstatuscomponent'
 	]
 } as const
 
@@ -72,7 +76,8 @@ const charts: ComponentSet = {
 		'vegalitecomponent',
 		'plotlycomponent',
 		'scatterchartcomponent',
-		'timeseriescomponent'
+		'timeseriescomponent',
+		'chartjscomponent'
 	]
 } as const
 

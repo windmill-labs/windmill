@@ -14,15 +14,15 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean = true
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
 	let max = 42
 	let step = 1
+
 	let slider: HTMLElement
 
-	let outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: (0 as number) || null
 	})
 
@@ -49,17 +49,36 @@
 			handle.style.cssText = css?.handle?.style ?? ''
 		}
 	}
+
+	let width = 0
+
+	const spanClass =
+		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
+	function computeWidth() {
+		let maxValue = max + step
+
+		if (typeof document !== 'undefined') {
+			const span = document.createElement('span')
+			span.style.visibility = 'hidden'
+			span.style.position = 'absolute'
+			span.style.whiteSpace = 'nowrap'
+			span.className = spanClass
+			span.textContent = maxValue.toString()
+			document.body.appendChild(span)
+			width = span?.offsetWidth
+			document.body.removeChild(span)
+		}
+	}
+
+	$: if (max && step && render) {
+		computeWidth()
+	}
 </script>
 
 <InputValue {id} input={configuration.step} bind:value={step} />
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue
-	on:done={() => (initializing = false)}
-	{id}
-	input={configuration.defaultValue}
-	bind:value={values[0]}
-/>
+<InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
@@ -80,11 +99,8 @@
 		</span>
 		<span class="mx-2">
 			<span
-				class={twMerge(
-					'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
-					css?.value?.class ?? ''
-				)}
-				style={css?.value?.style ?? ''}
+				class={twMerge(spanClass, css?.value?.class ?? '')}
+				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
 				{values[0]}
 			</span>

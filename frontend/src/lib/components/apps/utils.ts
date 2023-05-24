@@ -262,7 +262,7 @@ export function toPascalCase(text: string) {
 }
 
 export function toKebabCase(text: string) {
-	return text.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+	return text.replace(/[A-Z]+(?![a-z])|[A-Z]/g, ($, ofs) => (ofs ? '-' : '') + $.toLowerCase())
 }
 
 export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(

@@ -405,6 +405,15 @@ async fn get_folder_usage(
     .await?
     .unwrap_or(0);
 
+    let raw_apps = sqlx::query_scalar!(
+        "SELECT count(path) FROM raw_app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
     let resources = sqlx::query_scalar!(
         "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
         name,
@@ -428,7 +437,7 @@ async fn get_folder_usage(
         scripts,
         flows,
         schedules,
-        apps,
+        apps: apps + raw_apps,
         resources,
         variables,
     }))

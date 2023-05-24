@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment'
+	import { BROWSER } from 'esm-env'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 	import 'monaco-editor/esm/vs/editor/edcore.main'
@@ -10,6 +10,7 @@
 		Uri as mUri,
 		languages
 	} from 'monaco-editor/esm/vs/editor/editor.api'
+	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
@@ -181,7 +182,7 @@
 
 	let mounted = false
 	onMount(async () => {
-		if (browser) {
+		if (BROWSER) {
 			mounted = true
 			await loadMonaco()
 		}

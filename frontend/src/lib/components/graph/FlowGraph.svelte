@@ -261,8 +261,8 @@
 							if (!notSelectable) {
 								if ($selectedId != mod.id) {
 									$selectedId = mod.id
-									dispatch('select', mod)
 								}
+								dispatch('select', mod)
 							}
 						} else if (e == 'insert') {
 							dispatch('insert', detail)
@@ -634,7 +634,6 @@
 						id: mod.id
 					},
 					cb: (e: string, detail: any) => {
-						console.log(detail)
 						if (e == 'select') {
 							$selectedId = detail
 							dispatch('select', detail)

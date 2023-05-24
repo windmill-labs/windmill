@@ -21,7 +21,8 @@ import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
 import { get, type Writable } from 'svelte/store'
-import { sendUserToast } from '$lib/utils'
+import { deepMergeWithPriority } from '$lib/utils'
+import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 
 export function dfs(
@@ -215,36 +216,40 @@ function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any
 	}
 }
 export function appComponentFromType<T extends keyof typeof components>(
-	type: T
+	type: T,
+	overrideConfiguration?: Partial<InitialAppComponent['configuration']>
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
 		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
+
+		const configuration = Object.fromEntries(
+			Object.entries(init.configuration).map(([key, value]) => {
+				if (value.type != 'oneOf') {
+					return cleanseValue(key, value)
+				} else {
+					return [
+						key,
+						{
+							type: value.type,
+							selected: value.selected,
+							configuration: Object.fromEntries(
+								Object.entries(value.configuration).map(([key, val]) => [
+									key,
+									Object.fromEntries(
+										Object.entries(val).map(([key, val]) => cleanseValue(key, val))
+									)
+								])
+							)
+						}
+					]
+				}
+			})
+		)
+
 		return {
 			type,
 			//TODO remove tooltip and onlyStatic from there
-			configuration: Object.fromEntries(
-				Object.entries(init.configuration).map(([key, value]) => {
-					if (value.type != 'oneOf') {
-						return cleanseValue(key, value)
-					} else {
-						return [
-							key,
-							{
-								type: value.type,
-								selected: value.selected,
-								configuration: Object.fromEntries(
-									Object.entries(value.configuration).map(([key, val]) => [
-										key,
-										Object.fromEntries(
-											Object.entries(val).map(([key, val]) => cleanseValue(key, val))
-										)
-									])
-								)
-							}
-						]
-					}
-				})
-			),
+			configuration: deepMergeWithPriority(configuration, overrideConfiguration ?? {}),
 			componentInput: init.componentInput,
 			panes: init.panes,
 			tabs: init.tabs,

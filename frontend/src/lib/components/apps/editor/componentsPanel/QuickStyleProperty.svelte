@@ -8,7 +8,8 @@
 		StylePropertyUnits,
 		STYLE_STORE_KEY,
 		type StyleStore,
-		type StyleStoreValue
+		type StyleStoreValue,
+		type StylePropertyValue
 	} from './quickStyleProperties'
 
 	export let prop: StyleStoreValue['style'][number]['prop']
@@ -21,7 +22,19 @@
 	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
 	let internalValue: number | string
 
-	$: internalValue = value ? +value.replace(unit, '') : ''
+	function getInteralValue(value: string | undefined, propValue: StylePropertyValue) {
+		if (!value) {
+			return ''
+		}
+		if (propValue.type === StylePropertyType.number) {
+			return value
+		}
+		if (propValue.type === StylePropertyType.text) {
+			return +value.replace(unit, '')
+		}
+		return ''
+	}
+	$: internalValue = getInteralValue(value, prop.value as StylePropertyValue)
 	$: dispatch('change', value)
 
 	function updateValue(next: number) {

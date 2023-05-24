@@ -4,11 +4,12 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { decodeState, sendUserToast } from '$lib/utils'
+	import { decodeState } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')

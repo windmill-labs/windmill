@@ -12,8 +12,7 @@
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
-		getModifierKey,
-		sendUserToast
+		getModifierKey
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
@@ -21,6 +20,7 @@
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -169,7 +169,7 @@
 							size="xs"
 							variant="border"
 							disabled={flow == undefined}
-							color="dark"
+							color="light"
 							on:click={() => {
 								//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
 								savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)
@@ -205,15 +205,17 @@
 			</div>
 		</Pane>
 		<Pane size={$savedInputPaneSize}>
-			<SavedInputs
-				flowPath={path}
-				{isValid}
-				{args}
-				on:selected_args={(e) => {
-					args = JSON.parse(JSON.stringify(e.detail))
-					reloadArgs += 1
-				}}
-			/>
+			{#if $savedInputPaneSize > 0}
+				<SavedInputs
+					flowPath={path}
+					{isValid}
+					{args}
+					on:selected_args={(e) => {
+						args = JSON.parse(JSON.stringify(e.detail))
+						reloadArgs += 1
+					}}
+				/>
+			{/if}
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

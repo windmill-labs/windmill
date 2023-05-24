@@ -76,7 +76,11 @@ class PyrightLS(LanguageServerWebSocketHandler):
 
 
 class DiagnosticLS(LanguageServerWebSocketHandler):
-    procargs = ["diagnostic-languageserver", "--stdio"]
+    procargs = ["diagnostic-languageserver", "--stdio", "--log-level", "4"]
+
+
+class RuffLS(LanguageServerWebSocketHandler):
+    procargs = ["ruff-lsp"]
 
 
 class DenoLS(LanguageServerWebSocketHandler):
@@ -105,7 +109,8 @@ if __name__ == "__main__":
     app = web.Application(
         [
             (r"/ws/pyright", PyrightLS),
-            (r"/ws/black", DiagnosticLS),
+            (r"/ws/diagnostic", DiagnosticLS),
+            (r"/ws/ruff", RuffLS),
             (r"/ws/deno", DenoLS),
             (r"/ws/go", GoLS),
             (r"/", MainHandler),

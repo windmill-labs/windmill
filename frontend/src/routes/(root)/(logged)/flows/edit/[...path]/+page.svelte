@@ -4,12 +4,14 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeArgs, decodeState, emptySchema, sendUserToast } from '$lib/utils'
+	import { decodeArgs, decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { goto } from '$app/navigation'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import { sendUserToast } from '$lib/toast'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
@@ -78,7 +80,7 @@
 
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
-		selectedId = stateLoadedFromUrl?.selectedId
+		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
 		$dirtyStore = false
 	}
 
@@ -89,9 +91,17 @@
 	}
 </script>
 
-<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 999;" />
+<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
+
+<UnsavedConfirmationModal />
 
 <FlowBuilder
+	on:deploy={() => {
+		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	}}
+	on:details={() => {
+		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
+	}}
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}

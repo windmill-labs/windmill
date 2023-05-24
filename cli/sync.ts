@@ -662,12 +662,7 @@ async function push(
           }
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.after,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
@@ -700,12 +695,7 @@ async function push(
         ) {
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.content,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           continue;
         }

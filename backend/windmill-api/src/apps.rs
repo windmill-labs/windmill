@@ -31,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{script_path_to_payload, JobPayload, RawCode},
+    jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
@@ -775,24 +775,8 @@ async fn execute_component(
             (payload, args, None)
         }
         ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = if path.starts_with("script/") {
-                script_path_to_payload(
-                    path.strip_prefix("script/").unwrap(),
-                    tx.transaction_mut(),
-                    &w_id,
-                )
-                .await?
-            } else if path.starts_with("flow/") {
-                (
-                    JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),
-                    None,
-                )
-            } else {
-                return Err(Error::BadRequest(format!(
-                    "path must start with script/ or flow/ (got {})",
-                    path
-                )));
-            };
+            let (payload, tag) =
+                get_payload_tag_from_prefixed_path(path, tx.transaction_mut(), &w_id).await?;
             let args = build_args(policy, component, path.to_string(), args)?;
             (payload, args, tag)
         }
@@ -807,6 +791,7 @@ async fn execute_component(
         &username,
         &email,
         permissioned_as,
+        None,
         None,
         None,
         None,

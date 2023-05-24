@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -45,6 +45,7 @@
 
 	let firstDebounce = true
 	const debounce_ms = 50
+
 	function debounce(cb: () => Promise<void>) {
 		if (firstDebounce) {
 			firstDebounce = false
@@ -66,7 +67,7 @@
 		if (timeout) {
 			clearTimeout(timeout)
 		}
-		timeout = setTimeout(cb, 1000)
+		timeout = setTimeout(cb, 50)
 	}
 
 	$: lastInput && $worldStore && debounce(handleConnection)
@@ -106,6 +107,8 @@
 		} else {
 			value = undefined
 		}
+
+		await tick()
 		dispatch('done')
 	}
 

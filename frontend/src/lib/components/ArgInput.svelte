@@ -424,6 +424,7 @@
 											pickForField = label
 											itemPicker?.openDrawer?.()
 										}}
+										title="Use Variable"
 									>
 										<Icon data={faDollarSign} />
 									</div>

@@ -9,6 +9,8 @@
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import { sendUserToast } from '$lib/toast'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -48,7 +50,9 @@
 								size="sm"
 								startIcon={{ icon: faBolt }}
 							>
-								Trigger &nbsp;<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_trigger">
+								Trigger &nbsp;<Tooltip
+									documentationLink="https://docs.windmill.dev/docs/flows/flow_trigger"
+								>
 									Used as a first step most commonly with a state and a schedule to watch for
 									changes on an external system, compute the diff since last time and set the new
 									state. The diffs are then treated one by one with a for-loop.
@@ -56,7 +60,9 @@
 							</ToggleButton>
 						{/if}
 						<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
-							Approval &nbsp;<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
+							Approval &nbsp;<Tooltip
+								documentationLink="https://docs.windmill.dev/docs/flows/flow_approval"
+							>
 								An approval step will suspend the execution of a flow until it has been approved
 								through the resume endpoints or the approval page by and solely by the recipients of
 								those secret urls.
@@ -75,9 +81,7 @@
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip
-			documentationLink="https://docs.windmill.dev/docs/flows/flow_error_handler"
-			>
+			<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_error_handler">
 				Embed a script directly inside a flow instead of saving the script into your workspace for
 				reuse. You can always save an inline script to your workspace later.
 			</Tooltip>
@@ -141,6 +145,28 @@
 							lang="pgsql"
 							on:click={() =>
 								dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
+						/>
+						<FlowScriptPicker
+							label={`Docker`}
+							lang="docker"
+							on:click={() => {
+								if (isCloudHosted() || true) {
+									sendUserToast(
+										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+										true,
+										[
+											{
+												label: 'Learn more',
+												callback: () => {
+													window.open('https://docs.windmill.dev/docs/advanced/docker', '_blank')
+												}
+											}
+										]
+									)
+									return
+								}
+								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'docker' })
+							}}
 						/>
 
 						<!-- <FlowScriptPicker

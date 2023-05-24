@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions, parseFromFile, removeType } from "./types.ts";
+import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -28,9 +28,8 @@ export interface ScriptFile {
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
-  const remotePath = filePath.split(".")[0];
 
-  if (!validatePath(remotePath)) {
+  if (!validatePath(filePath)) {
     return;
   }
 
@@ -38,19 +37,16 @@ async function push(opts: PushOptions, filePath: string) {
   if (!fstat.isFile) {
     throw new Error("file path must refer to a file.");
   }
-  let contentPath: string;
-  let metaPath: string | undefined;
+
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
-    metaPath = filePath;
-    contentPath = await findContentFile(filePath);
-  } else {
-    contentPath = filePath;
-    metaPath = undefined;
+    throw Error(
+      "Cannot push a script metadata file, point to the script content file instead (.py, .ts, .go|.sh)"
+    );
   }
 
   await requireLogin(opts);
-  await pushScript(metaPath, contentPath, workspace.workspaceId, remotePath);
-  log.info(colors.bold.underline.green(`Script ${remotePath} pushed`));
+  await handleFile(filePath, workspace.workspaceId, []);
+  log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
 export async function handleScriptMetadata(
@@ -60,12 +56,7 @@ export async function handleScriptMetadata(
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
-    return handleFile(
-      contentPath,
-      await Deno.readTextFile(contentPath),
-      workspace,
-      alreadySynced
-    );
+    return handleFile(contentPath, workspace, alreadySynced);
   } else {
     return false;
   }
@@ -73,7 +64,6 @@ export async function handleScriptMetadata(
 
 export async function handleFile(
   path: string,
-  content: string,
   workspace: string,
   alreadySynced: string[]
 ): Promise<boolean> {
@@ -118,6 +108,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
+    const content = await Deno.readTextFile(path);
 
     if (remote) {
       if (content === remote.content) {
@@ -240,52 +231,6 @@ export function inferContentTypeFromFilePath(
     throw new Error("Invalid language: " + language);
   }
   return language;
-}
-
-export async function pushScript(
-  filePath: string | undefined,
-  contentPath: string,
-  workspace: string,
-  remotePath: string
-) {
-  remotePath = removeType(remotePath, "script");
-
-  const data: ScriptFile | undefined = filePath
-    ? parseFromFile(filePath)
-    : undefined;
-  const content = await Deno.readTextFile(contentPath);
-
-  const language = inferContentTypeFromFilePath(contentPath);
-  let parent_hash = data?.parent_hash;
-  if (!parent_hash) {
-    try {
-      parent_hash = (
-        await ScriptService.getScriptByPath({
-          workspace: workspace,
-          path: remotePath,
-        })
-      ).hash;
-    } catch {
-      /* no parent. New Script. */
-    }
-  }
-
-  log.info(colors.bold.yellow(`Pushing script ${remotePath}...`));
-  await ScriptService.createScript({
-    workspace: workspace,
-    requestBody: {
-      path: remotePath,
-      summary: data?.summary ?? "",
-      content: content,
-      description: data?.description ?? "",
-      language: language as NewScript.language,
-      is_template: data?.is_template,
-      kind: data?.kind as NewScript.kind,
-      lock: data?.lock,
-      parent_hash: parent_hash,
-      schema: data?.schema,
-    },
-  });
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
@@ -473,9 +418,9 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local script spec. This overrides any remote versions. Can use a script file (.ts, .js, .py, .sh) or a script spec file (.json). "
+    "push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)"
   )
-  .arguments("<file_path:file>")
+  .arguments("<path:file>")
   .action(push as any)
   .command("show", "show a scripts content")
   .arguments("<path:file>")

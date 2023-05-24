@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { ToastAction } from '$lib/utils'
 	import { toast } from '@zerodevx/svelte-toast'
 	import { CheckCircle2, XCircleIcon } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import Button from './common/button/Button.svelte'
+	import type { ToastAction } from '$lib/toast'
 
 	export let message: string
 	export let toastId: string

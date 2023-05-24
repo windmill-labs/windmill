@@ -22,6 +22,8 @@
 	function clear() {
 		value = ''
 	}
+
+	$: if (value === undefined) value = ''
 </script>
 
 <div

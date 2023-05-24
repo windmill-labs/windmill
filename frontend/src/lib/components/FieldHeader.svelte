@@ -23,15 +23,17 @@
 	</span>
 	<Required {required} class="!ml-0" />
 
-	{#if format && format != ''}
-		<span class="text-sm italic ml-1 text-indigo-800">
-			({format})
-		</span>
-	{:else if displayType}
-		<span class="text-sm italic ml-1 text-indigo-800">
-			({type ?? 'any'}{contentEncoding && contentEncoding != ''
-				? `, encoding: ${contentEncoding}`
-				: ''})
-		</span>
+	{#if displayType}
+		{#if format && format != ''}
+			<span class="text-sm italic ml-1 text-indigo-800">
+				({format})
+			</span>
+		{:else}
+			<span class="text-sm italic ml-1 text-indigo-800">
+				({type ?? 'any'}{contentEncoding && contentEncoding != ''
+					? `, encoding: ${contentEncoding}`
+					: ''})
+			</span>
+		{/if}
 	{/if}
 </div>

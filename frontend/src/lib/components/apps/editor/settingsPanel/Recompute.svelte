@@ -20,8 +20,8 @@
 </script>
 
 <PanelSection
-	title="Recompute others"
-	tooltip="Select components to recompute after running this script"
+	title="Trigger Runnable"
+	tooltip="Select components to recompute after running this runnable as a success"
 	documentationLink="https://docs.windmill.dev/docs/apps/app_settings#recompute-others"
 >
 	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}

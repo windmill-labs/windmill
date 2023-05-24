@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.100.1
+  version: 1.103.0
   title: Windmill API
 
   contact:
@@ -2517,6 +2517,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
           in: query
@@ -2549,6 +2550,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
 
@@ -2576,6 +2578,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/Payload"
@@ -2598,6 +2601,7 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
         description: script args
@@ -3344,6 +3348,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
           description: make the run invisible to the the flow owner (default false)
@@ -3389,6 +3394,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -3426,6 +3432,8 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/NewJobId"
+
       requestBody:
         description: preview
         required: true
@@ -3457,6 +3465,7 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
         description: preview
@@ -3645,7 +3654,7 @@ paths:
                   mem_peak:
                     type: integer
 
-  /w/{workspace}/jobs/completed/get/{id}:
+  /w/{workspace}/jobs_u/completed/get/{id}:
     get:
       summary: get completed job
       operationId: getCompletedJob
@@ -3662,7 +3671,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/completed/get_result/{id}:
+  /w/{workspace}/jobs_u/completed/get_result/{id}:
     get:
       summary: get completed job result
       operationId: getCompletedJobResult
@@ -3678,7 +3687,7 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/jobs/completed/get_result_maybe/{id}:
+  /w/{workspace}/jobs_u/completed/get_result_maybe/{id}:
     get:
       summary: get completed job result if job is completed
       operationId: getCompletedJobResultMaybe
@@ -5076,6 +5085,15 @@ components:
       schema:
         type: string
         format: uuid
+    NewJobId:
+      name: job_id
+      description:
+        The job id to assign to the created job. if missing, job is chosen randomly using the ULID scheme.
+        If a job id already exists in the queue or as a completed job, the request to create one will fail (Bad Request)
+      in: query
+      schema:
+        type: string
+        format: uuid
     IncludeHeader:
       name: include_header
       description: |
@@ -6142,6 +6160,9 @@ components:
           type: string
         error:
           type: string
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - path
         - edited_by
@@ -6171,6 +6192,9 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         enabled:
           type: boolean
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - path
         - schedule
@@ -6188,6 +6212,9 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - schedule
         - timezone

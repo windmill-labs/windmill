@@ -74,7 +74,23 @@ pub async fn pip_compile(
 ) -> error::Result<String> {
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
-    logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
+    logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
+    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| {
+                if !deps.contains(&s.to_string()) {
+                    return true;
+                } else {
+                    logs.push_str(&format!("\nignoring local dependency: {}", s));
+                    return false;
+                }
+            })
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
     let req_hash = calculate_hash(&requirements);
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -87,15 +103,7 @@ pub async fn pip_compile(
         return Ok(cached);
     }
     let file = "requirements.in";
-    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
-        let deps = pip_local_dependencies.clone();
-        requirements
-            .lines()
-            .filter(|s| !deps.contains(&s.to_string()))
-            .join("\n")
-    } else {
-        requirements.to_string()
-    };
+
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
@@ -314,7 +322,7 @@ import json
 import traceback
 import sys
 from {module_dir_dot} import {last} as inner_script
-
+import regex as re
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -329,7 +337,8 @@ def to_b_64(v: bytes):
     import base64
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
-    
+
+replace_nan = re.compile(r'\bnan\b', re.IGNORECASE)
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -344,7 +353,7 @@ try:
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
     with open("result.json", 'w') as f:
         f.write(res_json)
 except Exception as e:

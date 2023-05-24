@@ -3,7 +3,12 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
-import type { AppComponent, RecomputeOthersSource, components } from './editor/component/components'
+import type {
+	AppComponent,
+	PresetComponentConfig,
+	RecomputeOthersSource,
+	components
+} from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -83,6 +88,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 export type ComponentSet = {
 	title: string
 	components: Readonly<AppComponent['type'][]>
+	presets?: Readonly<PresetComponentConfig['type'][]> | undefined
 }
 
 type SectionID = string

@@ -1,24 +1,11 @@
-<script lang="ts" context="module">
-	import getDialogServiceOverride from 'vscode/service-override/dialogs'
-	import getNotificationServiceOverride from 'vscode/service-override/notifications'
-	import { StandaloneServices } from 'vscode/services'
-
-	try {
-		StandaloneServices?.initialize({
-			...getNotificationServiceOverride(document.body),
-			...getDialogServiceOverride()
-		})
-	} catch (e) {
-		console.error(e)
-	}
-</script>
-
 <script lang="ts">
-	import { browser } from '$app/environment'
-	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { BROWSER } from 'esm-env'
+
+	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+
+	import * as vscode from 'vscode'
 
 	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
@@ -33,10 +20,9 @@
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
+	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import * as vscode from 'vscode'
 	import { MonacoBinding } from 'y-monaco'
 
 	languages.typescript.typescriptDefaults.setModeConfiguration({
@@ -84,7 +70,14 @@
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	export let websocketAlive = {
+		pyright: false,
+		black: false,
+		ruff: false,
+		deno: false,
+		go: false,
+		shellcheck: false
+	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
@@ -97,7 +90,7 @@
 
 	let initialPath: string = path
 
-	$: path != initialPath && handlePathChange()
+	$: path != initialPath && lang == 'typescript' && handlePathChange()
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -107,11 +100,11 @@
 	const dispatch = createEventDispatcher()
 
 	const uri =
-		lang == 'go' ? `file:///tmp/monaco/${randomHash()}.go` : `file:///${path}.${langToExt(lang)}`
+		lang == 'typescript'
+			? `file:///${path}.${langToExt(lang)}`
+			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
-	// if (lang != 'typescript') {
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
-	// }
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -163,7 +156,9 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor?.getAction('editor.action.formatDocument')?.run()
+			if (lang != 'shell') {
+				editor?.getAction('editor.action.formatDocument')?.run()
+			}
 			if (formatAction) {
 				formatAction()
 			}
@@ -185,13 +180,37 @@
 	}
 
 	let command: Disposable | undefined = undefined
-	let monacoServices: Disposable | undefined = undefined
 
+	const outputChannel = {
+		name: 'Language Server Client',
+		appendLine: (msg: string) => {
+			console.log(msg)
+		},
+		append: (msg: string) => {
+			console.log(msg)
+		},
+		clear: () => {},
+		replace: () => {},
+		show: () => {},
+		hide: () => {},
+		dispose: () => {}
+	}
 	export async function reloadWebsocket() {
+		console.log('reloadWebsocket')
 		await closeWebsockets()
-
-		monacoServices = MonacoServices.install()
-
+		try {
+			await initServices({
+				enableThemeService: false,
+				enableModelEditorService: true,
+				enableNotificationService: false,
+				modelEditorServiceConfig: {
+					useDefaultFunction: true
+				},
+				debugLogging: false
+			})
+		} catch (e) {
+			console.log('initServices failed', e.message)
+		}
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,
@@ -201,6 +220,7 @@
 			const client = new MonacoLanguageClient({
 				name: name,
 				clientOptions: {
+					outputChannel,
 					documentSelector: [lang],
 					errorHandler: {
 						error: () => ({ action: ErrorAction.Continue }),
@@ -211,7 +231,14 @@
 					markdown: {
 						isTrusted: true
 					},
-
+					workspaceFolder:
+						name != 'deno'
+							? {
+									uri: vscode.Uri.parse(uri),
+									name: 'windmill',
+									index: 0
+							  }
+							: undefined,
 					initializationOptions,
 					middleware: {
 						workspace: {
@@ -319,7 +346,8 @@
 			}
 		}
 
-		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
+		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
 		if (lang == 'typescript') {
@@ -329,14 +357,7 @@
 				const token = await UserService.createToken({
 					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
 				})
-				let root =
-					$page.url.protocol +
-					'//' +
-					$page.url.host +
-					'/api/scripts_u/tokened_raw/' +
-					$workspaceStore +
-					'/' +
-					token
+				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 				const importMap = {
 					imports: {
 						'file:///': root + '/'
@@ -355,7 +376,7 @@
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			}
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/deno`,
+				`${wsProtocol}://${window.location.host}/ws/deno`,
 				'deno',
 				{
 					certificateStores: null,
@@ -397,7 +418,7 @@
 			)
 		} else if (lang === 'python') {
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/pyright`,
+				`${wsProtocol}://${window.location.host}/ws/pyright`,
 				'pyright',
 				{},
 				(params, token, next) => {
@@ -428,7 +449,13 @@
 			)
 
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/black`,
+				`${wsProtocol}://${window.location.host}/ws/ruff`,
+				'ruff',
+				{},
+				undefined
+			)
+			connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
 				'black',
 				{
 					formatters: {
@@ -445,10 +472,46 @@
 			)
 		} else if (lang === 'go') {
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/go`,
+				`${wsProtocol}://${window.location.host}/ws/go`,
 				'go',
 				{
 					'build.allowImplicitNetworkAccess': true
+				},
+				undefined
+			)
+		} else if (lang === 'shell') {
+			connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+				'shellcheck',
+				{
+					linters: {
+						shellcheck: {
+							command: 'shellcheck',
+							debounce: 100,
+							args: ['--format=gcc', '-'],
+							offsetLine: 0,
+							offsetColumn: 0,
+							sourceName: 'shellcheck',
+							formatLines: 1,
+							formatPattern: [
+								'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
+								{
+									line: 1,
+									column: 2,
+									message: 4,
+									security: 3
+								}
+							],
+							securities: {
+								error: 'error',
+								warning: 'warning',
+								note: 'info'
+							}
+						}
+					},
+					filetypes: {
+						shell: 'shellcheck'
+					}
 				},
 				undefined
 			)
@@ -492,19 +555,20 @@
 	async function closeWebsockets() {
 		command && command.dispose()
 		command = undefined
-		monacoServices && monacoServices.dispose()
-		monacoServices = undefined
 		for (const x of websockets) {
 			try {
-				await x[0].stop()
+				await x[0].dispose()
 				x[1].close()
 			} catch (err) {
+				console.log('error disposing language client, closing websocket', err)
 				try {
 					x[1].close()
-				} catch (err) {}
-				console.log('error disposing websocket', err)
+				} catch (err) {
+					console.log('error disposing websocket, closin', err)
+				}
 			}
 		}
+		console.log('disposed language client and closed websocket')
 		websockets = []
 		websocketInterval && clearInterval(websocketInterval)
 	}
@@ -515,6 +579,7 @@
 	let monacoBinding: MonacoBinding | undefined = undefined
 	// @ts-ignore
 	$: if (yContent && awareness && model && editor) {
+		console.log('AWARNESS CHANGED')
 		monacoBinding && monacoBinding.destroy()
 		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
 	}
@@ -544,8 +609,11 @@
 
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', code)
+				let ncode = getCode()
+				if (ncode != '') {
+					code = ncode
+					dispatch('change', code)
+				}
 			}, 500)
 		})
 
@@ -566,6 +634,8 @@
 				!websocketAlive.black &&
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
+				!websocketAlive.ruff &&
+				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
@@ -581,6 +651,7 @@
 				closeWebsockets()
 				model?.dispose()
 				editor && editor.dispose()
+				console.log('disposed editor')
 			} catch (err) {
 				console.log('error disposing editor', err)
 			}
@@ -606,7 +677,7 @@
 	}
 
 	onMount(() => {
-		if (browser) {
+		if (BROWSER) {
 			loadMonaco().then((x) => (disposeMethod = x))
 		}
 	})

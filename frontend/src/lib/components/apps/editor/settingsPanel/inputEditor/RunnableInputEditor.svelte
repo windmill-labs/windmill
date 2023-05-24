@@ -32,5 +32,10 @@
 {#if isScriptByPathDefined(appInput) || isScriptByNameDefined(appInput)}
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else if appInput !== undefined}
-	<RunnableSelector {defaultUserInput} on:pick={(e) => onPick(e.detail)} />
+	<RunnableSelector
+		hideCreateScript={appComponent.type === 'flowstatuscomponent'}
+		onlyFlow={appComponent.type === 'flowstatuscomponent'}
+		{defaultUserInput}
+		on:pick={(e) => onPick(e.detail)}
+	/>
 {/if}

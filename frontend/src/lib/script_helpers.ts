@@ -168,7 +168,8 @@ export const FETCH_INIT_CODE = `export async function main(
 		})
 }`
 
-export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
+export const BASH_INIT_CODE = `# shellcheck shell=bash
+# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
 
@@ -221,11 +222,24 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.99.0/mod.ts"
 
 export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
 }`
+
+export const DOCKER_INIT_CODE = `# shellcheck shell=bash
+# Bash script that calls docker as a client to the host daemon
+# See documentation: https://docs.windmill.dev/docs/advanced/docker
+msg="\${1:-world}"
+
+IMAGE="alpine:latest"
+COMMAND="/bin/echo Hello $msg"
+
+# ensure that the image is up-to-date
+docker pull $IMAGE
+docker run --rm $IMAGE $COMMAND
+`
 
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
@@ -251,7 +265,7 @@ export function isInitialCode(content: string): boolean {
 export function initialCode(
 	language: 'deno' | 'python3' | 'go' | 'bash',
 	kind: Script.kind | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | undefined
 ): string {
 	if (!kind) {
 		kind = Script.kind.SCRIPT
@@ -289,7 +303,11 @@ export function initialCode(
 			return PYTHON_INIT_CODE
 		}
 	} else if (language == 'bash') {
-		return BASH_INIT_CODE
+		if (subkind === 'docker') {
+			return DOCKER_INIT_CODE
+		} else {
+			return BASH_INIT_CODE
+		}
 	} else {
 		if (kind === 'failure') {
 			return GO_FAILURE_MODULE_CODE

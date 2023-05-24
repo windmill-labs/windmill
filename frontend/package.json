@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.100.1",
+	"version": "1.103.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -19,7 +19,7 @@
 		"@playwright/test": "^1.33.0",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
-		"@sveltejs/kit": "^1.16.2",
+		"@sveltejs/kit": "^1.18.0",
 		"@sveltejs/package": "^2.0.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
@@ -27,9 +27,9 @@
 		"@types/d3-zoom": "^3.0.2",
 		"@types/lodash": "^4.14.194",
 		"@types/node": "^18.16.3",
-		"@types/vscode": "~1.77.0",
-		"@typescript-eslint/eslint-plugin": "^5.59.5",
-		"@typescript-eslint/parser": "^5.59.1",
+		"@types/vscode": "~1.78.0",
+		"@typescript-eslint/eslint-plugin": "^5.59.7",
+		"@typescript-eslint/parser": "^5.59.7",
 		"@zerodevx/svelte-toast": "^0.9.3",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
@@ -37,11 +37,11 @@
 		"eslint": "^8.40.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"monaco-editor-workers": "0.37.0",
+		"monaco-editor-workers": "~0.37.0",
 		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
-		"pdfjs-dist": "^3.5.141",
+		"pdfjs-dist": "^3.6.172",
 		"postcss": "^8.4.23",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.8",
@@ -49,12 +49,12 @@
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^12.0.0",
-		"svelte": "^3.55.1",
+		"svelte": "^3.59.1",
 		"svelte-awesome": "^3.2.0",
-		"svelte-awesome-color-picker": "^2.4.1",
-		"svelte-check": "^3.2.0",
-		"svelte-highlight": "^7.2.1",
-		"svelte-multiselect": "^8.6.0",
+		"svelte-awesome-color-picker": "^2.4.3",
+		"svelte-check": "^3.3.2",
+		"svelte-highlight": "^7.3.0",
+		"svelte-multiselect": "^8.6.2",
 		"svelte-overlay": "^1.4.1",
 		"svelte-popperjs": "^1.3.2",
 		"svelte-preprocess": "^5.0.1",
@@ -62,7 +62,7 @@
 		"svelte-splitpanes": "^0.7.3",
 		"svelte2tsx": "^0.6.14",
 		"tailwindcss": "^3.3.2",
-		"tslib": "^2.4.1",
+		"tslib": "^2.5.2",
 		"typescript": "^5.0.4",
 		"vite": "^4.3.3",
 		"yootils": "^0.3.1"
@@ -77,33 +77,32 @@
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.1",
 		"ag-grid-svelte": "^0.1.4",
-		"chart.js": "^3.9.1",
+		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
-		"date-fns": "^2.29.3",
+		"date-fns": "^2.30.0",
+		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.214.0",
-		"monaco-editor": "0.36.1",
-		"monaco-languageclient": "5.0.1",
+		"lucide-svelte": "^0.220.0",
+		"monaco-languageclient": "~6.0.1",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-dnd-action": "^0.9.22",
 		"svelte-portal": "^2.2.0",
-		"svelte-select": "^5.6.0",
+		"svelte-select": "^5.6.1",
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.12.0",
-		"vscode-languageclient": "^8.1.0",
 		"vscode-ws-jsonrpc": "3.0.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yjs": "^13.6.1"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.16.2",
-		"svelte": "^3.55.1"
+		"@sveltejs/kit": "^1.18.0",
+		"svelte": "^3.59.1"
 	},
 	"exports": {
 		"./package.json": "./package.json",
@@ -162,6 +161,16 @@
 			"svelte": "./package/components/FlowViewer.svelte",
 			"default": "./package/components/FlowViewer.svelte"
 		},
+		"./components/FlowBuilder.svelte": {
+			"types": "./package/components/FlowBuilder.svelte.d.ts",
+			"svelte": "./package/components/FlowBuilder.svelte",
+			"default": "./package/components/FlowBuilder.svelte"
+		},
+		"./components/FlowEditor.svelte": {
+			"types": "./package/components/flows/FlowEditor.svelte.d.ts",
+			"svelte": "./package/components/flows/FlowEditor.svelte",
+			"default": "./package/components/flows/FlowEditor.svelte"
+		},
 		"./components/SchemaViewer.svelte": {
 			"types": "./package/components/SchemaViewer.svelte.d.ts",
 			"svelte": "./package/components/SchemaViewer.svelte",
@@ -175,6 +184,10 @@
 		"./common": {
 			"types": "./package/common.d.ts",
 			"default": "./package/common.js"
+		},
+		"./stores": {
+			"types": "./package/stores.d.ts",
+			"default": "./package/stores.js"
 		},
 		"./components/icons": {
 			"types": "./package/components/icons/index.d.ts",
@@ -198,7 +211,7 @@
 		"dist",
 		"package"
 	],
-	"license": "Apache-2.0",
+	"license": "AGPL-3.0",
 	"svelte": "./dist/index.js",
 	"typesVersions": {
 		">4.0": {
@@ -232,6 +245,12 @@
 			"components/FlowViewer.svelte": [
 				"./package/components/FlowViewer.svelte.d.ts"
 			],
+			"components/FlowBuilder.svelte": [
+				"./package/components/FlowBuilder.svelte.d.ts"
+			],
+			"components/FlowEditor.svelte": [
+				"./package/components/flows/FlowEditor.svelte.d.ts"
+			],
 			"components/SchemaViewer.svelte": [
 				"./package/components/SchemaViewer.svelte.d.ts"
 			],
@@ -240,6 +259,9 @@
 			],
 			"common": [
 				"./package/common.d.ts"
+			],
+			"stores": [
+				"./package/stores.d.ts"
 			],
 			"components/icons": [
 				"./package/components/icons/index.d.ts"

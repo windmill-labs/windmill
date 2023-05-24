@@ -140,7 +140,7 @@
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
-				title={componentSettings?.item.data.type
+				title={componentSettings?.item.data.type == 'steppercomponent'
 					? 'Validations'
 					: hasInteraction
 					? 'Event handler'
@@ -205,8 +205,8 @@
 								>
 									<svelte:fragment slot="action">
 										<Tooltip>
-											The runnable inputs of a button component are not settable by the user. They
-											must be defined statically or connected.
+											The runnable inputs are inferred from the inputs of the flow or script
+											parameters this component is attached to.
 										</Tooltip>
 									</svelte:fragment>
 
@@ -243,18 +243,33 @@
 		{/if}
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:disabledTabs={componentSettings.item.data.disabledTabs}
+				bind:component={componentSettings.item.data}
+				canDisableTabs
+			/>
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:component={componentSettings.item.data}
+				word="Step"
+			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
-			<GridCondition bind:conditions={componentSettings.item.data.conditions} {component} />
+			<GridCondition
+				bind:conditions={componentSettings.item.data.conditions}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
-			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
+			<GridPane
+				bind:panes={componentSettings.item.data.panes}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
+		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
 				ownId={component.id}
@@ -293,6 +308,7 @@
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
+										tooltip={ccomponents[component.type].customCss[name].tooltip}
 										{name}
 										bind:value={componentSettings.item.data.customCss[name]}
 									/>

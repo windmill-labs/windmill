@@ -24,6 +24,7 @@
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
+		valid: true,
 		values: {}
 	})
 
@@ -43,12 +44,17 @@
 	}
 
 	$: args && handleArgsChange()
+
+	$: outputs.valid.set(valid)
+
 	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
 
 	const resolvedConfig = initConfig(
 		components['schemaformcomponent'].initialData.configuration,
 		configuration
 	)
+
+	let valid = true
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
@@ -70,6 +76,7 @@
 		>
 			<LightweightSchemaForm
 				schema={result}
+				bind:isValid={valid}
 				bind:args
 				displayType={Boolean(resolvedConfig.displayType)}
 				largeGap={Boolean(resolvedConfig.largeGap)}

@@ -8,7 +8,7 @@
 	} from '../appUtils'
 	import type { AppEditorContext, AppViewerContext, FocusedGrid, GridItem } from '../../types'
 	import { push } from '$lib/history'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { gridColumns } from '../../gridUtils'
 
 	const { app, selectedComponent, focusedGrid, componentControl } =

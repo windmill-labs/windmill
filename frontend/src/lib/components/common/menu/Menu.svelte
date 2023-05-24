@@ -11,7 +11,7 @@
 	export let show = false
 	export let wrapperClasses = ''
 	export let popupClasses = ''
-	export let transitionDuration = 100
+	export let transitionDuration = 25
 	let menu: HTMLDivElement
 
 	type Alignment = 'start' | 'end' | 'center'

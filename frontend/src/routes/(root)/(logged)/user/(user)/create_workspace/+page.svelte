@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { sendUserToast, validateUsername } from '$lib/utils'
+	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
 	import { switchWorkspace, usersWorkspaceStore } from '$lib/stores'
@@ -10,6 +10,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const rd = $page.url.searchParams.get('rd')
 

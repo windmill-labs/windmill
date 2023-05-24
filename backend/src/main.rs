@@ -143,6 +143,7 @@ Windmill Community Edition {GIT_VERSION}
         "DENO_PATH",
         "GO_PATH",
         "GOPRIVATE",
+        "GOPROXY",
         "NETRC",
         "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
@@ -170,6 +171,7 @@ Windmill Community Edition {GIT_VERSION}
         "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
         "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
         "EXIT_AFTER_NO_JOB_FOR_SECS",
+        "REQUEST_SIZE_LIMIT",
     ]);
 
     if server_mode || num_workers > 0 {

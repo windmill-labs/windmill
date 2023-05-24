@@ -178,6 +178,7 @@ lazy_static::lazy_static! {
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
     pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
+    pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
     static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")
@@ -1299,7 +1300,7 @@ async fn handle_bash_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", &format!("{content}\nsleep 0.02")).await?;
+    write_file(job_dir, "main.sh", &format!("set -e\n{content}\nsleep 0.02")).await?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -1422,7 +1423,7 @@ async fn handle_deno_job(
         } else {
             None
         }).map(|x| {
-            return format!("args[{x}] = new Date(args[{x}])")
+            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
         }).join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");

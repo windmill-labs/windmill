@@ -1,6 +1,77 @@
 # Changelog
 
 
+## [1.103.0](https://github.com/windmill-labs/windmill/compare/v1.102.1...v1.103.0) (2023-05-22)
+
+
+### Features
+
+* docker as a new supported language ([b8da43d](https://github.com/windmill-labs/windmill/commit/b8da43db2c31225b0ade8cd9995aeacf2c0eae86))
+* **frontend:** add flowstatus and log component for apps ([11a52f2](https://github.com/windmill-labs/windmill/commit/11a52f2d593a9b233fd138c7af52fc34fa1e6173))
+* **frontend:** add plain chartjs component ([#1621](https://github.com/windmill-labs/windmill/issues/1621)) ([eb99b73](https://github.com/windmill-labs/windmill/commit/eb99b73346a02993fcaeb6df906fcaf663db259d))
+* **frontend:** disable tabs ([#1623](https://github.com/windmill-labs/windmill/issues/1623)) ([5905d3b](https://github.com/windmill-labs/windmill/commit/5905d3b103b0d1466c4d11b248aec9adbe3bfaad))
+
+## [1.102.1](https://github.com/windmill-labs/windmill/compare/v1.102.0...v1.102.1) (2023-05-21)
+
+
+### Bug Fixes
+
+* add setVariable to deno-client ([501bb11](https://github.com/windmill-labs/windmill/commit/501bb11d9676439062be7a96c9f6655c2b609ee1))
+
+## [1.102.0](https://github.com/windmill-labs/windmill/compare/v1.101.1...v1.102.0) (2023-05-19)
+
+
+### Features
+
+* add  ability to pass the full raw body ([#1611](https://github.com/windmill-labs/windmill/issues/1611)) ([b91f7d5](https://github.com/windmill-labs/windmill/commit/b91f7d501390358b01b6656297f56a9f24ef4683))
+* add GOPROXY + fix on saved inputs ([cdc4f29](https://github.com/windmill-labs/windmill/commit/cdc4f29ec1231820cfb2e0882d167b7dae3ae06e))
+* **backend:** add REQUEST_SIZE_LIMIT env variable ([1cbd704](https://github.com/windmill-labs/windmill/commit/1cbd704a257bcf2bd7b344958104e5c626c52a79))
+* **backend:** non mapped values are passed as arg 'body' ([a13d283](https://github.com/windmill-labs/windmill/commit/a13d2832d47d262f0b3ac222a8eb889fb17c75ad))
+* expose a react sdk to integrate windmill into react apps ([#1605](https://github.com/windmill-labs/windmill/issues/1605)) ([632be3b](https://github.com/windmill-labs/windmill/commit/632be3b8fb547ca4a2d976f868ee931218b653b3))
+* **frontend:** add presets components ([#1589](https://github.com/windmill-labs/windmill/issues/1589)) ([f7338c9](https://github.com/windmill-labs/windmill/commit/f7338c9c9a4cfa10d9c22d32a5ae70c4e3504ef3))
+* **lsp:** add  black + ruff + shellcheck ([#1597](https://github.com/windmill-labs/windmill/issues/1597)) ([89e55e0](https://github.com/windmill-labs/windmill/commit/89e55e0226d50951c5c99ce789af80ccaa5c1e25))
+
+
+### Bug Fixes
+
+* **frontend:** Add missing tooltips + multilpe small fix in the app builder ([#1590](https://github.com/windmill-labs/windmill/issues/1590)) ([fff2b5a](https://github.com/windmill-labs/windmill/commit/fff2b5a24abdd70371e2b8a49ff810c217c01bb1))
+* **frontend:** Fix inputValue connection to ensure done event is always sent ([#1607](https://github.com/windmill-labs/windmill/issues/1607)) ([f27abec](https://github.com/windmill-labs/windmill/commit/f27abecbaca4be46715ef15216492cb0984fe32b))
+* **frontend:** fix pdf header + icon picker ([#1586](https://github.com/windmill-labs/windmill/issues/1586)) ([a1cdf13](https://github.com/windmill-labs/windmill/commit/a1cdf13cb33494457e9f3cba24d5c7398565881f))
+* **frontend:** Fix rx ([#1609](https://github.com/windmill-labs/windmill/issues/1609)) ([c687a77](https://github.com/windmill-labs/windmill/commit/c687a775eb8efdb792c495bec72e7e547b82c068))
+* **frontend:** Fix the spinning logo position ([#1595](https://github.com/windmill-labs/windmill/issues/1595)) ([94b8bc4](https://github.com/windmill-labs/windmill/commit/94b8bc47380ea537512042ae412a3ace1ef709e7))
+* rework multiselect as app component ([#1599](https://github.com/windmill-labs/windmill/issues/1599)) ([85576b0](https://github.com/windmill-labs/windmill/commit/85576b00836225656b88c6751fdc619034b1ebca))
+
+## [1.101.1](https://github.com/windmill-labs/windmill/compare/v1.101.0...v1.101.1) (2023-05-16)
+
+
+### Bug Fixes
+
+* **backend:** make result job endpoints public ([41f2d35](https://github.com/windmill-labs/windmill/commit/41f2d35c971c42b9a4842b1411dd21603cabf084))
+* **frontend:** add temp hidden span to compute the text max length ([#1573](https://github.com/windmill-labs/windmill/issues/1573)) ([2a17d60](https://github.com/windmill-labs/windmill/commit/2a17d60caaef11f4b6cce464e1905a52095fe228))
+* **frontend:** fix app multi select ([#1574](https://github.com/windmill-labs/windmill/issues/1574)) ([45acdc8](https://github.com/windmill-labs/windmill/commit/45acdc895b6b5047a17e59dfcd9ca8cba2dd234a))
+
+## [1.101.0](https://github.com/windmill-labs/windmill/compare/v1.100.2...v1.101.0) (2023-05-15)
+
+
+### Features
+
+* **backend:** add job_id as a query arg to force set the new job_id ([b6c0018](https://github.com/windmill-labs/windmill/commit/b6c0018e2acaaed324832dfc715853ea58a4a268))
+* **frontend:** stepper standalone ([#1558](https://github.com/windmill-labs/windmill/issues/1558)) ([ad6e967](https://github.com/windmill-labs/windmill/commit/ad6e967205550b86cc8744f1ce08bb86215ce3e6))
+
+
+### Bug Fixes
+
+* **frontend:** Handle empty required in SchemaForm ([#1571](https://github.com/windmill-labs/windmill/issues/1571)) ([efc4e9c](https://github.com/windmill-labs/windmill/commit/efc4e9ce8a988aacb8e8dda264702dc08d25f7e0))
+
+## [1.100.2](https://github.com/windmill-labs/windmill/compare/v1.100.1...v1.100.2) (2023-05-14)
+
+
+### Bug Fixes
+
+* **cli:** update wmill script push ([678b574](https://github.com/windmill-labs/windmill/commit/678b574efcae66801a115d576db9d00aa9e4145d))
+* discriminate execute apps by component ([908358e](https://github.com/windmill-labs/windmill/commit/908358eb08614d07b5e846630743242b68b9e149))
+* transform_inputs now only support single line expressions ([c252b76](https://github.com/windmill-labs/windmill/commit/c252b765f1b1fd38f07cbe06548ca5cbe4047ea1))
+
 ## [1.100.1](https://github.com/windmill-labs/windmill/compare/v1.100.0...v1.100.1) (2023-05-12)
 
 

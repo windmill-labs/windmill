@@ -7,8 +7,7 @@
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
-		encodeState,
-		sendUserToast
+		encodeState
 	} from '$lib/utils'
 	import {
 		faArchive,
@@ -26,7 +25,7 @@
 
 	import { goto } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
 	import CronInput from '$lib/components/CronInput.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -40,6 +39,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
+	import { sendUserToast } from '$lib/toast'
 
 	let userSettings: UserSettings
 
@@ -135,11 +135,14 @@
 	let viewWebhookCommand = false
 
 	let args = undefined
-	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
-		args
-	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${
-		flow?.path
-	}`
+
+	function curlCommand(async: boolean) {
+		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
+			args
+		)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run${
+			async ? '' : '_wait_result'
+		}/f/${flow?.path}`
+	}
 
 	let webhook: HTMLHeadElement
 	let moveDrawer: MoveDrawer
@@ -271,7 +274,7 @@
 						size="xs"
 						startIcon={{ icon: faCalendar }}
 					>
-						Schedule
+						New Schedule
 					</Button>
 					<Button
 						on:click={() => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow')}
@@ -358,31 +361,46 @@
 					<div class="flex flex-row-reverse">
 						<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 					</div>
+					<div class="flex flex-col gap-2 mt-2">
+						<div class="flex">
+							<Button
+								color="light"
+								size="lg"
+								endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+								on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+							>
+								CURL
+							</Button>
+						</div>
+						{#if viewWebhookCommand}
+							<div transition:slide|local class="px-4">
+								<Tabs selected="async">
+									<Tab value="async">UUID/Async</Tab>
+									<Tab value="sync">Result/Sync</Tab>
+									<svelte:fragment slot="content">
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
+											><TabContent value="async"
+												>{curlCommand(true)} <span
+													on:click={() => copyToClipboard(curlCommand(true))}
+													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+												></TabContent
+											><TabContent value="sync"
+												>{curlCommand(false)} <span
+													on:click={() => copyToClipboard(curlCommand(false))}
+													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+												><br /><br />//^ returns an UUID. Fetch result until completed == true<br
+												/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
+													.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID</TabContent
+											></pre
+										>
+									</svelte:fragment>
+								</Tabs>
+							</div>
+						{/if}
+					</div>
 				</div>
 
-				<div class="flex flex-col gap-2 mt-2">
-					<div class="flex">
-						<Button
-							color="light"
-							size="sm"
-							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-						>
-							See example curl command
-						</Button>
-					</div>
-					{#if viewWebhookCommand}
-						<div transition:slide|local class="px-4">
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
-								>{curlCommand} <span
-									on:click={() => copyToClipboard(curlCommand)}
-									class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-								></pre
-							>
-						</div>
-					{/if}
-				</div>
 				{#if schedule}
 					<div class="mt-10">
 						<h2

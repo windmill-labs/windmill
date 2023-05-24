@@ -17,8 +17,9 @@
 
 	export let defaultUserInput = false
 	export let hideCreateScript = false
+	export let onlyFlow = false
 
-	let tab: Tab = 'inlinescripts'
+	let tab: Tab = onlyFlow ? 'workspaceflows' : 'inlinescripts'
 	let filter: string = ''
 	let picker: Drawer
 
@@ -132,30 +133,34 @@
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab size="sm" value="inlinescripts">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Detached Inline Scripts
-						</div>
-					</Tab>
-					<Tab size="sm" value="workspacescripts">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Workspace Scripts
-						</div>
-					</Tab>
+					{#if !onlyFlow}
+						<Tab size="sm" value="inlinescripts">
+							<div class="flex gap-2 items-center my-1">
+								<Building size={18} />
+								Detached Inline Scripts
+							</div>
+						</Tab>
+						<Tab size="sm" value="workspacescripts">
+							<div class="flex gap-2 items-center my-1">
+								<Building size={18} />
+								Workspace Scripts
+							</div>
+						</Tab>
+					{/if}
 					<Tab size="sm" value="workspaceflows">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
 							Workspace Flows
 						</div>
 					</Tab>
-					<Tab size="sm" value="hubscripts">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Scripts
-						</div>
-					</Tab>
+					{#if !onlyFlow}
+						<Tab size="sm" value="hubscripts">
+							<div class="flex gap-2 items-center my-1">
+								<Globe2 size={18} />
+								Hub Scripts
+							</div>
+						</Tab>
+					{/if}
 				</Tabs>
 				<div class="my-2" />
 				<div class="flex flex-col gap-y-16">
@@ -202,6 +207,6 @@
 		startIcon={{ icon: faMousePointer }}
 		btnClasses="truncate w-full"
 	>
-		Select a script or flow
+		{#if onlyFlow}Select a flow{:else}Select a script or flow{/if}
 	</Button>
 </div>

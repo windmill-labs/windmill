@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource } from '$lib/gen'
-	import { canWrite, emptyString, isOwner, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, isOwner } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Alert, Button, Drawer, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -14,6 +14,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	let path = ''
 	let initialPath = ''

@@ -15,7 +15,7 @@
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
 
-	let runnableId: string | undefined = scriptHash || scriptPath || flowPath || undefined
+	let runnableId: string | undefined = scriptPath || flowPath || undefined
 	let runnableType: RunnableType | undefined = scriptHash
 		? RunnableType.SCRIPT_HASH
 		: scriptPath
@@ -146,7 +146,7 @@
 				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
 					<span class="text-sm font-extrabold flex-shrink-0"
 						>Saved Inputs <Tooltip
-							>Shared tooltips are available to anyone with access to the script</Tooltip
+							>Shared inputs are available to anyone with access to the script</Tooltip
 						></span
 					>
 					<Button
@@ -219,7 +219,7 @@
 												size="xs"
 												variant="border"
 												spacingSize="xs2"
-												btnClasses={'group-hover:block hidden'}
+												btnClasses={'group-hover:block hidden -my-2'}
 												on:click={(e) => {
 													e.stopPropagation()
 													i.isEditing = !i.isEditing
@@ -236,7 +236,7 @@
 												size="xs"
 												spacingSize="xs2"
 												variant="border"
-												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
+												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden -my-2'}
 												on:click={() => deleteInput(i)}
 											>
 												<X class="w-4 h-4" />

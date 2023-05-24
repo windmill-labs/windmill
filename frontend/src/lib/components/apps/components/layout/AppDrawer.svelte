@@ -20,7 +20,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
@@ -77,7 +77,13 @@
 <InitializeComponent {id} />
 
 <Portal target="#app-editor-top-level-drawer">
-	<Drawer let:open bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
+	<Drawer
+		let:open
+		bind:this={appDrawer}
+		size="800px"
+		alwaysOpen
+		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}
 			on:close={() => {

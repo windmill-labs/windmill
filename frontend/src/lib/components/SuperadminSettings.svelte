@@ -4,7 +4,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
@@ -54,7 +54,7 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-gray-500 ">
+				<div class="text-xs pt-1 text-gray-500">
 					Windmill {version}
 				</div>
 

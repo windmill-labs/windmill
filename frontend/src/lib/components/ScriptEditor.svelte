@@ -2,13 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		emptySchema,
-		getModifierKey,
-		isCloudHosted,
-		scriptLangToEditorLang,
-		sendUserToast
-	} from '$lib/utils'
+	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -24,6 +18,8 @@
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
+	import { isCloudHosted } from '$lib/cloud'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { WebsocketProvider } from 'y-websocket'
 
 	// Exported
@@ -39,7 +35,14 @@
 	export let editor: Editor | undefined = undefined
 	export let collabMode = false
 
-	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	let websocketAlive = {
+		pyright: false,
+		black: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	}
 
 	let width = 1200
 
@@ -53,10 +56,7 @@
 	let testIsLoading = false
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
-	let lastSave: string | null
 	let validCode = true
-
-	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -113,11 +113,7 @@
 
 	let wsProvider: WebsocketProvider | undefined = undefined
 	let yContent: Y.Text | undefined = undefined
-	let yMeta: Y.Map<any> | undefined = undefined
 
-	$: collabLive && lang && yMeta && yMeta?.set('lang', lang)
-
-	let collabLive = false
 	export function setCollaborationMode() {
 		sendUserToast(
 			`Live sharing enabled. ${
@@ -127,37 +123,26 @@
 			}`
 		)
 		console.log('collab mode')
-		collabLive = true
-		const ydoc = new Y.Doc({})
+		const ydoc = new Y.Doc()
+		if (wsProvider) {
+			wsProvider.destroy()
+		}
 		yContent = ydoc.getText('content')
-		wsProvider = new WebsocketProvider('ws://localhost:1234', 'my-roomname', ydoc)
+
+		wsProvider = new WebsocketProvider(
+			'ws://localhost:1234',
+			$workspaceStore + '/' + path ?? 'no-room-name',
+			ydoc
+		)
 
 		wsProvider.on('sync', (isSynced) => {
-			if (yContent?.toJSON() == '') {
+			if (isSynced && yContent?.toJSON() == '') {
 				yContent?.insert(0, code)
-			}
-			if (yMeta?.get('lang') == undefined) {
-				yMeta?.set('lang', lang)
-			}
-		})
-
-		yMeta = ydoc.getMap('meta')
-
-		yMeta.observeDeep(() => {
-			if (yMeta?.get('lang') != undefined) {
-				lang = yMeta?.get('lang')
 			}
 		})
 
 		// All of our network providers implement the awareness crdt
 		const awareness = wsProvider.awareness
-		// You can observe when a user updates their awareness information
-		awareness.on('change', (changes) => {
-			// Whenever somebody updates their awareness information,
-			// we log all awareness information from all users.
-			console.log(Array.from(awareness.getStates().values()))
-		})
-
 		// You can think of your own awareness information as a key-value store.
 		// We update our "user" field to propagate relevant user information.
 		awareness.setLocalStateField('user', {
@@ -166,16 +151,28 @@
 			// Define a color that should be associated to the user:
 			color: '#999999' // should be a hex color
 		})
+		console.log('FOO')
+
+		// You can observe when a user updates their awareness information
+		awareness.on('change', (changes) => {
+			// Whenever somebody updates their awareness information,
+			// we log all awareness information from all users.
+			console.log('awareness change', changes)
+			let peers = Array.from(awareness.getStates().values())
+			console.log('peers', peers)
+		})
 	}
 
 	export function disableCollaboration() {
+		if (!wsProvider?.shouldConnect) return
 		console.log('collab mode disabled')
-		collabLive = false
 		wsProvider?.disconnect()
+		wsProvider.destroy()
+		wsProvider = undefined
 	}
 
 	onDestroy(() => {
-		wsProvider?.disconnect()
+		disableCollaboration()
 	})
 
 	const dispatch = createEventDispatcher()
@@ -198,13 +195,13 @@
 	<div class="flex justify-between space-x-2">
 		<EditorBar
 			on:toggleCollabMode={() => {
-				if (collabLive) {
+				if (wsProvider?.shouldConnect) {
 					disableCollaboration()
 				} else {
 					setCollaborationMode()
 				}
 			}}
-			bind:collabLive
+			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
 			{validCode}
 			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
@@ -257,7 +254,6 @@
 							} catch (e) {
 								console.error('Could not save last_save to local storage', e)
 							}
-							lastSave = code
 							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
@@ -313,14 +309,7 @@
 						</div>
 					</Pane>
 					<Pane size={67}>
-						<LogPanel
-							{path}
-							{lang}
-							previewJob={testJob}
-							{pastPreviews}
-							previewIsLoading={testIsLoading}
-							bind:lastSave
-						/>
+						<LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
 					</Pane>
 				</Splitpanes>
 			</div>

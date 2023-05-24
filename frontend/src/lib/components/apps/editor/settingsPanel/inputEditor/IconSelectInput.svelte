@@ -5,6 +5,7 @@
 	import { fade } from 'svelte/transition'
 
 	export let componentInput: StaticInput<string>
+
 	let anchor: HTMLElement
 	let loading = false
 	let items: { label: string; icon: any }[]
@@ -26,25 +27,18 @@
 		}
 		loading = true
 		const data = await import('lucide-svelte/dist/svelte/icons')
+
 		filteredItems = items = Object.entries(data)
 			.filter(([key]) => !(key.endsWith('Icon') || key.startsWith('Lucide')))
 			.map(([key, icon]) => ({ label: key, icon }))
+
 		loading = false
 		openPopup()
 	}
 
-	function formatName(name?: string) {
-		// Inserts space before capital letters and numbers
-		return (
-			name
-				?.replace(/([A-Z])/g, ' $1')
-				.trim()
-				.replace(/([a-z])(\d)/i, '$1 $2') || ''
-		)
-	}
-
 	function select(label: string) {
 		componentInput.value = label
+
 		const elem = document.activeElement as HTMLElement
 		if (elem.blur) {
 			elem.blur()
@@ -55,7 +49,7 @@
 <div bind:this={anchor} class="relative">
 	<ClearableInput
 		readonly
-		value={formatName(componentInput.value)}
+		value={componentInput.value}
 		on:change={({ detail }) => (componentInput.value = detail)}
 		on:focus={getData}
 		class="!pr-6"
@@ -96,10 +90,9 @@
 					/>
 					<div class="grid gap-1 grid-cols-4 max-h-[300px] overflow-auto">
 						{#each filteredItems as { label, icon }}
-							{@const formatedLabel = formatName(label)}
 							<button
 								type="button"
-								title={formatedLabel}
+								title={label}
 								on:click={() => {
 									select(label)
 									close()
@@ -110,7 +103,7 @@
 							>
 								<svelte:component this={icon} size={22} />
 								<span class="inline-block w-full text-[10px] ellipsize pt-0.5">
-									{formatedLabel}
+									{label}
 								</span>
 							</button>
 						{:else}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { BROWSER } from 'esm-env'
 	import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
@@ -11,8 +12,7 @@
 		ScriptService,
 		UserService
 	} from '$lib/gen'
-	import { classNames, isCloudHosted } from '$lib/utils'
-	import { browser } from '$app/environment'
+	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
@@ -25,6 +25,7 @@
 	import { page } from '$app/stores'
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { isCloudHosted } from '$lib/cloud'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -53,7 +54,7 @@
 		menuOpen = false
 	})
 
-	let innerWidth = browser ? window.innerWidth : 2000
+	let innerWidth = BROWSER ? window.innerWidth : 2000
 
 	let favoriteLinks = [] as {
 		label: string
@@ -143,7 +144,6 @@
 
 <svelte:window bind:innerWidth />
 <UserSettings bind:this={userSettings} />
-
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">

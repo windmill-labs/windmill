@@ -3,14 +3,12 @@
 	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import {
 		truncateHash,
-		sendUserToast,
 		displayDaysAgo,
-		canWrite,
 		defaultIfEmptyString,
-		scriptToHubUrl,
 		copyToClipboard,
 		emptyString,
-		encodeState
+		encodeState,
+		canWrite
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -55,6 +53,8 @@
 		SCRIPT_VIEW_WEBHOOK_INFO_LINK,
 		SCRIPT_VIEW_WEBHOOK_INFO_TIP
 	} from '$lib/consts'
+	import { sendUserToast } from '$lib/toast'
+	import { scriptToHubUrl } from '$lib/hub'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -188,11 +188,13 @@
 	let viewWebhookCommand = false
 
 	let args = undefined
-	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
-		args
-	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${
-		script?.path
-	}`
+	function curlCommand(async: boolean) {
+		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
+			args
+		)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run${
+			async ? '' : '_wait_result'
+		}/p/${script?.path}`
+	}
 	let moveDrawer: MoveDrawer
 </script>
 
@@ -329,7 +331,7 @@
 						size="xs"
 						startIcon={{ icon: faCalendar }}
 					>
-						Schedule
+						New Schedule
 					</Button>
 				{/if}
 				<Button
@@ -459,7 +461,7 @@
 			</div>
 
 			<div class="max-w-2xl mt-12">
-				<h3 bind:this={webhookElem} id="webhooks">
+				<h3 class="mb-4" bind:this={webhookElem} id="webhooks">
 					Webhooks
 					<Tooltip>
 						{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
@@ -518,35 +520,39 @@
 										<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 									</div>
 								{/if}
+								{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+									<div class="flex">
+										<Button
+											color="light"
+											size="lg"
+											endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+											on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+										>
+											CURL
+										</Button>
+									</div>
+								{/if}
+								{#if viewWebhookCommand}
+									{@const command = curlCommand(key == 'async')}
+									<div transition:slide|local class="px-4">
+										<!-- svelte-ignore a11y-click-events-have-key-events -->
+										<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
+											>{command} <span
+												on:click={() => copyToClipboard(command)}
+												class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+											>{#if key == 'async'}<br /><br
+												/>//^ returns an UUID. Fetch until completed == true<br
+												/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
+													.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID{/if}</pre
+										>
+									</div>
+								{/if}
 							</TabContent>
 						{/each}
-						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-							<div class="flex">
-								<Button
-									color="light"
-									size="sm"
-									endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-									on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-								>
-									See example curl command
-								</Button>
-							</div>
-						{/if}
-						{#if viewWebhookCommand}
-							<div transition:slide|local class="px-4">
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
-									>{curlCommand} <span
-										on:click={() => copyToClipboard(curlCommand)}
-										class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-									></pre
-								>
-							</div>
-						{/if}
 					</svelte:fragment>
 				</Tabs>
 			</div>
-			<div class="mt-20">
+			<div class="mt-32">
 				{#if can_write}
 					<h3>Danger zone</h3>
 					<div class="flex gap-2">

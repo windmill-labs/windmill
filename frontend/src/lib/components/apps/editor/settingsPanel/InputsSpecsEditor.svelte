@@ -50,6 +50,7 @@
 					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
+					noVariablePicker={meta?.['noVariablePicker']}
 					{displayType}
 				/>
 			{/if}
