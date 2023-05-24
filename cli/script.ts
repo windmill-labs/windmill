@@ -11,9 +11,9 @@ import {
   Script,
   ScriptService,
   Table,
+  writeAllSync,
+  yamlParse,
 } from "./deps.ts";
-import { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
-import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 export interface ScriptFile {
   parent_hash?: string;

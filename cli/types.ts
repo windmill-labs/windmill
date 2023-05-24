@@ -1,12 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, log, path } from "./deps.ts";
+import { colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import { pushApp } from "./apps.ts";
-import {
-  parse as yamlParse,
-  stringify as yamlStringify,
-} from "https://deno.land/std@0.184.0/yaml/mod.ts";
-import { equal } from "https://deno.land/x/equal@v1.5.0/equal.ts";
 import { pushFolder } from "./folder.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
@@ -15,6 +10,7 @@ import { pushVariable } from "./variable.ts";
 import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
+import { deepEqual } from "./utils.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -47,7 +43,7 @@ export function isSuperset(
   superset: Record<string, any>
 ): boolean {
   return Object.keys(subset).every((key) => {
-    const eq = equal(subset[key], superset[key]);
+    const eq = deepEqual(subset[key], superset[key]);
     if (!eq && showDiffs) {
       const sub = subset[key];
       const supers = superset[key];
