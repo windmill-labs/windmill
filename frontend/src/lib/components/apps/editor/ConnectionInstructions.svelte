@@ -24,6 +24,7 @@
 						You can also navigate your app in a viewer mode: You won't be able to fire any events.
 					</li>
 					<li> Clicking on a component will open the component's output on the left. </li>
+					<li> Hovering an other component will highlight its outputs in orange. </li>
 				</ol>
 			</div>
 			<div>
