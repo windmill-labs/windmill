@@ -50,14 +50,14 @@ export async function loadSchema(
 			path
 		})
 
-		return { schema: script.schema, summary: script.summary }
+		return { schema: script.schema as any, summary: script.summary }
 	} else if (runType === 'flow') {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
 		})
 
-		return { schema: flow.schema, summary: flow.summary }
+		return { schema: flow.schema as any, summary: flow.summary }
 	} else {
 		const script = await ScriptService.getHubScriptByPath({
 			path

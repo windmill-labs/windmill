@@ -134,7 +134,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const selectArgs = (selected_args: object) => {
+	const selectArgs = (selected_args: any) => {
 		dispatch('selected_args', selected_args)
 	}
 </script>

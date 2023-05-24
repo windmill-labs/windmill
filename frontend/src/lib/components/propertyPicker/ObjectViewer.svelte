@@ -7,7 +7,7 @@
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 
-	export let json: Object
+	export let json: any
 	export let level = 0
 	export let currentPath: string = ''
 	export let pureViewer = false

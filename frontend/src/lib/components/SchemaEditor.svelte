@@ -22,7 +22,7 @@
 
 	const moveAnimationDuration = 300
 
-	export let schema: Schema = emptySchema()
+	export let schema: Schema | any = emptySchema()
 	if (!schema) {
 		schema = emptySchema()
 	}

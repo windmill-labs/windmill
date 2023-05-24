@@ -9,7 +9,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 
-	export let schema: Schema
+	export let schema: Schema | any
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false

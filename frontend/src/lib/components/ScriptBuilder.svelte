@@ -126,7 +126,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
@@ -164,7 +164,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
