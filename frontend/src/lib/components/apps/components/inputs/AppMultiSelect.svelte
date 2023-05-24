@@ -47,6 +47,7 @@
 			value = resolvedConfig.defaultItems?.map((label) => {
 				return typeof label === 'string' ? label : `NOT_STRING`
 			})
+			outputs?.result.set([...(value ?? [])])
 		}
 	}
 
