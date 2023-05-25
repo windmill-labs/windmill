@@ -57,11 +57,10 @@
 {/each}
 
 <InitializeComponent {id} />
-
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		size="sm"
-		checked={resolvedConfig.defaultValue}
+		bind:checked={resolvedConfig.defaultValue}
 		options={{ right: resolvedConfig.label }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}

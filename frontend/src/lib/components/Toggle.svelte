@@ -40,6 +40,7 @@
 				{options?.left}
 			</span>
 		{/if}
+
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div class="relative" on:click|stopPropagation>
 			<input
@@ -47,7 +48,6 @@
 				on:click
 				{disabled}
 				type="checkbox"
-				value={false}
 				{id}
 				class="sr-only peer"
 				bind:checked
