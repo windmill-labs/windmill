@@ -99,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     if server_mode {
+        // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
 
