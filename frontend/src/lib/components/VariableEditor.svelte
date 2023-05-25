@@ -156,7 +156,7 @@
 				</div>
 				<div class="mt-4">
 					<Toggle
-						on:change={() => loadVariable(initialPath)}
+						on:change={() => edit && loadVariable(initialPath)}
 						bind:checked={variable.is_secret}
 						options={{ right: 'Secret' }}
 					/>

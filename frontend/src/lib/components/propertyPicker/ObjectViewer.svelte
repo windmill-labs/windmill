@@ -48,7 +48,7 @@
 
 	function selectProp(key: string, value: any) {
 		if (pureViewer && allowCopy) {
-			copyToClipboard(value)
+			copyToClipboard(computeKey(key, isArray, currentPath))
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
