@@ -9,7 +9,7 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise", "async-stripe"]
+enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
 
 [dependencies]
 windmill-queue.workspace = true
