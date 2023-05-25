@@ -86,7 +86,9 @@ async fn main() -> anyhow::Result<()> {
         config
     });
 
+    tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode).await?;
+    tracing::info!("Database connected");
 
     let rsmq = if let Some(config) = rsmq_config {
         let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();

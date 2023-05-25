@@ -1891,6 +1891,31 @@ async fn leave_workspace(
     Ok(format!("left workspace {w_id}"))
 }
 
+#[derive(Serialize)]
+struct Runnable {
+    workspace: String,
+    endpoint: String,
+    summary: String,
+    description: String,
+    schema: Option<serde_json::Value>,
+}
+
+async fn get_all_runnables(
+    Extension(db): Extension<UserDB>,
+    authed: Authed,
+) -> JsonResult<Vec<Runnable>> {
+    let mut tx = db.begin(&authed).await?;
+    let mut runnables = Vec::new();
+    // sqlx::query!(
+    //     "SELECT * FROM usr WHERE workspace_id = $1 AND username = $2",
+    //     username
+    // )
+    // .execute(&mut tx)
+    // .await?;
+
+    Ok(Json(runnables))
+}
+
 pub async fn delete_expired_items_perdiodically(
     db: &DB,
     mut rx: tokio::sync::broadcast::Receiver<()>,
