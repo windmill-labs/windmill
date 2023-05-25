@@ -72,28 +72,22 @@
 
 	$: lastInput && $worldStore && debounce(handleConnection)
 
-	$: lastInput &&
-		lastInput.type == 'template' &&
-		$stateId &&
-		$state &&
-		debounce(async () => {
-			let nvalue = await getValue(lastInput)
-			if (!deepEqual(nvalue, value)) {
-				value = nvalue
-			}
-			dispatch('done')
-		})
+	const reEvalTemplate = async () => {
+		let nvalue = await getValue(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+	}
 
-	$: lastInput &&
-		lastInput.type == 'eval' &&
-		$stateId &&
-		$state &&
-		debounce2(async () => {
-			let nvalue = await evalExpr(lastInput)
-			if (!deepEqual(nvalue, value)) {
-				value = nvalue
-			}
-		})
+	$: lastInput && lastInput.type == 'template' && $stateId && $state && debounce(reEvalTemplate)
+
+	const reEval = async () => {
+		let nvalue = await evalExpr(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+	}
+	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(reEval)
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
