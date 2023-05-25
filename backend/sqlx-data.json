@@ -2500,6 +2500,48 @@
     },
     "query": "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL WHERE workspace_id = $1"
   },
+  "60f0522f6e22bcac5f0ba9b5da51f4afe0be2cc1e4d07e49685c711ae2552dd8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "schema",
+          "ordinal": 4,
+          "type_info": "Json"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT workspace_id as workspace, path, summary, description, schema FROM flow"
+  },
   "6199e8be5cb13db71108e555ea20f0b76dc38476670f9fc0667b057d2766d42e": {
     "describe": {
       "columns": [
@@ -6313,6 +6355,48 @@
       }
     },
     "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin, email)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)"
+  },
+  "ea013e13515c5e80e402d453c0857d6b3c385309925f9ad81d0836f2eb0e0098": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "schema",
+          "ordinal": 4,
+          "type_info": "Json"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path)"
   },
   "ea2b88dc050aec038641ea37399d68d4385c5bdc721d1351609f27ca45e4dbdc": {
     "describe": {

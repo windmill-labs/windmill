@@ -536,6 +536,41 @@ paths:
               schema:
                 type: number
 
+  /users/all_runnables:
+    get:
+      summary: get all runnables in every workspace
+      operationId: getRunnable
+      tags:
+        - user
+      responses:
+        "200":
+          description: free all runnables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace:
+                    type: string
+                  endpoint_async:
+                    type: string
+                  endpoint_sync:
+                    type: string
+                  summary:
+                    type: string
+                  description:
+                    type: string
+                  kind:
+                    type: string
+                    enum: ['script', 'flow']
+                required:
+                  - workspace
+                  - endpoint_async
+                  - endpoint_sync
+                  - summary
+                  - kind
+
+
   /users/whoami:
     get:
       summary: get current global whoami (if logged in)
