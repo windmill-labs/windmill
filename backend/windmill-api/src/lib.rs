@@ -220,12 +220,12 @@ async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(not(feature = "enterprise"))]
 async fn ee_license() -> &'static str {
     ""
 }
 
-#[cfg(not(feature = "enterprise"))]
+#[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
     LICENSE_KEY
         .as_ref()
