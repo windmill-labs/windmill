@@ -25,6 +25,7 @@ export {
 } from "https://deno.land/std@0.176.0/streams/mod.ts";
 export { DelimiterStream } from "https://deno.land/std@0.176.0/streams/mod.ts";
 export { iterateReader } from "https://deno.land/std@0.176.0/streams/iterate_reader.ts";
+export { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
 
 // other
 export { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
@@ -38,3 +39,8 @@ export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/m
 export { default as gitignore_parser } from "npm:gitignore-parser";
 export { default as JSZip } from "npm:jszip@3.7.1";
 export * as log from "https://deno.land/std@0.186.0/log/mod.ts";
+export {
+  stringify as yamlStringify,
+  parse as yamlParse,
+} from "https://deno.land/std@0.184.0/yaml/mod.ts";
+export { open } from "https://deno.land/x/open@v0.0.5/index.ts";

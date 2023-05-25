@@ -322,7 +322,7 @@ import json
 import traceback
 import sys
 from {module_dir_dot} import {last} as inner_script
-
+import re
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -337,7 +337,8 @@ def to_b_64(v: bytes):
     import base64
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
-    
+
+replace_nan = re.compile(r'\bnan\b', re.IGNORECASE)
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -352,7 +353,7 @@ try:
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
     with open("result.json", 'w') as f:
         f.write(res_json)
 except Exception as e:

@@ -25,4 +25,9 @@ pub struct Schedule {
     pub extra_perms: serde_json::Value,
     pub email: String,
     pub error: Option<String>,
+    pub on_failure: Option<String>,
+}
+
+pub fn schedule_to_user(path: &str) -> String {
+    format!("schedule-{}", path.replace('/', "-"))
 }

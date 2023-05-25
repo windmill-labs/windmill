@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.103.0
+  version: 1.104.2
   title: Windmill API
 
   contact:
@@ -36,6 +36,20 @@ paths:
       responses:
         "200":
           description: git version of backend
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /ee_license:
+    get:
+      summary: get license id
+      operationId: getLicenseId
+      tags:
+        - settings
+      responses:
+        "200":
+          description: get license id (empty if not ee)
           content:
             text/plain:
               schema:
@@ -6160,6 +6174,9 @@ components:
           type: string
         error:
           type: string
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - path
         - edited_by
@@ -6189,6 +6206,9 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         enabled:
           type: boolean
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - path
         - schedule
@@ -6206,6 +6226,9 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        on_failure:
+          # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
       required:
         - schedule
         - timezone

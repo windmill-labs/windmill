@@ -23,6 +23,7 @@
 	import { cubicOut } from 'svelte/easing'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import type { Schema } from '$lib/common'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -38,7 +39,7 @@
 
 			if (script.schema == undefined) {
 				script.schema = emptySchema()
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as Schema)
 				script = script
 			}
 

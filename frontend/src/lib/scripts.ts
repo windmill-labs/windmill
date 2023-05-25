@@ -32,13 +32,13 @@ export async function loadSchema(path: string, hash?: string): Promise<Schema> {
 			workspace: get(workspaceStore)!,
 			hash
 		})
-		return script.schema
+		return script.schema as any
 	} else {
 		const script = await ScriptService.getScriptByPath({
 			workspace: get(workspaceStore)!,
 			path: path ?? ''
 		})
-		return script.schema
+		return script.schema as any
 	}
 }
 
@@ -47,7 +47,7 @@ export async function loadSchemaFlow(path: string): Promise<Schema> {
 		workspace: get(workspaceStore)!,
 		path: path ?? ''
 	})
-	return flow.schema
+	return flow.schema as any
 }
 
 export function scriptPathToHref(path: string): string {

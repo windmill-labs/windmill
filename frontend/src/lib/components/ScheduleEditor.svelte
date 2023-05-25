@@ -21,6 +21,8 @@
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 	let itemKind: 'flow' | 'script' = 'script'
+	let errorHandleritemKind: 'flow' | 'script' = 'script'
+	let errorHandlerPath: string | undefined = undefined
 
 	let script_path = ''
 	let initialScriptPath = ''
@@ -45,6 +47,8 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		errorHandleritemKind = 'script'
+		errorHandlerPath = undefined
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
@@ -91,6 +95,15 @@
 			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
+			if (s.on_failure) {
+				console.log(s.on_failure)
+				let splitted = s.on_failure.split('/')
+				errorHandleritemKind = splitted[0] as 'flow' | 'script'
+				errorHandlerPath = splitted.slice(1)?.join('/')
+			} else {
+				errorHandlerPath = undefined
+				errorHandleritemKind = 'script'
+			}
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (err) {
@@ -106,7 +119,8 @@
 				requestBody: {
 					schedule: formatCron(schedule),
 					timezone,
-					args
+					args,
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -120,7 +134,8 @@
 					script_path,
 					is_flow,
 					args,
-					enabled: true
+					enabled: true,
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -184,7 +199,6 @@
 		</svelte:fragment>
 		<div>
 			{#if !edit}
-				<span class="font-semibold text-gray-700">Path</span>
 				<Path
 					checkInitialPathExistence
 					bind:error={pathError}
@@ -246,6 +260,23 @@
 						Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 					</div>
 				{/if}
+			</div>
+			<h2 class="border-b pb-1 mt-8 mb-2">Error Handler</h2>
+			<ScriptPicker
+				disabled={initialScriptPath != '' || !can_write}
+				initialPath={errorHandlerPath}
+				kind={Script.kind.SCRIPT}
+				allowFlow={true}
+				bind:scriptPath={errorHandlerPath}
+				bind:itemKind={errorHandleritemKind}
+			/>
+			<div class="text-gray-600 italic text-sm mt-2"
+				>The following args will be passed to the error handler:
+				<ul class="mt-1 ml-2">
+					<li><b>path</b>: The path of the script or flow that errored</li>
+					<li><b>schedule_path</b>: The path of the schedule</li>
+					<li><b>error</b>: The error details</li>
+				</ul>
 			</div>
 		</div>
 	</DrawerContent>

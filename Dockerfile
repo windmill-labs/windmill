@@ -129,10 +129,10 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:1.33.3 /usr/bin/deno /usr/bin/deno
 
 # docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
-COPY --from=lukechannings/deno:latest /usr/bin/deno /usr/bin/deno-arm
+COPY --from=lukechannings/deno:v1.33.3 /usr/bin/deno /usr/bin/deno-arm
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
 
 # add the docker client to call docker from a worker if enabled

@@ -3,6 +3,7 @@ import {
   CompletionsCommand,
   DenoLandProvider,
   UpgradeCommand,
+  log,
 } from "./deps.ts";
 import flow from "./flow.ts";
 import app from "./apps.ts";
@@ -18,7 +19,6 @@ import folder from "./folder.ts";
 import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
-import * as log from "https://deno.land/std@0.186.0/log/mod.ts";
 
 addEventListener("error", (event) => {
   if (event.error) {
@@ -27,7 +27,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.103.0";
+export const VERSION = "v1.104.2";
 
 let command: any = new Command()
   .name("wmill")

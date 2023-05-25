@@ -1,15 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import InlineCodeCopy from './InlineCodeCopy.svelte'
 
 	$: opened = false
-	$: workspace = $userWorkspaces.find((e) => e.id === $workspaceStore)
-	$: workspaceName = workspace?.name
-	$: workspaceId = workspace?.id
 	$: url = `${$page.url.protocol}//${$page.url.hostname}/`
 </script>
 
@@ -41,7 +38,7 @@
 			>
 			<li
 				>Setup the wmill cli for this workspace & remote: <InlineCodeCopy
-					content={`wmill workspace add ${workspaceName} ${workspaceId} ${url}`}
+					content={`wmill workspace add ${workspaceStore} ${workspaceStore} ${url}`}
 				/></li
 			>
 			<li>Follow the prompts in your terminal</li>

@@ -1,12 +1,11 @@
 import { BROWSER } from 'esm-env'
-import { page } from '$app/stores'
 import { get } from 'svelte/store'
 import { premiumStore, userStore, workspaceStore } from './stores'
 import { getUserExt } from './user'
 import { WorkspaceService } from './gen'
 
 export function isCloudHosted(): boolean {
-	return get(page)?.url?.hostname == 'app.windmill.dev'
+	return BROWSER && window.location.hostname == 'app.windmill.dev'
 }
 
 if (BROWSER) {

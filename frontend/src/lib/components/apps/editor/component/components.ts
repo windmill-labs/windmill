@@ -1284,6 +1284,12 @@ Hello \${ctx.username}
 					subFieldType: 'text',
 					value: ['Foo', 'Bar']
 				} as StaticAppInput,
+				defaultItems: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: []
+				} as StaticAppInput,
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',

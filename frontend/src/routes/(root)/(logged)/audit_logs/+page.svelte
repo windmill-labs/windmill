@@ -5,8 +5,9 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
+	import { Alert } from '$lib/components/common'
 	import { AuditLog, AuditService, UserService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -85,6 +86,12 @@
 		tooltip="You can only see your own audit logs unless you are an admin."
 	/>
 
+	{#if !$enterpriseLicense}
+		<Alert title="Redacted audit logs" type="warning"
+			>You need an enterprise license to see unredacted audit logs.</Alert
+		>
+		<div class="py-2" />
+	{/if}
 	<!-- Filtering -->
 	<div class="flex flex-row my-3">
 		<label>

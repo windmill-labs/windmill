@@ -113,6 +113,9 @@
 	) {
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
+		if (script.content != editor?.getCode()) {
+			setCode(script.content)
+		}
 	}
 
 	async function editScript(): Promise<void> {
@@ -123,7 +126,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
@@ -161,7 +164,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
@@ -275,13 +278,9 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
-							let lastTemplate = template
 							template = 'script'
 							initContent(lang, script.kind, template)
 							script.language = lang
-							if (lastTemplate != template) {
-								setCode(script.content)
-							}
 						}}
 						disabled={lockedLanguage}
 					>
@@ -297,13 +296,9 @@
 						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						disabled={lockedLanguage}
 						on:click={() => {
-							let lastTemplate = template
 							template = 'pgsql'
 							initContent(Script.language.DENO, script.kind, template)
 							script.language = Script.language.DENO
-							if (lastTemplate != template) {
-								setCode(script.content)
-							}
 						}}
 					>
 						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
@@ -331,13 +326,9 @@
 							)
 							return
 						}
-						let lastTemplate = template
 						template = 'docker'
 						initContent(Script.language.BASH, script.kind, template)
 						script.language = Script.language.BASH
-						if (lastTemplate != template) {
-							setCode(script.content)
-						}
 					}}
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
@@ -505,7 +496,6 @@
 									template = 'script'
 									script.kind = value
 									initContent(script.language, value, template)
-									setCode(script.content)
 								}}
 							>
 								{title}
