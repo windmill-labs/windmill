@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
@@ -21,9 +27,19 @@
 		'NetworkError when attempting to fetch resource.'
 	]
 
+	async function setUserWorkspaceStore() {
+		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+	}
+
+	async function setLicense() {
+		const license = await SettingsService.getLicenseId()
+		if (license) {
+			$enterpriseLicense = license
+		}
+	}
+
 	async function loadUser() {
 		try {
-			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
@@ -35,7 +51,7 @@
 					)
 				} else {
 					$userStore = await getUserExt($workspaceStore)
-					if (!userStore) {
+					if (!$userStore) {
 						throw Error('Not logged in')
 					}
 				}
@@ -108,7 +124,9 @@
 			}
 		}
 		if ($page.url.pathname != '/user/login') {
+			setUserWorkspaceStore()
 			loadUser()
+			setLicense()
 		}
 	})
 </script>
