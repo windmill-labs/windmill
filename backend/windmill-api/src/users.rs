@@ -1894,10 +1894,12 @@ async fn leave_workspace(
 #[derive(Serialize)]
 struct Runnable {
     workspace: String,
-    endpoint: String,
+    endpoint_async: String,
+    endpoint_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
+    kind: String,
 }
 
 async fn get_all_runnables(
@@ -1906,13 +1908,45 @@ async fn get_all_runnables(
 ) -> JsonResult<Vec<Runnable>> {
     let mut tx = db.begin(&authed).await?;
     let mut runnables = Vec::new();
-    // sqlx::query!(
-    //     "SELECT * FROM usr WHERE workspace_id = $1 AND username = $2",
-    //     username
-    // )
-    // .execute(&mut tx)
-    // .await?;
+    let flows = sqlx::query!(
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM flow"
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    runnables.extend(
+        flows
+            .into_iter()
+            .map(|f| Runnable {
+                workspace: f.workspace.clone(),
+                endpoint_async: format!("/w/{}/jobs/run/f/{}", &f.workspace, &f.path),
+                endpoint_sync: format!("/w/{}/jobs/run_wait_result/f/{}", &f.workspace, &f.path),
+                summary: f.summary,
+                description: f.description,
+                schema: f.schema,
+                kind: "flow".to_string(),
+            })
+            .collect::<Vec<_>>(),
+    );
+    let scripts = sqlx::query!(
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path)"
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    runnables.extend(
+        scripts
+            .into_iter()
+            .map(|s| Runnable {
+                workspace: s.workspace.clone(),
+                endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
+                endpoint_sync: format!("/w/{}/jobs/run_wait_result/p/{}", &s.workspace, &s.path),
 
+                summary: s.summary,
+                description: s.description,
+                schema: s.schema,
+                kind: "script".to_string(),
+            })
+            .collect::<Vec<_>>(),
+    );
     Ok(Json(runnables))
 }
 
