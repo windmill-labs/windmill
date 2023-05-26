@@ -22,14 +22,15 @@
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
+	import { workspaceStore } from '$lib/stores'
 
 	export let app: App
-	export let appPath: string
-	export let breakpoint: Writable<EditorBreakpoint>
-	export let policy: Policy
-	export let summary: string
-	export let workspace: string
-	export let isEditor: boolean
+	export let appPath: string = ''
+	export let breakpoint: Writable<EditorBreakpoint> = writable('lg')
+	export let policy: Policy = {}
+	export let summary: string = ''
+	export let workspace: string = $workspaceStore!
+	export let isEditor: boolean = false
 	export let context: Record<string, any>
 	export let noBackend: boolean = false
 	export let isLocked = false
