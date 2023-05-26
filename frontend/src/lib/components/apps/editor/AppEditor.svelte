@@ -48,16 +48,16 @@
 
 	export let app: App
 	export let path: string
-	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
+	export let versions: number[]
 
 	migrateApp(app)
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
-	const mode = writable<EditorMode>(initialMode)
+	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
@@ -205,9 +205,7 @@
 
 {#if !$userStore?.operator}
 	{#if $appStore}
-		{#if initialMode !== 'preview'}
-			<AppEditorHeader {policy} {fromHub} />
-		{/if}
+		<AppEditorHeader on:restore {versions} {policy} {fromHub} />
 
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>

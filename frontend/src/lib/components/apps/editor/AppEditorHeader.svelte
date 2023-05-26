@@ -17,7 +17,13 @@
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { workspaceStore } from '$lib/stores'
-	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faClipboard,
+		faFileExport,
+		faHistory,
+		faSave,
+		faSlidersH
+	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		Bug,
@@ -52,6 +58,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
+	import DeploymentHistory from './DeploymentHistory.svelte'
 
 	async function hash(message) {
 		try {
@@ -72,6 +79,7 @@
 
 	export let policy: Policy
 	export let fromHub: boolean = false
+	export let versions: number[]
 
 	const {
 		app,
@@ -111,6 +119,7 @@
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let inputsDrawerOpen = fromHub
+	let historyBrowserDrawerOpen = false
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -514,6 +523,12 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
+	<DrawerContent title="Deployment History" on:close={() => historyBrowserDrawerOpen}>
+		<DeploymentHistory on:restore {versions} />
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:open={jobsDrawerOpen} size="900px">
 	<DrawerContent
 		noPadding
@@ -690,6 +705,13 @@
 			placement="bottom-end"
 			btnClasses="!rounded-md"
 			dropdownItems={[
+				{
+					displayName: 'Deployment History',
+					icon: faHistory,
+					action: () => {
+						historyBrowserDrawerOpen = true
+					}
+				},
 				{
 					displayName: 'JSON',
 					icon: faFileExport,

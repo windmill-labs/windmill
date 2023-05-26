@@ -77,7 +77,18 @@
 {#key redraw}
 	{#if app}
 		<div class="h-screen">
-			<AppEditor summary={app.summary} app={app.value} path={app.path} policy={app.policy} />
+			<AppEditor
+				on:restore={(e) => {
+					sendUserToast('App restored from previous deployment')
+					app = e.detail
+					redraw++
+				}}
+				versions={app.versions}
+				summary={app.summary}
+				app={app.value}
+				path={app.path}
+				policy={app.policy}
+			/>
 		</div>
 	{/if}
 {/key}
