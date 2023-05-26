@@ -14,6 +14,7 @@
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
+	const templateId = $page.url.searchParams.get('template_id')
 
 	const importJson = $importStore
 	if ($importStore) {
@@ -63,6 +64,14 @@
 			value = template.value
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
+		} else if (templateId) {
+			const template = await AppService.getAppByVersion({
+				workspace: $workspaceStore!,
+				id: parseInt(templateId)
+			})
+			value = template.value
+			sendUserToast('App loaded from template')
+			goto('?', { replaceState: true })
 		} else if (hubId) {
 			const hub = await AppService.getHubAppById({ id: Number(hubId) })
 			value = {
@@ -99,7 +108,7 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
+			<AppEditor versions={[]} {summary} app={value} path={''} {policy} fromHub={hubId != null} />
 		{/key}
 	</div>
 {/if}
