@@ -10,6 +10,7 @@
 	import { AlignWrapper } from '../helpers'
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
+	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -19,7 +20,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['downloadcomponent'].initialData.configuration,
 		configuration
 	)
@@ -63,30 +64,37 @@
 
 {#if render}
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
-		<Button
-			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={twMerge(css?.button?.class, resolvedConfig.fillContainer ? 'w-full h-full' : '')}
-			wrapperClasses={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
-			style={css?.button?.style}
-			disabled={resolvedConfig.source == undefined}
-			size={resolvedConfig.size}
-			color={resolvedConfig.color}
-			download={resolvedConfig.filename}
-			href={transformBareBase64IfNecessary(resolvedConfig.source)}
-			target="_self"
-			nonCaptureEvent
+		<ComponentErrorHandler
+			hasError={resolvedConfig?.source != undefined && typeof resolvedConfig.source !== 'string'}
 		>
-			<span class="truncate inline-flex gap-2 items-center">
-				{#if resolvedConfig.beforeIcon && beforeIconComponent}
-					<svelte:component this={beforeIconComponent} size={14} />
-				{/if}
-				{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
-					<div>{resolvedConfig.label}</div>
-				{/if}
-				{#if resolvedConfig.afterIcon && afterIconComponent}
-					<svelte:component this={afterIconComponent} size={14} />
-				{/if}
-			</span>
-		</Button>
+			<Button
+				on:pointerdown={(e) => e.stopPropagation()}
+				btnClasses={twMerge(
+					css?.button?.class,
+					resolvedConfig.fillContainer ? 'w-full h-full' : ''
+				)}
+				wrapperClasses={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
+				style={css?.button?.style}
+				disabled={resolvedConfig.source == undefined}
+				size={resolvedConfig.size}
+				color={resolvedConfig.color}
+				download={resolvedConfig.filename}
+				href={transformBareBase64IfNecessary(resolvedConfig.source)}
+				target="_self"
+				nonCaptureEvent
+			>
+				<span class="truncate inline-flex gap-2 items-center">
+					{#if resolvedConfig.beforeIcon && beforeIconComponent}
+						<svelte:component this={beforeIconComponent} size={14} />
+					{/if}
+					{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+						<div>{resolvedConfig.label}</div>
+					{/if}
+					{#if resolvedConfig.afterIcon && afterIconComponent}
+						<svelte:component this={afterIconComponent} size={14} />
+					{/if}
+				</span>
+			</Button>
+		</ComponentErrorHandler>
 	</AlignWrapper>
 {/if}
