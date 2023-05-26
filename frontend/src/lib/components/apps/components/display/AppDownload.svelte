@@ -19,7 +19,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['downloadcomponent'].initialData.configuration,
 		configuration
 	)
@@ -48,6 +48,8 @@
 	}
 
 	$: css = concatCustomCss($app.css?.downloadcomponent, customCss)
+
+	$: hasErrors = typeof resolvedConfig.source !== 'string' || resolvedConfig.source == undefined
 </script>
 
 <InitializeComponent {id} />
@@ -68,11 +70,11 @@
 			btnClasses={twMerge(css?.button?.class, resolvedConfig.fillContainer ? 'w-full h-full' : '')}
 			wrapperClasses={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 			style={css?.button?.style}
-			disabled={resolvedConfig.source == undefined}
+			disabled={hasErrors}
 			size={resolvedConfig.size}
 			color={resolvedConfig.color}
 			download={resolvedConfig.filename}
-			href={transformBareBase64IfNecessary(resolvedConfig.source)}
+			href={hasErrors ? undefined : transformBareBase64IfNecessary(resolvedConfig.source)}
 			target="_self"
 			nonCaptureEvent
 		>
