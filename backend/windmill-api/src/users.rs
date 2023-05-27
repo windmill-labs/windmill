@@ -1900,53 +1900,82 @@ struct Runnable {
     description: String,
     schema: Option<serde_json::Value>,
     kind: String,
+    path: String,
 }
 
 async fn get_all_runnables(
     Extension(db): Extension<UserDB>,
     authed: Authed,
+    Tokened { token }: Tokened,
+    Extension(cache): Extension<Arc<AuthCache>>,
 ) -> JsonResult<Vec<Runnable>> {
-    let mut tx = db.begin(&authed).await?;
+    let mut tx = db.clone().begin(&authed).await?;
     let mut runnables = Vec::new();
-    let flows = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM flow"
+    let workspaces = sqlx::query_scalar!(
+        "SELECT workspace.id as id FROM workspace, usr WHERE usr.workspace_id = workspace.id AND \
+         usr.email = $1 AND deleted = false",
+        authed.email
     )
     .fetch_all(&mut tx)
     .await?;
-    runnables.extend(
-        flows
-            .into_iter()
-            .map(|f| Runnable {
-                workspace: f.workspace.clone(),
-                endpoint_async: format!("/w/{}/jobs/run/f/{}", &f.workspace, &f.path),
-                endpoint_sync: format!("/w/{}/jobs/run_wait_result/f/{}", &f.workspace, &f.path),
-                summary: f.summary,
-                description: f.description,
-                schema: f.schema,
-                kind: "flow".to_string(),
-            })
-            .collect::<Vec<_>>(),
-    );
-    let scripts = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path)"
-    )
-    .fetch_all(&mut tx)
-    .await?;
-    runnables.extend(
-        scripts
-            .into_iter()
-            .map(|s| Runnable {
-                workspace: s.workspace.clone(),
-                endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
-                endpoint_sync: format!("/w/{}/jobs/run_wait_result/p/{}", &s.workspace, &s.path),
+    tx.commit().await?;
 
-                summary: s.summary,
-                description: s.description,
-                schema: s.schema,
-                kind: "script".to_string(),
-            })
-            .collect::<Vec<_>>(),
-    );
+    for workspace in workspaces {
+        let nauthed = cache
+            .get_authed(Some(workspace.clone()), &token)
+            .await
+            .ok_or_else(|| {
+                Error::BadRequest(format!("not authorized to access workspace: {workspace}"))
+            })?;
+        let mut tx = db.clone().begin(&nauthed).await?;
+        let flows = sqlx::query!(
+            "SELECT workspace_id as workspace, path, summary, description, schema FROM flow WHERE workspace_id = $1", workspace
+        )
+        .fetch_all(&mut tx)
+        .await?;
+        runnables.extend(
+            flows
+                .into_iter()
+                .map(|f| Runnable {
+                    workspace: f.workspace.clone(),
+                    endpoint_async: format!("/w/{}/jobs/run/f/{}", &f.workspace, &f.path),
+                    endpoint_sync: format!(
+                        "/w/{}/jobs/run_wait_result/f/{}",
+                        &f.workspace, &f.path
+                    ),
+                    summary: f.summary,
+                    description: f.description,
+                    schema: f.schema,
+                    kind: "flow".to_string(),
+                    path: f.path,
+                })
+                .collect::<Vec<_>>(),
+        );
+        let scripts = sqlx::query!(
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1) and workspace_id = $1", workspace
+    )
+    .fetch_all(&mut tx)
+    .await?;
+        runnables.extend(
+            scripts
+                .into_iter()
+                .map(|s| Runnable {
+                    workspace: s.workspace.clone(),
+                    endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
+                    endpoint_sync: format!(
+                        "/w/{}/jobs/run_wait_result/p/{}",
+                        &s.workspace, &s.path
+                    ),
+                    summary: s.summary,
+                    description: s.description,
+                    schema: s.schema,
+                    kind: "script".to_string(),
+                    path: s.path,
+                })
+                .collect::<Vec<_>>(),
+        );
+        tx.commit().await?;
+    }
     Ok(Json(runnables))
 }
 
