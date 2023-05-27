@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.105.0](https://github.com/windmill-labs/windmill/compare/v1.104.2...v1.105.0) (2023-05-27)
+
+
+### Features
+
+* **apps:** added deployment history browser ([7cb1d12](https://github.com/windmill-labs/windmill/commit/7cb1d12d4ea9c82b96a759878af77a96b5222ad1))
+* **cli:** add variables add to CLI ([6f1d5c4](https://github.com/windmill-labs/windmill/commit/6f1d5c497f52004342234c226d2e36bd3f11b915))
+
+
+### Bug Fixes
+
+* **cli:** expose an encrypt value endpoint ([1fff16b](https://github.com/windmill-labs/windmill/commit/1fff16bbb8e71566155d860a7c5f768b2aedbede))
+* **frontend:** Check whether the source has the right type ([#1647](https://github.com/windmill-labs/windmill/issues/1647)) ([7fd5543](https://github.com/windmill-labs/windmill/commit/7fd5543d1a452466be9515f8b5f8fb709569c77b))
+
 ## [1.104.2](https://github.com/windmill-labs/windmill/compare/v1.104.1...v1.104.2) (2023-05-24)
 
 
