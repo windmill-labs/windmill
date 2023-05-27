@@ -81,7 +81,7 @@ async function pull(opts: GlobalOptions) {
       x.name + ".resource-type.json",
       undefined,
       x,
-      false
+      true
     );
   }
 }

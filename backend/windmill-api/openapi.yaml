@@ -1181,6 +1181,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/variables/encrypt:
+    post:
+      summary: encrypt value
+      operationId: encryptValue
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new variable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: encrypted value
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/variables/delete/{path}:
     delete:
       summary: delete variable
