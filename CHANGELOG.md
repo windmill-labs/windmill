@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.106.0](https://github.com/windmill-labs/windmill/compare/v1.105.0...v1.106.0) (2023-05-28)
+
+
+### Features
+
+* **apps:** add setValue to frontend script's SDK ([8c9b080](https://github.com/windmill-labs/windmill/commit/8c9b080875cc734d37621bc140b2c2fad135edbb))
+* **cli:** add resolveDefaultResource ([e19fabb](https://github.com/windmill-labs/windmill/commit/e19fabb02ff9a3d4044c5a208a2f8d0692c0aa81))
+
 ## [1.105.0](https://github.com/windmill-labs/windmill/compare/v1.104.2...v1.105.0) (2023-05-27)
 
 
