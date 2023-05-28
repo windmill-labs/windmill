@@ -533,17 +533,17 @@
 					{:else}
 						This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
 						doing executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited
-						execution in this workspace.
+						executions in this workspace.
 					{/if}
 				</div>
 
 				<div class="flex flex-col gap-1 mb-4">
-					<Slider text="What is a computation ?">
+					<Slider text="What is an execution?">
 						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called a "computation". A computation corresponds to a
-							single job whose duration is less than 1s. For any additional seconds of computation,
-							an additional computation is accounted for. Jobs are executed on one powerful virtual
-							CPU with 2Gb of memory. Most jobs will take less than 200ms to execute.
+							The single credit-unit is called an "execution". An execution corresponds to a single
+							job whose duration is less than 1s. For any additional seconds of computation, an
+							additional execution is accounted for. Jobs are executed on one powerful virtual CPU
+							with 2Gb of memory. Most jobs will take less than 200ms to execute.
 						</Alert>
 					</Slider>
 

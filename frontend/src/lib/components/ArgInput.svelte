@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		faChevronDown,
-		faChevronUp,
-		faDollarSign,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
@@ -28,7 +23,6 @@
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
-	import Popover from './Popover.svelte'
 
 	export let label: string = ''
 	export let value: any

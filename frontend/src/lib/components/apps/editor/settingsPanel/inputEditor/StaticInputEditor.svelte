@@ -9,7 +9,6 @@
 	import ColorInput from './ColorInput.svelte'
 	import TabSelectInput from './TabSelectInput.svelte'
 	import { DollarSign } from 'lucide-svelte'
-	import Popover from '$lib/components/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 
