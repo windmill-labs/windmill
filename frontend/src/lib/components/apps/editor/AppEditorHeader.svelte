@@ -145,15 +145,17 @@
 			allItems($app.grid, $app.subgrids)
 				.flatMap((x) => {
 					let c = x.data as AppComponent
-					let r: (AppInput | undefined)[] = [c.componentInput]
+					let r: { input: AppInput | undefined; id: string }[] = [
+						{ input: c.componentInput, id: x.id }
+					]
 					if (c.type === 'tablecomponent') {
-						r.push(...c.actionButtons.map((x) => x.componentInput))
+						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
 					return r
-						.filter((x) => x)
-						.map(async (input) => {
-							if (input?.type == 'runnable') {
-								return await processRunnable(x.id, input.runnable, input.fields)
+						.filter((x) => x.input)
+						.map(async (o) => {
+							if (o.input?.type == 'runnable') {
+								return await processRunnable(o.id, o.input.runnable, o.input.fields)
 							}
 						})
 				})
