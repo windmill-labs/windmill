@@ -282,12 +282,17 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         panic!("License key is required ONLY for the enterprise edition");
     }
 
-    let mut instance_name = gethostname()
+    let instance_name = gethostname()
         .to_str()
-        .map(|x| x.replace(" ", "").to_ascii_lowercase().to_string())
+        .map(|x| {
+            x.replace(" ", "")
+                .split("-")
+                .last()
+                .unwrap()
+                .to_ascii_lowercase()
+                .to_string()
+        })
         .unwrap_or_else(|| rd_string(5));
-
-    instance_name.truncate(12);
 
     let monitor = tokio_metrics::TaskMonitor::new();
 
@@ -327,7 +332,11 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
-        let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
+        let worker_name = if num_workers > 1 {
+            format!("wk-{}-{}", &instance_name, i)
+        } else {
+            format!("wk-{}", &instance_name)
+        };
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
