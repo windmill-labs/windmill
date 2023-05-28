@@ -17,7 +17,7 @@
 	export let customCss: ComponentCustomCSS<'selecttabcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['selecttabcomponent'].initialData.configuration,
@@ -29,6 +29,15 @@
 
 	let selected: string = ''
 	$: selected === '' && resolvedConfig && setDefaultValue()
+
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			selected = nvalue
+		},
+		setTab(index) {
+			selected = resolvedConfig.items?.[index]?.value
+		}
+	}
 
 	function setDefaultValue() {
 		if (resolvedConfig.defaultValue === undefined) {

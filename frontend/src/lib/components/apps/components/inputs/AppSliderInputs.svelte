@@ -15,7 +15,8 @@
 	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
 	let max = 42
 	let step = 1
@@ -27,6 +28,12 @@
 	})
 
 	let values: [number] = [outputs?.result.peak() ?? 0]
+
+	$componentControl[id] = {
+		setValue(nvalue: number) {
+			values[0] = nvalue
+		}
+	}
 
 	$: values && handleValues()
 

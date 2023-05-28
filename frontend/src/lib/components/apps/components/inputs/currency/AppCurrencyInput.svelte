@@ -15,7 +15,8 @@
 	export let customCss: ComponentCustomCSS<'currencycomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: null as number | null
@@ -27,6 +28,12 @@
 	let currency: string | undefined = undefined
 	let locale: string | undefined = undefined
 	let value: number | undefined = undefined
+
+	$componentControl[id] = {
+		setValue(nvalue: number) {
+			value = nvalue
+		}
+	}
 
 	function handleInput() {
 		outputs?.result.set(value ?? null)

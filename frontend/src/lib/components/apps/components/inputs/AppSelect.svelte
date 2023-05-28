@@ -31,8 +31,14 @@
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			setValue(JSON.stringify(nvalue))
+		}
+	}
+
 	if (controls) {
-		$componentControl[id] = controls
+		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
 
 	let resolvedConfig = initConfig(
@@ -80,13 +86,16 @@
 				return i
 			})
 		}
-
 		preclickAction?.()
+		setValue(e.detail?.['value'])
+	}
+
+	function setValue(nvalue: any) {
 		let result: any = undefined
 		try {
-			result = JSON.parse(e.detail?.['value'])
+			result = JSON.parse(nvalue)
 		} catch (_) {}
-		value = e.detail?.['value']
+		value = nvalue
 		outputs?.result.set(result)
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())

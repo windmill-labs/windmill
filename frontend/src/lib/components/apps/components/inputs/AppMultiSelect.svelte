@@ -16,7 +16,8 @@
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 	let items: string[]
 
 	const resolvedConfig = initConfig(
@@ -29,6 +30,13 @@
 	})
 
 	let value: string[] | undefined = outputs?.result.peak()
+
+	$componentControl[id] = {
+		setValue(nvalue: string[]) {
+			value = nvalue
+			outputs?.result.set([...(value ?? [])])
+		}
+	}
 
 	$: resolvedConfig.items && handleItems()
 

@@ -14,11 +14,18 @@
 	export let customCss: ComponentCustomCSS<'numberinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let defaultValue: number | undefined = undefined
 	let placeholder: string | undefined = undefined
 	let value: number | undefined = undefined
+
+	$componentControl[id] = {
+		setValue(nvalue: number) {
+			value = nvalue
+		}
+	}
 
 	let min: number | undefined = undefined
 	let max: number | undefined = undefined

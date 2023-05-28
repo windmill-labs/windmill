@@ -30,8 +30,16 @@
 		configuration
 	)
 
+	let value: boolean = (resolvedConfig.defaultValue as boolean | undefined) ?? false
+
+	$componentControl[id] = {
+		setValue(nvalue: boolean) {
+			value = nvalue
+		}
+	}
+
 	if (controls) {
-		$componentControl[id] = controls
+		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
 
 	// As the checkbox is a special case and has no input
@@ -41,7 +49,21 @@
 		result: false
 	})
 
-	$: resolvedConfig.defaultValue != undefined && outputs?.result.set(resolvedConfig.defaultValue)
+	function handleInput() {
+		outputs.result.set(value)
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+		}
+	}
+
+	function handleDefault() {
+		value = resolvedConfig.defaultValue ?? false
+		handleInput()
+	}
+
+	$: value != undefined && handleInput()
+
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
 </script>
@@ -60,16 +82,13 @@
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		size="sm"
-		bind:checked={resolvedConfig.defaultValue}
+		bind:checked={value}
 		options={{ right: resolvedConfig.label }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()
-			outputs.result.set(e.detail)
-			if (recomputeIds) {
-				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
-			}
+			value = e.detail
 		}}
 	/>
 </AlignWrapper>

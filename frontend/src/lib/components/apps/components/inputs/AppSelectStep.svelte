@@ -15,7 +15,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let render: boolean
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['selectstepcomponent'].initialData.configuration,
@@ -26,13 +26,31 @@
 	})
 
 	let selected: string = ''
-	$: selected === '' && resolvedConfig && setDefaultValue()
+	let selectedIndex: number = 0
+
+	$: resolvedConfig.defaultValue != undefined && setDefaultValue()
+
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			selected = nvalue
+			selectedIndex = resolvedConfig.items.findIndex((item) => item.value === nvalue)
+		},
+		setTab(index) {
+			selected = resolvedConfig.items?.[index]?.value
+			selectedIndex = index
+		}
+	}
 
 	function setDefaultValue() {
-		if (resolvedConfig.defaultValue === undefined) {
+		if (resolvedConfig.defaultValue != undefined) {
+			selectedIndex = resolvedConfig.items.findIndex(
+				(item) => item.value === resolvedConfig.defaultValue
+			)
+		}
+		if (selectedIndex === -1 || resolvedConfig.defaultValue == undefined) {
 			selected = resolvedConfig.items[0].value
-		} else if (resolvedConfig.defaultValue?.value) {
-			selected = resolvedConfig.defaultValue?.value
+		} else if (resolvedConfig.defaultValue) {
+			selected = resolvedConfig.items[selectedIndex].value
 		}
 	}
 
@@ -51,8 +69,6 @@
 	}
 
 	$: selected && handleSelection(selected)
-
-	let selectedIndex: number = 0
 </script>
 
 {#each Object.keys(components['selectstepcomponent'].initialData.configuration) as key (key)}
