@@ -126,7 +126,7 @@
 			/>
 			{#if !noVariablePicker}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
+				<button
 					class="absolute right-1 top-1 bottom-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 					on:click={() => {
 						$pickVariableCallback = (variable) => {
@@ -135,12 +135,10 @@
 							}
 						}
 					}}
+					title="Use a Variable"
 				>
-					<Popover notClickable>
-						<DollarSign size={14} />
-						<svelte:fragment slot="text">Insert a variable</svelte:fragment>
-					</Popover>
-				</div>
+					<DollarSign size={14} />
+				</button>
 			{/if}
 		</div>
 	{/if}
