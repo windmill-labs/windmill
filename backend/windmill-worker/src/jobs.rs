@@ -67,29 +67,30 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
-    let duration =
-        if queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview {
-            let jobs = queued_job.parse_flow_status().map(|s| {
-                let mut modules = s.modules;
-                modules.extend([s.failure_module.module_status]);
-                flatten_jobs(modules)
-            });
-            if let Some(jobs) = jobs {
-                sqlx::query_scalar!(
-                    "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)",
-                    jobs.as_slice()
-                )
-                .fetch_one(db)
-                .await
-                .ok()
-                .flatten()
-            } else {
-                tracing::warn!("Could not parse flow status");
-                None
-            }
+    let is_flow =
+        queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
+    let duration = if is_flow {
+        let jobs = queued_job.parse_flow_status().map(|s| {
+            let mut modules = s.modules;
+            modules.extend([s.failure_module.module_status]);
+            flatten_jobs(modules)
+        });
+        if let Some(jobs) = jobs {
+            sqlx::query_scalar!(
+                "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)",
+                jobs.as_slice()
+            )
+            .fetch_one(db)
+            .await
+            .ok()
+            .flatten()
         } else {
+            tracing::warn!("Could not parse flow status");
             None
-        };
+        }
+    } else {
+        None
+    };
 
     let mem_peak = sqlx::query_scalar!("SELECT mem_peak FROM queue WHERE id = $1", &queued_job.id)
         .fetch_optional(db)
@@ -99,7 +100,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq, db.begin().await?).into();
     let job_id = queued_job.id.clone();
-    sqlx::query!(
+    let duration = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -134,7 +135,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                 )
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30)
-         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING duration_ms",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
@@ -166,7 +167,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         mem_peak,
         queued_job.tag,
     )
-    .execute(&mut tx)
+    .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
 
@@ -190,36 +191,25 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     }
     tx.commit().await?;
 
-    if cfg!(enterprise) && duration.unwrap_or(0) > 1000 {
-        let additional_usage = duration.unwrap() as i32 / 1000;
-
+    #[cfg(feature = "enterprise")]
+    if !is_flow && duration > 1000 {
+        let additional_usage = duration / 1000;
         let w_id = &queued_job.workspace_id;
         let premium_workspace = *CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;
-        if premium_workspace {
-            let _ = sqlx::query!(
+        let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
-                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                w_id,
+                VALUES ($1, $2, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $3",
+                if premium_workspace { w_id } else { &queued_job.email },
+                premium_workspace,
                 additional_usage)
                 .execute(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
-        } else {
-            sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                    queued_job.email,
-                    additional_usage)
-                        .execute(db)
-                        .await
-                        .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
-        }
     }
 
     tracing::debug!("Added completed job {}", queued_job.id);
