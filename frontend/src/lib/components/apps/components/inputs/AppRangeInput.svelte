@@ -27,8 +27,6 @@
 		result: null as [number, number] | null
 	})
 
-	console.log('reset')
-
 	$: outputs?.result.set(values)
 
 	$: css = concatCustomCss($app.css?.rangecomponent, customCss)
