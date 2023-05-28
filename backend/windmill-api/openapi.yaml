@@ -562,7 +562,6 @@ paths:
                     type: string
                   kind:
                     type: string
-                    enum: ['script', 'flow']
                 required:
                   - workspace
                   - endpoint_async
