@@ -5,11 +5,18 @@
 	import { fade } from 'svelte/transition'
 	import { Badge } from '../common'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
+	import { setQuery } from '$lib/navigation'
+	import { page } from '$app/stores'
 
 	export let filters: string[]
 	export let selectedFilter: string | undefined = undefined
 	export let resourceType = false
+	export let queryName = 'filter'
 
+	if (selectedFilter == undefined) {
+		let queryValue = $page.url.searchParams.get(queryName) ?? undefined
+		selectedFilter = queryValue
+	}
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
@@ -32,6 +39,11 @@
 					)}
 					on:click={() => {
 						selectedFilter = selectedFilter == filter ? undefined : filter
+						if (selectedFilter) {
+							setQuery($page.url, queryName, selectedFilter)
+						} else {
+							setQuery($page.url, queryName, undefined)
+						}
 					}}
 					color={filter === selectedFilter ? 'blue' : 'gray'}
 					baseClass={filter === selectedFilter ? 'border border-blue-500' : 'border'}

@@ -35,6 +35,8 @@
 	import FlowIcon from './FlowIcon.svelte'
 	import RawAppRow from '../common/table/RawAppRow.svelte'
 	import { canWrite } from '$lib/utils'
+	import { page } from '$app/stores'
+	import { setQuery } from '$lib/navigation'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -56,7 +58,7 @@
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = []
 
-	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
+	let itemKind = ($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
 
 	let shareModal: ShareModal
 	let moveDrawer: MoveDrawer
@@ -281,7 +283,13 @@
 <CenteredPage>
 	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
 		<div class="flex justify-start">
-			<ToggleButtonGroup bind:selected={itemKind} class="h-10">
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				on:selected={() => {
+					setQuery($page.url, 'kind', itemKind)
+				}}
+				class="h-10"
+			>
 				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" />
 				<ToggleButton value="script" icon={Code2} label="Scripts" class="text-sm px-4 py-2" />
 				{#if HOME_SEARCH_SHOW_FLOW}
