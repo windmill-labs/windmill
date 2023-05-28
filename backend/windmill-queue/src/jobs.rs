@@ -351,7 +351,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Ulid::new().into()
     };
 
-    if cfg!(feature = "enterprise") {
+    #[cfg(feature = "enterprise")]
+    {
         let premium_workspace = *CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
@@ -365,27 +366,17 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             job_payload,
             JobPayload::Flow(_) | JobPayload::RawFlow { .. }
         ) {
-            if !premium_workspace {
-                sqlx::query_scalar!(
+            sqlx::query_scalar!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    VALUES ($1, $2, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
                     ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
                     RETURNING usage.usage",
-                    email)
+                    if premium_workspace { workspace_id } else { email },
+                    premium_workspace
+                )
                 .fetch_one(&mut tx)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-            } else {
-                sqlx::query_scalar!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                    RETURNING usage.usage",
-                    workspace_id)
-                .fetch_one(&mut tx)
-                .await
-                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-            }
         } else if *CLOUD_HOSTED && !premium_workspace {
             sqlx::query_scalar!(
                 "
