@@ -19,8 +19,14 @@
 	export let render: boolean
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	let result: any = undefined
+
+	$componentControl[id] = {
+		setValue(value: string) {
+			result = value
+		}
+	}
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,

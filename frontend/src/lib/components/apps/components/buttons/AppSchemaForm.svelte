@@ -18,7 +18,7 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	const { worldStore, connectingInput, app, selectedComponent } =
+	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
@@ -41,6 +41,12 @@
 		}
 
 		outputs.values.set(newArgs, true)
+	}
+
+	$componentControl[id] = {
+		setValue(nvalue: any) {
+			args = nvalue
+		}
 	}
 
 	$: args && handleArgsChange()

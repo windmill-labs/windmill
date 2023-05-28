@@ -161,8 +161,8 @@
 						class="mb-0.5"
 						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-runnable"
 					>
-						Background runnables are triggered upon global refresh or when their input changes. The
-						result of a background runnable can be shared among many components.
+						Background runnables can be triggered on app refresh or when their input changes. The
+						result can be shared among many components.
 					</Tooltip>
 				</div>
 				<Button

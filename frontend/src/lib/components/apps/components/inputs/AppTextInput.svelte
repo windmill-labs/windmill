@@ -20,7 +20,7 @@
 		| 'textareainputcomponent' = 'textinputcomponent'
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent, connectingInput } =
+	const { app, worldStore, selectedComponent, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let placeholder: string | undefined = undefined
@@ -30,6 +30,12 @@
 	let outputs = initOutput($worldStore, id, {
 		result: ''
 	})
+
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			value = nvalue
+		}
+	}
 
 	$: handleDefault(defaultValue)
 

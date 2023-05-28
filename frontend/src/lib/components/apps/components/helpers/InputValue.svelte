@@ -72,28 +72,29 @@
 
 	$: lastInput && $worldStore && debounce(handleConnection)
 
-	$: lastInput &&
-		lastInput.type == 'template' &&
-		$stateId &&
-		$state &&
-		debounce(async () => {
-			let nvalue = await getValue(lastInput)
-			if (!deepEqual(nvalue, value)) {
-				value = nvalue
-			}
-			dispatch('done')
-		})
+	const debounceTemplate = async () => {
+		console.log('template')
+		let nvalue = await getValue(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+	}
 
 	$: lastInput &&
-		lastInput.type == 'eval' &&
+		lastInput.type == 'template' &&
+		isCodeInjection(lastInput.eval) &&
 		$stateId &&
 		$state &&
-		debounce2(async () => {
-			let nvalue = await evalExpr(lastInput)
-			if (!deepEqual(nvalue, value)) {
-				value = nvalue
-			}
-		})
+		debounce(debounceTemplate)
+
+	const debounceEval = async () => {
+		let nvalue = await evalExpr(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+	}
+
+	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
