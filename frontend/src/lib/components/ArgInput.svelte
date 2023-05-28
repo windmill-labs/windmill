@@ -8,7 +8,7 @@
 
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { X } from 'lucide-svelte'
+	import { DollarSign, Pen, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -28,6 +28,7 @@
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
+	import Popover from './Popover.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -170,6 +171,8 @@
 	let redraw = 0
 
 	let itemsLimit = 50
+
+	let customValue = false
 </script>
 
 <!-- svelte-ignore a11y-autofocus -->
@@ -361,18 +364,45 @@
 					/>
 				{/if}
 			{:else if inputCat == 'enum'}
-				<select
-					on:focus={(e) => {
-						dispatch('focus')
-					}}
-					{disabled}
-					class="px-6"
-					bind:value
-				>
-					{#each enum_ ?? [] as e}
-						<option>{e}</option>
-					{/each}
-				</select>
+				<div class="flex flex-row w-full gap-1">
+					{#if !customValue}
+						<select
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							{disabled}
+							class="px-6"
+							bind:value
+						>
+							{#each enum_ ?? [] as e}
+								<option>{e}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							{autofocus}
+							on:focus
+							type="text"
+							class={valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+							placeholder={defaultValue ?? ''}
+							bind:value
+						/>
+					{/if}
+
+					{#if !disabled}
+						<button
+							class="min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+							on:click={() => {
+								customValue = !customValue
+							}}
+							title="Custom Value"
+						>
+							<Pen size={14} />
+						</button>
+					{/if}
+				</div>
 			{:else if inputCat == 'date'}
 				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
@@ -404,7 +434,7 @@
 				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
-					<div class="flex flex-row w-full items- justify-between">
+					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password}
 							<Password {disabled} bind:password={value} />
 						{:else}
@@ -419,26 +449,24 @@
 								on:keydown={onKeyDown}
 								type="text"
 								{disabled}
-								class="col-span-10 {valid
+								class="w-full {valid
 									? ''
 									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 								placeholder={defaultValue ?? ''}
 								bind:value
 							/>
 							{#if itemPicker}
-								<div class="ml-1 relative">
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class="min-w-min min-h-[34px] items-center leading-4 px-3 text-blue-500 cursor-pointer border border-blue-500 rounded center-center"
-										on:click={() => {
-											pickForField = label
-											itemPicker?.openDrawer?.()
-										}}
-										title="Use Variable"
-									>
-										<Icon data={faDollarSign} />
-									</div>
-								</div>
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<button
+									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+									on:click={() => {
+										pickForField = label
+										itemPicker?.openDrawer?.()
+									}}
+									title="Insert a Variable"
+								>
+									<DollarSign size={14} />
+								</button>
 							{/if}
 						{/if}
 					</div>

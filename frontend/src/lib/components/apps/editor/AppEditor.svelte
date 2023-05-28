@@ -337,7 +337,7 @@
 	pickCallback={(path, _) => {
 		$pickVariableCallback?.(path)
 	}}
-	itemName="Variablo"
+	itemName="Variable"
 	extraField="path"
 	loadItems={async () =>
 		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
