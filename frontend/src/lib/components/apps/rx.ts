@@ -169,7 +169,11 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 			state.update((x) => x + 1)
 
 			if (typeof x === 'object') {
-				value = Object.assign({}, x)
+				if (Array.isArray(x)) {
+					value = [...x] as any
+				} else {
+					value = Object.assign({}, x)
+				}
 			} else {
 				value = x
 			}

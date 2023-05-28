@@ -95,45 +95,54 @@
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
-		<div
-			class="border border-gray-300 shadow-sm divide-y divide-gray-300 flex flex-col h-full"
-			bind:clientHeight
-			bind:clientWidth
-		>
+		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
-				on:pointerdown|stopPropagation={() => {
-					$selectedComponent = [id]
-				}}
-				style:height="{clientHeight}px"
-				style:width="{clientWidth}px"
-				class="ag-theme-alpine"
+				class="border border-gray-300 shadow-sm divide-y divide-gray-300 flex flex-col h-full"
+				bind:clientHeight
+				bind:clientWidth
 			>
-				{#key resolvedConfig?.pagination}
-					<AgGridSvelte
-						bind:rowData={result}
-						columnDefs={resolvedConfig?.columnDefs}
-						pagination={resolvedConfig?.pagination}
-						paginationAutoPageSize={resolvedConfig?.pagination}
-						defaultColDef={{ flex: 1, editable: resolvedConfig?.allEditable, onCellValueChanged }}
-						onPaginationChanged={(event) => {
-							outputs?.page.set(event.api.paginationGetCurrentPage())
-						}}
-						rowSelection="single"
-						suppressRowDeselection={true}
-						onSelectionChanged={(e) => {
-							const row = e.api.getSelectedNodes()?.[0]?.rowIndex
-							if (row != undefined) {
-								toggleRow(row)
-							}
-						}}
-						onGridReady={(e) => {
-							outputs?.ready.set(true)
-							$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
-						}}
-					/>
-				{/key}
+				<div
+					on:pointerdown|stopPropagation={() => {
+						$selectedComponent = [id]
+					}}
+					style:height="{clientHeight}px"
+					style:width="{clientWidth}px"
+					class="ag-theme-alpine"
+				>
+					{#key resolvedConfig?.pagination}
+						<AgGridSvelte
+							bind:rowData={result}
+							columnDefs={resolvedConfig?.columnDefs}
+							pagination={resolvedConfig?.pagination}
+							paginationAutoPageSize={resolvedConfig?.pagination}
+							defaultColDef={{ flex: 1, editable: resolvedConfig?.allEditable, onCellValueChanged }}
+							onPaginationChanged={(event) => {
+								outputs?.page.set(event.api.paginationGetCurrentPage())
+							}}
+							rowSelection="single"
+							suppressRowDeselection={true}
+							onSelectionChanged={(e) => {
+								const row = e.api.getSelectedNodes()?.[0]?.rowIndex
+								if (row != undefined) {
+									toggleRow(row)
+								}
+							}}
+							onGridReady={(e) => {
+								outputs?.ready.set(true)
+								$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
+							}}
+						/>
+					{/key}
+				</div>
 			</div>
-		</div>
+		{:else if result != undefined}
+			<Alert title="Parsing issues" type="error" size="xs">
+				The columnDefs should be an array of objects, received:
+				<pre class="overflow-auto">
+				{JSON.stringify(resolvedConfig.columnDefs)}
+			</pre>
+			</Alert>
+		{/if}
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
 			The result should be an array of objects, received:
