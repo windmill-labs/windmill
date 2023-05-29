@@ -171,7 +171,7 @@
 		}}
 		on:keydown|stopPropagation
 	>
-		{#if editorMode && componentInput?.type == 'template'}
+		{#if $mode == 'dnd' && editorMode && componentInput?.type == 'template'}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				<textarea
 					class={twMerge(
