@@ -62,6 +62,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -656,13 +662,13 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.24"
+version = "0.4.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e3c5919066adf22df73762e50cffcde3a758f2a848b113b586d1f86728b673b"
+checksum = "fdbc37d37da9e5bce8173f3a41b71d9bf3c674deebbaceacd0ebdabde76efb03"
 dependencies = [
+ "android-tzdata",
  "iana-time-zone",
  "js-sys",
- "num-integer",
  "num-traits",
  "serde",
  "time 0.1.45",
@@ -2368,9 +2374,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.17.1"
+version = "1.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
+checksum = "9670a07f94779e00908f3e686eab508878ebb390ba6e604d3a284c00e8d0487b"
 
 [[package]]
 name = "opaque-debug"
@@ -5097,7 +5103,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5132,7 +5138,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5191,7 +5197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -5208,7 +5214,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5221,7 +5227,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5246,7 +5252,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5254,7 +5260,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5269,7 +5275,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5282,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5297,7 +5303,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5311,7 +5317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5339,7 +5345,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.106.0"
+version = "1.106.1"
 dependencies = [
  "anyhow",
  "async-recursion",

@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.106.1](https://github.com/windmill-labs/windmill/compare/v1.106.0...v1.106.1) (2023-05-29)
+
+
+### Bug Fixes
+
+* **backend:** fix initial worker ping issue ([1816252](https://github.com/windmill-labs/windmill/commit/1816252f03cb4c45a1211f1b2641f79bc679421f))
+
 ## [1.106.0](https://github.com/windmill-labs/windmill/compare/v1.105.0...v1.106.0) (2023-05-28)
 
 
