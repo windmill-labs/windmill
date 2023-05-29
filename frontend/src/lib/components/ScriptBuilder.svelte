@@ -443,6 +443,16 @@
 				</div>
 				<div class="flex flex-row gap-x-4">
 					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							metadataOpen = true
+						}}
+					>
+						Metadata
+					</Button>
+					<Button
 						color="dark"
 						variant="border"
 						size="xs"

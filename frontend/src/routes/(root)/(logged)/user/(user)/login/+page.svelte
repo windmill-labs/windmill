@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte'
 	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames } from '$lib/utils'
+	import { classNames, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -85,12 +85,21 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
+			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
+			if (rd && workspaceTarget) {
+				$workspaceStore = workspaceTarget
+				goto(rd)
+				return
+			}
+
 			if (!$usersWorkspaceStore) {
 				try {
 					usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 				} catch {}
 			}
+
 			const allWorkspaces = $usersWorkspaceStore?.workspaces
+
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
 				goto('/')

@@ -55,6 +55,7 @@
 	} from '$lib/consts'
 	import { sendUserToast } from '$lib/toast'
 	import { scriptToHubUrl } from '$lib/hub'
+	import Urlize from '$lib/components/Urlize.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -411,8 +412,8 @@
 					/>
 				</div>
 				{#if !emptyString(script.description)}
-					<div class="box">
-						{defaultIfEmptyString(script.description, 'No description')}
+					<div class="box overflow-auto break-words whitespace-pre-wrap">
+						<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
 					</div>
 				{/if}
 			</div>
