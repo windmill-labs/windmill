@@ -5809,6 +5809,10 @@ components:
         last_used_at:
           type: string
           format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
       required:
         - token_prefix
         - created_at
@@ -5822,6 +5826,10 @@ components:
         expiration:
           type: string
           format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object

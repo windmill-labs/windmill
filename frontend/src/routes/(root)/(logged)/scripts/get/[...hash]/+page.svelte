@@ -518,7 +518,12 @@
 								</ul>
 								{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 									<div class="flex flex-row-reverse mt-2">
-										<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
+										<Button size="xs" on:click={userSettings.openDrawer}
+											>Create a Webhook-specific Token <Tooltip
+												>The token will have a scope such that it can only be used to trigger this
+												script. It is safe to share as it cannot be used to impersonate you.</Tooltip
+											></Button
+										>
 									</div>
 								{/if}
 								{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
@@ -604,6 +609,6 @@
 	</CenteredPage>
 {/if}
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} scopes={[`run:script/${script?.path}`]} />
 
 <ShareModal bind:this={shareModal} />

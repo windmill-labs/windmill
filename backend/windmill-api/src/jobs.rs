@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::{require_owner_of_path, Authed, OptAuthed},
+    users::{check_scopes, require_owner_of_path, Authed, OptAuthed},
     variables::get_workspace_key,
     BASE_URL,
 };
@@ -569,6 +569,7 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
+    check_scopes(&authed, || format!("listjobs"))?;
     // TODO: todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
@@ -675,6 +676,7 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    check_scopes(&authed, || format!("resumeflow"))?;
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
@@ -1345,6 +1347,7 @@ fn add_raw_string(
     }
     return args;
 }
+
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1355,6 +1358,8 @@ pub async fn run_flow_by_path(
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -1393,6 +1398,8 @@ pub async fn run_job_by_path(
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
@@ -1594,6 +1601,8 @@ pub async fn run_wait_result_job_by_path_get(
 
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
@@ -1642,6 +1651,8 @@ pub async fn run_wait_result_job_by_path(
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
@@ -1696,6 +1707,7 @@ pub async fn run_wait_result_job_by_hash(
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
@@ -1745,6 +1757,8 @@ pub async fn run_wait_result_flow_by_path(
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -1791,6 +1805,7 @@ async fn run_preview_job(
     headers: HeaderMap,
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("runscript"))?;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
@@ -1834,6 +1849,7 @@ async fn run_preview_flow_job(
     headers: HeaderMap,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("runflow"))?;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
@@ -1875,6 +1891,8 @@ pub async fn run_job_by_hash(
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    check_scopes(&authed, || format!("run:script/{path}"))?;
+
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
@@ -2051,11 +2069,14 @@ pub struct ListCompletedQuery {
 }
 
 async fn list_completed_jobs(
+    authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<CompletedJob>> {
+    check_scopes(&authed, || format!("listjobs"))?;
+
     let (per_page, offset) = paginate(pagination);
 
     let sql = list_completed_jobs_query(
@@ -2166,6 +2187,8 @@ async fn delete_completed_job(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<CompletedJob> {
+    check_scopes(&authed, || format!("deletejob"))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;

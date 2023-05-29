@@ -118,9 +118,9 @@ impl AuthCache {
         match s {
             a @ Some(_) => a,
             None => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool)>(
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -131,7 +131,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), email, super_admin) if w_id.is_some() => {
+                            (Some(owner), email, super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let is_admin = super_admin
@@ -165,6 +165,7 @@ impl AuthCache {
                                             is_admin,
                                             groups,
                                             folders,
+                                            scopes: None,
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -184,6 +185,7 @@ impl AuthCache {
                                             is_admin: false,
                                             groups,
                                             folders,
+                                            scopes: None,
                                         })
                                     }
                                 } else {
@@ -196,10 +198,11 @@ impl AuthCache {
                                         is_admin: super_admin,
                                         groups,
                                         folders,
+                                        scopes: None,
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin) => {
+                            (_, Some(email), super_admin, scopes) => {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool)>(
                                         "SELECT username, is_admin FROM usr where email = $1 AND \
@@ -237,17 +240,17 @@ impl AuthCache {
                                                 is_admin: is_admin || super_admin,
                                                 groups,
                                                 folders,
+                                                scopes,
                                             })
                                         }
-                                        None if super_admin || w_id.unwrap() == "starter" => {
-                                            Some(Authed {
-                                                email: email.clone(),
-                                                username: email,
-                                                is_admin: super_admin,
-                                                groups: vec![],
-                                                folders: vec![],
-                                            })
-                                        }
+                                        None if super_admin => Some(Authed {
+                                            email: email.clone(),
+                                            username: email,
+                                            is_admin: super_admin,
+                                            groups: vec![],
+                                            folders: vec![],
+                                            scopes,
+                                        }),
                                         None => None,
                                     }
                                 } else {
@@ -257,6 +260,7 @@ impl AuthCache {
                                         is_admin: super_admin,
                                         groups: Vec::new(),
                                         folders: Vec::new(),
+                                        scopes,
                                     })
                                 }
                             }
@@ -281,6 +285,7 @@ impl AuthCache {
                         is_admin: true,
                         groups: Vec::new(),
                         folders: Vec::new(),
+                        scopes: None,
                     })
                 } else {
                     None
@@ -362,6 +367,7 @@ pub struct Authed {
     pub groups: Vec<String>,
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
+    pub scopes: Option<Vec<String>>,
 }
 
 pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
@@ -428,6 +434,13 @@ where
                 {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         parts.extensions.insert(authed.clone());
+                        if authed.scopes.is_some() && (path_vec.len() < 3 || path_vec[4] != "jobs")
+                        {
+                            return Err((
+                                StatusCode::UNAUTHORIZED,
+                                format!("Unauthorized scoped token: {:?}", authed.scopes),
+                            ));
+                        }
                         Span::current().record("username", &authed.username.as_str());
                         Span::current().record("email", &authed.email);
 
@@ -441,6 +454,19 @@ where
             Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
     }
+}
+
+pub fn check_scopes<F>(authed: &Authed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if let Some(scopes) = &authed.scopes {
+        let req = &required();
+        if !scopes.contains(req) {
+            return Err(Error::BadRequest(format!("missing required scope: {req}")));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -592,6 +618,7 @@ pub struct TruncatedToken {
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -599,6 +626,7 @@ pub struct NewToken {
     pub label: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub impersonate_email: Option<String>,
+    pub scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -793,7 +821,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, is_admin, groups, folders }: Authed,
+    Authed { username, email, is_admin, groups, folders, .. }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -1730,13 +1758,14 @@ async fn create_token(
             .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
+            (token, email, label, expiration, super_admin, scopes)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         token,
         email,
         new_token.label,
         new_token.expiration,
-        is_super_admin
+        is_super_admin,
+        new_token.scopes.as_ref().map(|x| x.as_slice())
     )
     .execute(&mut tx)
     .await?;
@@ -1815,7 +1844,7 @@ async fn list_tokens(
     let rows = sqlx::query_as!(
         TruncatedToken,
         "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-         last_used_at FROM token WHERE email = $1
+         last_used_at, scopes FROM token WHERE email = $1
          ORDER BY created_at DESC",
         email,
     )
