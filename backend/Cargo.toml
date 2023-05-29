@@ -125,7 +125,7 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_core = "^0"
+deno_core = "0.188.0"
 async-recursion = "^1"
 swc_common = "0.29.39"
 swc_ecma_parser = "0.128.2"
