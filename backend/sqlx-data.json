@@ -284,6 +284,20 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)"
   },
+  "07b3c653e9e70cf7c8e05e40682fa3b8562efbb24f22bcc4b7403305f15a6730": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3) ON CONFLICT (worker) DO NOTHING"
+  },
   "07b984faa14193f529ae589608289a9ffb0f3d4a0e48054393e1bb8b70b4e5e0": {
     "describe": {
       "columns": [],
@@ -6898,20 +6912,6 @@
       }
     },
     "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1"
-  },
-  "f98046a2ee4ac10d9e507c033391dfb0c704dcd513d8b1e5564def4e85f9e80b": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3)"
   },
   "fa258894bd90ea6586669e5810c5c6bcb42d5e1e68fab27fb185d06962b6454a": {
     "describe": {
