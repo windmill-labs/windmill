@@ -63,7 +63,7 @@
 	resizeWindow()
 
 	const parentWidth = writable(0)
-
+	const state = writable({})
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(ncontext),
 		initialized: writable({ initialized: false, initializedComponents: [] }),
@@ -86,7 +86,7 @@
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
 		parentWidth,
-		state: writable({}),
+		state: state,
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath
