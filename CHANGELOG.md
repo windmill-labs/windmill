@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.107.0](https://github.com/windmill-labs/windmill/compare/v1.106.0...v1.107.0) (2023-05-29)
+
+
+### Features
+
+* **backend:** webhook specific tokens ([8c33599](https://github.com/windmill-labs/windmill/commit/8c335996631b7512e7699ffd0aebe04e43c498ab))
+
+
+### Bug Fixes
+
+* **backend:** fix initial worker ping issue ([1816252](https://github.com/windmill-labs/windmill/commit/1816252f03cb4c45a1211f1b2641f79bc679421f))
+
 ## [1.106.1](https://github.com/windmill-labs/windmill/compare/v1.106.0...v1.106.1) (2023-05-29)
 
 
