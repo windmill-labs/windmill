@@ -856,7 +856,7 @@ async fn insert_initial_ping(
     db: &Pool<Postgres>,
 ) {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3)",
+        "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3) ON CONFLICT (worker) DO NOTHING",
         worker_instance,
         worker_name,
         ip
