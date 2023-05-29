@@ -41,7 +41,7 @@
 		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.24.0",
 		"path-browserify": "^1.0.1",
-		"pdfjs-dist": "^3.6.172",
+		"pdfjs-dist": "^3.7.107",
 		"postcss": "^8.4.24",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.8",
