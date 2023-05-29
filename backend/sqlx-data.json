@@ -1411,6 +1411,23 @@
     },
     "query": "UPDATE workspace_settings SET webhook = NULL WHERE workspace_id = $1"
   },
+  "34ad8a2a5bd89b9b8e25847a7e5e94ef99e35a178ad6328c1bcde2a6d6f88cb5": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Bool",
+          "TextArray"
+        ]
+      }
+    },
+    "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin, scopes)\n            VALUES ($1, $2, $3, $4, $5, $6)"
+  },
   "355dcb2cbebd13f0e3bdd4929b9e431b0e6d72716d1c4f9ab6af6adce5b5e4b3": {
     "describe": {
       "columns": [
@@ -2970,6 +2987,56 @@
       }
     },
     "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin"
+  },
+  "773c145013623e4eb29a8df70e46d805dc5b15942a36a0d988521abb0cb34e41": {
+    "describe": {
+      "columns": [
+        {
+          "name": "label",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "token_prefix",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "expiration",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "last_used_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "scopes",
+          "ordinal": 5,
+          "type_info": "TextArray"
+        }
+      ],
+      "nullable": [
+        true,
+        null,
+        true,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1\n         ORDER BY created_at DESC"
   },
   "77ba7207c8f5fd7156542cfd9943aa9a9fa87a652131c261f5020bab9ba6b5a3": {
     "describe": {
@@ -5066,50 +5133,6 @@
       }
     },
     "query": "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()\n        OR (suspend_until IS NOT NULL\n            AND (   suspend <= 0\n                 OR suspend_until <= now())))"
-  },
-  "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
-    "describe": {
-      "columns": [
-        {
-          "name": "label",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "token_prefix",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "expiration",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "last_used_at",
-          "ordinal": 4,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        true,
-        null,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1\n         ORDER BY created_at DESC"
   },
   "b658b75e7a40eeace5f81a390fb254852d535726b08169cca6966df8fdbeea51": {
     "describe": {

@@ -151,7 +151,7 @@
 
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} scopes={[`run:flow/${flow?.path}`]} />
 
 <Skeleton
 	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
@@ -360,7 +360,12 @@
 						<Badge>Result/Sync</Badge>
 					</div>
 					<div class="flex flex-row-reverse">
-						<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
+						<Button size="xs" on:click={userSettings.openDrawer}
+							>Create a Webhook-specific Token <Tooltip
+								>The token will have a scope such that it can only be used to trigger this flow. It
+								is safe to share as it cannot be used to impersonate you.</Tooltip
+							></Button
+						>
 					</div>
 					<div class="flex flex-col gap-2 mt-2">
 						<div class="flex">
