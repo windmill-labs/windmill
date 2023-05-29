@@ -19,6 +19,19 @@ export function validateUsername(username: string): string {
 	}
 }
 
+export function parseQueryParams(url: string | undefined) {
+	if (!url) return {}
+	const index = url.indexOf('?')
+	if (index == -1) return {}
+	const paramArr = url?.slice(index + 1)?.split('&')
+	const params: Record<string, string> = {}
+	paramArr?.map((param) => {
+		const [key, val] = param.split('=')
+		params[key] = decodeURIComponent(val)
+	})
+	return params
+}
+
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
 	return (

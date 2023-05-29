@@ -49,7 +49,8 @@
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				switchWorkspace(localStorage.getItem('workspace')?.toString())
+				const local = localStorage.getItem('workspace')?.toString()
+				switchWorkspace(local)
 			}
 		} else {
 			const url = $page.url
@@ -63,13 +64,14 @@
 		})
 	}
 
-	$: {
+	function handleListWorkspaces() {
 		if (list_all_as_super_admin) {
 			loadWorkspacesAsAdmin()
 		} else {
 			workspaces = $userWorkspaces
 		}
 	}
+	$: list_all_as_super_admin != undefined && handleListWorkspaces()
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
 

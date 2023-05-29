@@ -16,7 +16,7 @@ export interface UserExt {
 	folders_owners: string[]
 }
 
-let persistedWorkspace = BROWSER && localStorage.getItem('workspace')
+const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
 
 export const enterpriseLicense = writable<string | undefined>(undefined)
 export const workerTags = writable<string[] | undefined>(undefined)

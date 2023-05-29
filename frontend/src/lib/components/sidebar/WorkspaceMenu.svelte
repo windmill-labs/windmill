@@ -31,7 +31,7 @@
 		<div class="py-1">
 			{#each $userWorkspaces as workspace}
 				<button
-					class="text-xs min-w-0 w-full flex flex-col py-1.5
+					class="text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5
 						{$workspaceStore === workspace.id
 						? 'cursor-default bg-blue-50'
 						: 'cursor-pointer hover:bg-gray-100'}"

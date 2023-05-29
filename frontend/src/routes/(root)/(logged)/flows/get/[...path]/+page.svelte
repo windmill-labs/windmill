@@ -40,6 +40,7 @@
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import { sendUserToast } from '$lib/toast'
+	import Urlize from '$lib/components/Urlize.svelte'
 
 	let userSettings: UserSettings
 
@@ -308,8 +309,8 @@
 					/>
 				</div>
 				{#if !emptyString(flow.description)}
-					<div class="box">
-						{defaultIfEmptyString(flow.description, 'No description')}
+					<div class="box overflow-auto break-words whitespace-pre-wrap">
+						<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
 					</div>
 				{/if}
 			</div>
