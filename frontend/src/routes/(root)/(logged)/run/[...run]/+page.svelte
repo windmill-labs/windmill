@@ -338,7 +338,7 @@
 							</div>
 						{:else if viewTab == 'code'}
 							{#if job && 'raw_code' in job && job.raw_code}
-								<HighlightCode language={job.language} code={job.raw_code} />
+								<HighlightCode lines language={job.language} code={job.raw_code} />
 							{:else if job}
 								No code is available
 							{:else}
