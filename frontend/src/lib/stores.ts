@@ -16,8 +16,9 @@ export interface UserExt {
 	folders_owners: string[]
 }
 
-let persistedWorkspace = BROWSER && localStorage.getItem('workspace')
+const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
 
+export const enterpriseLicense = writable<string | undefined>(undefined)
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const runFormStore = writable<any>()
@@ -40,7 +41,7 @@ export const userWorkspaces: Readable<
 	const originalWorkspaces = store?.workspaces ?? []
 	if (superadmin) {
 		return [
-			...originalWorkspaces.filter((x) => x.id != 'starter' && x.id != 'admins'),
+			...originalWorkspaces.filter((x) => x.id != 'admins'),
 			{
 				id: 'admins',
 				name: 'Admins',

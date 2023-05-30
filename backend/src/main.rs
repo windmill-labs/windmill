@@ -6,19 +6,20 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use gethostname::gethostname;
+use git_version::git_version;
+use monitor::handle_zombie_jobs_periodically;
+use sqlx::{Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
-
-use git_version::git_version;
-use monitor::handle_zombie_jobs_periodically;
-use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder},
     join,
     sync::RwLock,
 };
+use windmill_api::LICENSE_KEY;
 use windmill_common::{utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
     DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR,
@@ -85,7 +86,9 @@ async fn main() -> anyhow::Result<()> {
         config
     });
 
+    tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode).await?;
+    tracing::info!("Database connected");
 
     let rsmq = if let Some(config) = rsmq_config {
         let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
@@ -98,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     if server_mode {
+        // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
 
@@ -270,16 +274,26 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]
-    ee::verify_license_key(license_key)?;
+    ee::verify_license_key(LICENSE_KEY.clone())?;
 
     #[cfg(not(feature = "enterprise"))]
-    if license_key.is_some() {
+    if LICENSE_KEY.is_some() {
         panic!("License key is required ONLY for the enterprise edition");
     }
 
-    let instance_name = rd_string(5);
+    let instance_name = gethostname()
+        .to_str()
+        .map(|x| {
+            x.replace(" ", "")
+                .split("-")
+                .last()
+                .unwrap()
+                .to_ascii_lowercase()
+                .to_string()
+        })
+        .unwrap_or_else(|| rd_string(5));
+
     let monitor = tokio_metrics::TaskMonitor::new();
 
     let ip = windmill_common::external_ip::get_ip()
@@ -318,7 +332,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
-        let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
+        let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();

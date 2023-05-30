@@ -24,6 +24,7 @@
 				case 'Escape':
 					event.stopPropagation()
 					event.preventDefault()
+					open = false
 					dispatch('canceled')
 					break
 			}
@@ -37,7 +38,9 @@
 <svelte:window on:keydown={onKeyDown} />
 
 {#if open}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
+		on:click={() => (open = false)}
 		transition:fadeFast|local
 		class={'absolute top-0 bottom-0 left-0 right-0 z-50'}
 		role="dialog"
@@ -52,6 +55,7 @@
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
 				<div
+					on:click|stopPropagation
 					class={twMerge(
 						'relative transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						c,
@@ -72,8 +76,15 @@
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<Button on:click={() => dispatch('canceled')} color="light" size="sm">
-							<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
+						<Button
+							on:click={() => {
+								dispatch('canceled')
+								open = false
+							}}
+							color="light"
+							size="sm"
+						>
+							<span class="inline-flex gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
 						</Button>
 					</div>
 				</div>

@@ -55,6 +55,7 @@
 	} from '$lib/consts'
 	import { sendUserToast } from '$lib/toast'
 	import { scriptToHubUrl } from '$lib/hub'
+	import Urlize from '$lib/components/Urlize.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -411,8 +412,8 @@
 					/>
 				</div>
 				{#if !emptyString(script.description)}
-					<div class="box">
-						{defaultIfEmptyString(script.description, 'No description')}
+					<div class="box overflow-auto break-words whitespace-pre-wrap">
+						<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
 					</div>
 				{/if}
 			</div>
@@ -517,7 +518,12 @@
 								</ul>
 								{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 									<div class="flex flex-row-reverse mt-2">
-										<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
+										<Button size="xs" on:click={userSettings.openDrawer}
+											>Create a Webhook-specific Token <Tooltip
+												>The token will have a scope such that it can only be used to trigger this
+												script. It is safe to share as it cannot be used to impersonate you.</Tooltip
+											></Button
+										>
 									</div>
 								{/if}
 								{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
@@ -603,6 +609,6 @@
 	</CenteredPage>
 {/if}
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} scopes={[`run:script/${script?.path}`]} />
 
 <ShareModal bind:this={shareModal} />

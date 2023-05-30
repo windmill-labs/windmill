@@ -237,6 +237,7 @@ state.foo += 1
 // you may also just reassign as next statement 'state.foo = state.foo'
 
 // you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
+// Inputs and display components support settings their value directly (setValue)
 
 return state.foo`,
 							language: 'frontend',

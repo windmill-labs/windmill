@@ -15,13 +15,20 @@
 	export let customCss: ComponentCustomCSS<'dateinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 	let labelValue: string = 'Title'
 	let minValue: string = ''
 	let maxValue: string = ''
 	let defaultValue: string | undefined = undefined
 
 	let value: string | undefined = undefined
+
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			value = nvalue
+		}
+	}
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined

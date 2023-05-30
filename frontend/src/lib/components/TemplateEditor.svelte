@@ -390,6 +390,7 @@
 
 	if ($selectedComponent) {
 		$componentControl[$selectedComponent[0]] = {
+			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
 				code = value
 				setCode(value)

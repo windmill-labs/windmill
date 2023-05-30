@@ -377,7 +377,12 @@
 		</div>
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
 		{#if tab != 'states'}
-			<ListFilters bind:selectedFilter={typeFilter} filters={types} resourceType />
+			<ListFilters
+				queryName="app_filter"
+				bind:selectedFilter={typeFilter}
+				filters={types}
+				resourceType
+			/>
 		{/if}
 
 		<div class="overflow-x-auto pb-40">

@@ -169,26 +169,18 @@
 			'<b>1 000</b> free global executions per-user per month'
 		],
 		Team: [
-			`<b>$10/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $8/mo</b> per extra user/author in the workspace (1 included)`,
-			`<b>+ $4/mo</b> per extra operators in the workspace.`,
-			`<b>$0.001</b> per additional computation (10k included)`,
-			`Google/Github/Microsoft/Gitlab <b>SSO</b>`,
-			`<b>Unlimited</b> variables/resources/scripts/apps/flows`,
-			`<b>Support 24/7 with 48h response time</b>`
+			`<b>$10/mo</b> per seat`,
+			`Every seat includes <b>10 000</b> executions`,
+			`Every seat includes either 1 user OR 2 operators`
 		],
 		Enterprise: [
-			`<b>$200/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $32/mo</b> per extra user/author in the workspace (1 included)`,
-			`<b>+ $16/mo</b> per extra operators in the workspace.`,
-			`<b>$0.004</b> per additional computation (10k included)`,
-			`<b>Dedicated</b> and isolated database and workers available for <b>+400$/mo</b> (EU/US)`,
-			`<b>Dedicated</b> entire cluster available for <b>+4000$/mo</b> (EU/US)`,
-			`<b>SAML</b> support`,
+			`<b>Dedicated</b> and isolated database and workers available (EU/US/Asia)`,
+			`<b>Dedicated</b> entire cluster available for (EU/US/Asia)`,
+			`<b>SAML</b> support with group syncing`,
 			`<b>SLA</b>`,
 			`<b>Priority Support 24/7 with 3h response time and automation engineer assistance</b>`,
 			`<b>Design partners for Roadmap</b>`,
-			`<div class="mt-4">(Self-hosted enterprise licenses also available at 50% discount)</div>`
+			`<div class="mt-4">Self-hosted licenses also available</div>`
 		]
 	}
 </script>
@@ -485,29 +477,33 @@
 							{/if}
 
 							{#if plan}
-								{@const team_factor = plan == 'team' ? 8 : 32}
-								{@const user_nb = Math.max(0, (users?.filter((x) => !x.operator).length ?? 0) - 1)}
+								{@const team_factor = plan == 'team' ? 10 : 40}
+								{@const user_nb = users?.filter((x) => !x.operator)?.length ?? 0}
+								{@const operator_nb = users?.filter((x) => x.operator)?.length ?? 0}
+								{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
+								{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
 
 								<div>
-									Extra seats:
-									<div class="inline text-2xl font-bold float-right"
-										>{user_nb} * ${team_factor}
-										= ${(users?.length ?? 0) * team_factor}/mo</div
-									>
+									Authors:
+									<div class="inline text-2xl font-bold float-right">{user_nb}</div>
 									<Tooltip
 										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
 										period, see the customer portal for more info.</Tooltip
 									>
 								</div>
 								<div>
-									Extra operators:
-									<div class="inline text-2xl font-bold float-right"
-										>{Math.max(0, (users?.filter((x) => x.operator).length ?? 0) - 1)} * ${team_factor /
-											2} = ${((users?.length ?? 0) * team_factor) / 2}/mo</div
-									>
+									Operators:
+									<div class="inline text-2xl font-bold float-right">{operator_nb}</div>
 									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.</Tooltip
+										>Actual pricing is calculated on the MAXIMUM number of operators in a given
+										billing period, see the customer portal for more info.</Tooltip
+									>
+								</div>
+
+								<div>
+									Seats from authors + operators:
+									<div class="inline text-2xl font-bold float-right mb-8"
+										>ceil({user_nb} + {operator_nb}/2) = {seats_from_users}</div
 									>
 								</div>
 								<div>
@@ -517,12 +513,19 @@
 									</div>
 								</div>
 								<div>
-									Extra computations (above the 10k included) this month:
-									<div class=" inline text-2xl font-bold float-right"
-										>{Math.max(0, (premium_info?.usage ?? 0) - 10000)} x {plan == 'team'
-											? '0.001'
-											: '0.004'} = ${Math.max(0, (premium_info?.usage ?? 0) - 10000) *
-											(plan == 'team' ? 0.001 : 0.004)}
+									Seats from computations:
+									<div class="inline text-2xl font-bold float-right mb-8"
+										>ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}</div
+									>
+								</div>
+
+								<div>
+									Total seats:
+									<div class=" inline text-2xl font-bold float-right">
+										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
+											seats_from_comps,
+											seats_from_users
+										) * team_factor}/mo
 									</div>
 								</div>
 							{/if}
@@ -530,17 +533,17 @@
 					{:else}
 						This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
 						doing executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited
-						execution in this workspace.
+						executions in this workspace.
 					{/if}
 				</div>
 
-				<div class="my-4">
-					<Slider text="What is a computation ?">
+				<div class="flex flex-col gap-1 mb-4">
+					<Slider text="What is an execution?">
 						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called a "computation". A computation corresponds to a
-							single job whose duration is less than 1s. For any additional seconds of computation,
-							an additional computation is accounted for. Jobs are executed on one powerful virtual
-							CPU with 2Gb of memory. Most jobs will take less than 200ms to execute.
+							The single credit-unit is called an "execution". An execution corresponds to a single
+							job whose duration is less than 1s. For any additional seconds of computation, an
+							additional execution is accounted for. Jobs are executed on one powerful virtual CPU
+							with 2Gb of memory. Most jobs will take less than 200ms to execute.
 						</Alert>
 					</Slider>
 
@@ -556,7 +559,7 @@
 					{#each Object.entries(plans) as [planTitle, planDesc]}
 						<div class="box p-4 text-sm flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
-							<ul class="list-disc p-4">
+							<ul class="list-disc text-lg p-4">
 								{#each planDesc as item}
 									<li class="mt-2">{@html item}</li>
 								{/each}
@@ -566,7 +569,7 @@
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
 									<div class="mt-4 mx-auto">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+										<Button size="lg" href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 											>Upgrade to the Team plan</Button
 										>
 									</div>
@@ -576,11 +579,8 @@
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
 									<div class="mt-4 mx-auto">
-										<Button
-											on:click={() =>
-												sendUserToast(
-													'Contact contact@windmill.dev to have your dedicated instance provisioned'
-												)}>Upgrade to the Enterprise plan</Button
+										<Button size="lg" href="https://www.windmill.dev/pricing" target="_blank"
+											>See more</Button
 										>
 									</div>
 								{:else}

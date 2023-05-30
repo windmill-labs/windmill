@@ -8,7 +8,7 @@ export function scriptToHubUrl(
 	description: string,
 	kind: Script.kind,
 	language: Script.language,
-	schema: Schema | undefined,
+	schema: Schema | any,
 	lock: string | undefined
 ): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')

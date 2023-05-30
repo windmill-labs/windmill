@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.103.0
+  version: 1.106.1
   title: Windmill API
 
   contact:
@@ -36,6 +36,20 @@ paths:
       responses:
         "200":
           description: git version of backend
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /ee_license:
+    get:
+      summary: get license id
+      operationId: getLicenseId
+      tags:
+        - settings
+      responses:
+        "200":
+          description: get license id (empty if not ee)
           content:
             text/plain:
               schema:
@@ -521,6 +535,40 @@ paths:
             text/plain:
               schema:
                 type: number
+
+  /users/all_runnables:
+    get:
+      summary: get all runnables in every workspace
+      operationId: getRunnable
+      tags:
+        - user
+      responses:
+        "200":
+          description: free all runnables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace:
+                    type: string
+                  endpoint_async:
+                    type: string
+                  endpoint_sync:
+                    type: string
+                  summary:
+                    type: string
+                  description:
+                    type: string
+                  kind:
+                    type: string
+                required:
+                  - workspace
+                  - endpoint_async
+                  - endpoint_sync
+                  - summary
+                  - kind
+
 
   /users/whoami:
     get:
@@ -1127,6 +1175,29 @@ paths:
       responses:
         "201":
           description: variable created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/variables/encrypt:
+    post:
+      summary: encrypt value
+      operationId: encryptValue
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new variable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: encrypted value
           content:
             text/plain:
               schema:
@@ -5738,6 +5809,10 @@ components:
         last_used_at:
           type: string
           format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
       required:
         - token_prefix
         - created_at
@@ -5751,6 +5826,10 @@ components:
         expiration:
           type: string
           format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
 
     NewTokenImpersonate:
       type: object

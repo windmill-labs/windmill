@@ -16,24 +16,27 @@
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 	let items: string[]
 
-	let outputs = initOutput($worldStore, id, {
-		result: [] as string[]
-	})
-
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['multiselectcomponent'].initialData.configuration,
 		configuration
 	)
-	// $: outputs && handleOutputs()
 
-	// function handleOutputs() {
-	// 	value = outputs.result.peak()
-	// }
+	const outputs = initOutput($worldStore, id, {
+		result: [] as string[]
+	})
 
 	let value: string[] | undefined = outputs?.result.peak()
+
+	$componentControl[id] = {
+		setValue(nvalue: string[]) {
+			value = nvalue
+			outputs?.result.set([...(value ?? [])])
+		}
+	}
 
 	$: resolvedConfig.items && handleItems()
 
@@ -42,6 +45,17 @@
 			items = resolvedConfig.items?.map((label) => {
 				return typeof label === 'string' ? label : `NOT_STRING`
 			})
+		}
+	}
+
+	$: resolvedConfig.defaultItems && handleDefaultItems()
+
+	function handleDefaultItems() {
+		if (Array.isArray(resolvedConfig.defaultItems)) {
+			value = resolvedConfig.defaultItems?.map((label) => {
+				return typeof label === 'string' ? label : `NOT_STRING`
+			})
+			outputs?.result.set([...(value ?? [])])
 		}
 	}
 

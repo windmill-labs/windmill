@@ -8,6 +8,9 @@ edition.workspace = true
 name = "windmill_audit"
 path = "./src/lib.rs"
 
+[features]
+enterprise = []
+
 [dependencies]
 serde.workspace = true
 sql-builder.workspace = true

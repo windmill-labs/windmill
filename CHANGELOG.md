@@ -1,6 +1,65 @@
 # Changelog
 
 
+## [1.106.1](https://github.com/windmill-labs/windmill/compare/v1.106.0...v1.106.1) (2023-05-29)
+
+
+### Bug Fixes
+
+* **backend:** fix initial worker ping issue ([1816252](https://github.com/windmill-labs/windmill/commit/1816252f03cb4c45a1211f1b2641f79bc679421f))
+
+## [1.106.0](https://github.com/windmill-labs/windmill/compare/v1.105.0...v1.106.0) (2023-05-28)
+
+
+### Features
+
+* **apps:** add setValue to frontend script's SDK ([8c9b080](https://github.com/windmill-labs/windmill/commit/8c9b080875cc734d37621bc140b2c2fad135edbb))
+* **cli:** add resolveDefaultResource ([e19fabb](https://github.com/windmill-labs/windmill/commit/e19fabb02ff9a3d4044c5a208a2f8d0692c0aa81))
+
+## [1.105.0](https://github.com/windmill-labs/windmill/compare/v1.104.2...v1.105.0) (2023-05-27)
+
+
+### Features
+
+* **apps:** added deployment history browser ([7cb1d12](https://github.com/windmill-labs/windmill/commit/7cb1d12d4ea9c82b96a759878af77a96b5222ad1))
+* **cli:** add variables add to CLI ([6f1d5c4](https://github.com/windmill-labs/windmill/commit/6f1d5c497f52004342234c226d2e36bd3f11b915))
+
+
+### Bug Fixes
+
+* **cli:** expose an encrypt value endpoint ([1fff16b](https://github.com/windmill-labs/windmill/commit/1fff16bbb8e71566155d860a7c5f768b2aedbede))
+* **frontend:** Check whether the source has the right type ([#1647](https://github.com/windmill-labs/windmill/issues/1647)) ([7fd5543](https://github.com/windmill-labs/windmill/commit/7fd5543d1a452466be9515f8b5f8fb709569c77b))
+
+## [1.104.2](https://github.com/windmill-labs/windmill/compare/v1.104.1...v1.104.2) (2023-05-24)
+
+
+### Bug Fixes
+
+* **python:** fix python execution ([3e19be1](https://github.com/windmill-labs/windmill/commit/3e19be10039ec21f207499361af0920da42607df))
+
+## [1.104.1](https://github.com/windmill-labs/windmill/compare/v1.104.0...v1.104.1) (2023-05-24)
+
+
+### Bug Fixes
+
+* **cli:** avoid looping infinitely and avoid prompt if interactive ([97b4403](https://github.com/windmill-labs/windmill/commit/97b4403b7aaae80e4801487d7edfce62ccf116da))
+* **cli:** fix hub pull ([d892ca5](https://github.com/windmill-labs/windmill/commit/d892ca56b7d9fd4f006dfb9f666995d710036422))
+* **cli:** parse schema when pulling from hub ([6851b86](https://github.com/windmill-labs/windmill/commit/6851b86eb5781cc7c652458503be9374f123f53e))
+* **frontend:** Fix app toolbar z-index ([#1641](https://github.com/windmill-labs/windmill/issues/1641)) ([42af285](https://github.com/windmill-labs/windmill/commit/42af2854b28c4149c1def8f7e60c9cb4360a7182))
+
+## [1.104.0](https://github.com/windmill-labs/windmill/compare/v1.103.0...v1.104.0) (2023-05-24)
+
+
+### Features
+
+* schedule error handler ([#1636](https://github.com/windmill-labs/windmill/issues/1636)) ([34048f9](https://github.com/windmill-labs/windmill/commit/34048f9ea655a0afb1983a169b69b454023ec6a8))
+
+
+### Bug Fixes
+
+* **cli:** do not rely on x.nest.land ([ad66bfa](https://github.com/windmill-labs/windmill/commit/ad66bfadaf0c3153975f7452779ac664c0d0dd41))
+* **python:** handle nan ([de4042e](https://github.com/windmill-labs/windmill/commit/de4042e9dcc813d88ef872f694cf6568b087bd1f))
+
 ## [1.103.0](https://github.com/windmill-labs/windmill/compare/v1.102.1...v1.103.0) (2023-05-22)
 
 

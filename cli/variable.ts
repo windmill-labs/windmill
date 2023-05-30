@@ -9,6 +9,7 @@ import {
 import {
   colors,
   Command,
+  Confirm,
   ListableVariable,
   log,
   Table,
@@ -130,6 +131,52 @@ async function push(
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
+async function add(
+  opts: GlobalOptions & { public?: boolean },
+  value: string,
+  remotePath: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  if (!validatePath(remotePath)) {
+    return;
+  }
+
+  if (
+    await VariableService.existsVariable({
+      workspace: workspace.workspaceId,
+      path: remotePath,
+    })
+  ) {
+    if (
+      !(await Confirm.prompt({
+        message: `Variable already exist, do you want to update its value?`,
+        default: true,
+      }))
+    ) {
+      return;
+    }
+    log.info(colors.bold.yellow("Updating variable..."));
+  }
+
+  log.info(colors.bold.yellow("Pushing variable..."));
+
+  await pushVariable(
+    workspace.workspaceId,
+    remotePath + ".variable.yaml",
+    undefined,
+    {
+      value,
+      is_secret: !opts.public,
+      description: "",
+    },
+    true,
+    true
+  );
+  log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
+}
+
 const command = new Command()
   .description("variable related commands")
   .action(list as any)
@@ -139,6 +186,13 @@ const command = new Command()
   )
   .arguments("<file_path:string> <remote_path:string>")
   .option("--plain-secrets", "Push secrets as plain text")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "add",
+    "Create a new variable on the remote. This will update the variable if it already exists."
+  )
+  .arguments("<value:string> <remote_path:string>")
+  .option("--public", "Make a public variable")
+  .action(add as any);
 
 export default command;

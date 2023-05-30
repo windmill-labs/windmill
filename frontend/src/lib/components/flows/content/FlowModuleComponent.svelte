@@ -66,7 +66,7 @@
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: schemaToObject($flowStore.schema, $previewArgs),
+					flow_input: schemaToObject($flowStore.schema as any, $previewArgs),
 					priorIds: {},
 					previousId: undefined,
 					hasResume: false

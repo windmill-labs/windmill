@@ -20,7 +20,7 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import { buildWorkerDefinition } from './build_workers'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',

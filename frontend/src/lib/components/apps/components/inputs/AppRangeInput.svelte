@@ -15,7 +15,7 @@
 	export let customCss: ComponentCustomCSS<'rangecomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
 	let max = 42
 	let step = 1
@@ -27,7 +27,11 @@
 		result: null as [number, number] | null
 	})
 
-	console.log('reset')
+	$componentControl[id] = {
+		setValue(nvalue: [number, number]) {
+			values = nvalue
+		}
+	}
 
 	$: outputs?.result.set(values)
 

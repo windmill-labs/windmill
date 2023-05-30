@@ -11,8 +11,7 @@
 		faEye,
 		faPlus,
 		faRotate,
-		faRotateLeft,
-		faUsers
+		faRotateLeft
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { workspaceStore } from '$lib/stores'
@@ -32,6 +31,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath } from '$lib/scripts'
+	import Toggle from './Toggle.svelte'
+	import { Link, Users } from 'lucide-svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -48,6 +49,7 @@
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
 	export let collabMode = false
 	export let collabLive = false
+	export let collabUsers: { name: string }[] = []
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -297,7 +299,7 @@
 			</Button>
 
 			<Button
-				title="Reset"
+				title="Reset Content"
 				btnClasses="!font-medium !h-full"
 				size="xs"
 				spacingSize="md"
@@ -316,9 +318,10 @@
 				color="light"
 				on:click={editor?.reloadWebsocket}
 				startIcon={{ icon: faRotate }}
+				title="Reload assistants"
 			>
 				{#if !iconOnly}
-					Assistant
+					Assistants
 				{/if}
 				<span class="ml-1 -my-1">
 					{#if lang == 'deno'}
@@ -335,21 +338,38 @@
 				</span>
 			</Button>
 			{#if collabMode}
-				<Button
-					btnClasses="!font-medium !h-full"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={() => {
-						dispatch('toggleCollabMode')
-					}}
-					startIcon={{ icon: faUsers }}
-				>
-					{#if !iconOnly}
-						<span class={collabLive ? 'green' : ''}>Live Sharing</span>
+				<div class="flex items-center px-1">
+					<Toggle
+						options={{ right: iconOnly ? '' : 'Multiplayer' }}
+						size="xs"
+						checked={collabLive}
+						on:change={() => dispatch('toggleCollabMode')}
+					/>
+					{#if iconOnly}
+						<Users class="ml-1" size={12} />
 					{/if}
-				</Button>
+					{#if collabLive}
+						<button
+							title="Show invite link"
+							class="p-1 rounded hover:bg-gray-400 mx-1 border"
+							on:click={() => dispatch('collabPopup')}><Link size={12} /></button
+						>
+						<div class="isolate flex -space-x-2 overflow-hidden pl-2">
+							{#each collabUsers as user}
+								<span
+									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
+									title={user.name}
+								>
+									<span class="text-sm font-medium leading-none text-white"
+										>{user.name.substring(0, 2).toLocaleUpperCase()}</span
+									>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			{/if}
+
 			<!-- <Popover
 				notClickable
 				placement="bottom"

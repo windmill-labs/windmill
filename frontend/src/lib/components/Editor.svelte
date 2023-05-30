@@ -579,7 +579,6 @@
 	let monacoBinding: MonacoBinding | undefined = undefined
 	// @ts-ignore
 	$: if (yContent && awareness && model && editor) {
-		console.log('AWARNESS CHANGED')
 		monacoBinding && monacoBinding.destroy()
 		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
 	}

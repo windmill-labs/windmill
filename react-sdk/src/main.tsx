@@ -1,4 +1,4 @@
-import "./style.css";
+// import "./style.css";
 import { FlowBuilder } from "../lib/flow_builder";
 
 import { workspaceStore, userStore } from "windmill-components/stores";
@@ -49,7 +49,9 @@ workspaceStore.set(workspace);
 
 ReactDOM.createRoot(document.getElementById("app") as HTMLElement).render(
   <React.StrictMode>
-    <FlowBuilder flowStore={flowStore} flowStateStore={flowStateStore} />
+    <div className="p-4 border border-black embedded">
+      <FlowBuilder flowStore={flowStore} flowStateStore={flowStateStore} />
+    </div>
   </React.StrictMode>
 );
 

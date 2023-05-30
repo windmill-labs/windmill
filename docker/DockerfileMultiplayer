@@ -1,0 +1,8 @@
+FROM node:slim
+
+EXPOSE 3002
+ENV PORT 3002 
+
+RUN npm install -g y-websocket
+
+CMD ["npx", "y-websocket"]

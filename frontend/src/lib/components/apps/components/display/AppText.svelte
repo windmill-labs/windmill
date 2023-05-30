@@ -48,6 +48,13 @@
 		initializing = false
 	}
 
+	$componentControl[id] = {
+		...$componentControl[id],
+		setValue(value: string) {
+			result = value
+		}
+	}
+
 	const outputs = initOutput($worldStore, id, {
 		result,
 		loading: initializing
@@ -119,7 +126,7 @@
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
 	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
-	$: editableValue = initialValue ? JSON.parse(JSON.stringify(initialValue)) : ''
+	$: editableValue = initialValue ?? ''
 
 	let rows = 1
 
@@ -128,7 +135,6 @@
 
 		if (target.value) {
 			$componentControl[id]?.setCode?.(target.value)
-			editableValue
 			autosize()
 		}
 	}
@@ -165,7 +171,7 @@
 		}}
 		on:keydown|stopPropagation
 	>
-		{#if editorMode && componentInput?.type == 'template'}
+		{#if $mode == 'dnd' && editorMode && componentInput?.type == 'template'}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				<textarea
 					class={twMerge(

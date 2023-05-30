@@ -94,7 +94,7 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
 
-      - name: Push image to GHCR
+      - name: Push image to ECR
         run: |
           docker buildx imagetools create \
             --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \

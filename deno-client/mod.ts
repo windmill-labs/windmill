@@ -81,6 +81,19 @@ export async function getResource(
 }
 
 /**
+ * Resolve a resource value in case the default value was picked because the input payload was undefined
+ * @param obj resource value or path of the resource under the format `$res:path`
+ * @returns resource value
+ */
+export async function resolveDefaultResource(obj: any): Promise<any> {
+  if (typeof obj === "string" && obj.startsWith("$res:")) {
+    return await getResource(obj.substring(5), true);
+  } else {
+    return obj;
+  }
+}
+
+/**
  * Get the full resource value by path
  * @param path path of the resource,  default to internal state path
  * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error

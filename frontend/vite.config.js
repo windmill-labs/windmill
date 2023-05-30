@@ -16,9 +16,13 @@ const config = {
 				changeOrigin: true,
 				cookieDomainRewrite: 'localhost'
 			},
-			// Proxying websockets or socket.io: ws://localhost:5173/socket.io -> ws://localhost:5174/socket.io
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true
+			},
+			'^/ws_mp/.*': {
+				target: process.env.REMOTE_MP ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
 			}

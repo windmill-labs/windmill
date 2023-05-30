@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { BROWSER } from 'esm-env'
+
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
+	import { faClipboard, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -18,12 +20,13 @@
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
-	import { isCloudHosted } from '$lib/cloud'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { WebsocketProvider } from 'y-websocket'
+	import Modal from './common/modal/Modal.svelte'
+	import { Icon } from 'svelte-awesome'
 
 	// Exported
-	export let schema: Schema = emptySchema()
+	export let schema: Schema | any = emptySchema()
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -34,6 +37,7 @@
 	export let noSyncFromGithub = false
 	export let editor: Editor | undefined = undefined
 	export let collabMode = false
+	export let edit = true
 
 	let websocketAlive = {
 		pyright: false,
@@ -57,6 +61,21 @@
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
 	let validCode = true
+
+	let wsProvider: WebsocketProvider | undefined = undefined
+	let yContent: Y.Text | undefined = undefined
+	let peers: { name: string }[] = []
+	let showCollabPopup = false
+
+	const url = new URL(window.location.toString())
+	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
+
+	if (initialCollab) {
+		setCollaborationMode()
+		url.searchParams.delete('collab')
+		url.searchParams.delete('path')
+		history.replaceState(null, '', url)
+	}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -111,60 +130,68 @@
 		loadPastTests()
 	})
 
-	let wsProvider: WebsocketProvider | undefined = undefined
-	let yContent: Y.Text | undefined = undefined
-
 	export function setCollaborationMode() {
-		sendUserToast(
-			`Live sharing enabled. ${
-				isCloudHosted()
-					? ''
-					: 'Premium feature available during beta and only on premium plans afterwards.'
-			}`
-		)
-		console.log('collab mode')
+		if ($enterpriseLicense) {
+			sendUserToast(`Multiplayer is an enterprise feature`, true, [
+				{
+					label: 'Upgrade',
+					callback: () => {
+						window.open('https://www.windmill.dev/pricing', '_blank')
+					}
+				}
+			])
+			return
+		}
+
 		const ydoc = new Y.Doc()
 		if (wsProvider) {
 			wsProvider.destroy()
 		}
-		yContent = ydoc.getText('content')
+		let yContentInit = ydoc.getText('content')
 
+		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+
+		console.log(window.location.host)
 		wsProvider = new WebsocketProvider(
-			'ws://localhost:1234',
+			`${wsProtocol}://${window.location.host}/ws_mp/`,
 			$workspaceStore + '/' + path ?? 'no-room-name',
-			ydoc
+			ydoc,
+			{ connect: false }
 		)
 
-		wsProvider.on('sync', (isSynced) => {
-			if (isSynced && yContent?.toJSON() == '') {
-				yContent?.insert(0, code)
+		wsProvider.on('sync', (isSynced: boolean) => {
+			if (isSynced && yContentInit?.toJSON() == '') {
+				showCollabPopup = true
+				yContentInit?.insert(0, code)
 			}
+			yContent = yContentInit
 		})
 
-		// All of our network providers implement the awareness crdt
+		wsProvider.on('connection-error', (WSErrorEvent) => {
+			console.error(WSErrorEvent)
+			sendUserToast('Multiplayer server connection had an error', true)
+		})
+		wsProvider.connect()
 		const awareness = wsProvider.awareness
-		// You can think of your own awareness information as a key-value store.
-		// We update our "user" field to propagate relevant user information.
-		awareness.setLocalStateField('user', {
-			// Define a print name that should be displayed
-			name: $userStore?.username,
-			// Define a color that should be associated to the user:
-			color: '#999999' // should be a hex color
-		})
-		console.log('FOO')
 
+		awareness.setLocalStateField('user', {
+			name: $userStore?.username
+		})
+
+		function setPeers() {
+			peers = Array.from(awareness.getStates().values()).map((x) => x.user)
+		}
+
+		setPeers()
 		// You can observe when a user updates their awareness information
 		awareness.on('change', (changes) => {
-			// Whenever somebody updates their awareness information,
-			// we log all awareness information from all users.
-			console.log('awareness change', changes)
-			let peers = Array.from(awareness.getStates().values())
-			console.log('peers', peers)
+			setPeers()
 		})
 	}
 
 	export function disableCollaboration() {
 		if (!wsProvider?.shouldConnect) return
+		peers = []
 		console.log('collab mode disabled')
 		wsProvider?.disconnect()
 		wsProvider.destroy()
@@ -180,6 +207,12 @@
 	function asKind(str: string | undefined) {
 		return str as 'script' | 'approval' | 'trigger' | undefined
 	}
+
+	function collabUrl() {
+		let url = new URL(window.location.toString())
+		url.search = ''
+		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
+	}
 </script>
 
 <TestJobLoader
@@ -191,6 +224,15 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+<Modal title="Invite others" bind:open={showCollabPopup}>
+	<div>Have others join by sharing the following url:</div>
+	<div class="flex gap-2 pr-4">
+		<input type="text" disabled value={collabUrl()} />
+		<button on:click={() => copyToClipboard(collabUrl())} class="text-gray-700 ml-2">
+			<Icon data={faClipboard} />
+		</button>
+	</div>
+</Modal>
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
@@ -205,9 +247,11 @@
 			{collabMode}
 			{validCode}
 			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+			on:collabPopup={() => (showCollabPopup = true)}
 			{editor}
 			{lang}
 			{websocketAlive}
+			collabUsers={peers}
 			kind={asKind(kind)}
 		/>
 		{#if !noSyncFromGithub}
