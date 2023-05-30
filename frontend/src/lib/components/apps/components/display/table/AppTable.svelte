@@ -72,7 +72,11 @@
 	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
-		if (selectedRowIndex !== rowIndex || force) {
+		if (
+			selectedRowIndex !== rowIndex ||
+			JSON.stringify(row.original) !== JSON.stringify(result?.[rowIndex]) ||
+			force
+		) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original, force)
 			outputs?.selectedRowIndex.set(rowIndex, force)
@@ -161,8 +165,10 @@
 			})
 		}
 		table = createSvelteTable(options)
+
 		if (result) {
-			toggleRow({ original: result[0] }, 0, true)
+			//console.log('rerendering table', result[0])
+			toggleRow({ original: filteredResult[0] }, 0, true)
 		}
 
 		if (outputs.page.peak()) {
