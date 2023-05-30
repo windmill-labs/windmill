@@ -165,8 +165,10 @@
 			})
 		}
 		table = createSvelteTable(options)
+
 		if (result) {
-			toggleRow({ original: result[0] }, 0, true)
+			//console.log('rerendering table', result[0])
+			toggleRow({ original: filteredResult[0] }, 0, true)
 		}
 
 		if (outputs.page.peak()) {
