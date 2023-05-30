@@ -33,6 +33,8 @@ services:
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false
+      # LICENSE_KEY is only needed for the enterprise edition
+      # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -54,6 +56,8 @@ services:
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
+      # LICENSE_KEY is only needed for the enterprise edition
+      # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
