@@ -365,7 +365,7 @@
 																{render}
 																noWFull
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row, rowIndex, true)
 																}}
 																id={actionButton.id}
 																customCss={actionButton.customCss}
@@ -384,7 +384,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row, rowIndex, true)
 																}}
 																{controls}
 															/>
@@ -397,7 +397,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row, rowIndex, true)
 																}}
 																{controls}
 															/>
