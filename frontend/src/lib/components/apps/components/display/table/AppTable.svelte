@@ -72,7 +72,11 @@
 	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
-		if (selectedRowIndex !== rowIndex || force) {
+		if (
+			selectedRowIndex !== rowIndex ||
+			JSON.stringify(row.original) !== JSON.stringify(result?.[rowIndex]) ||
+			force
+		) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original, force)
 			outputs?.selectedRowIndex.set(rowIndex, force)
@@ -365,7 +369,7 @@
 																{render}
 																noWFull
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex, true)
+																	toggleRow(row, rowIndex)
 																}}
 																id={actionButton.id}
 																customCss={actionButton.customCss}
@@ -384,7 +388,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex, true)
+																	toggleRow(row, rowIndex)
 																}}
 																{controls}
 															/>
@@ -397,7 +401,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex, true)
+																	toggleRow(row, rowIndex)
 																}}
 																{controls}
 															/>
