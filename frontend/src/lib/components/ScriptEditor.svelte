@@ -131,7 +131,7 @@
 	})
 
 	export function setCollaborationMode() {
-		if ($enterpriseLicense) {
+		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
 					label: 'Upgrade',
