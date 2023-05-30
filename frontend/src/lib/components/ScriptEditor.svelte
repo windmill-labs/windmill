@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema } from '$lib/common'
-	import { CompletedJob, Job, JobService } from '$lib/gen'
+	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { faClipboard, faPlay } from '@fortawesome/free-solid-svg-icons'
@@ -130,7 +130,11 @@
 		loadPastTests()
 	})
 
-	export function setCollaborationMode() {
+	export async function setCollaborationMode() {
+		if (!$enterpriseLicense) {
+			$enterpriseLicense = await SettingsService.getLicenseId()
+		}
+
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
