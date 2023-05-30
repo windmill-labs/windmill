@@ -151,7 +151,6 @@
 
 		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
 
-		console.log(window.location.host)
 		wsProvider = new WebsocketProvider(
 			`${wsProtocol}://${window.location.host}/ws_mp/`,
 			$workspaceStore + '/' + path ?? 'no-room-name',
