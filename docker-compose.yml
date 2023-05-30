@@ -18,6 +18,7 @@ services:
       retries: 5
 
   windmill_server:
+    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ghcr.io/windmill-labs/windmill:main
     deploy:
       replicas: 1
@@ -39,6 +40,7 @@ services:
     # - ./oauth.json/:/usr/src/app/oauth.json
 
   windmill_worker:
+    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ghcr.io/windmill-labs/windmill:main
     deploy:
       replicas: 3
@@ -51,13 +53,11 @@ services:
       - NUM_WORKERS=1
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
-      - DENO_PATH=/usr/bin/deno
-      - PYTHON_PATH=/usr/local/bin/python3
       - METRICS_ADDR=false
     depends_on:
       db:
         condition: service_healthy
-    # to mount the worker folder to debug,, KEEP_JOB_DIR=true and mount /tmp/windmill
+    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
       # mount the docker socket to allow to run docker containers from within the workers
@@ -68,6 +68,13 @@ services:
     restart: unless-stopped
     expose:
       - 3001
+
+  # Uncomment to enable multiplayer on the enterprise edition
+  # multiplayer:
+  #   image: ghcr.io/windmill-labs/windmill-multiplayer:latest
+  #   restart: unless-stopped
+  #   expose:
+  #     - 3002
 
   caddy:
     image: caddy:2.5.2-alpine

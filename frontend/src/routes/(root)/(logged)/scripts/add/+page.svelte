@@ -15,16 +15,18 @@
 	const hubPath = $page.url.searchParams.get('hub')
 	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 
+	const path = $page.url.searchParams.get('path')
+
 	const initialState = $page.url.searchParams.get('state')
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 
 	let script: NewScript =
-		initialState != undefined
+		!path && initialState != undefined
 			? decodeState(initialState)
 			: {
 					hash: '',
-					path: '',
+					path: path ?? '',
 					summary: '',
 					content: '',
 					schema: schema,

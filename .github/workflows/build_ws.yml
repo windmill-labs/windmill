@@ -1,44 +1,16 @@
 env:
   REGISTRY: ghcr.io
   ECR_REGISTRY: 976079455550.dkr.ecr.us-east-1.amazonaws.com
-  IMAGE_NAME: ${{ github.repository }}-lsp
+  IMAGE_NAME: ${{ github.repository }}-multiplayer
 
-name: Publish python-client
+name: Publish websocket multiplayer server
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-  packages: write
-
 jobs:
-  publish_pypi:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    container:
-      image: ghcr.io/windmill-labs/python-client-builder
-    steps:
-      - uses: actions/checkout@v3
-      - name: Upload python client
-        env:
-          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: |
-          cd python-client
-          ./publish.sh
-
-
-  publish_lsp:
+  publish_multiplayer:
     runs-on: ubuntu-latest
     steps:
-      - name: Sleep for 300 seconds waiting for pypi to update index
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: sleep 300
-        shell: bash
-        
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -65,7 +37,8 @@ jobs:
       - name: Build and push publicly
         uses: depot/build-push-action@v1
         with:
-          context: "{{defaultContext}}:lsp"
+          context: .
+          file: ./docker/DockerfileMultiplayer
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
@@ -75,9 +48,8 @@ jobs:
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
 
-
-  publish_lsp_private:
-    needs: [publish_lsp]
+  publish_privately:
+    needs: [publish_multiplayer]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
