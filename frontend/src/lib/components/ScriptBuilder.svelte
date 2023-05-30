@@ -38,7 +38,10 @@
 	export let showMeta: boolean = false
 
 	let metadataOpen =
-		showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
+		showMeta ||
+		(initialPath == '' &&
+			$page.url.searchParams.get('state') == undefined &&
+			$page.url.searchParams.get('collab') == undefined)
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
@@ -100,7 +103,14 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
+	$: {
+		;['collab', 'path'].forEach((x) => {
+			if ($page.url.searchParams.get(x)) {
+				$page.url.searchParams.delete(x)
+			}
+		})
+		setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
+	}
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -111,6 +121,7 @@
 		kind: Script.kind | undefined,
 		template: 'pgsql' | 'mysql' | 'script' | 'docker'
 	) {
+		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
 		if (script.content != editor?.getCode()) {
@@ -528,6 +539,8 @@
 			</DrawerContent>
 		</Drawer>
 		<ScriptEditor
+			collabMode
+			edit={initialPath != ''}
 			on:format={() => {
 				saveDraft()
 			}}
