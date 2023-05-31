@@ -210,7 +210,9 @@
 			})
 		} catch (e) {
 			console.log('initServices failed', e.message)
+			return
 		}
+
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,

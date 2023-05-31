@@ -16,7 +16,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
 		faClipboard,
 		faFileExport,
@@ -59,6 +59,7 @@
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
+	import Awareness from '$lib/components/Awareness.svelte'
 
 	async function hash(message) {
 		try {
@@ -209,7 +210,7 @@
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
-			path: $page.params.path,
+			path,
 			requestBody: {
 				value: $app!,
 				summary: $summary,
@@ -702,6 +703,9 @@
 		{/if}
 	</div>
 
+	{#if $enterpriseLicense && appPath != ''}
+		<Awareness />
+	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
