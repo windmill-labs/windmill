@@ -1001,28 +1001,6 @@
     },
     "query": "UPDATE queue SET suspend = $1 WHERE id = $2"
   },
-  "1fab686dee77ae1ef35ff17239900ddbb55e86320ec820803f454c53571fdddf": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE folder SET owners = array_remove(owners, $1) WHERE name = $2 AND workspace_id = $3 RETURNING name"
-  },
   "20597f46f2793b30f926bbd18e41f4860b7a7839879b932916ea20f2d98f43f9": {
     "describe": {
       "columns": [],
@@ -6338,6 +6316,28 @@
       }
     },
     "query": "INSERT INTO usr_to_group\n            VALUES ($1, 'all', $2)"
+  },
+  "e500a422fa986faf5c612c08f4a139e10b25a3106551e7c92f43dcf9758a5ec7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 RETURNING name"
   },
   "e5231634fbb37d45e5cf3e5dfb39cb829d224caad1c3ca1712d0fc4c495aa4fc": {
     "describe": {
