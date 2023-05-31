@@ -21,7 +21,7 @@
 
 	function onClick(resource: string | undefined) {
 		value = resource
-		dispatch('click')
+		dispatch('click', resource)
 	}
 
 	$: if ($workspaceStore) {

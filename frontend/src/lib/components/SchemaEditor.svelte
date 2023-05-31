@@ -31,7 +31,6 @@
 	let schemaString: string = ''
 
 	// Internal state: bound to args builder modal
-	let modalProperty: ModalSchemaProperty = Object.assign({}, DEFAULT_PROPERTY)
 	let argError = ''
 	let editing = false
 	let oldArgName: string | undefined // when editing argument and changing name
@@ -65,7 +64,7 @@
 			format: schema.format
 		}
 	}
-	function handleAddOrEditArgument(): void {
+	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
 		if (modalProperty.name.length === 0) {
@@ -107,13 +106,14 @@
 		argError = ''
 		if (Object.keys(schema.properties).includes(argName)) {
 			editing = true
-			modalProperty = schemaToModal(
+			const modalProperty = schemaToModal(
 				schema.properties[argName],
 				argName,
 				schema.required.includes(argName)
 			)
+			console.log(modalProperty.format)
 			oldArgName = argName
-			schemaModal.openDrawer()
+			schemaModal.openDrawer(modalProperty)
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
@@ -233,8 +233,7 @@
 				size="sm"
 				startIcon={{ icon: faPlus }}
 				on:click={() => {
-					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
-					schemaModal.openDrawer()
+					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
 				}}
 			>
 				Add Property
@@ -320,9 +319,8 @@
 	<SchemaModal
 		{isFlowInput}
 		bind:this={schemaModal}
-		bind:property={modalProperty}
 		bind:error={argError}
-		on:save={handleAddOrEditArgument}
+		on:save={(e) => handleAddOrEditArgument(e.detail)}
 		bind:editing
 		bind:oldArgName
 	/>

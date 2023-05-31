@@ -54,27 +54,26 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 
-	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
 	export let editing = false
 	export let oldArgName: string | undefined = undefined
 	export let isFlowInput = false
 
-	let resource_type: string | undefined = undefined
-
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
+
+	let property: ModalSchemaProperty = DEFAULT_PROPERTY
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
 		if (key === 'Enter') {
-			dispatch('save')
+			dispatch('save', property)
 		}
 	}
 
-	export function openDrawer(): void {
+	export function openDrawer(nproperty: ModalSchemaProperty): void {
 		drawer.openDrawer()
-		resource_type = property.format?.substring(5)
+		property = nproperty
 	}
 
 	export function closeDrawer(): void {
@@ -91,13 +90,8 @@
 		property.required = DEFAULT_PROPERTY.required
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
-		resource_type = undefined
 
 		drawer.closeDrawer()
-	}
-
-	$: if (property.selectedType == 'object' && resource_type) {
-		property.format = resource_type ? `$res:${resource_type}` : undefined
 	}
 
 	$: if (property.name == '') {
@@ -175,7 +169,7 @@
 				</div>
 			</div>
 			<div>
-				<div class="flex flex-row gap-x-4">
+				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
 						label="Default"
 						bind:value={property.default}
@@ -184,7 +178,7 @@
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
-						class="mt-5 !justify-start"
+						class="!justify-start"
 						bind:checked={property.required}
 					/>
 				</div>
@@ -227,7 +221,7 @@
 				color="blue"
 				disabled={!property.name || !property.selectedType || error != ''}
 				on:click={() => {
-					dispatch('save')
+					dispatch('save', property)
 				}}
 			>
 				Save
