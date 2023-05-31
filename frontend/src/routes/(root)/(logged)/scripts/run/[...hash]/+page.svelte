@@ -24,6 +24,7 @@
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { Schema } from '$lib/common'
+	import Urlize from '$lib/components/Urlize.svelte'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -203,7 +204,7 @@
 						</div>
 						{#if !emptyString(script.description)}
 							<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
-								{defaultIfEmptyString(script.description, 'No description')}
+								<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
 							</div>
 						{/if}
 					</div>
