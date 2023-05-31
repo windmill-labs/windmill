@@ -210,7 +210,9 @@
 			})
 		} catch (e) {
 			console.log('initServices failed', e.message)
-			return
+			if (e.message != 'Lifecycle cannot go backwards') {
+				return
+			}
 		}
 
 		function createLanguageClient(
