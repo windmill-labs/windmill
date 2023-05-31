@@ -21,6 +21,7 @@
 	import { cubicOut } from 'svelte/easing'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import Urlize from '$lib/components/Urlize.svelte'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -160,7 +161,7 @@
 						</div>
 						{#if !emptyString(flow.description)}
 							<div class="prose text-sm box max-w-6xl w-full mt-8">
-								{defaultIfEmptyString(flow.description, 'No description')}
+								<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
 							</div>
 						{/if}
 					</div>
