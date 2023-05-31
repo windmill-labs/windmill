@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { userStore, workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, getModifierKey, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -28,6 +28,7 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
+	import Awareness from './Awareness.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -452,6 +453,10 @@
 						<LanguageIcon lang={script.language} />
 					</button>
 				</div>
+				{#if $enterpriseLicense && initialPath != ''}
+					<Awareness />
+				{/if}
+
 				<div class="flex flex-row gap-x-4">
 					<Button
 						color="light"

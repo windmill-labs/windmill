@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, ScheduleService, type Flow, type FlowModule, DraftService } from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 
@@ -23,6 +23,7 @@
 	import { Pen } from 'lucide-svelte'
 	import { loadHubScripts } from '$lib/scripts'
 	import { createEventDispatcher } from 'svelte'
+	import Awareness from './Awareness.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -400,6 +401,10 @@
 				</div>
 			</div>
 			<div class="flex flex-row space-x-2">
+				{#if $enterpriseLicense && initialPath != ''}
+					<Awareness />
+				{/if}
+
 				<FlowImportExportMenu />
 
 				<FlowPreviewButtons />

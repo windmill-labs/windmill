@@ -71,7 +71,7 @@
 			workspaces = $userWorkspaces
 		}
 	}
-	$: list_all_as_super_admin != undefined && handleListWorkspaces()
+	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
 
