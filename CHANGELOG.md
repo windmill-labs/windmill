@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.108.0](https://github.com/windmill-labs/windmill/compare/v1.107.0...v1.108.0) (2023-05-31)
+
+
+### Features
+
+* add app presence ([e9fe595](https://github.com/windmill-labs/windmill/commit/e9fe595de40deca44cde1b26a5654caa6919094d))
+* add multiplayer support for webeditor ([#1562](https://github.com/windmill-labs/windmill/issues/1562)) ([428e0ab](https://github.com/windmill-labs/windmill/commit/428e0ab2f8632dc7a6cefb83f2d3c5d8d1c4508a))
+
+
+### Bug Fixes
+
+* **frontend:** Fix app table actions ([#1665](https://github.com/windmill-labs/windmill/issues/1665)) ([1634ee6](https://github.com/windmill-labs/windmill/commit/1634ee635ed8400dc67683395449d7b7448a073b))
+
 ## [1.107.0](https://github.com/windmill-labs/windmill/compare/v1.106.0...v1.107.0) (2023-05-29)
 
 
