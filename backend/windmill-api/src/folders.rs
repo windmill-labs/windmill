@@ -560,7 +560,7 @@ async fn remove_owner(
     require_is_owner(&authed, &name)?;
 
     sqlx::query!(
-        "UPDATE folder SET owners = array_remove(owners, $1) WHERE name = $2 AND workspace_id = $3 RETURNING name",
+        "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 RETURNING name",
         owner,
         name,
         &w_id,
