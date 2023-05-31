@@ -186,7 +186,6 @@
 		bind:value={formattedValue}
 		on:keydown={handleKeyDown}
 		on:keyup={setUnformattedValue}
-		on:blur={setFormattedValue}
 	/>
 </div>
 
