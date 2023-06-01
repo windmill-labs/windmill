@@ -209,6 +209,11 @@ pub struct ListScriptQuery {
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
     let v = hex::decode(s)?;
+    if v.len() < 8 {
+        return Err(crate::error::Error::BadRequest(format!(
+            "hex string did not decode to an u64: {s}",
+        )));
+    }
     let nb: u64 = u64::from_be_bytes(
         v[0..8]
             .try_into()
