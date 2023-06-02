@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.108.1](https://github.com/windmill-labs/windmill/compare/v1.108.0...v1.108.1) (2023-06-02)
+
+
+### Bug Fixes
+
+* **frontend:** Fix currency input ([#1667](https://github.com/windmill-labs/windmill/issues/1667)) ([3e7dd0d](https://github.com/windmill-labs/windmill/commit/3e7dd0d179cc516a8bb68b9435bded48df0c405a))
+* renaming app + improve flow rendering ([f7e23ac](https://github.com/windmill-labs/windmill/commit/f7e23acfdcd19e0af19b5d6416a2843d72e3a067))
+
 ## [1.108.0](https://github.com/windmill-labs/windmill/compare/v1.107.0...v1.108.0) (2023-05-31)
 
 
