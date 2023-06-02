@@ -842,8 +842,14 @@ async fn delete_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+
+    if path == "u/admin/hub_sync" && w_id == "admins" {
+        return Err(Error::BadRequest(
+            "Cannot delete the global setup app".to_string(),
+        ));
+    }
+    let mut tx = user_db.begin(&authed).await?;
 
     let draft_only = sqlx::query_scalar!(
         "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",

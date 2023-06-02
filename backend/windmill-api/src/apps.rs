@@ -495,6 +495,13 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+
+    if path == "g/all/setup_app" && w_id == "admins" {
+        return Err(Error::BadRequest(
+            "Cannot delete the global setup app".to_string(),
+        ));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
