@@ -602,7 +602,7 @@ async fn update_app(
     if let Some(nvalue) = &ns.value {
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
-            path,
+            npath,
             w_id
         )
         .fetch_one(&mut tx)
@@ -623,7 +623,7 @@ async fn update_app(
         sqlx::query!(
             "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
             v_id,
-            path,
+            npath,
             w_id
         )
         .execute(&mut tx)

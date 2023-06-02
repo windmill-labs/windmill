@@ -250,7 +250,7 @@
 						insertableEnd,
 						branchable,
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
-						// annotation,
+						annotation,
 						modules,
 						moving
 					},

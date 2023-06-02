@@ -67,6 +67,7 @@
 	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
+		modalProperty.name = modalProperty.name.trim()
 		if (modalProperty.name.length === 0) {
 			argError = 'Arguments need to have a name'
 		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
