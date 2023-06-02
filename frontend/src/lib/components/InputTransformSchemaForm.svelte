@@ -29,6 +29,10 @@
 		args = {}
 	}
 
+	export function setArgs(nargs: Record<string, InputTransform | any>) {
+		args = nargs
+	}
+
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
@@ -57,7 +61,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="z-10">
+				<div class="z-10 pt-1.5">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}

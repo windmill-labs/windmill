@@ -250,7 +250,7 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-500">
+			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-400">
 				{#if arg}
 					<TemplateEditor
 						bind:this={monacoTemplate}
