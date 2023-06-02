@@ -80,19 +80,27 @@
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
-	export let path: string = randomHash()
+	export let path: string | undefined = undefined
 	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
 
-	if (path == '' || path == undefined || path.startsWith('/')) {
-		path = randomHash()
+	const rHash = randomHash()
+	$: filePath = computePath(path)
+
+	function computePath(path: string | undefined): string {
+		if (path == '' || path == undefined || path.startsWith('/')) {
+			return rHash
+		} else {
+			return path as string
+		}
 	}
 
-	let initialPath: string = path
+	let initialPath: string | undefined = path
 
 	$: path != initialPath && lang == 'typescript' && handlePathChange()
 
-	let websockets: [MonacoLanguageClient, WebSocket][] = []
+	let websockets: WebSocket[] = []
+	let languageClients: MonacoLanguageClient[] = []
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
@@ -101,7 +109,7 @@
 
 	const uri =
 		lang == 'typescript'
-			? `file:///${path}.${langToExt(lang)}`
+			? `file:///${filePath}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
@@ -271,7 +279,7 @@
 		) {
 			try {
 				const webSocket = new WebSocket(url)
-
+				websockets.push(webSocket)
 				webSocket.onopen = async () => {
 					const socket = toSocket(webSocket)
 					const reader = new WebSocketMessageReader(socket)
@@ -285,7 +293,7 @@
 					// if (middlewareOptions != undefined) {
 					// 	languageClient.registerNotUsedFeatures()
 					// }
-					websockets.push([languageClient, webSocket])
+					languageClients.push(languageClient)
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
 					// the only way I could figure out to listen for this event is this. I'm sure there is a better way to do this
@@ -355,7 +363,7 @@
 
 		let encodedImportMap = ''
 		if (lang == 'typescript') {
-			if (path && path.split('/').length > 2) {
+			if (filePath && filePath.split('/').length > 2) {
 				let expiration = new Date()
 				expiration.setHours(expiration.getHours() + 2)
 				const token = await UserService.createToken({
@@ -367,7 +375,7 @@
 						'file:///': root + '/'
 					}
 				}
-				let path_splitted = path.split('/')
+				let path_splitted = filePath.split('/')
 				for (let c = 0; c < path_splitted.length; c++) {
 					let key = 'file://./'
 					for (let i = 0; i < c; i++) {
@@ -551,28 +559,35 @@
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined
 	function handlePathChange() {
+		console.log('path changed, reloading language server', initialPath, path)
 		initialPath = path
 		pathTimeout && clearTimeout(pathTimeout)
-		pathTimeout = setTimeout(reloadWebsocket, 3000)
+		pathTimeout = setTimeout(reloadWebsocket, 1000)
 	}
 
 	async function closeWebsockets() {
 		command && command.dispose()
 		command = undefined
-		for (const x of websockets) {
+
+		console.debug(`disposing ${websockets.length} language clients and closing websockets`)
+		for (const x of languageClients) {
 			try {
-				await x[0].dispose()
-				x[1].close()
+				await x.dispose()
 			} catch (err) {
-				console.log('error disposing language client, closing websocket', err)
-				try {
-					x[1].close()
-				} catch (err) {
-					console.log('error disposing websocket, closin', err)
-				}
+				console.debug('error disposing language client', err)
 			}
 		}
-		console.log('disposed language client and closed websocket')
+		languageClients = []
+
+		for (const x of websockets) {
+			try {
+				await x.close()
+			} catch (err) {
+				console.debug('error closing websocket', err)
+			}
+		}
+
+		console.debug('done closing websockets')
 		websockets = []
 		websocketInterval && clearInterval(websocketInterval)
 	}
@@ -642,6 +657,7 @@
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
+				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
 			}
 		})
