@@ -206,20 +206,26 @@
 		}
 	}
 
-	async function updateApp(path: string) {
+	async function updateApp(npath: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
-			path,
+			path: appPath,
 			requestBody: {
 				value: $app!,
 				summary: $summary,
-				policy
+				policy,
+				path: npath
 			}
 		})
+
 		$dirtyStore = false
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		if (appPath !== npath) {
+			await goto(`/apps/edit/${npath}?nodraft=true`)
+			window.location.reload()
+		}
 	}
 
 	let secretUrl: string | undefined = undefined

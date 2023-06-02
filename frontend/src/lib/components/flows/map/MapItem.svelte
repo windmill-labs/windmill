@@ -15,7 +15,7 @@
 	export let trigger: boolean
 	export let insertable: boolean
 	export let insertableEnd = false
-	// export let annotation: string | undefined = undefined
+	export let annotation: string | undefined = undefined
 	export let branchable: boolean = false
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
@@ -84,6 +84,12 @@
 				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">
 					Cancel move
 				</Button>
+			</div>
+		{/if}
+
+		{#if annotation && annotation != ''}
+			<div class="absolute z-10 left-0 -top-5 center-center text-gray-600">
+				{annotation}
 			</div>
 		{/if}
 
