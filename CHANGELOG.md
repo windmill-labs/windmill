@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.108.2](https://github.com/windmill-labs/windmill/compare/v1.108.1...v1.108.2) (2023-06-03)
+
+
+### Bug Fixes
+
+* improve websockets handling for flow editor ([ce94426](https://github.com/windmill-labs/windmill/commit/ce944264415cea66f90a5448fc90de6b7d2184e4))
+* optimize object viewer to handle large data ([ae5b11a](https://github.com/windmill-labs/windmill/commit/ae5b11aba5b6e1be141c51afdfc3c4918b118126))
+
 ## [1.108.1](https://github.com/windmill-labs/windmill/compare/v1.108.0...v1.108.1) (2023-06-02)
 
 
