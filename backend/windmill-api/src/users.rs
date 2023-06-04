@@ -1925,6 +1925,7 @@ struct Runnable {
     workspace: String,
     endpoint_async: String,
     endpoint_sync: String,
+    endpoint_openai_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
@@ -1972,6 +1973,10 @@ async fn get_all_runnables(
                         "/w/{}/jobs/run_wait_result/f/{}",
                         &f.workspace, &f.path
                     ),
+                    endpoint_openai_sync: format!(
+                        "/w/{}/jobs/openai_sync/f/{}",
+                        &f.workspace, &f.path
+                    ),
                     summary: f.summary,
                     description: f.description,
                     schema: f.schema,
@@ -1993,6 +1998,10 @@ async fn get_all_runnables(
                     endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
                     endpoint_sync: format!(
                         "/w/{}/jobs/run_wait_result/p/{}",
+                        &s.workspace, &s.path
+                    ),
+                    endpoint_openai_sync: format!(
+                        "/w/{}/jobs/openai_sync/p/{}",
                         &s.workspace, &s.path
                     ),
                     summary: s.summary,
@@ -2036,7 +2045,6 @@ pub async fn delete_expired_items_perdiodically(
             Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
         }
 
-
         let deleted_cache = sqlx::query_scalar!(
             "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
         )
@@ -2047,7 +2055,6 @@ pub async fn delete_expired_items_perdiodically(
             Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
             Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
         }
-
 
         if *JOB_RETENTION_SECS > 0 {
             let deleted_jobs = sqlx::query_scalar!(

@@ -52,7 +52,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/p/*script_path",
-            post(run_wait_result_job_by_path).head(|| async { "" }),
+            post(run_wait_result_script_by_path).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/p/*script_path",
@@ -60,7 +60,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_job_by_hash).head(|| async { "" }),
+            post(run_wait_result_script_by_hash).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/f/*script_path",
@@ -68,11 +68,11 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/openai_sync/p/*script_path",
-            post(run_wait_result_job_by_path).head(|| async { "" }),
+            post(openai_sync_script_by_path).head(|| async { "" }),
         )
         .route(
-            "/openapi_sync/f/*script_path",
-            post(run_wait_result_flow_by_path).head(|| async { "" }),
+            "/openai_sync/f/*script_path",
+            post(openai_sync_flow_by_path).head(|| async { "" }),
         )
         .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
@@ -1647,7 +1647,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await
 }
 
-pub async fn run_wait_result_job_by_path(
+pub async fn run_wait_result_script_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1657,6 +1657,82 @@ pub async fn run_wait_result_job_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_script_by_path_internal(
+        db,
+        run_query,
+        script_path,
+        authed,
+        rsmq,
+        user_db,
+        w_id,
+        headers,
+        args,
+        raw_string,
+    )
+    .await
+}
+
+fn convert_from_openai_json(
+    json: Option<serde_json::Map<String, serde_json::Value>>,
+) -> error::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+    if let Some(m) = json {
+        let mut new_json = serde_json::Map::new();
+        let input_keys = m
+            .get("inputKeys")
+            .and_then(|x| x.as_array())
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
+        let input_values = m
+            .get("inputValues")
+            .and_then(|x| x.as_array())
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
+        for (k, v) in input_keys.into_iter().zip(input_values.into_iter()) {
+            new_json.insert(k.as_str().unwrap_or_else(|| "invalid_key").to_string(), v);
+        }
+        Ok(Some(new_json))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn openai_sync_script_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    JsonOrForm(args, raw_string): JsonOrForm,
+) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_script_by_path_internal(
+        db,
+        run_query,
+        script_path,
+        authed,
+        rsmq,
+        user_db,
+        w_id,
+        headers,
+        convert_from_openai_json(args)?,
+        raw_string,
+    )
+    .await
+}
+
+async fn run_wait_result_script_by_path_internal(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    script_path: StripPath,
+    authed: Authed,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    user_db: UserDB,
+    w_id: String,
+    headers: HeaderMap,
+    args: Option<serde_json::Map<String, serde_json::Value>>,
+    raw_string: Option<String>,
+) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
@@ -1700,7 +1776,7 @@ pub async fn run_wait_result_job_by_path(
     .await
 }
 
-pub async fn run_wait_result_job_by_hash(
+pub async fn run_wait_result_script_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1752,6 +1828,31 @@ pub async fn run_wait_result_job_by_hash(
     .await
 }
 
+pub async fn openai_sync_flow_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    JsonOrForm(args, raw_string): JsonOrForm,
+) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_flow_by_path_internal(
+        db,
+        run_query,
+        flow_path,
+        authed,
+        rsmq,
+        user_db,
+        headers,
+        convert_from_openai_json(args)?,
+        raw_string,
+        w_id,
+    )
+    .await
+}
+
 pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1762,6 +1863,24 @@ pub async fn run_wait_result_flow_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_flow_by_path_internal(
+        db, run_query, flow_path, authed, rsmq, user_db, headers, args, raw_string, w_id,
+    )
+    .await
+}
+
+async fn run_wait_result_flow_by_path_internal(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    flow_path: StripPath,
+    authed: Authed,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    user_db: UserDB,
+    headers: HeaderMap,
+    args: Option<serde_json::Map<String, serde_json::Value>>,
+    raw_string: Option<String>,
+    w_id: String,
+) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
