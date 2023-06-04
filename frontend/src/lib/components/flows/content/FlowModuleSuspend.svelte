@@ -10,7 +10,7 @@
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 </script>
 
-<h2>
+<h2 class="pb-4">
 	Suspend
 	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
 		If defined, at the end of the step, the flow will be suspended until it receives external
