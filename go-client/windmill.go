@@ -117,7 +117,9 @@ func SetState(state interface{}) error {
 		if err != nil {
 			return err
 		}
-		res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, api.CreateResource{Value: &state})
+		res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, &api.CreateResourceParams{
+			UpdateIfExists: newBool(true),
+		}, api.CreateResource{Value: &state})
 		if err != nil {
 			return err
 		}
