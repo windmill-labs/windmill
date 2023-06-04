@@ -556,6 +556,8 @@ paths:
                     type: string
                   endpoint_sync:
                     type: string
+                  endpoint_openai_sync:
+                    type: string
                   summary:
                     type: string
                   description:
@@ -566,6 +568,7 @@ paths:
                   - workspace
                   - endpoint_async
                   - endpoint_sync
+                  - endpoint_openai_sync
                   - summary
                   - kind
 
@@ -2618,6 +2621,35 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/openai_sync/p/{path}:
+    post:
+      summary: run script by path in openai format
+      operationId: openaiSyncScriptByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:
       summary: run script by path
@@ -2660,6 +2692,34 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/Payload"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/openai_sync/f/{path}:
+    post:
+      summary: run flow by path and wait until completion in openai format
+      operationId: openaiSyncFlowByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/NewJobId"
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
 
       responses:
         "200":
