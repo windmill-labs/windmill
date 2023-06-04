@@ -30,7 +30,7 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: "./lib/main.tsx",
+      entry: "./src/main.tsx",
       name: "FileViewer",
       fileName: "file-viewer",
     },

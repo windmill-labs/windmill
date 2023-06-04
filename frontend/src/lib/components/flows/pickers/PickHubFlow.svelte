@@ -8,6 +8,7 @@
 	import { loadHubFlows } from '$lib/hub'
 
 	export let filter = ''
+	export let syncQuery = false
 
 	type Item = { apps: string[]; summary: string; path: string }
 	let hubFlows: any[] | undefined = undefined
@@ -37,7 +38,7 @@
 	<slot />
 	<input type="text" placeholder="Search Hub Flows" bind:value={filter} class="text-2xl grow" />
 </div>
-<ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
+<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if hubFlows}
 	{#if filteredItems.length == 0}
