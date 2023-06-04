@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.109.0](https://github.com/windmill-labs/windmill/compare/v1.108.2...v1.109.0) (2023-06-04)
+
+
+### Features
+
+* add cache as a primitive for flows ([#1671](https://github.com/windmill-labs/windmill/issues/1671)) ([7e466b7](https://github.com/windmill-labs/windmill/commit/7e466b771565207344365068e09d784b2ea31473))
+
 ## [1.108.2](https://github.com/windmill-labs/windmill/compare/v1.108.1...v1.108.2) (2023-06-03)
 
 
