@@ -169,6 +169,8 @@ pub struct FlowModule {
     pub retry: Option<Retry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sleep: Option<InputTransform>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<u32>,
 }
 
 impl FlowModule {

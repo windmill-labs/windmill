@@ -572,6 +572,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 retry: None,
                 sleep: None,
                 suspend: None,
+                cache_ttl: None
             });
             raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }

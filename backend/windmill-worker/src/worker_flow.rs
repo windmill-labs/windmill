@@ -728,25 +728,28 @@ async fn compute_bool_from_expr(
     }
 }
 
+type CacheAndStep = (Option<i32>, Option<i32>);
 pub async fn update_flow_status_in_progress(
     db: &DB,
     w_id: &str,
     flow: Uuid,
     job_in_progress: Uuid,
-) -> error::Result<()> {
+) -> error::Result<CacheAndStep> {
     let step = get_step_of_flow_status(db, flow).await?;
-    if let Step::Step(step) = step {
-        sqlx::query(&format!(
+    let cache_ttl = if let Step::Step(step) = step {
+        let ttl = sqlx::query_scalar(&format!(
             "UPDATE queue
                 SET flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {step}, job}}', $1), '{{modules, {step}, type}}', $2)
-                WHERE id = $3 AND workspace_id = $4",
+                WHERE id = $3 AND workspace_id = $4
+                RETURNING (raw_flow->'modules'->{step}->>'cache_ttl')::int as cache_ttl",
         ))
         .bind(json!(job_in_progress.to_string()))
         .bind(json!("InProgress"))
         .bind(flow)
         .bind(w_id)
-        .execute(db)
+        .fetch_one(db)
         .await?;
+        (ttl, Some(step))
     } else {
         sqlx::query(&format!(
             "UPDATE queue
@@ -759,8 +762,9 @@ pub async fn update_flow_status_in_progress(
         .bind(w_id)
         .execute(db)
         .await?;
-    }
-    Ok(())
+        (None, None)
+    };
+    Ok(cache_ttl)
 }
 
 pub enum Step {

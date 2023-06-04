@@ -2888,6 +2888,22 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)"
   },
+  "726f77c2c1ef63eece7a1176bcbb916987fc29b04b889544a064dc7cd5eab36f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path)\n            DO UPDATE SET value = $3, description = $4, resource_type = $5"
+  },
   "73d3ed17fd0723ba75722f394904f6ee306b59aaf8ecfcf56484d38541343f06": {
     "describe": {
       "columns": [],
@@ -3587,6 +3603,24 @@
     },
     "query": "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1"
   },
+  "873fde22f7947882edae7d15bc54e8df105d5e241eeb842a83e3444be0d2736d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path"
+  },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
       "columns": [],
@@ -3674,22 +3708,6 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE workspace_id = $1"
-  },
-  "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5)"
   },
   "8c0131a9cc61f2daa258d49767242bcaab6bb34a977ff7fb0c18aa9202d11f47": {
     "describe": {

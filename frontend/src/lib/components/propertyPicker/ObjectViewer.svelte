@@ -11,7 +11,7 @@
 	export let level = 0
 	export let currentPath: string = ''
 	export let pureViewer = false
-	export let collapsed = level % 3 == 0 || Array.isArray(json)
+	export let collapsed = (level != 0 && level % 3 == 0) || Array.isArray(json)
 	export let rawKey = false
 	export let topBrackets = false
 	export let topLevelNode = false

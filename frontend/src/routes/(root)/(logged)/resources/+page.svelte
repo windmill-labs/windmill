@@ -98,12 +98,20 @@
 	$: preFilteredType =
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
-					tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state'
+					tab == 'states'
+						? x.resource_type == 'state'
+						: tab == 'cache'
+						? x.resource_type == 'cache'
+						: x.resource_type != 'state' && x.resource_type != 'cache'
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
 						x.resource_type == typeFilter &&
-						(tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state')
+						(tab == 'states'
+							? x.resource_type == 'state'
+							: tab == 'cache'
+							? x.resource_type == 'cache'
+							: x.resource_type != 'state' && x.resource_type != 'cache')
 			  )
 
 	async function loadResources(): Promise<void> {
@@ -207,7 +215,7 @@
 	}
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' | 'cache' = 'workspace'
 
 	let inferrer: Drawer | undefined = undefined
 	let inferrerJson = ''
@@ -370,13 +378,22 @@
 				</Tooltip>
 			</div>
 		</Tab>
+		<Tab size="md" value="cache">
+			<div class="flex gap-2 items-center my-1">
+				Cache
+				<Tooltip>
+					Cached results are actually resources (but excluded from the Workspace tab for clarity).
+					Cache are used by flows's step to cache result to avoid recomputing unnecessarily
+				</Tooltip>
+			</div>
+		</Tab>
 	</Tabs>
-	{#if tab == 'workspace' || tab == 'states'}
+	{#if tab == 'workspace' || tab == 'states' || tab == 'cache'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		{#if tab != 'states'}
+		{#if tab != 'states' && tab != 'cache'}
 			<ListFilters
 				queryName="app_filter"
 				bind:selectedFilter={typeFilter}

@@ -17,10 +17,12 @@ use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration},
     sync::{Arc, atomic::Ordering},
+    collections::hash_map::DefaultHasher,
+    hash::{Hasher, Hash},
 };
+
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
@@ -48,6 +50,7 @@ use futures::{
 };
 
 use async_recursion::async_recursion;
+use windmill_api_client::types::CreateResource;
 
 #[cfg(feature = "enterprise")]
 use rand::Rng;
@@ -877,6 +880,13 @@ struct JobCompleted {
     result: serde_json::Value,
     logs: String,
 }
+
+fn hash_args(v: &serde_json::Value) -> i64 {
+    let mut dh = DefaultHasher::new();
+    serde_json::to_string(v).unwrap().hash(&mut dh);
+    dh.finish() as i64
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -920,7 +930,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 logs.push_str(&log_str);
             }
 
-            if job.is_flow_step {
+            let (cache_ttl, step) = if job.is_flow_step {
                 update_flow_status_in_progress(
                     db,
                     &job.workspace_id,
@@ -928,8 +938,27 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
                     job.id,
                 )
-                .await?;
-            }
+                .await?
+            } else {
+                (None, None)
+            };
+
+            let cached_res_path = if cache_ttl.is_some() {
+                let flow_path = sqlx::query_scalar!(
+                    "SELECT script_path FROM queue WHERE id = $1",
+                    &job.parent_job.unwrap()
+                )
+                .fetch_one(db)
+                .await
+                .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
+                .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
+                let step = step.unwrap_or(-1);
+                let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
+                let permissioned_as = &job.permissioned_as;
+                Some(format!("{permissioned_as}/cache/{flow_path}/{step}/{args_hash}"))
+            } else {
+                None
+            };
 
             tracing::debug!(
                 worker = %worker_name,
@@ -939,38 +968,64 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 job.id
             );
 
-            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
-            let result = match job.job_kind {
-                JobKind::Dependencies => {
-                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
-                }
-                JobKind::FlowDependencies => {
-                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
-                        .await
-                        .map(|()| Value::Null)
-                }
-                JobKind::Identity => match job.args.clone() {
-                    Some(Value::Object(args))
-                        if args.len() == 1 && args.contains_key("previous_result") =>
-                    {
-                        Ok(args.get("previous_result").unwrap().clone())
-                    }
-                    args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
-                },
-                _ => {
-                    handle_code_execution_job(
-                        &job,
-                        db,
-                        client,
-                        job_dir,
-                        worker_dir,
-                        &mut logs,
-                        base_internal_url,
-                        worker_name
-                    )
-                    .await
-                }
+            let cached_res = if let Some(cached_res_path) = cached_res_path.clone() {
+                let authed_client = client.get_authed().await;
+                let client: &Client = authed_client.get_client();
+                let resource = client.get_resource_value(&job.workspace_id, &cached_res_path).await;
+                resource.ok()
+                    .and_then(|x| {
+                        let v = x.into_inner();
+                        if let Some(o) = v.as_object() {
+                        let expire = o.get("expire");
+                            if expire.is_some() && expire.unwrap().as_i64().map(|x| x > chrono::Utc::now().timestamp()).unwrap_or(false) {
+                                v.get("value").map(|x| x.to_owned())
+                            } else { 
+                                None 
+                            }
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
             };
+
+            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
+            let result = if let Some(cached_res) = cached_res {
+                Ok(cached_res)
+            } else {
+                match job.job_kind {
+                    JobKind::Dependencies => {
+                        handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
+                    }
+                    JobKind::FlowDependencies => {
+                        handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
+                            .await
+                            .map(|()| Value::Null)
+                    }
+                    JobKind::Identity => match job.args.clone() {
+                        Some(Value::Object(args))
+                            if args.len() == 1 && args.contains_key("previous_result") =>
+                        {
+                            Ok(args.get("previous_result").unwrap().clone())
+                        }
+                        args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
+                    },
+                    _ => {
+                        handle_code_execution_job(
+                            &job,
+                            db,
+                            client,
+                            job_dir,
+                            worker_dir,
+                            &mut logs,
+                            base_internal_url,
+                            worker_name
+                        )
+                        .await
+                    }
+                }
+        };
 
             //it's a test job, no need to update the db
             if job.workspace_id == "" {
@@ -980,6 +1035,22 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             match result {
                 Ok(r) => {
                     // println!("bef completed job{:?}",  SystemTime::now());
+                    if let Some(cached_path) = cached_res_path {
+                        let client: &Client = client.get_client();
+                        let expire = chrono::Utc::now().timestamp() + cache_ttl.unwrap() as i64;
+                        let cr = &CreateResource {
+                            path: cached_path,
+                            description: None,
+                            resource_type: "cache".to_string(),
+                            value: serde_json::json!({
+                                "value": r,
+                                "expire": expire
+                            })
+                        };
+                        if let Err(e) = client.create_resource(&job.workspace_id, Some(true), cr).await {
+                            tracing::error!("Error creating cache resource {e}")
+                        }
+                    }
                     if job.is_flow_step {
                         add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                         if let Some(parent_job) = job.parent_job {

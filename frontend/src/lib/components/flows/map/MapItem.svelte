@@ -41,7 +41,8 @@
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined,
 		suspend: Boolean(mod.suspend),
-		sleep: Boolean(mod.sleep)
+		sleep: Boolean(mod.sleep),
+		cache: Boolean(mod.cache_ttl)
 	}
 
 	function onDelete(event: CustomEvent<MouseEvent>) {

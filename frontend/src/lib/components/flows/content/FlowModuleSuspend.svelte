@@ -3,16 +3,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import type { FlowModule } from '$lib/gen'
-	import { emptySchema } from '$lib/utils'
 	import { SecondsInput } from '../../common'
 
 	export let flowModule: FlowModule
-
-	let schema = emptySchema()
-	schema.properties['sleep'] = {
-		type: 'number',
-		description: 'Sleep time in seconds'
-	}
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 </script>
