@@ -737,7 +737,7 @@ pub async fn update_flow_status_in_progress(
 ) -> error::Result<CacheAndStep> {
     let step = get_step_of_flow_status(db, flow).await?;
     let cache_ttl = if let Step::Step(step) = step {
-         let ttl = sqlx::query_scalar(&format!(
+        let ttl = sqlx::query_scalar(&format!(
             "UPDATE queue
                 SET flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {step}, job}}', $1), '{{modules, {step}, type}}', $2)
                 WHERE id = $3 AND workspace_id = $4
@@ -751,7 +751,7 @@ pub async fn update_flow_status_in_progress(
         .await?;
         (ttl, Some(step))
     } else {
-        sqlx::query_scalar(&format!(
+        sqlx::query(&format!(
             "UPDATE queue
                 SET flow_status = jsonb_set(jsonb_set(flow_status, '{{failure_module, job}}', $1), '{{failure_module, type}}', $2)
                 WHERE id = $3 AND workspace_id = $4",
@@ -760,7 +760,7 @@ pub async fn update_flow_status_in_progress(
         .bind(json!("InProgress"))
         .bind(flow)
         .bind(w_id)
-        .fetch_one(db)
+        .execute(db)
         .await?;
         (None, None)
     };
