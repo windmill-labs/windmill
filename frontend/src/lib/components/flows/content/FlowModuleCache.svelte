@@ -10,7 +10,7 @@
 	$: isCacheEnabled = Boolean(flowModule.cache_ttl)
 </script>
 
-<h2>
+<h2 class="pb-4">
 	Cache
 	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
 		If defined, the result of the step will be cached for the number of seconds defined such that if
