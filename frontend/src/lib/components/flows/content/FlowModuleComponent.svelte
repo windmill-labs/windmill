@@ -18,6 +18,7 @@
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
+	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
@@ -133,6 +134,7 @@
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleRetry={() => selectAdvanced('retries')}
+					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
@@ -256,6 +258,7 @@
 								<Tabs bind:selected={advancedSelected}>
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
+										<Tab value="cache">Cache</Tab>
 										<Tab value="early-stop">Early Stop/Break</Tab>
 										<Tab value="suspend">Suspend</Tab>
 										<Tab value="sleep">Sleep</Tab>
@@ -274,6 +277,10 @@
 									{:else if advancedSelected === 'sleep'}
 										<div>
 											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'cache'}
+										<div>
+											<FlowModuleCache bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'same_worker'}
 										<div>

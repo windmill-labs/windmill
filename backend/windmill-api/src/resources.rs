@@ -260,23 +260,33 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct CreateResourceQuery {
+    update_if_exists: Option<bool>
+}
 async fn create_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;
 
-    check_path_conflict(&mut tx, &w_id, &resource.path).await?;
+    let update_if_exists = q.update_if_exists.unwrap_or(false);
+    if !update_if_exists {
+        check_path_conflict(&mut tx, &w_id, &resource.path).await?;
+    }
+    
     sqlx::query!(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type)
-            VALUES ($1, $2, $3, $4, $5)",
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = $3, description = $4, resource_type = $5",
         w_id,
         resource.path,
         resource.value,

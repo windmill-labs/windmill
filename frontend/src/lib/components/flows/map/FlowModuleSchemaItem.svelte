@@ -2,13 +2,14 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
-	import { Bed, Move, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
+	import { Bed, Database, Move, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
+	export let cache: boolean = false
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
 	export let sleep: boolean = false
@@ -41,6 +42,17 @@
 					<Repeat size={14} />
 				</div>
 				<svelte:fragment slot="text">Retries</svelte:fragment>
+			</Popover>
+		{/if}
+		{#if cache}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
+				>
+					<Database size={14} />
+				</div>
+				<svelte:fragment slot="text">Cached</svelte:fragment>
 			</Popover>
 		{/if}
 		{#if earlyStop}

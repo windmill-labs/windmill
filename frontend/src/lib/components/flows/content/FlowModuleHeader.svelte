@@ -3,7 +3,7 @@
 	import { WorkerService, type FlowModule } from '$lib/gen'
 	import { faCodeBranch, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
+	import { Bed, Database, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
@@ -38,6 +38,17 @@
 		>
 			<Repeat size={14} />
 			<svelte:fragment slot="text">Retries</svelte:fragment>
+		</Popover>
+		<Popover
+			placement="bottom"
+			class="center-center rounded border p-2 
+		{module.cache_ttl != undefined
+				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+			on:click={() => dispatch('toggleCache')}
+		>
+			<Database size={14} />
+			<svelte:fragment slot="text">Cache</svelte:fragment>
 		</Popover>
 		<Popover
 			placement="bottom"
