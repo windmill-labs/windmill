@@ -652,6 +652,7 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -671,6 +672,7 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -688,6 +690,7 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None
                 },
             ],
             failure_module: Some(FlowModule {
@@ -705,6 +708,7 @@ mod tests {
                 suspend: Default::default(),
                 retry: None,
                 sleep: None,
+                cache_ttl: None
             }),
             same_worker: false,
         };

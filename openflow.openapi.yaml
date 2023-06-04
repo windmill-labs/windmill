@@ -88,6 +88,8 @@ components:
             - expr
         sleep:
           $ref: "#/components/schemas/InputTransform"
+        cache_ttl:
+          type: number
         summary:
           type: string
         suspend:

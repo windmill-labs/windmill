@@ -2036,6 +2036,19 @@ pub async fn delete_expired_items_perdiodically(
             Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
         }
 
+
+        let deleted_cache = sqlx::query_scalar!(
+            "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
+        )
+        .fetch_all(db)
+        .await;
+
+        match deleted_cache {
+            Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
+            Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+        }
+
+
         if *JOB_RETENTION_SECS > 0 {
             let deleted_jobs = sqlx::query_scalar!(
                 "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
