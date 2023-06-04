@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.109.1](https://github.com/windmill-labs/windmill/compare/v1.109.0...v1.109.1) (2023-06-04)
+
+
+### Bug Fixes
+
+* fix go-client generation ([a0401ac](https://github.com/windmill-labs/windmill/commit/a0401ac8f12782277674dfce7b32b292d33de8bc))
+
 ## [1.109.0](https://github.com/windmill-labs/windmill/compare/v1.108.2...v1.109.0) (2023-06-04)
 
 
