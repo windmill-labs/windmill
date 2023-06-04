@@ -342,7 +342,7 @@
 		</div>
 	</div>
 	<div class="relative">
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 		{#if filteredItems?.length == 0}
 			<div class="mt-10" />
 		{/if}

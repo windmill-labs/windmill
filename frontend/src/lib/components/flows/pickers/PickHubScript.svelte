@@ -12,6 +12,7 @@
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let filter = ''
+	export let syncQuery = false
 
 	const dispatch = createEventDispatcher()
 
@@ -35,7 +36,7 @@
 	<slot />
 	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
-<ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
+<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if $hubScripts}
 	{#if filteredItems.length == 0}

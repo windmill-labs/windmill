@@ -392,7 +392,7 @@
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters  bind:selectedFilter={ownerFilter} filters={owners} />
 		{#if tab != 'states' && tab != 'cache'}
 			<ListFilters
 				queryName="app_filter"

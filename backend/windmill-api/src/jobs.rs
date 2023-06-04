@@ -66,6 +66,14 @@ pub fn workspaced_service() -> Router {
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path).head(|| async { "" }),
         )
+        .route(
+            "/openai_sync/p/*script_path",
+            post(run_wait_result_job_by_path).head(|| async { "" }),
+        )
+        .route(
+            "/openapi_sync/f/*script_path",
+            post(run_wait_result_flow_by_path).head(|| async { "" }),
+        )
         .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))

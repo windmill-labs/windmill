@@ -236,7 +236,7 @@
 					<div class="my-2" />
 
 					{#if subtab == 'scripts'}
-						<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"
@@ -245,7 +245,7 @@
 							></PickHubScript
 						>
 					{:else if subtab == 'flows'}
-						<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"
@@ -254,7 +254,7 @@
 							></PickHubFlow
 						>
 					{:else if subtab == 'apps'}
-						<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"
