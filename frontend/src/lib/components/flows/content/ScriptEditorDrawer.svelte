@@ -35,6 +35,7 @@
 				content: string
 				schema?: any
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
+				envs?: string[]
 		  }
 		| undefined = undefined
 
@@ -62,7 +63,8 @@
 						schema: script.schema,
 						is_template: false,
 						language: script.language,
-						kind: script.kind as Script.kind | undefined
+						kind: script.kind as Script.kind | undefined,
+						envs: script.envs
 					}
 				})
 				callback?.()

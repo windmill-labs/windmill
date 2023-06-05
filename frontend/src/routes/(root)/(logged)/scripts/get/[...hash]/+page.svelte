@@ -461,6 +461,15 @@
 				</Tabs>
 			</div>
 
+			{#if script.envs && script.envs.length > 0}
+				<h3>Static Env Variables</h3>
+				<ul>
+					{#each script.envs as e}
+						<li>{e}</li>
+					{/each}
+				</ul>
+			{/if}
+
 			<div class="max-w-2xl mt-12">
 				<h3 class="mb-4" bind:this={webhookElem} id="webhooks">
 					Webhooks

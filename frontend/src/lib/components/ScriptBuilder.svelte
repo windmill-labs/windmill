@@ -10,13 +10,13 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, Drawer, Kbd } from './common'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import { Alert, Badge, Button, Drawer, Kbd } from './common'
+	import { faPlus, faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Pen } from 'lucide-svelte'
+	import { Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
 	import {
@@ -29,6 +29,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { fade } from 'svelte/transition'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -157,7 +159,8 @@
 					is_template: script.is_template,
 					language: script.language,
 					kind: script.kind,
-					tag: script.tag
+					tag: script.tag,
+					envs: script.envs
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -196,7 +199,8 @@
 						language: script.language,
 						kind: script.kind,
 						tag: script.tag,
-						draft_only: true
+						draft_only: true,
+						envs: script.envs
 					}
 				})
 			}
@@ -401,6 +405,55 @@
 						</div>
 					{/if}
 				{/if}
+			</div>
+			<h2 class="border-b pb-1 mt-10 mb-4"
+				>Custom env variables<Tooltip
+					>Additional static custom env variables to pass to the script.</Tooltip
+				></h2
+			>
+			<div class="w-full">
+				<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+				{#if Array.isArray(script.envs ?? [])}
+					{#each script.envs ?? [] as v, i}
+						<div class="flex max-w-md mt-1 w-full items-center">
+							<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
+							<button
+								transition:fade|local={{ duration: 50 }}
+								class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+								aria-label="Clear"
+								on:click={() => {
+									script.envs && script.envs.splice(i, 1)
+									script.envs = script.envs
+								}}
+							>
+								<X size={14} />
+							</button>
+						</div>
+					{/each}
+					{#if script.envs && script.envs.length > 0}
+						<div class="pt-2" />
+						<Alert type="warning" title="Not passed in previews"
+							>Static envs variables are not passed in preview but solely on deployed scripts.</Alert
+						>
+					{/if}
+				{/if}
+			</div>
+			<div class="flex mt-2">
+				<Button
+					variant="border"
+					color="dark"
+					size="xs"
+					btnClasses="mt-1"
+					on:click={() => {
+						if (script.envs == undefined || !Array.isArray(script.envs)) {
+							script.envs = []
+						}
+						script.envs = script.envs.concat('')
+					}}
+				>
+					<Icon data={faPlus} class="mr-2" />
+					Add item
+				</Button>
 			</div>
 		</DrawerContent>
 	</Drawer>

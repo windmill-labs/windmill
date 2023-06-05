@@ -1235,7 +1235,7 @@ async fn handle_code_execution_job(
             Some(script.language),
             None
         )},
-        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<serde_json::Value>)>(
+        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
             "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
         )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
@@ -1282,10 +1282,14 @@ mount {{
         HashMap::new()
     } else {
         let mut hm = HashMap::new();
-        if let Some(o) = envs.unwrap().as_object() {
-            for (k, v) in o {
-                hm.insert(k.clone(), v.clone().as_str().unwrap_or_default().to_string());
-            }
+        for s in envs.unwrap() {
+            let (k, v) = s.split_once('=').ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Invalid env var: {}. Must be in the form of KEY=VALUE",
+                    s
+                ))
+            })?;
+            hm.insert(k.to_string(), v.to_string());
         }
         hm
     };

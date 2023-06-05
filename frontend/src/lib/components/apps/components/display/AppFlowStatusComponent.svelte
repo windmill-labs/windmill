@@ -10,7 +10,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
+	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'flowstatuscomponent'> | undefined = undefined
 	export let render: boolean
 
@@ -20,6 +20,8 @@
 		result: undefined,
 		loading: false
 	})
+
+	initializing = false
 
 	$: css = concatCustomCss($app.css?.flowstatuscomponent, customCss)
 
@@ -34,7 +36,6 @@
 	{render}
 	{componentInput}
 	{id}
-	bind:initializing
 >
 	<div class="flex flex-col w-full h-full">
 		<div
