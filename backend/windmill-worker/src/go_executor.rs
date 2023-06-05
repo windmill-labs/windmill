@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use tokio::{
@@ -40,6 +40,7 @@ pub async fn handle_go_job(
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
+    envs: HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -210,6 +211,7 @@ func Run(req Req) (interface{{}}, error){{
         let mut cmd = Command::new(GO_PATH.as_str());
         cmd.current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

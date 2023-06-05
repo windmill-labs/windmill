@@ -139,6 +139,8 @@ pub struct Script {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +191,7 @@ pub struct NewScript {
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
+    pub envs: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
