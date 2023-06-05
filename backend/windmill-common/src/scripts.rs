@@ -7,14 +7,13 @@
  */
 
 use std::{
-    collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
 };
 
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
-use serde_json::{to_string_pretty, Map};
+use serde_json::to_string_pretty;
 
 use crate::utils::StripPath;
 
