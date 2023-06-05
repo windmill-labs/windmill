@@ -406,38 +406,40 @@
 					{/if}
 				{/if}
 			</div>
-			<h2 class="border-b pb-1 mt-10 mb-4"
-				>Custom env variables<Tooltip
-					>Additional static custom env variables to pass to the script.</Tooltip
-				></h2
-			>
-			<div class="w-full">
-				<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
-				{#if Array.isArray(script.envs ?? [])}
-					{#each script.envs ?? [] as v, i}
-						<div class="flex max-w-md mt-1 w-full items-center">
-							<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
-							<button
-								transition:fade|local={{ duration: 50 }}
-								class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
-								aria-label="Clear"
-								on:click={() => {
-									script.envs && script.envs.splice(i, 1)
-									script.envs = script.envs
-								}}
+			{#if !isCloudHosted()}
+				<h2 class="border-b pb-1 mt-10 mb-4"
+					>Custom env variables<Tooltip
+						>Additional static custom env variables to pass to the script.</Tooltip
+					></h2
+				>
+				<div class="w-full">
+					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					{#if Array.isArray(script.envs ?? [])}
+						{#each script.envs ?? [] as v, i}
+							<div class="flex max-w-md mt-1 w-full items-center">
+								<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
+								<button
+									transition:fade|local={{ duration: 50 }}
+									class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+									aria-label="Clear"
+									on:click={() => {
+										script.envs && script.envs.splice(i, 1)
+										script.envs = script.envs
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						{#if script.envs && script.envs.length > 0}
+							<div class="pt-2" />
+							<Alert type="warning" title="Not passed in previews"
+								>Static envs variables are not passed in preview but solely on deployed scripts.</Alert
 							>
-								<X size={14} />
-							</button>
-						</div>
-					{/each}
-					{#if script.envs && script.envs.length > 0}
-						<div class="pt-2" />
-						<Alert type="warning" title="Not passed in previews"
-							>Static envs variables are not passed in preview but solely on deployed scripts.</Alert
-						>
+						{/if}
 					{/if}
-				{/if}
-			</div>
+				</div>
+			{/if}
 			<div class="flex mt-2">
 				<Button
 					variant="border"
