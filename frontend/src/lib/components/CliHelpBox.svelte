@@ -38,7 +38,7 @@
 			>
 			<li
 				>Setup the wmill cli for this workspace & remote: <InlineCodeCopy
-					content={`wmill workspace add ${workspaceStore} ${workspaceStore} ${url}`}
+					content={`wmill workspace add ${$workspaceStore} ${$workspaceStore} ${url}`}
 				/></li
 			>
 			<li>Follow the prompts in your terminal</li>
