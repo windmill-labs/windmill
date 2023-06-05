@@ -1527,6 +1527,10 @@ const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
     .then(({{ {spread} }}) => [ {spread} ])
 
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
 {dates}
 async function run() {{
     let res: any = await main(...args);
