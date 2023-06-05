@@ -27,7 +27,7 @@
 		"@types/d3-zoom": "^3.0.2",
 		"@types/lodash": "^4.14.195",
 		"@types/node": "^20.2.5",
-		"@types/vscode": "~1.78.0",
+		"@types/vscode": "~1.78.1",
 		"@typescript-eslint/eslint-plugin": "^5.59.8",
 		"@typescript-eslint/parser": "^5.59.7",
 		"@zerodevx/svelte-toast": "^0.9.3",
