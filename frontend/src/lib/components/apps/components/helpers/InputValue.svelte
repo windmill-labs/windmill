@@ -73,7 +73,6 @@
 	$: lastInput && $worldStore && debounce(handleConnection)
 
 	const debounceTemplate = async () => {
-		console.log('template')
 		let nvalue = await getValue(lastInput)
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue

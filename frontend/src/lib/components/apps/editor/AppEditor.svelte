@@ -111,7 +111,6 @@
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
-		ontextfocus: writable(undefined),
 		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined)
 	})

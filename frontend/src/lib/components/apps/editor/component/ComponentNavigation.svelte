@@ -10,6 +10,7 @@
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/toast'
 	import { gridColumns } from '../../gridUtils'
+	import { copyToClipboard } from '$lib/utils'
 
 	const { app, selectedComponent, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -17,8 +18,8 @@
 	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItems: GridItem[] | undefined = undefined
-	let copiedGridItems: GridItem[] | undefined = undefined
 
+	const ITEM_TYPE = 'wm-grid-items'
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
 			return $app.grid
@@ -127,14 +128,33 @@
 		}
 	}
 
-	function handleCopy(event: KeyboardEvent) {
+	async function handleCopy(event: KeyboardEvent) {
 		if (!$selectedComponent) {
 			return
 		}
 		tempGridItems = undefined
-		copiedGridItems = $selectedComponent
+		const copiedGridItems = $selectedComponent
 			.map((x) => findGridItem($app, x))
 			.filter((x) => x != undefined) as GridItem[]
+
+		copyGridItemsToClipboard(copiedGridItems)
+	}
+
+	function copyGridItemsToClipboard(items: GridItem[]) {
+		let allSubgrids = {}
+		for (let item of items) {
+			let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
+			for (let key of subgrids) {
+				allSubgrids[key] = $app.subgrids?.[key]
+			}
+		}
+		let success = copyToClipboard(
+			JSON.stringify({ type: ITEM_TYPE, items, subgrids: allSubgrids }),
+			false
+		)
+		if (!success) {
+			sendUserToast('Could not copy to clipboard. Are you in an unsecure context?', true)
+		}
 	}
 
 	function handleCut(event: KeyboardEvent) {
@@ -147,7 +167,7 @@
 		let gridItems = $selectedComponent
 			.map((x) => findGridItem($app, x))
 			.filter((x) => x != undefined) as GridItem[]
-		copiedGridItems = gridItems
+		copyGridItemsToClipboard(gridItems)
 
 		if (!gridItems) {
 			return
@@ -157,9 +177,34 @@
 		tempGridItems = gridItems
 	}
 
-	function handlePaste(event: KeyboardEvent) {
+	export async function handlePaste(event: ClipboardEvent) {
+		let classes = event.target?.['className']
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
+			return
+		}
+		event.preventDefault()
+
 		push(history, $app)
 		$movingcomponents = undefined
+		let copiedGridItems: GridItem[] | undefined = undefined
+		let subgrids = $app.subgrids ?? {}
+		const txt = event?.clipboardData?.getData('text')
+		if (txt) {
+			try {
+				const parsed = JSON.parse(txt)
+				if (parsed.type == ITEM_TYPE) {
+					copiedGridItems = parsed.items
+					subgrids = parsed.subgrids ?? subgrids
+					console.log('subgrids', subgrids)
+				} else {
+					copiedGridItems = undefined
+				}
+			} catch {}
+		}
+
 		if (tempGridItems != undefined) {
 			for (let tempGridItem of tempGridItems) {
 				if (
@@ -190,14 +235,14 @@
 					tempGridItem.id
 				)
 			}
-			copiedGridItems = tempGridItems
+			copyGridItemsToClipboard(tempGridItems)
 			$selectedComponent = tempGridItems.map((x) => x.id)
 
 			tempGridItems = undefined
 		} else if (copiedGridItems) {
 			let nitems: string[] = []
 			for (let copiedGridItem of copiedGridItems) {
-				let newItem = copyComponent(copiedGridItem, $focusedGrid)
+				let newItem = copyComponent(copiedGridItem, $focusedGrid, subgrids)
 				newItem && nitems.push(newItem)
 			}
 			$selectedComponent = nitems.map((x) => x)
@@ -206,7 +251,12 @@
 		$app = $app
 	}
 
-	function copyComponent(item: GridItem, parentGrid: FocusedGrid | undefined, doNotVisit?: string) {
+	function copyComponent(
+		item: GridItem,
+		parentGrid: FocusedGrid | undefined,
+		subgrids: Record<string, GridItem[]>,
+		doNotVisit?: string
+	) {
 		if (item.id === doNotVisit) {
 			return
 		}
@@ -217,17 +267,17 @@
 			Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
 		)
 
-		if ($app.subgrids && item.data.numberOfSubgrids) {
-			for (let i = 0; i < item.data.numberOfSubgrids; i++) {
-				$app.subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
-					copyComponent(
-						subgridItem,
-						{ parentComponentId: newItem, subGridIndex: i },
-						doNotVisit ?? newItem
-					)
-				})
-			}
+		for (let i = 0; i < (item?.data?.numberOfSubgrids ?? 0); i++) {
+			subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
+				copyComponent(
+					subgridItem,
+					{ parentComponentId: newItem, subGridIndex: i },
+					subgrids,
+					doNotVisit ?? newItem
+				)
+			})
 		}
+
 		return newItem
 	}
 
@@ -271,12 +321,6 @@
 				}
 				break
 
-			case 'v':
-				if (event.ctrlKey || event.metaKey) {
-					handlePaste(event)
-				}
-				break
-
 			case 'x':
 				if (event.ctrlKey || event.metaKey) {
 					handleCut(event)
@@ -289,4 +333,4 @@
 	}
 </script>
 
-<svelte:window on:keydown={keydown} />
+<svelte:window on:keydown={keydown} on:paste={handlePaste} />
