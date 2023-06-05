@@ -7,13 +7,14 @@
  */
 
 use std::{
+    collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
 };
 
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
-use serde_json::to_string_pretty;
+use serde_json::{to_string_pretty, Map};
 
 use crate::utils::StripPath;
 
@@ -139,6 +140,8 @@ pub struct Script {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +192,7 @@ pub struct NewScript {
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
+    pub envs: Option<Vec<(String, String)>>,
 }
 
 #[derive(Deserialize)]

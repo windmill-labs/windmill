@@ -5540,6 +5540,12 @@ components:
           type: string
         draft_only:
           type: boolean
+        envs:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
       required:
         - path
         - summary

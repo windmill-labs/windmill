@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -165,6 +165,7 @@ pub async fn handle_python_job(
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
+    envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
@@ -435,6 +436,7 @@ mount {{
         Command::new(PYTHON_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

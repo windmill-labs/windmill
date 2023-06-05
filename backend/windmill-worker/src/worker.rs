@@ -1204,13 +1204,14 @@ async fn handle_code_execution_job(
     worker_name: &str
 
 ) -> error::Result<serde_json::Value> {
-    let (inner_content, requirements_o, language) = match job.job_kind {
+    let (inner_content, requirements_o, language, envs) = match job.job_kind {
         JobKind::Preview  => (
             job.raw_code
                 .clone()
                 .unwrap_or_else(|| "no raw code".to_owned()),
             job.raw_lock.clone(),
             job.language.to_owned(),
+            None,
         ),
         JobKind::Script_Hub => {
             let script_path = job.script_path.clone().ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
@@ -1231,10 +1232,11 @@ async fn handle_code_execution_job(
             (
             script.content,
             script.lockfile,
-            Some(script.language)
+            Some(script.language),
+            None
         )},
-        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
-            "SELECT content, lock, language FROM script WHERE hash = $1 AND workspace_id = $2",
+        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<serde_json::Value>)>(
+            "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
         )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)
@@ -1276,6 +1278,17 @@ mount {{
     };
 
     // println!("handle lang job {:?}",  SystemTime::now());
+    let envs = if *CLOUD_HOSTED || envs.is_none() {
+        HashMap::new()
+    } else {
+        let mut hm = HashMap::new();
+        if let Some(o) = envs.unwrap().as_object() {
+            for (k, v) in o {
+                hm.insert(k.clone(), v.clone().as_str().unwrap_or_default().to_string());
+            }
+        }
+        hm
+    };
 
     let result: error::Result<serde_json::Value> = match language {
         None => {
@@ -1296,6 +1309,7 @@ mount {{
                 &inner_content,
                 &shared_mount,
                 base_internal_url,
+                envs
             )
             .await
         }
@@ -1308,7 +1322,8 @@ mount {{
                 job_dir,
                 &inner_content,
                 base_internal_url,
-                worker_name
+                worker_name,
+                envs
             )
             .await
         }
@@ -1323,7 +1338,8 @@ mount {{
                 requirements_o,
                 &shared_mount,
                 base_internal_url,
-                worker_name
+                worker_name,
+                envs
             )
             .await
         }
@@ -1337,7 +1353,8 @@ mount {{
                 job_dir,
                 &shared_mount,
                 base_internal_url,
-                worker_name
+                worker_name,
+                envs
             )
             .await
         }
@@ -1368,6 +1385,7 @@ async fn handle_bash_job(
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
+    envs: HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
@@ -1422,6 +1440,7 @@ async fn handle_bash_job(
         Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1469,7 +1488,8 @@ async fn handle_deno_job(
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
-    worker_name: &str
+    worker_name: &str,
+    envs: HashMap<String, String>,
 ) -> error::Result<serde_json::Value> {
 
     // let mut start = Instant::now();
@@ -1604,6 +1624,7 @@ run().catch(async (e) => {{
             Command::new(DENO_PATH.as_str())
                 .current_dir(job_dir)
                 .env_clear()
+                .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_deno_proc_envs)
                 .env("DENO_DIR", DENO_CACHE_DIR)
