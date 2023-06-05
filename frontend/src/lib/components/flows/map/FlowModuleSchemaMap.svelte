@@ -17,6 +17,9 @@
 	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { getDependentComponents } from '../previousResults'
+	import Portal from 'svelte-portal'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -123,8 +126,41 @@
 			module.value.branches.splice(index - offset, 1)
 		}
 	}
+
+	let deleteCallback: (() => void) | undefined = undefined
+	let dependents: Record<string, string[]> = {}
 </script>
 
+<Portal>
+	<ConfirmationModal
+		title="Confirm deleting step with dependents"
+		confirmationText="Delete step"
+		open={Boolean(deleteCallback)}
+		on:confirmed={() => {
+			if (deleteCallback) {
+				deleteCallback()
+				deleteCallback = undefined
+			}
+		}}
+		on:canceled={() => {
+			deleteCallback = undefined
+		}}
+	>
+		<div class="text-gray-800 pb-2"
+			>Found the following steps that will require changes after this step is deleted:</div
+		>
+		{#each Object.entries(dependents) as [k, v]}
+			<div class="pb-3">
+				<h3 class="text-gray-700 font-semibold">{k}</h3>
+				<ul class="text-sm">
+					{#each v as dep}
+						<li>{dep}</li>
+					{/each}
+				</ul>
+			</div>
+		{/each}
+	</ConfirmationModal>
+</Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
 		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-gray-50 flex-initial p-2 items-center border-b border-gray-300"
@@ -145,10 +181,19 @@
 			{selectedId}
 			on:delete={({ detail }) => {
 				let e = detail.detail
-				push(history, $flowStore)
-				selectNextId(e.id)
-				removeAtId($flowStore.value.modules, e.id)
-				$flowStore = $flowStore
+				dependents = getDependentComponents(e.id, $flowStore)
+				const cb = () => {
+					push(history, $flowStore)
+					selectNextId(e.id)
+					removeAtId($flowStore.value.modules, e.id)
+					$flowStore = $flowStore
+				}
+
+				if (Object.keys(dependents).length > 0) {
+					deleteCallback = cb
+				} else {
+					cb()
+				}
 			}}
 			on:insert={async ({ detail }) => {
 				if (detail.modules) {
@@ -192,7 +237,7 @@
 		/>
 	</div>
 	<div
-		class="z-10 absolute w-full inline-flex flex-col gap-2 bottom-0 left-0  flex-initial p-2 items-center border-b"
+		class="z-10 absolute w-full inline-flex flex-col gap-2 bottom-0 left-0 flex-initial p-2 items-center border-b"
 	>
 		<FlowErrorHandlerItem />
 	</div>
