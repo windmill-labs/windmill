@@ -5493,6 +5493,10 @@ components:
           type: boolean
         draft_only:
           type: boolean
+        envs:
+          type: array
+          items:
+            type: string
       required:
         - hash
         - path
@@ -5540,6 +5544,10 @@ components:
           type: string
         draft_only:
           type: boolean
+        envs:
+          type: array
+          items:
+            type: string
       required:
         - path
         - summary
