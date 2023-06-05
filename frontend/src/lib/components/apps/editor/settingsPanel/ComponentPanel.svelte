@@ -37,8 +37,6 @@
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
 
-	let editor: TemplateEditor | undefined = undefined
-
 	const {
 		app,
 		runnableComponents,
@@ -52,10 +50,7 @@
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, ontextfocus, movingcomponents } =
-		getContext<AppEditorContext>('AppEditorContext')
-
-	$: editor && ($ontextfocus = () => editor?.focus())
+	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
 		push(history, $app)
@@ -174,7 +169,6 @@
 						{:else if componentSettings.item.data.componentInput.type === 'template' && componentSettings.item.data.componentInput !== undefined}
 							<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
 								<TemplateEditor
-									bind:this={editor}
 									fontSize={12}
 									bind:code={componentSettings.item.data.componentInput.eval}
 									{extraLib}
