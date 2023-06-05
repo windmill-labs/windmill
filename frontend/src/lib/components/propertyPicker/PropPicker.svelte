@@ -38,6 +38,10 @@
 			? pickableProperties.priorIds
 			: keepByKey(pickableProperties.priorIds, search)
 
+	$: suggestedPropsFiltered = $propPickerConfig
+		? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName)
+		: undefined
+
 	async function loadVariables() {
 		variables = Object.fromEntries(
 			(
@@ -152,6 +156,21 @@
 				</div>
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
+				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
+					<span class="font-bold text-sm">Suggested Results</span>
+					<div class="overflow-y-auto mb-2">
+						<ObjectViewer
+							allowCopy={false}
+							topLevelNode
+							pureViewer={!$propPickerConfig}
+							collapsed={false}
+							json={suggestedPropsFiltered}
+							on:select={(e) => {
+								dispatch('select', `results.${e.detail}`)
+							}}
+						/>
+					</div>
+				{/if}
 				<span class="font-bold text-sm">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
