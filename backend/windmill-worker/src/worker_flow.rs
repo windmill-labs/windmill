@@ -931,7 +931,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.workspace_id.as_str(),
             true,
             if flow.modules.is_empty() {
-                json!({})
+                flow_job.args.clone().unwrap_or_default()
             } else {
                 json!([])
             },
