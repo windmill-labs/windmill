@@ -7,15 +7,13 @@ use serde_json::json;
 use std::collections::HashMap;
 use windmill_parser::{Arg, MainArgSignature, Typ};
 
-pub fn parse_bash_sig(code: &str) -> windmill_common::error::Result<MainArgSignature> {
+pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
     } else {
-        Err(windmill_common::error::Error::BadRequest(
-            "Error parsing bash script".to_string(),
-        ))
+        Err(anyhow!("Error parsing bash script".to_string()))
     }
 }
 

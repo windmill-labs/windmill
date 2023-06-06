@@ -4,7 +4,7 @@ use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 use windmill_parser_ts::parse_deno_signature;
 
 #[wasm_bindgen_test]
-fn test_parse_deno_sig() -> Result<(), String> {
+fn test_parse_deno_sig() -> anyhow::Result<()> {
     let code = "
 export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
@@ -115,7 +115,7 @@ export function main(test1?: string, test2: string = \"burkina\",
 }
 
 #[wasm_bindgen_test]
-fn test_parse_deno_sig_implicit_types() -> Result<(), String> {
+fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
     let code = "
 export function main(test2 = \"burkina\",
     bool = true,

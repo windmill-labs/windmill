@@ -4767,12 +4767,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92888ba5573ff080736b3648696b70cafad7d250551175acbaa4e0385b3e1460"
 
 [[package]]
-name = "unicode-general-category"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2281c8c1d221438e373249e065ca4989c4c36952c211ff21a0ee91c44a3869e7"
-
-[[package]]
 name = "unicode-id"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5233,10 +5227,7 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-parser",
- "windmill-parser-bash",
- "windmill-parser-go",
- "windmill-parser-py",
- "windmill-parser-ts",
+ "windmill-parser-py-imports",
  "windmill-queue",
 ]
 
@@ -5308,13 +5299,9 @@ name = "windmill-parser-bash"
 version = "1.109.1"
 dependencies = [
  "anyhow",
- "itertools",
  "lazy_static",
- "phf 0.11.1",
  "regex",
  "serde_json",
- "unicode-general-category",
- "windmill-common",
  "windmill-parser",
 ]
 
@@ -5325,14 +5312,22 @@ dependencies = [
  "anyhow",
  "gosyn",
  "itertools",
- "phf 0.11.1",
- "unicode-general-category",
- "windmill-common",
  "windmill-parser",
 ]
 
 [[package]]
 name = "windmill-parser-py"
+version = "1.109.1"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "rustpython-parser",
+ "serde_json",
+ "windmill-parser",
+]
+
+[[package]]
+name = "windmill-parser-py-imports"
 version = "1.109.1"
 dependencies = [
  "anyhow",
@@ -5361,13 +5356,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "windmill-parser-ts-wasm"
+name = "windmill-parser-wasm"
 version = "1.109.1"
 dependencies = [
+ "anyhow",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "windmill-parser",
+ "windmill-parser-bash",
+ "windmill-parser-go",
+ "windmill-parser-py",
  "windmill-parser-ts",
 ]
 
@@ -5432,6 +5431,7 @@ dependencies = [
  "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-py",
+ "windmill-parser-py-imports",
  "windmill-parser-ts",
  "windmill-queue",
 ]

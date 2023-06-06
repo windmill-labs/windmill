@@ -14,9 +14,11 @@ members = [
     "./windmill-api-client",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
-    "./parsers/windmill-parser-ts-wasm",
+    "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
+    "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
+    "./parsers/windmill-parser-py-imports",
 ]
 
 [workspace.package]
@@ -74,6 +76,7 @@ windmill-audit = { path = "./windmill-audit" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
+windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 axum = { version = "^0", features = ["headers"] }
@@ -132,7 +135,6 @@ swc_common = "0.29.39"
 swc_ecma_parser = "0.128.2"
 swc_ecma_ast = "0.98.1"
 base64 = "0.21.0"
-unicode-general-category = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
 sqlx = { version = "^0", features = [

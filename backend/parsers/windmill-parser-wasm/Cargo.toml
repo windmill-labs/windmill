@@ -1,19 +1,23 @@
 [package]
-name = "windmill-parser-ts-wasm"
+name = "windmill-parser-wasm"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
-name = "windmill_parser_ts_wasm"
+name = "windmill_parser_wasm"
 path = "./src/lib.rs"
 
 [dev-dependencies]
-windmill-parser.workspace = true
 wasm-bindgen-test.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+windmill-parser.workspace = true
+windmill-parser-go.workspace = true
+windmill-parser-bash.workspace = true
+windmill-parser-py.workspace = true
 windmill-parser-ts.workspace = true
 wasm-bindgen.workspace = true
 serde_json.workspace = true

@@ -27,6 +27,7 @@ windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 sqlx.workspace = true
 uuid.workspace = true

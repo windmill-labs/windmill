@@ -21,7 +21,7 @@ use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> Result<MainArgSignature, String> {
+pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
@@ -42,7 +42,7 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> Result<MainArgSignat
 
     let ast = parser
         .parse_module()
-        .map_err(|_| format!("Error while parsing code, it is invalid typescript"))?
+        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid typescript"))?
         .body;
 
     // println!("{ast:?}");
@@ -61,18 +61,18 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> Result<MainArgSignat
             args: params
                 .into_iter()
                 .map(|x| parse_param(x, &cm, skip_dflt))
-                .collect::<Result<Vec<Arg>, String>>()?,
+                .collect::<anyhow::Result<Vec<Arg>>>()?,
         };
         Ok(r)
     } else {
-        Err(
+        Err(anyhow::anyhow!(
             "main function was not findable (expected to find 'export function main(...)'"
                 .to_string(),
-        )
+        ))
     }
 }
 
-fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> Result<Arg, String> {
+fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> anyhow::Result<Arg> {
     let r = match x.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(&ident);
@@ -87,7 +87,7 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> Result<Arg, St
         Pat::Assign(AssignPat { left, right, .. }) => {
             let (name, mut typ, _nullable) =
                 left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
-                    format!(
+                    anyhow::anyhow!(
                         "parameter syntax unsupported: `{}`",
                         cm.span_to_snippet(left.span())
                             .unwrap_or_else(|_| cm.span_to_string(left.span()))
@@ -120,7 +120,7 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> Result<Arg, St
             }
             Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true })
         }
-        _ => Err(format!(
+        _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`",
             cm.span_to_snippet(x.span())
                 .unwrap_or_else(|_| cm.span_to_string(x.span()))
@@ -280,6 +280,6 @@ pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
+pub fn eval_sync(_code: &str) -> Result<serde_json::Value, String> {
     panic!("eval_sync is only available in wasm32")
 }

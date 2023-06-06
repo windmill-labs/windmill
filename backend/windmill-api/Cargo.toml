@@ -24,10 +24,7 @@ windmill-common = { workspace = true, features = [
 ] }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
-windmill-parser-ts.workspace = true
-windmill-parser-go.workspace = true
-windmill-parser-py.workspace = true
-windmill-parser-bash.workspace = true
+windmill-parser-py-imports.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
