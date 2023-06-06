@@ -895,17 +895,3 @@ async fn delete_script_by_path(
 
     Ok(Json(script))
 }
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-enum SigParsing {
-    Valid(MainArgSignature),
-    Invalid { error: String },
-}
-
-fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
-    match result {
-        Ok(sig) => Json(SigParsing::Valid(sig)),
-        Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
-    }
-}
