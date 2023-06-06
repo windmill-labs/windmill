@@ -281,6 +281,7 @@
 			<div class="pl-2 h-full !overflow-visible">
 				{#key lang}
 					<Editor
+						folding
 						{path}
 						bind:code
 						bind:websocketAlive

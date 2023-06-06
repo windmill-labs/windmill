@@ -83,6 +83,7 @@
 	export let path: string | undefined = undefined
 	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
+	export let folding = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -618,7 +619,8 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
-			tabSize: lang == 'python' ? 4 : 2
+			tabSize: lang == 'python' ? 4 : 2,
+			folding
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
