@@ -1512,7 +1512,8 @@ async fn handle_deno_job(
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)
+            .map_err(|e| Error::BadRequest(e))?.args;
         let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
             Some(i) 
         } else {

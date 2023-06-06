@@ -118,9 +118,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                     Arg { otyp: None, name: x.arg, typ, has_default: default.is_some(), default }
                 })
                 .collect(),
-        })
-    } else {
-        Err(error::Error::ExecutionErr(
+        })Err(error::Error::ExecutionErr(
             "main function was not findable".to_string(),
         ))
     }
