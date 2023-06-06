@@ -15,6 +15,7 @@ export async function inferArgs(
 	code: string,
 	schema: Schema
 ): Promise<void> {
+	await init(wasmUrl)
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
