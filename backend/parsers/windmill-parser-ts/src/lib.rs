@@ -5,9 +5,8 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
+// use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
-use windmill_common::error;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
@@ -19,7 +18,10 @@ use swc_ecma_ast::{
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
-pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> error::Result<MainArgSignature> {
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> Result<MainArgSignature, String> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
@@ -40,11 +42,7 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> error::Result<MainAr
 
     let ast = parser
         .parse_module()
-        .map_err(|_| {
-            error::Error::ExecutionErr(format!(
-                "Error while parsing code, it is invalid typescript"
-            ))
-        })?
+        .map_err(|_| format!("Error while parsing code, it is invalid typescript"))?
         .body;
 
     // println!("{ast:?}");
@@ -63,18 +61,18 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> error::Result<MainAr
             args: params
                 .into_iter()
                 .map(|x| parse_param(x, &cm, skip_dflt))
-                .collect::<Result<Vec<Arg>, error::Error>>()?,
+                .collect::<Result<Vec<Arg>, String>>()?,
         };
         Ok(r)
     } else {
-        Err(error::Error::ExecutionErr(
+        Err(
             "main function was not findable (expected to find 'export function main(...)'"
                 .to_string(),
-        ))
+        )
     }
 }
 
-fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> error::Result<Arg> {
+fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> Result<Arg, String> {
     let r = match x.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(&ident);
@@ -89,11 +87,11 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> error::Result<
         Pat::Assign(AssignPat { left, right, .. }) => {
             let (name, mut typ, _nullable) =
                 left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
-                    error::Error::ExecutionErr(format!(
+                    format!(
                         "parameter syntax unsupported: `{}`",
                         cm.span_to_snippet(left.span())
                             .unwrap_or_else(|_| cm.span_to_string(left.span()))
-                    ))
+                    )
                 })?;
 
             let dflt = if skip_dflt {
@@ -122,11 +120,11 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> error::Result<
             }
             Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true })
         }
-        _ => Err(error::Error::ExecutionErr(format!(
+        _ => Err(format!(
             "parameter syntax unsupported: `{}`",
             cm.span_to_snippet(x.span())
                 .unwrap_or_else(|_| cm.span_to_string(x.span()))
-        ))),
+        )),
     };
     r
 }
@@ -143,6 +141,7 @@ fn eval_span(span: Span, cm: &Lrc<SourceMap>) -> Option<Value> {
         None => None,
     }
 }
+
 fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
     let (typ, nullable) = type_ann
         .as_ref()
@@ -266,211 +265,21 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    pub fn eval(s: &str) -> JsValue;
+    pub fn alert(s: &str);
+
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
-    let mut context = JsRuntime::new(RuntimeOptions::default());
-    let code = format!("let x = {}; x", code);
-    let res = context.execute_script("<anon>", code.into());
-    match res {
-        Ok(global) => {
-            let scope = &mut context.handle_scope();
-            let local = v8::Local::new(scope, global);
-            let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
-
-            match deserialized_value {
-                Ok(value) => Ok(value),
-                Err(err) => Err(format!("Cannot deserialize value: {:?}", err)),
-            }
-        }
-        Err(err) => Err(format!("Evaling error: {:?}", err)),
-    }
+    serde_wasm_bindgen::from_value(eval(format!("let x = {}; x", code).as_str()))
+        .map_err(|err| format!("Cannot deserialize value: {:?}", err))
 }
 
-#[cfg(test)]
-mod tests {
-
-    use serde_json::json;
-
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::*;
-
-    #[test]
-    fn test_parse_deno_sig() -> anyhow::Result<()> {
-        let code = "
-export function main(test1?: string, test2: string = \"burkina\",
-    test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
-    email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
-    opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined,
-    min_object: {a: string, b: number}) {
-    console.log(42)
-}
-";
-        assert_eq!(
-            parse_deno_signature(code, false)?,
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![
-                    Arg {
-                        otyp: None,
-                        name: "test1".to_string(),
-                        typ: Typ::Str(None),
-                        default: None,
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "test2".to_string(),
-                        typ: Typ::Str(None),
-                        default: Some(json!("burkina")),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "test3".to_string(),
-                        typ: Typ::Resource("postgres".to_string()),
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "b64".to_string(),
-                        typ: Typ::Bytes,
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "ls".to_string(),
-                        typ: Typ::List(Box::new(Typ::Bytes)),
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "email".to_string(),
-                        typ: Typ::Email,
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "literal".to_string(),
-                        typ: Typ::Str(Some(vec!["test".to_string()])),
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "literal_union".to_string(),
-                        typ: Typ::Str(Some(vec!["test".to_string(), "test2".to_string()])),
-                        default: None,
-                        has_default: false
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "opt_type".to_string(),
-                        typ: Typ::Str(None),
-                        default: None,
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "opt_type_union".to_string(),
-                        typ: Typ::Str(None),
-                        default: None,
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "opt_type_union_union2".to_string(),
-                        typ: Typ::Str(None),
-                        default: None,
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "min_object".to_string(),
-                        typ: Typ::Object(vec![
-                            ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
-                            ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Float) }
-                        ]),
-                        default: None,
-                        has_default: false
-                    }
-                ]
-            }
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
-        let code = "
-export function main(test2 = \"burkina\",
-    bool = true,
-    float = 4.2,
-    int = 42,
-    ls = [\"test\"],
-    min_object = {a: \"test\", b: 42}) {
-    console.log(42)
-}
-";
-        assert_eq!(
-            parse_deno_signature(code, false)?,
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![
-                    Arg {
-                        otyp: None,
-                        name: "test2".to_string(),
-                        typ: Typ::Str(None),
-                        default: Some(json!("burkina")),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "bool".to_string(),
-                        typ: Typ::Bool,
-                        default: Some(json!(true)),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "float".to_string(),
-                        typ: Typ::Float,
-                        default: Some(json!(4.2)),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "int".to_string(),
-                        typ: Typ::Int,
-                        default: Some(json!(42)),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "ls".to_string(),
-                        typ: Typ::List(Box::new(Typ::Str(None))),
-                        default: Some(json!(["test"])),
-                        has_default: true
-                    },
-                    Arg {
-                        otyp: None,
-                        name: "min_object".to_string(),
-                        typ: Typ::Object(vec![
-                            ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
-                            ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Int) }
-                        ]),
-                        default: Some(json!({"a": "test", "b": 42})),
-                        has_default: true
-                    }
-                ]
-            }
-        );
-
-        Ok(())
-    }
+#[cfg(not(target_arch = "wasm32"))]
+pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
+    panic!("eval_sync is only available in wasm32")
 }

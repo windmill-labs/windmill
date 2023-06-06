@@ -29,7 +29,6 @@ FROM mcr.microsoft.com/vscode/devcontainers/rust:bullseye
 
 RUN apt update \
     && apt-get install -y \
-    lld \
     python3 \
     libprotobuf-dev \ 
     libnl-route-3-dev \

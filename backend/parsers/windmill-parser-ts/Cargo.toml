@@ -4,14 +4,17 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+
 [lib]
 name = "windmill_parser_ts"
 path = "./src/lib.rs"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+serde-wasm-bindgen.workspace = true
+
 [dependencies]
 windmill-parser.workspace = true
-windmill-common.workspace = true
-deno_core.workspace = true
 swc_common.workspace = true
 swc_ecma_parser.workspace = true
 swc_ecma_ast.workspace = true

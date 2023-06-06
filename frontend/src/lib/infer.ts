@@ -3,6 +3,10 @@ import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
 import { sortObject } from './utils.js'
 import { tick } from 'svelte'
+import init, { parse_deno_wasm } from 'windmill-parser-ts-wasm'
+import wasmUrl from 'windmill-parser-ts-wasm/windmill_parser_ts_wasm_bg.wasm?url'
+
+init(wasmUrl)
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
@@ -24,9 +28,7 @@ export async function inferArgs(
 				requestBody: code
 			})
 		} else if (language == 'deno') {
-			inferedSchema = await ScriptService.denoToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_deno_wasm(code))
 		} else if (language == 'go') {
 			inferedSchema = await ScriptService.goToJsonschema({
 				requestBody: code

@@ -1,10 +1,7 @@
 [build]
 rustflags = [
     "--cfg",
-    "tokio_unstable",
-    "-C",
-    "link-arg=-fuse-ld=lld",
-    "-Clink-arg=-Wl,--no-rosegment",
+    "tokio_unstable"
 ]
 incremental = true
 
