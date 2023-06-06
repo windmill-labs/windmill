@@ -377,7 +377,7 @@ async function ignoreF() {
     };
   } catch {
     return (p: string, isDirectory: boolean) =>
-      !isWhitelisted(p) && isNotWmillFile(p, isDirectory);
+      !isWhitelisted(p) && !isNotWmillFile(p, isDirectory);
   }
 }
 
