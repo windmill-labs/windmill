@@ -186,6 +186,7 @@
 						{#if flowModule.value.type === 'rawscript'}
 							{#key flowModule.id}
 								<Editor
+									folding
 									path={flowModule.value.path}
 									bind:websocketAlive
 									bind:this={editor}
