@@ -1,10 +1,10 @@
-import { ScriptService, type MainArgSignature } from '$lib/gen'
+import type { MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
 import { sortObject } from './utils.js'
 import { tick } from 'svelte'
-import init, { parse_deno_wasm } from 'windmill-parser-ts-wasm'
-import wasmUrl from 'windmill-parser-ts-wasm/windmill_parser_ts_wasm_bg.wasm?url'
+import init, { parse_deno, parse_bash, parse_go, parse_python } from 'windmill-parser-wasm'
+import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 
 init(wasmUrl)
 
@@ -24,19 +24,13 @@ export async function inferArgs(
 			code = ' '
 		}
 		if (language == 'python3') {
-			inferedSchema = await ScriptService.pythonToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
-			inferedSchema = JSON.parse(parse_deno_wasm(code))
+			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'go') {
-			inferedSchema = await ScriptService.goToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
-			inferedSchema = await ScriptService.bashToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_bash(code))
 		} else {
 			return
 		}

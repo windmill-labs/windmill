@@ -8,7 +8,7 @@ use itertools::Itertools;
 
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 
-pub fn parse_go_sig(code: &str) -> windmill_common::error::Result<MainArgSignature> {
+pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let filtered_code = filter_non_main(code);
     let file = parse_source(&filtered_code).map_err(|x| anyhow::anyhow!(x.to_string()))?;
     if let Some(func) = file.decl.iter().find_map(|x| match x {
@@ -27,13 +27,11 @@ pub fn parse_go_sig(code: &str) -> windmill_common::error::Result<MainArgSignatu
             .collect_vec();
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
     } else {
-        Err(windmill_common::error::Error::BadRequest(
-            "no main function found".to_string(),
-        ))
+        Err(anyhow::anyhow!("no main function found".to_string(),))
     }
 }
 
-pub fn parse_go_imports(code: &str) -> windmill_common::error::Result<Vec<String>> {
+pub fn parse_go_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let file =
         parse_source(filter_non_imports(code)).map_err(|x| anyhow::anyhow!(x.to_string()))?;
     let mut imports: Vec<String> = file

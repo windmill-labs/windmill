@@ -76,13 +76,6 @@ pub struct ScriptWDraft {
 
 pub fn global_service() -> Router {
     Router::new()
-        .route(
-            "/python/tojsonschema",
-            post(parse_python_code_to_jsonschema),
-        )
-        .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
-        .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
-        .route("/bash/tojsonschema", post(parse_bash_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
@@ -483,7 +476,7 @@ async fn create_script(
     if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
-                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+                windmill_parser_py_imports::parse_python_imports(&ns.content)?.join("\n")
             }
             _ => ns.content,
         };
@@ -915,21 +908,4 @@ fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
         Ok(sig) => Json(SigParsing::Valid(sig)),
         Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
     }
-}
-
-async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_py::parse_python_signature(&code))
-}
-
-async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(
-        windmill_parser_ts::parse_deno_signature(&code, false).map_err(|e| Error::ExecutionErr(e)),
-    )
-}
-async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
-}
-
-async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
 }

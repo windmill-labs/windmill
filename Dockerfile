@@ -54,7 +54,7 @@ COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
-COPY /backend/parsers/windmill-parser-py-wasm/pkg/ /backend/windmill-parser-py-wasm/pkg/
+COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"

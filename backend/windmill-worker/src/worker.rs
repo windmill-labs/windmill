@@ -1755,7 +1755,7 @@ async fn handle_flow_dependency_job(
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py::parse_python_imports(&content)?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content)?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
