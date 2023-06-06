@@ -14,6 +14,7 @@ members = [
     "./windmill-api-client",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
+    "./parsers/windmill-parser-ts-wasm",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-py",
 ]
@@ -164,4 +165,6 @@ rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.2"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.4"
+wasm-bindgen-test = "0.3.0"

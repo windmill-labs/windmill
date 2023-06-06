@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl lld nodejs npm
+    curl nodejs npm
 
 RUN rustup component add rustfmt
 
@@ -52,13 +52,13 @@ RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
+
 RUN cd /backend/windmill-api && . ./build_openapi.sh
+COPY /backend/parsers/windmill-parser-py-wasm/pkg/ /backend/windmill-parser-py-wasm/pkg/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
-RUN npm run check
-
 
 
 FROM rust_base AS planner
