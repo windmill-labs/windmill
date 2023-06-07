@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.110.0](https://github.com/windmill-labs/windmill/compare/v1.109.1...v1.110.0) (2023-06-07)
+
+
+### Features
+
+* add suggested results to prop picker ([67b05d3](https://github.com/windmill-labs/windmill/commit/67b05d38719714fd219977bee02b13b0ce1a0a77))
+* **apps:** copy paste across apps ([7f81abd](https://github.com/windmill-labs/windmill/commit/7f81abd545f0261e366963cf9ae8c41c485ee749))
+* deleting a flow step show confirmation modal with refs ([c7fac8c](https://github.com/windmill-labs/windmill/commit/c7fac8c6d282d8f513971ed05fb552c338368bde))
+* migrate ts parser to wasm ([#1686](https://github.com/windmill-labs/windmill/issues/1686)) ([c702f40](https://github.com/windmill-labs/windmill/commit/c702f40980a397319aa02de3f67176a2762651f4))
+* support custom env variables ([#1675](https://github.com/windmill-labs/windmill/issues/1675)) ([98e1fdd](https://github.com/windmill-labs/windmill/commit/98e1fdd898f916f71c4e07e1029fb828a9891bbd))
+
+
+### Bug Fixes
+
+* empty flows not return their inputs ([253fd91](https://github.com/windmill-labs/windmill/commit/253fd910249a58db4697d67233fb1b2ba558090e))
+
 ## [1.109.1](https://github.com/windmill-labs/windmill/compare/v1.109.0...v1.109.1) (2023-06-04)
 
 
