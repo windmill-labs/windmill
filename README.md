@@ -372,9 +372,10 @@ with hot-code reloading.
 
 1. Install [caddy](https://caddyserver.com)
 2. Go to `frontend/`:
-   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
-   2. In another shell `sudo caddy run --config CaddyfileRemote`
-3. Et voilà, windmill should be available at `http://localhost/`
+   1. `npm install`
+   2. `npm run generate-backend-client`
+   3. `npm run dev`
+3. Et voilà, windmill should be available at `http://localhost:3000/`
 
 ### Backend + Frontend
 

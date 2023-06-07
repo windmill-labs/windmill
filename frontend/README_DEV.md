@@ -1,5 +1,7 @@
 # Developing
 
+In the `frontend/` directory:
+
 - install the dependencies with `npm install` (or `pnpm install` or `yarn`)
 - generate the windmill client:
 
