@@ -31,6 +31,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "openbb-terminal" => "openbb[all]",
     "riskfolio" => "riskfolio-lib",
     "smb" => "pysmb",
+    "PIL" => "Pillow",
 };
 
 fn replace_import(x: String) -> String {
