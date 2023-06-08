@@ -28,18 +28,18 @@
 
 	let result: undefined = undefined
 
-	const options = {
-		responsive: true,
-		animation: false,
-		maintainAspectRatio: false
-	} as ChartOptions
-
-	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
-
 	const resolvedConfig = initConfig(
 		components['chartjscomponent'].initialData.configuration,
 		configuration
 	)
+	$: options = {
+		responsive: true,
+		animation: false,
+		maintainAspectRatio: false,
+		...(resolvedConfig.options ?? {})
+	} as ChartOptions
+
+	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}

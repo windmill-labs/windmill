@@ -781,6 +781,12 @@ export const components = {
 					fieldType: 'select',
 					selectOptions: selectOptions.chartTypeOptions,
 					value: 'pie'
+				},
+				options: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'ChartJs options object'
 				}
 			},
 			componentInput: {
