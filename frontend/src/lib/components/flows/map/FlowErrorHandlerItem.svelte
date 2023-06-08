@@ -21,12 +21,15 @@
 				schema: emptySchema(),
 				previewResult: NEVER_TESTED_THIS_FAR
 			}
-			$flowStateStore['failure'] = failureModule
+
 			$flowStore.value.failure_module = {
 				id: 'failure',
 				value: { type: 'identity' }
 			}
+			$flowStateStore['failure'] = failureModule
+
 			$selectedId = 'failure'
+			$flowStore = $flowStore
 		}
 	}
 </script>
@@ -49,7 +52,7 @@
 	<div class=" flex justify-between items-center flex-wrap">
 		<div>
 			<Icon data={faBug} class="mr-2" />
-			<span class="font-bold text-xs">Error handler</span>
+			<span class="font-bold text-xs">Error Handler</span>
 		</div>
 	</div>
 
