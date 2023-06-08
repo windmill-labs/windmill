@@ -98,30 +98,14 @@
 	}
 
 	export async function inferSchema(code: string, nlang?: 'go' | 'bash' | 'python3' | 'deno') {
-		schema = schema ?? emptySchema()
-		let isDefault: string[] = []
-		Object.entries(args).forEach(([k, v]) => {
-			if (schema.properties?.[k]?.default == v) {
-				isDefault.push(k)
-			}
-		})
+		let nschema = schema ?? emptySchema()
 
 		try {
-			await inferArgs(nlang ?? lang, code, schema)
+			await inferArgs(nlang ?? lang, code, nschema)
 			validCode = true
+			schema = nschema
 		} catch (e) {
 			validCode = false
-		}
-
-		schema = schema
-
-		isDefault
-			.filter((key) => schema.properties[key] != undefined)
-			.forEach((key) => (args[key] = schema.properties[key].default))
-		for (const key of Object.keys(args)) {
-			if (schema.properties[key] == undefined) {
-				delete args[key]
-			}
 		}
 	}
 

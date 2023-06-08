@@ -94,7 +94,7 @@
 				on:change={() => {
 					outputs?.result.set([...(value ?? [])])
 				}}
-				options={items}
+				options={Array.isArray(items) ? items : []}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
 				on:open={() => {

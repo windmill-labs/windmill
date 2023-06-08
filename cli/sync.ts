@@ -359,10 +359,10 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
   }
 };
 
-const isWhitelisted = (p: string) => {
+export const isWhitelisted = (p: string) => {
   return p == "./" || p == "" || p == "u" || p == "f" || p == "g";
 };
-async function ignoreF() {
+export async function ignoreF() {
   try {
     const ignore: {
       accepts(file: string): boolean;
@@ -736,7 +736,7 @@ async function push(
           case "folder":
             await FolderService.deleteFolder({
               workspace: workspaceId,
-              name: change.path.split("/")[1],
+              name: change.path.split(path.sep)[1],
             });
             break;
           case "resource":

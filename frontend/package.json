@@ -112,6 +112,21 @@
 			"svelte": "./dist/index.js"
 		},
 		"./assets/app.css": "./package/assets/app.css",
+		"./components/TestJobLoader.svelte": {
+			"types": "./package/components/TestJobLoader.svelte.d.ts",
+			"svelte": "./package/components/TestJobLoader.svelte",
+			"default": "./package/components/TestJobLoader.svelte"
+		},
+		"./components/common/kbd/Kbd.svelte": {
+			"types": "./package/components/common/kbd/Kbd.svelte.d.ts",
+			"svelte": "./package/components/common/kbd/Kbd.svelte",
+			"default": "./package/components/common/kbd/Kbd.svelte"
+		},
+		"./components/icons/WindmillIcon.svelte": {
+			"types": "./package/components/icons/WindmillIcon.d.ts",
+			"svelte": "./package/components/icons/WindmillIcon.svelte",
+			"default": "./package/components/icons/WindmillIcon.svelte"
+		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",
 			"svelte": "./package/components/IconedResourceType.svelte",
@@ -177,14 +192,32 @@
 			"svelte": "./package/components/SchemaViewer.svelte",
 			"default": "./package/components/SchemaViewer.svelte"
 		},
+		"./components/SchemaForm.svelte": {
+			"types": "./package/components/SchemaForm.svelte.d.ts",
+			"svelte": "./package/components/SchemaForm.svelte",
+			"default": "./package/components/SchemaForm.svelte"
+		},
 		"./components/SchemaEditor.svelte": {
 			"types": "./package/components/SchemaEditor.svelte.d.ts",
 			"svelte": "./package/components/SchemaEditor.svelte",
 			"default": "./package/components/SchemaEditor.svelte"
 		},
+		"./components/scriptEditor/LogPanel.svelte": {
+			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
+			"svelte": "./package/components/scriptEditor/LogPanel.svelte",
+			"default": "./package/components/scriptEditor/LogPanel.svelte"
+		},
 		"./common": {
 			"types": "./package/common.d.ts",
 			"default": "./package/common.js"
+		},
+		"./utils": {
+			"types": "./package/utils.d.ts",
+			"default": "./package/utils.js"
+		},
+		"./infer": {
+			"types": "./package/infer.d.ts",
+			"default": "./package/infer.js"
 		},
 		"./stores": {
 			"types": "./package/stores.d.ts",
@@ -218,6 +251,21 @@
 		">4.0": {
 			"components/IconedResourceType.svelte": [
 				"./package/components/IconedResourceType.svelte.d.ts"
+			],
+			"components/TestJobLoader.svelte": [
+				"./package/components/TestJobLoader.svelte.d.ts"
+			],
+			"components/SchemaForm.svelte": [
+				"./package/components/SchemaForm.svelte.d.ts"
+			],
+			"components/icons/WindmillIcon.svelte": [
+				"./package/components/icons/WindmillIcon.svelte.d.ts"
+			],
+			"components/scriptEditor/LogPanel.svelte": [
+				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
+			],
+			"components/common/kbd/Kbd.svelte": [
+				"./package/components/common/kbd/Kbd.svelte.d.ts"
 			],
 			"components/common/drawer/Drawer.svelte": [
 				"./package/components/common/drawer/Drawer.svelte.d.ts"
@@ -257,6 +305,12 @@
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"utils": [
+				"./package/utils.d.ts"
+			],
+			"infer": [
+				"./package/infer.d.ts"
 			],
 			"common": [
 				"./package/common.d.ts"

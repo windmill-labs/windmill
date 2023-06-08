@@ -177,6 +177,19 @@
     },
     "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')"
   },
+  "03e9c9d8dd74c75b4608b49cad79f0a9572c7e8b48d8e373c0342b75b843d123": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2"
+  },
   "04a15674cf66f2822085e65ca33ee42b8e7f3f9d63ffac0585a12368d0322252": {
     "describe": {
       "columns": [
@@ -2581,6 +2594,27 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)"
+  },
+  "62cd69e3dc0f8757db3481d078921f4722bbc93d52e05656b82cb42ba9803ef6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "username",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr WHERE email = $1 AND workspace_id = $2 RETURNING username"
   },
   "637ead7701775609c772c9985450273b942202cdf9017ce6b5ba612e66ce3875": {
     "describe": {
