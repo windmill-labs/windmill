@@ -61,6 +61,9 @@
 	}
 
 	async function createGraph() {
+		// console.log(JSON.stringify(modules))
+		// return
+
 		if (modules) {
 			idGenerator = createIdGenerator()
 		} else {

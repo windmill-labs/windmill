@@ -36,10 +36,10 @@
 	loadFilterFromUrl()
 
 	function loadFilterFromUrl() {
-		console.log('LOAD')
 		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
 		selectedFilter = queryValue
 	}
+
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
