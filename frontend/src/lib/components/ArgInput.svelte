@@ -92,6 +92,12 @@
 
 	$: computeDefaultValue(value, inputCat, defaultValue)
 
+	$: defaultValue != undefined && handleDefaultValueChange()
+
+	function handleDefaultValueChange() {
+		value = defaultValue
+	}
+
 	function evalValueToRaw() {
 		rawValue = inputCat === 'object' ? JSON.stringify(value, null, 2) : undefined
 	}

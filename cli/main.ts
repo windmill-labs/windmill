@@ -17,6 +17,7 @@ import pull from "./pull.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
 import sync from "./sync.ts";
+import dev from "./dev.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
@@ -55,6 +56,7 @@ let command: any = new Command()
   .command("variable", variable)
   .command("hub", hub)
   .command("folder", folder)
+  .command("dev", dev)
   .command("sync", sync)
   .command("version", "Show version information")
   .action(async (opts) => {

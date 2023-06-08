@@ -1440,15 +1440,20 @@ async fn delete_workspace_user(
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
     let username = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
-        email_to_delete
+        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2 RETURNING username",
+        email_to_delete,
+        &w_id
     )
     .fetch_one(&mut tx)
     .await?;
 
-    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-        .execute(&mut tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+        &username,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
 
     audit_log(
         &mut tx,

@@ -16,16 +16,20 @@ export {
 } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 export { CompletionsCommand } from "https://deno.land/x/cliffy@v0.25.7/command/completions/mod.ts";
 // std
-export * as path from "https://deno.land/std@0.176.0/path/mod.ts";
-export { ensureDir } from "https://deno.land/std@0.176.0/fs/ensure_dir.ts";
+export * as path from "https://deno.land/std@0.184.0/path/mod.ts";
+export { ensureDir } from "https://deno.land/std@0.184.0/fs/ensure_dir.ts";
 export {
   copy,
   readAll,
   readerFromStreamReader,
-} from "https://deno.land/std@0.176.0/streams/mod.ts";
-export { DelimiterStream } from "https://deno.land/std@0.176.0/streams/mod.ts";
-export { iterateReader } from "https://deno.land/std@0.176.0/streams/iterate_reader.ts";
-export { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
+} from "https://deno.land/std@0.184.0/streams/mod.ts";
+export { Application, Router } from "https://deno.land/x/oak@v12.5.0/mod.ts";
+
+export { getPort } from "https://deno.land/x/getport@v2.1.2/mod.ts";
+
+export { DelimiterStream } from "https://deno.land/std@0.184.0/streams/mod.ts";
+export { iterateReader } from "https://deno.land/std@0.184.0/streams/iterate_reader.ts";
+export { writeAllSync } from "https://deno.land/std@0.184.0/streams/mod.ts";
 
 // other
 export { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
