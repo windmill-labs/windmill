@@ -1112,6 +1112,13 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					tooltip: 'Configure all columns as Editable by users'
 				},
+				multipleSelectable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true,
+					tooltip: 'Make multiple rows selectable at once'
+				},
 				pagination: {
 					type: 'static',
 					fieldType: 'boolean',
