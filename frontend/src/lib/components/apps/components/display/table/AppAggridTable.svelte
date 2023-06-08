@@ -33,6 +33,7 @@
 	let outputs = initOutput($worldStore, id, {
 		selectedRowIndex: 0,
 		selectedRow: {},
+		selectedRows: [] as any[],
 		result: [] as Record<number, any>[],
 		loading: false,
 		page: 0,
@@ -42,26 +43,29 @@
 
 	let selectedRowIndex = -1
 
-	function toggleRow(rowIndex: number) {
-		if (selectedRowIndex !== rowIndex && result) {
+	function toggleRow(row: any) {
+		let rowIndex = row.rowIndex
+		let data = row.data
+		if (selectedRowIndex !== rowIndex) {
 			selectedRowIndex = rowIndex
-			outputs?.selectedRow.set(result[rowIndex])
+			outputs?.selectedRow.set(data)
 			outputs?.selectedRowIndex.set(rowIndex)
 		}
+	}
+
+	function toggleRows(rows: any[]) {
+		console.log(rows)
+		if (rows.length === 0) {
+			outputs?.selectedRows.set([])
+		}
+		toggleRow(rows[0])
+		outputs?.selectedRows.set(rows.map((x) => x.data))
 	}
 
 	let mounted = false
 	onMount(() => {
 		mounted = true
 	})
-
-	$: selectedRowIndex === -1 &&
-		Array.isArray(result) &&
-		result.length > 0 &&
-		// We need to wait until the component is mounted so the world is created
-		mounted &&
-		outputs &&
-		toggleRow(0)
 
 	$: outputs?.result?.set(result ?? [])
 
@@ -119,12 +123,20 @@
 							onPaginationChanged={(event) => {
 								outputs?.page.set(event.api.paginationGetCurrentPage())
 							}}
-							rowSelection="single"
+							rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
 							suppressRowDeselection={true}
+							rowMultiSelectWithClick={resolvedConfig?.multipleSelectable ? true : undefined}
 							onSelectionChanged={(e) => {
-								const row = e.api.getSelectedNodes()?.[0]?.rowIndex
-								if (row != undefined) {
-									toggleRow(row)
+								if (resolvedConfig?.multipleSelectable) {
+									const rows = e.api.getSelectedNodes()
+									if (rows != undefined) {
+										toggleRows(rows)
+									}
+								} else {
+									const row = e.api.getSelectedNodes()?.[0]
+									if (row != undefined) {
+										toggleRow(row)
+									}
 								}
 							}}
 							onGridReady={(e) => {
