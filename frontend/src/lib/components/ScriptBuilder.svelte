@@ -409,6 +409,7 @@
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Custom env variables<Tooltip
+					documentationLink="https://docs.windmill.dev/docs/reference#custom-environment-variables"
 						>Additional static custom env variables to pass to the script.</Tooltip
 					></h2
 				>
@@ -562,7 +563,7 @@
 						Script kind &nbsp;
 						<Tooltip>
 							Tag this script's purpose within flows such that it is available as the corresponding
-							action.
+							action. 
 						</Tooltip>
 					</h2>
 					<div class="flex flex-wrap gap-2">
