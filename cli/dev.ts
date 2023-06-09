@@ -158,7 +158,11 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
     });
 
     const port = getPort(3000);
-    console.log("Started dev server at http://localhost:" + port);
+    console.log(
+      "Started dev server at http://localhost:" +
+        port +
+        (port == 3000 ? "/" : "/?port=" + port)
+    );
     console.log(
       "Dev server will automatically point to the last script edited locally"
     );
