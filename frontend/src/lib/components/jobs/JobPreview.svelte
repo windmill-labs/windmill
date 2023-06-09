@@ -113,7 +113,12 @@
 					<DisplayResult {result} disableExpand />
 				{:else if job && `running` in job ? job.running : false}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
-					<LogViewer content={job?.logs} isLoading />
+					<LogViewer
+						duration={job?.['duration_ms']}
+						mem={job?.['mem_peak']}
+						content={job?.logs}
+						isLoading
+					/>
 				{/if}
 			</div>
 		</div>

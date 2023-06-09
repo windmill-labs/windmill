@@ -338,7 +338,12 @@
 					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
-								<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />
+								<LogViewer
+									duration={job?.['duration_ms']}
+									mem={job?.['mem_peak']}
+									isLoading={!(job && 'logs' in job && job.logs)}
+									content={job?.logs}
+								/>
 							</div>
 						{:else if viewTab == 'code'}
 							{#if job && 'raw_code' in job && job.raw_code}
