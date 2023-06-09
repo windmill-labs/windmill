@@ -1,10 +1,5 @@
 {
   "python.analysis.typeCheckingMode": "basic",
-  "rust-analyzer.linkedProjects": [
-    "./windmill-common/Cargo.toml",
-    "./parsers/windmill-parser-ts-wasm/Cargo.toml",
-    "./parsers/windmill-parser-ts-wasm/Cargo.toml",
-    "./parsers/windmill-parser-ts-wasm/Cargo.toml"
-  ],
+  "rust-analyzer.linkedProjects": ["./windmill-common/Cargo.toml"],
   "rust-analyzer.showUnlinkedFileNotification": false
 }
