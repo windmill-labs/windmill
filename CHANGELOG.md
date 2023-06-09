@@ -7,8 +7,6 @@
 ### Features
 
 * wmill dev v0 ([ee77bee](https://github.com/windmill-labs/windmill/commit/ee77bee80f3da75f0be3ab6586f4fabc140bf760))
-* wmill dev v0 ([afc646c](https://github.com/windmill-labs/windmill/commit/afc646c80fab5bce5298f6802aa35a3b4591c19d))
-
 
 ### Bug Fixes
 
