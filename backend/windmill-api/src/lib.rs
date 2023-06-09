@@ -81,6 +81,7 @@ lazy_static::lazy_static! {
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
+        .danger_accept_invalid_certs(std::env::var("DANGER_ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
     pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
