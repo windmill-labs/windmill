@@ -130,27 +130,27 @@
 		loading={!job}
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
-	{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-		<ActionRow applyPageWidth>
-			<svelte:fragment slot="left">
-				{@const isScript = job?.job_kind === 'script'}
-				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<Dropdown
-						btnClasses="!text-red-500"
-						placement="bottom-start"
-						dropdownItems={[
-							{
-								displayName: 'delete log and results (admin only)',
-								icon: faTrash,
-								action: () => {
-									job?.id && deleteCompletedJob(job.id)
-								}
+	<ActionRow applyPageWidth>
+		<svelte:fragment slot="left">
+			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+				<Dropdown
+					btnClasses="!text-red-500"
+					placement="bottom-start"
+					dropdownItems={[
+						{
+							displayName: 'delete log and results (admin only)',
+							icon: faTrash,
+							action: () => {
+								job?.id && deleteCompletedJob(job.id)
 							}
-						]}
-					>
-						delete
-					</Dropdown>
+						}
+					]}
+				>
+					delete
+				</Dropdown>
+				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 					<Button
 						href={runsHref}
 						variant="border"
@@ -161,45 +161,47 @@
 						View runs
 					</Button>
 				{/if}
-			</svelte:fragment>
-			<svelte:fragment slot="right">
-				{@const stem = `/${job?.job_kind}s`}
-				{@const isScript = job?.job_kind === 'script'}
-				{@const route = isScript ? job?.script_hash : job?.script_path}
-				{@const isRunning = job && 'running' in job && job.running}
-				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-				{#if isRunning}
-					{#if !forceCancel}
-						<Button
-							color="red"
-							size="md"
-							startIcon={{ icon: faTimesCircle }}
-							on:click|once={() => {
-								if (job?.id) {
-									cancelJob(job?.id)
-									setTimeout(() => {
-										forceCancel = true
-									}, 3001)
-								}
-							}}
-						>
-							Cancel
-						</Button>
-					{:else}
-						<Button
-							color="red"
-							size="md"
-							startIcon={{ icon: faTimesCircle }}
-							on:click|once={() => {
-								if (job?.id) {
-									cancelJob(job?.id)
-								}
-							}}
-						>
-							Force Cancel
-						</Button>
-					{/if}
+			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			{@const stem = `/${job?.job_kind}s`}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const route = isScript ? job?.script_hash : job?.script_path}
+			{@const isRunning = job && 'running' in job && job.running}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if isRunning}
+				{#if !forceCancel}
+					<Button
+						color="red"
+						size="md"
+						startIcon={{ icon: faTimesCircle }}
+						on:click|once={() => {
+							if (job?.id) {
+								cancelJob(job?.id)
+								setTimeout(() => {
+									forceCancel = true
+								}, 3001)
+							}
+						}}
+					>
+						Cancel
+					</Button>
+				{:else}
+					<Button
+						color="red"
+						size="md"
+						startIcon={{ icon: faTimesCircle }}
+						on:click|once={() => {
+							if (job?.id) {
+								cancelJob(job?.id)
+							}
+						}}
+					>
+						Force Cancel
+					</Button>
 				{/if}
+			{/if}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
 						$runFormStore = job?.args
@@ -209,6 +211,8 @@
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
 				>
+			{/if}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
@@ -225,9 +229,9 @@
 				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
 					View {job?.job_kind}
 				</Button>
-			</svelte:fragment>
-		</ActionRow>
-	{/if}
+			{/if}
+		</svelte:fragment>
+	</ActionRow>
 	<CenteredPage>
 		<h1 class="flex flex-row flex-wrap justify-between items-center gap-4 py-6">
 			<div>
