@@ -7,10 +7,12 @@
   import Button from 'windmill-components/components/common/button/Button.svelte'
   import { emptySchema, getModifierKey } from 'windmill-components/utils'
   import { inferArgs } from 'windmill-components/infer'
+	import github from 'svelte-highlight/styles/github'
 
-  import type { CompletedJob, Job, Preview } from 'windmill-components/package/gen';
   import { Pane, Splitpanes} from 'svelte-splitpanes'
   import { faPlay } from '@fortawesome/free-solid-svg-icons'
+  import { CompletedJob, Job, JobService } from 'windmill-client'
+  import { workspaceStore } from 'windmill-components/stores';
 
   let testJobLoader: TestJobLoader
 
@@ -22,11 +24,11 @@
   let testIsLoading = false
   let testJob: Job | undefined
   let pastPreviews: CompletedJob[] = []
-  let lang = 'deno' as Preview.language
   let validCode = true
 
+  type LastEdit = { content: string; path: string; language: string, workspace: string, username: string};
 
-  let currentScript: {path: string, content: string} | undefined = undefined
+  let currentScript: LastEdit | undefined = undefined
 
   let schema = emptySchema()
   const href = window.location.href;
@@ -54,30 +56,38 @@
   });
 
   function runTest() {
-		testJobLoader.runPreview(path, code, lang, args,)
+    $workspaceStore = currentScript.workspace
+    //@ts-ignore
+		testJobLoader.runPreview(currentScript.path, currentScript.content, currentScript.language, args, undefined)
 	}
 
   async function loadPastTests(): Promise<void> {
 		pastPreviews = await JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: currentScript.workspace,
 			jobKinds: 'preview',
-			createdBy: $userStore?.username,
-			scriptPathExact: path
+			createdBy: currentScript.username,
+			scriptPathExact: currentScript.path,
 		})
 	}
 
-
+	function onKeyDown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+			event.preventDefault()
+			runTest()
+		}
+	}
 
   let lastPath = undefined
-  async function replaceScript({path, content, language}: {path: string, content: string, language: "deno" | "python3" | "go" | "bash"}) {
-    currentScript = {path, content}
-    if (lastPath !== path) {
+  async function replaceScript(LastEdit: LastEdit) {
+    currentScript = LastEdit
+    if (lastPath !== LastEdit.path) {
       schema = emptySchema()
     }
     try {
-    await inferArgs(language, content, schema )
+    //@ts-ignore
+    await inferArgs(LastEdit.language, LastEdit.content, schema )
     schema = schema
-    lastPath = path
+    lastPath = LastEdit.path
     validCode = true
     } catch (e) {
       console.error(e)
@@ -87,6 +97,8 @@
   
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
+
 <TestJobLoader
 	on:done={loadPastTests}
 	bind:this={testJobLoader}
@@ -95,9 +107,13 @@
 />
 
 
+<svelte:head>
+	{@html github}
+</svelte:head>
+
 <main class="h-screen w-full">
   <div class="flex flex-col h-full">
-    <div class="text-center w-full text-lg truncate py-1">{currentScript?.path ?? 'Not editing a script'}</div>
+    <div class="text-center w-full text-lg truncate py-1">{currentScript?.path ?? 'Not editing a script'} {currentScript?.language ?? ''}</div>
     {#if !validCode}
       <div class="text-center w-full text-lg truncate py-1 text-red-500">Invalid code</div>
     {/if}
@@ -115,6 +131,7 @@
         </Button>
       {:else}
         <Button
+          disabled={currentScript === undefined}
           color="dark"
           on:click={() => {
             runTest()
@@ -144,7 +161,7 @@
         </div>
       </Pane>
       <Pane size={67}>
-        <LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
+        <LogPanel lang={currentScript?.language} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
       </Pane>
     </Splitpanes>
   </div>
