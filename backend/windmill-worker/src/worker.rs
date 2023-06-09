@@ -175,8 +175,9 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
-    static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
+    pub static ref NO_PROXY: Option<String> = std::env::var("no_proxy").ok().or(std::env::var("NO_PROXY").ok());
+    pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
+    pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
@@ -1300,6 +1301,9 @@ mount {{
     }
     if let Some(ref env) = *HTTP_PROXY {
         envs.insert("HTTP_PROXY".to_string(), env.to_string());
+    }
+    if let Some(ref env) = *NO_PROXY {
+        envs.insert("NO_PROXY".to_string(), env.to_string());
     }
 
     let result: error::Result<serde_json::Value> = match language {

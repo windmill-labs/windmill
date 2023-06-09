@@ -43,7 +43,6 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 lazy_static::lazy_static! {

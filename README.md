@@ -364,7 +364,8 @@ it being synced automatically everyday.
 | REQUEST_SIZE_LIMIT                  | 2097152 (2MB)                              | Max request size which impact the maximum size of resources and payload size of job args                                                                                                           | Server                |
 | ACCEPT_INVALID_CERTS                | false                                      | Accept invalid certificates, including self-signed and expired certificates                                                                                                                        | Server                |
 | HTTP_PROXY                          | None                                       | http_proxy                                                                                                                                                                                         | Server + Worker       |
-| HTTPS_PROXY                         | false                                      | https_proxy                                                                                                                                                                                        | Server + Worker       |
+| HTTPS_PROXY                         | None                                       | https_proxy                                                                                                                                                                                        | Server + Worker       |
+| NO_PROXY                            | None                                       | no_proxy                                                                                                                                                                                           | Server + Worker       |
 
 ## Run a local dev setup
 
