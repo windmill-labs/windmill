@@ -16,7 +16,6 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const { default: readFileSync } = await import("./bundle.js");
   const username = (await UserService.whoami({ workspace: workspace.name }))
     .username;
 
@@ -137,12 +136,15 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
       } else {
         console.log("Serving " + path);
         if (path == "/") {
-          path = "dist/index.html";
+          path = "devassets/index.html";
         } else {
-          path = "dist" + path;
+          path = "devassets" + path;
         }
         try {
-          ctx.response.body = readFileSync(path);
+          const FILE_URL = new URL(path, import.meta.url).href;
+          console.log(FILE_URL);
+          const resp = await fetch(FILE_URL);
+          ctx.response.body = resp.body;
           ctx.response.headers.set(
             "Content-Type",
             mimelite.getType(path.split(".").pop() ?? "txt") ?? "text/plain"
