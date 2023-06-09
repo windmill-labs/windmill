@@ -119,13 +119,19 @@
 							columnDefs={resolvedConfig?.columnDefs}
 							pagination={resolvedConfig?.pagination}
 							paginationAutoPageSize={resolvedConfig?.pagination}
-							defaultColDef={{ flex: 1, editable: resolvedConfig?.allEditable, onCellValueChanged }}
+							defaultColDef={{
+								flex: resolvedConfig.flex ? 1 : 0,
+								editable: resolvedConfig?.allEditable,
+								onCellValueChanged
+							}}
 							onPaginationChanged={(event) => {
 								outputs?.page.set(event.api.paginationGetCurrentPage())
 							}}
 							rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
 							suppressRowDeselection={true}
-							rowMultiSelectWithClick={resolvedConfig?.multipleSelectable ? true : undefined}
+							rowMultiSelectWithClick={resolvedConfig?.multipleSelectable
+								? resolvedConfig.rowMultiselectWithClick
+								: undefined}
 							onSelectionChanged={(e) => {
 								if (resolvedConfig?.multipleSelectable) {
 									const rows = e.api.getSelectedNodes()

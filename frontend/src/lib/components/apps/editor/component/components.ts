@@ -1105,6 +1105,13 @@ Hello \${ctx.username}
 					subFieldType: 'object',
 					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
 				} as StaticAppInput,
+				flex: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'default col flex is 1 (see ag-grid docs)'
+				},
 				allEditable: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -1118,6 +1125,13 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true,
 					tooltip: 'Make multiple rows selectable at once'
+				},
+				rowMultiselectWithClick: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'If multiple selectable, allow multiselect with click'
 				},
 				pagination: {
 					type: 'static',
