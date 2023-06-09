@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.111.1](https://github.com/windmill-labs/windmill/compare/v1.111.0...v1.111.1) (2023-06-09)
+
+
+### Bug Fixes
+
+* add cancel button to flowpreview ([6b50a2b](https://github.com/windmill-labs/windmill/commit/6b50a2bb6d5076919b28569ce498068fae042813))
+
 ## [1.111.0](https://github.com/windmill-labs/windmill/compare/v1.110.0...v1.111.0) (2023-06-09)
 
 
