@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.111.3](https://github.com/windmill-labs/windmill/compare/v1.111.2...v1.111.3) (2023-06-09)
+
+
+### Bug Fixes
+
+* add NO_PROXY and make pip respect proxy args ([b6a037a](https://github.com/windmill-labs/windmill/commit/b6a037aa049ae71924df6c9a7b8abf2b9d5e9210))
+
 ## [1.111.2](https://github.com/windmill-labs/windmill/compare/v1.111.1...v1.111.2) (2023-06-09)
 
 
