@@ -101,7 +101,12 @@
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10}>
-				<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
+				<LogViewer
+					duration={testJob?.['duration_ms']}
+					mem={testJob?.['mem_peak']}
+					content={testJob?.logs}
+					isLoading={testIsLoading}
+				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-gray-600">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}

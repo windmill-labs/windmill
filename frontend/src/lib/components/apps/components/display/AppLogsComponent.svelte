@@ -61,7 +61,12 @@
 				customCss?.container?.class
 			)}
 		>
-			<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
+			<LogViewer
+				duration={testJob?.['duration_ms']}
+				mem={testJob?.['mem_peak']}
+				content={testJob?.logs}
+				isLoading={testIsLoading}
+			/>
 		</div>
 	</div>
 </RunnableWrapper>
