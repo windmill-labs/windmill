@@ -340,7 +340,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bnan\b', re.IGNORECASE)
+replace_nan = re.compile(r'\bNaN\b')
 try:
     res = inner_script.main(**args)
     typ = type(res)
