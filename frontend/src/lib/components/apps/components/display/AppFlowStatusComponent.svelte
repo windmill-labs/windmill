@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'flowstatuscomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -59,7 +59,7 @@
 			)}
 		>
 			{#if jobId}
-				<FlowStatusViewer {jobId} />
+				<FlowStatusViewer workspaceId={workspace} {jobId} />
 			{:else}
 				<span class="text-gray-600 text-xs">No flow</span>
 			{/if}
