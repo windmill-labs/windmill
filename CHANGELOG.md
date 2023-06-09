@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.111.0](https://github.com/windmill-labs/windmill/compare/v1.110.0...v1.111.0) (2023-06-09)
+
+
+### Features
+
+* wmill dev v0 ([ee77bee](https://github.com/windmill-labs/windmill/commit/ee77bee80f3da75f0be3ab6586f4fabc140bf760))
+* wmill dev v0 ([afc646c](https://github.com/windmill-labs/windmill/commit/afc646c80fab5bce5298f6802aa35a3b4591c19d))
+
+
+### Bug Fixes
+
+* be more specific about replacing nan in python deser ([9cd73ab](https://github.com/windmill-labs/windmill/commit/9cd73ab32bdc64029445aad4bae634e945393923))
+
 ## [1.110.0](https://github.com/windmill-labs/windmill/compare/v1.109.1...v1.110.0) (2023-06-07)
 
 
