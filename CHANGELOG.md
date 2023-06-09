@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.111.2](https://github.com/windmill-labs/windmill/compare/v1.111.1...v1.111.2) (2023-06-09)
+
+
+### Bug Fixes
+
+* add job execution time and mem everywhere applicable ([98d6b21](https://github.com/windmill-labs/windmill/commit/98d6b21b309ac5d7f2fb8677f69ab2ea66c560d7))
+* add more options to aggrid ([2e190f3](https://github.com/windmill-labs/windmill/commit/2e190f3c0b2a28f1ec0d69300684734458930096))
+* add support for http_proxy and https_proxy ([67b3b06](https://github.com/windmill-labs/windmill/commit/67b3b0635b4e04eefdd1f23081a1e04d9818ff5c))
+* toggle self-signed certs support in oauth2 using env variable ACCEPT_INVALID_CERTS ([#1694](https://github.com/windmill-labs/windmill/issues/1694)) ([bfe88de](https://github.com/windmill-labs/windmill/commit/bfe88def346e5de14f68104c6d8ea138d63ac83e))
+
 ## [1.111.1](https://github.com/windmill-labs/windmill/compare/v1.111.0...v1.111.1) (2023-06-09)
 
 
