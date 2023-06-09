@@ -29,5 +29,8 @@
     "vite": "^4.3.9",
     "windmill-components": "^1.109.8",
     "windmill-parser-wasm": "file:../backend/parsers/windmill-parser-wasm/pkg"
+  },
+  "dependencies": {
+    "windmill-client": "^0.3.1"
   }
 }

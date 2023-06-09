@@ -1,12 +1,23 @@
 import getPort from "https://deno.land/x/getport@v2.1.2/mod.ts";
-import { Application, Command, Router, log, path } from "./deps.ts";
+import {
+  Application,
+  Command,
+  Router,
+  UserService,
+  log,
+  path,
+} from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
+import { mimelite } from "https://deno.land/x/mimetypes@v1.0.0/mod.ts";
 
 async function dev(opts: GlobalOptions & { filter?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+
+  const username = (await UserService.whoami({ workspace: workspace.name }))
+    .username;
 
   log.info("Started dev mode");
   let currentLastEdit: LastEdit | undefined = undefined;
@@ -17,7 +28,7 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
     const ignore = await ignoreF();
 
     for await (const event of watcher) {
-      log.debug(">>>> event", event);
+      log.info(">>>> event", event);
       // Example event: { kind: "create", paths: [ "/home/alice/deno/foo.txt" ] }
       const paths = event.paths.filter(
         (path) =>
@@ -26,13 +37,15 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
           path.endsWith(".py") ||
           path.endsWith(".sh")
       );
+      if (paths.length == 0) {
+        return;
+      }
       const cpath = (await Deno.realPath(paths[0])).replace(
         base + path.sep,
         ""
       );
       console.log("Detected change in " + cpath);
       if (!ignore(cpath, false)) {
-        console.log("FOO");
         const content = await Deno.readTextFile(cpath);
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
@@ -45,14 +58,26 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
             : ext == "go"
             ? "go"
             : "bash";
-        currentLastEdit = { content, path: wmPath, language: lang };
+        currentLastEdit = {
+          content,
+          path: wmPath,
+          language: lang,
+          workspace: workspace.workspaceId,
+          username,
+        };
         broadcast_changes(currentLastEdit);
         log.info("Updated " + wmPath);
       }
     }
   }
 
-  type LastEdit = { content: string; path: string; language?: string };
+  type LastEdit = {
+    content: string;
+    path: string;
+    language: string;
+    workspace: string;
+    username: string;
+  };
 
   const connectedClients = new Set<WebSocket>();
 
@@ -84,28 +109,51 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
     });
 
     app.use(router.routes());
+    app.use(router.allowedMethods());
     app.use(async (ctx) => {
       const req = ctx.request;
-      const path = new URL(req.url).pathname;
+      const url = new URL(req.url);
+      let path = url.pathname;
       if (path.startsWith("/api")) {
-        console.log("Proxying to " + workspace.remote + path);
-        const proxyRes = await fetch(
-          workspace.remote.substring(0, workspace.remote.length - 1) + path,
-          {
-            headers: {
-              Authorization: "Bearer " + workspace.token,
-            },
-            method: req.method,
-            body: await req.body().value,
-          }
-        );
+        const fpath =
+          workspace.remote.substring(0, workspace.remote.length - 1) +
+          path +
+          "?" +
+          url.searchParams.toString();
+        console.log(fpath);
+        console.log("Proxying to " + fpath);
+        const proxyRes = await fetch(fpath, {
+          headers: {
+            Authorization: "Bearer " + workspace.token,
+            ...Object.fromEntries(req.headers.entries()),
+          },
+          method: req.method,
+          body: JSON.stringify(await req.body().value),
+        });
         ctx.response.body = proxyRes.body;
         ctx.response.status = proxyRes.status;
+        ctx.response.headers = proxyRes.headers;
       } else {
-        await ctx.send({
-          root: `${Deno.cwd()}/`,
-          index: "public/index.html",
-        });
+        console.log("Serving " + path);
+        if (path == "/") {
+          path = "devassets/index.html";
+        } else {
+          path = "devassets" + path;
+        }
+        try {
+          const FILE_URL = new URL(path, import.meta.url).href;
+          console.log(FILE_URL);
+          const resp = await fetch(FILE_URL);
+          ctx.response.body = resp.body;
+          ctx.response.headers.set(
+            "Content-Type",
+            mimelite.getType(path.split(".").pop() ?? "txt") ?? "text/plain"
+          );
+        } catch (e) {
+          console.log(`${path}: ${e}`);
+          ctx.response.body = "404";
+          ctx.response.status = 404;
+        }
       }
     });
 
