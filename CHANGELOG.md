@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.112.0](https://github.com/windmill-labs/windmill/compare/v1.111.3...v1.112.0) (2023-06-10)
+
+
+### Features
+
+* local dev page on the web and compatible with vscode extension ([8342ed8](https://github.com/windmill-labs/windmill/commit/8342ed855b5d8576760b6df7efa10ef299615211))
+
+
+### Bug Fixes
+
+* pip install repsect proxy settings ([ebb6311](https://github.com/windmill-labs/windmill/commit/ebb631190d3cf537d82c11b11e892afbfd16e4ed))
+* use app for dev setup directly ([8b6e5a3](https://github.com/windmill-labs/windmill/commit/8b6e5a347e13311637f4e4f4205a5d3f758e8445))
+
 ## [1.111.3](https://github.com/windmill-labs/windmill/compare/v1.111.2...v1.111.3) (2023-06-09)
 
 
