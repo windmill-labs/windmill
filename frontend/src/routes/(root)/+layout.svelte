@@ -1,20 +1,20 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { SettingsService, UserService, WorkspaceService } from '$lib/gen'
+	import { OpenAPI, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
-	import {
-		enterpriseLicense,
-		superadmin,
-		userStore,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+
+	let token = $page.url.searchParams.get('wm_token') ?? undefined
+	if (token) {
+		OpenAPI.WITH_CREDENTIALS = true
+		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+	}
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -45,10 +45,6 @@
 			if ($workspaceStore) {
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
-				} else if ($superadmin) {
-					console.log(
-						`You are a superadmin, you can go wherever you please, even at ${$workspaceStore}`
-					)
 				} else {
 					$userStore = await getUserExt($workspaceStore)
 					if (!$userStore) {

@@ -6,7 +6,7 @@
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, getModifierKey } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -27,8 +27,6 @@
 		content: string
 		path: string
 		language: Preview.language
-		workspace: string
-		username: string
 	}
 
 	let currentScript: LastEdit | undefined = undefined
@@ -41,14 +39,16 @@
 	const port = searchParams?.get('port') || '3001'
 	const socket = new WebSocket(`ws://localhost:${port}/ws`)
 
+	let lm: any = undefined
 	window.addEventListener(
 		'message',
 		(event) => {
-			if (event.type == 'runTest') {
+			lm = event.data
+			if (event.data.type == 'runTest') {
 				runTest()
 				return
 			}
-			replaceData(event.data)
+			replaceScript(event.data)
 		},
 		false
 	)
@@ -72,7 +72,6 @@
 		if (!currentScript) {
 			return
 		}
-		$workspaceStore = currentScript.workspace
 		//@ts-ignore
 		testJobLoader.runPreview(
 			currentScript.path,
@@ -89,9 +88,9 @@
 		}
 		console.log('Loading past tests')
 		pastPreviews = await JobService.listCompletedJobs({
-			workspace: currentScript.workspace,
+			workspace: $workspaceStore!,
 			jobKinds: 'preview',
-			createdBy: currentScript.username.split('@')[0].toLowerCase(),
+			createdBy: $userStore?.username,
 			scriptPathExact: currentScript.path
 		})
 	}
@@ -104,15 +103,15 @@
 	}
 
 	let lastPath: string | undefined = undefined
-	async function replaceScript(LastEdit: LastEdit) {
-		currentScript = LastEdit
-		if (lastPath !== LastEdit.path) {
+	async function replaceScript(lastEdit: LastEdit) {
+		currentScript = lastEdit
+		if (lastPath !== lastEdit.path) {
 			schema = emptySchema()
 		}
 		try {
-			await inferArgs(LastEdit.language, LastEdit.content, schema)
+			await inferArgs(lastEdit.language, lastEdit.content, schema)
 			schema = schema
-			lastPath = LastEdit.path
+			lastPath = lastEdit.path
 			validCode = true
 		} catch (e) {
 			console.error(e)

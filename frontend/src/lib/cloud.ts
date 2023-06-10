@@ -31,12 +31,12 @@ if (BROWSER) {
 			const workspace = get(workspaceStore)
 			const user = get(userStore)
 
-			if (workspace && user && !user.is_super_admin && !user.is_admin) {
+			if (workspace && user) {
 				userStore.set(await getUserExt(workspace))
 				console.log('refreshed user')
 			}
 		} catch (e) {
 			console.error('Could not refresh user', e)
 		}
-	}, 30000)
+	}, 300000)
 }
