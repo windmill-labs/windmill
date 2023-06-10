@@ -117,6 +117,7 @@ pub async fn pip_compile(
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
+
     let child = Command::new("pip-compile")
         .current_dir(job_dir)
         .args(args)
@@ -577,9 +578,20 @@ pub async fn handle_python_reqs(
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 args.extend(["--trusted-host", &host]);
             }
+            let mut envs = vec![("PATH", PATH_ENV.as_str())];
+            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+                envs.push(("HTTP_PROXY", http_proxy));
+            }
+            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+                envs.push(("HTTPS_PROXY", https_proxy));
+            }
+            if let Some(no_proxy) = NO_PROXY.as_ref() {
+                envs.push(("NO_PROXY", no_proxy));
+            }
+
             Command::new(PYTHON_PATH.as_str())
                 .env_clear()
-                .env("PATH", PATH_ENV.as_str())
+                .envs(envs)
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
