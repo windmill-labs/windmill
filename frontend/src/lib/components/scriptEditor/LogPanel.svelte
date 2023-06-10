@@ -20,7 +20,7 @@
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let lang: Preview.language
+	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
@@ -149,7 +149,11 @@
 											})
 										).raw_code
 
-										openDrawer({ mode: lang, content: String(code), title: `Code ${lang}` })
+										openDrawer({
+											mode: lang ?? 'plain',
+											content: String(code),
+											title: `Code ${lang}`
+										})
 									}}
 								>
 									View code

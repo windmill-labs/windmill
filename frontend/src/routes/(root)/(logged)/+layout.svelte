@@ -148,6 +148,8 @@
 			isCollapsed = false
 		}
 	}
+
+	let devOnly = $page.url.pathname.startsWith('/scripts/dev')
 </script>
 
 <svelte:window bind:innerWidth />
@@ -166,7 +168,11 @@
 	{/if}
 	<div>
 		<div
-			class={classNames('relative md:hidden', menuOpen ? 'z-40' : 'pointer-events-none')}
+			class={classNames(
+				'relative md:hidden',
+				menuOpen ? 'z-40' : 'pointer-events-none',
+				devOnly ? 'hidden' : ''
+			)}
 			role="dialog"
 			aria-modal="true"
 		>
@@ -237,7 +243,8 @@
 		<div
 			class={classNames(
 				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
-				isCollapsed ? 'md:w-12' : 'md:w-40'
+				isCollapsed ? 'md:w-12' : 'md:w-40',
+				devOnly ? 'hidden' : ''
 			)}
 		>
 			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]">
@@ -289,7 +296,10 @@
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<div
-						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
+						class={classNames(
+							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden',
+							devOnly ? 'hidden' : ''
+						)}
 					>
 						<button
 							type="button"

@@ -5,13 +5,14 @@ import {
   Router,
   UserService,
   log,
+  open,
   path,
 } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { mimelite } from "https://deno.land/x/mimetypes@v1.0.0/mod.ts";
 
+const PORT = 3001;
 async function dev(opts: GlobalOptions & { filter?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -24,53 +25,53 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
 
   const watcher = Deno.watchFs(opts.filter ?? ".");
   const base = await Deno.realPath(".");
-  async function watchChanges() {
-    const ignore = await ignoreF();
+  const ignore = await ignoreF();
 
+  async function watchChanges() {
     for await (const event of watcher) {
-      log.info(">>>> event", event);
+      log.debug(">>>> event", event);
       // Example event: { kind: "create", paths: [ "/home/alice/deno/foo.txt" ] }
-      const paths = event.paths.filter(
-        (path) =>
-          path.endsWith(".go") ||
-          path.endsWith(".ts") ||
-          path.endsWith(".py") ||
-          path.endsWith(".sh")
-      );
-      if (paths.length == 0) {
-        return;
-      }
-      const cpath = (await Deno.realPath(paths[0])).replace(
-        base + path.sep,
-        ""
-      );
-      console.log("Detected change in " + cpath);
-      if (!ignore(cpath, false)) {
-        const content = await Deno.readTextFile(cpath);
-        const splitted = cpath.split(".");
-        const wmPath = splitted[0];
-        const ext = splitted[splitted.length - 1];
-        const lang =
-          ext == "py"
-            ? "python3"
-            : ext == "ts"
-            ? "deno"
-            : ext == "go"
-            ? "go"
-            : "bash";
-        currentLastEdit = {
-          content,
-          path: wmPath,
-          language: lang,
-          workspace: workspace.workspaceId,
-          username,
-        };
-        broadcast_changes(currentLastEdit);
-        log.info("Updated " + wmPath);
-      }
+      await loadPaths(event.paths);
     }
   }
 
+  async function loadPaths(pathsToLoad: string[]) {
+    const paths = pathsToLoad.filter(
+      (path) =>
+        path.endsWith(".go") ||
+        path.endsWith(".ts") ||
+        path.endsWith(".py") ||
+        path.endsWith(".sh")
+    );
+    if (paths.length == 0) {
+      return;
+    }
+    const cpath = (await Deno.realPath(paths[0])).replace(base + path.sep, "");
+    console.log("Detected change in " + cpath);
+    if (!ignore(cpath, false)) {
+      const content = await Deno.readTextFile(cpath);
+      const splitted = cpath.split(".");
+      const wmPath = splitted[0];
+      const ext = splitted[splitted.length - 1];
+      const lang =
+        ext == "py"
+          ? "python3"
+          : ext == "ts"
+          ? "deno"
+          : ext == "go"
+          ? "go"
+          : "bash";
+      currentLastEdit = {
+        content,
+        path: wmPath,
+        language: lang,
+        workspace: workspace.workspaceId,
+        username,
+      };
+      broadcast_changes(currentLastEdit);
+      log.info("Updated " + wmPath);
+    }
+  }
   type LastEdit = {
     content: string;
     path: string;
@@ -106,63 +107,36 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
       socket.onclose = () => {
         connectedClients.delete(socket);
       };
+
+      socket.onmessage = (event) => {
+        let data: any | undefined = undefined;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          console.log("Received invalid JSON: " + event.data);
+          return;
+        }
+
+        if (data.type == "load") {
+          loadPaths([data.path] as string[]);
+        }
+      };
     });
 
     app.use(router.routes());
     app.use(router.allowedMethods());
-    app.use(async (ctx) => {
-      const req = ctx.request;
-      const url = new URL(req.url);
-      let path = url.pathname;
-      if (path.startsWith("/api")) {
-        const fpath =
-          workspace.remote.substring(0, workspace.remote.length - 1) +
-          path +
-          "?" +
-          url.searchParams.toString();
-        console.log(fpath);
-        console.log("Proxying to " + fpath);
-        const proxyRes = await fetch(fpath, {
-          headers: {
-            Authorization: "Bearer " + workspace.token,
-            ...Object.fromEntries(req.headers.entries()),
-          },
-          method: req.method,
-          body: JSON.stringify(await req.body().value),
-        });
-        ctx.response.body = proxyRes.body;
-        ctx.response.status = proxyRes.status;
-        ctx.response.headers = proxyRes.headers;
-      } else {
-        console.log("Serving " + path);
-        if (path == "/") {
-          path = "devassets/index.html";
-        } else {
-          path = "devassets" + path;
-        }
-        try {
-          const FILE_URL = new URL(path, import.meta.url).href;
-          console.log(FILE_URL);
-          const resp = await fetch(FILE_URL);
-          ctx.response.body = resp.body;
-          ctx.response.headers.set(
-            "Content-Type",
-            mimelite.getType(path.split(".").pop() ?? "txt") ?? "text/plain"
-          );
-        } catch (e) {
-          console.log(`${path}: ${e}`);
-          ctx.response.body = "404";
-          ctx.response.status = 404;
-        }
-      }
-    });
 
-    const port = getPort(3000);
-    console.log(
-      "Started dev server at http://localhost:" +
-        port +
-        (port == 3000 ? "/" : "/?port=" + port)
-    );
+    const port = getPort(PORT);
+    const url =
+      `${workspace.remote}scripts/dev?workspace=${workspace.workspaceId}` +
+      (port == PORT ? "" : "&port=" + port);
+    console.log(`Go to ${url}`);
+    try {
+      await open(url);
+      log.info("Opened browser for you");
+    } catch {
+      console.error(`Failed to open browser, please navigate to ${url}`);
+    }
     console.log(
       "Dev server will automatically point to the last script edited locally"
     );
