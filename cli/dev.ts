@@ -113,7 +113,7 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
 
     const port = getPort(PORT);
     const url =
-      `${workspace.remote}scripts/dev?workspace=${workspace.workspaceId}` +
+      `${workspace.remote}scripts/dev?workspace=${workspace.workspaceId}&local=true` +
       (port == PORT ? "" : "&port=" + port);
     console.log(`Go to ${url}`);
     try {

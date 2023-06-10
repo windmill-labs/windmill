@@ -7,7 +7,7 @@
 	import { CompletedJob, Job, JobService, Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey } from '$lib/utils'
+	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -36,14 +36,13 @@
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
 
-	const port = searchParams?.get('port') || '3001'
-	const socket = new WebSocket(`ws://localhost:${port}/ws`)
+	if (searchParams?.has('local')) {
+		connectWs()
+	}
 
-	let lm: any = undefined
 	window.addEventListener(
 		'message',
 		(event) => {
-			lm = event.data
 			if (event.data.type == 'runTest') {
 				runTest()
 				return
@@ -53,21 +52,32 @@
 		false
 	)
 
-	// Listen for messages
-	socket.addEventListener('message', (event) => {
-		replaceData(event.data)
-	})
-
-	function replaceData(msg: string) {
-		let data: any | undefined = undefined
+	function connectWs() {
+		const port = searchParams?.get('port') || '3001'
 		try {
-			data = JSON.parse(msg)
-		} catch {
-			console.log('Received invalid JSON: ' + msg)
-			return
+			const socket = new WebSocket(`ws://localhost:${port}/ws`)
+
+			// Listen for messages
+			socket.addEventListener('message', (event) => {
+				replaceData(event.data)
+			})
+
+			function replaceData(msg: string) {
+				let data: any | undefined = undefined
+				try {
+					data = JSON.parse(msg)
+				} catch {
+					console.log('Received invalid JSON: ' + msg)
+					return
+				}
+				replaceScript(data)
+			}
+		} catch (e) {
+			sendUserToast('Failed to connect to local server', true)
+			console.error(e)
 		}
-		replaceScript(data)
 	}
+
 	function runTest() {
 		if (!currentScript) {
 			return
