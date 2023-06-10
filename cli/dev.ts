@@ -1,13 +1,5 @@
 import getPort from "https://deno.land/x/getport@v2.1.2/mod.ts";
-import {
-  Application,
-  Command,
-  Router,
-  UserService,
-  log,
-  open,
-  path,
-} from "./deps.ts";
+import { Application, Command, Router, log, open, path } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
@@ -16,9 +8,6 @@ const PORT = 3001;
 async function dev(opts: GlobalOptions & { filter?: string }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-
-  const username = (await UserService.whoami({ workspace: workspace.name }))
-    .username;
 
   log.info("Started dev mode");
   let currentLastEdit: LastEdit | undefined = undefined;
@@ -65,8 +54,6 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
         content,
         path: wmPath,
         language: lang,
-        workspace: workspace.workspaceId,
-        username,
       };
       broadcast_changes(currentLastEdit);
       log.info("Updated " + wmPath);
@@ -76,8 +63,6 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
     content: string;
     path: string;
     language: string;
-    workspace: string;
-    username: string;
   };
 
   const connectedClients = new Set<WebSocket>();
