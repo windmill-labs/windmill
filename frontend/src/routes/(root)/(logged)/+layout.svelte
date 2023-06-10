@@ -244,7 +244,7 @@
 			class={classNames(
 				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
 				isCollapsed ? 'md:w-12' : 'md:w-40',
-				devOnly ? 'hidden' : ''
+				devOnly ? '!hidden' : ''
 			)}
 		>
 			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]">
@@ -292,7 +292,12 @@
 				</div>
 			</div>
 		</div>
-		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-40')}>
+		<div
+			class={classNames(
+				'w-full flex flex-col flex-1',
+				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40'
+			)}
+		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<div
