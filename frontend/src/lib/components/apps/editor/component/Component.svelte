@@ -49,6 +49,7 @@
 	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
 	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
 	import AppChartJs from '../../components/display/AppChartJs.svelte'
+	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -325,6 +326,8 @@
 				customCss={component.customCss}
 				{render}
 			/>
+		{:else if component.type === 'quillcomponent'}
+			<AppQuillEditor id={component.id} configuration={component.configuration} {render} />
 		{:else if component.type === 'textareainputcomponent'}
 			<AppTextInput
 				id={component.id}

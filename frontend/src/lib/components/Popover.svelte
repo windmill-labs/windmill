@@ -8,6 +8,7 @@
 	export let popupClass = ''
 	export let disablePopup = false
 	export let disappearTimeout = 100
+	export let appearTimeout = 300
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -26,13 +27,20 @@
 	}
 
 	let showTooltip = false
-	let timeout: NodeJS.Timeout
+	let timeout: NodeJS.Timeout | undefined = undefined
+	let inTimeout: NodeJS.Timeout | undefined = undefined
 
 	function open() {
 		clearTimeout(timeout)
-		showTooltip = true
+		if (appearTimeout == 0) {
+			showTooltip = true
+		} else {
+			inTimeout = setTimeout(() => (showTooltip = true), appearTimeout)
+		}
 	}
 	function close() {
+		inTimeout && clearTimeout(inTimeout)
+		inTimeout = undefined
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 </script>

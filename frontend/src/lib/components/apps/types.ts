@@ -208,6 +208,7 @@ export type AppEditorContext = {
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>
 	movingcomponents: Writable<string[] | undefined>
+	jobsDrawerOpen: Writable<boolean>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

@@ -54,17 +54,19 @@
 <InitializeComponent {id} />
 
 {#if inputType === 'textarea'}
-	<textarea
-		class={twMerge(
-			'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-			css?.input?.class ?? ''
-		)}
-		style="resize:none; {css?.input?.style ?? ''}"
-		on:pointerdown|stopPropagation={(e) =>
-			!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-		bind:value
-		{placeholder}
-	/>
+	{#if render}
+		<textarea
+			class={twMerge(
+				'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+				css?.input?.class ?? ''
+			)}
+			style="resize:none; {css?.input?.style ?? ''}"
+			on:pointerdown|stopPropagation={(e) =>
+				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+			bind:value
+			{placeholder}
+		/>
+	{/if}
 {:else}
 	<AlignWrapper {render} {verticalAlignment}>
 		{#if inputType === 'password'}

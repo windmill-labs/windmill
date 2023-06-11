@@ -62,6 +62,7 @@ export type RecomputeOthersSource = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type QuillComponent = BaseComponent<'quillcomponent'>
 export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
@@ -135,6 +136,7 @@ export type TypedComponent =
 	| LogComponent
 	| FlowStatusComponent
 	| TextInputComponent
+	| QuillComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -1195,6 +1197,30 @@ Hello \${ctx.username}
 		},
 		initialData: {
 			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				}
+			}
+		}
+	},
+	quillcomponent: {
+		name: 'Rich Text Editor',
+		icon: TextCursorInput,
+		dims: '2:1-2:1' as AppComponentDimensions,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: undefined,
 			configuration: {
 				placeholder: {

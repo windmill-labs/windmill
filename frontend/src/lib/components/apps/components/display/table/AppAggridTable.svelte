@@ -4,7 +4,7 @@
 	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
 
 	import { isObject } from '$lib/utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -61,11 +61,6 @@
 		toggleRow(rows[0])
 		outputs?.selectedRows.set(rows.map((x) => x.data))
 	}
-
-	let mounted = false
-	onMount(() => {
-		mounted = true
-	})
 
 	$: outputs?.result?.set(result ?? [])
 
