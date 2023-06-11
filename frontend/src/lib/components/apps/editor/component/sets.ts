@@ -31,6 +31,7 @@ const inputs: ComponentSet = {
 		'schemaformcomponent',
 		'textinputcomponent',
 		'textareainputcomponent',
+		'quillcomponent',
 		'passwordinputcomponent',
 		'emailinputcomponent',
 		'numberinputcomponent',

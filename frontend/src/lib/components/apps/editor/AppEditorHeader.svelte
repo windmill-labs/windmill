@@ -93,7 +93,7 @@
 		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
 		publish: false,
@@ -103,7 +103,7 @@
 
 	$: if ($openDebugRun == undefined) {
 		$openDebugRun = (componentId: string) => {
-			jobsDrawerOpen = true
+			$jobsDrawerOpen = true
 
 			const job = $jobs.find((job) => job.component === componentId)
 			if (job) {
@@ -118,7 +118,6 @@
 
 	let draftDrawerOpen = false
 	let saveDrawerOpen = false
-	let jobsDrawerOpen = false
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
 
@@ -538,11 +537,11 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={jobsDrawerOpen} size="900px">
+<Drawer bind:open={$jobsDrawerOpen} size="900px">
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
-		on:close={() => (jobsDrawerOpen = false)}
+		on:close={() => ($jobsDrawerOpen = false)}
 		tooltip="Look at latests runs to spot potential bugs."
 		documentationLink="https://docs.windmill.dev/docs/apps/app_toolbar#debug-runs"
 	>
@@ -769,7 +768,7 @@
 					if (selectedJobId == undefined && $jobs.length > 0) {
 						selectedJobId = $jobs[0].job
 					}
-					jobsDrawerOpen = true
+					$jobsDrawerOpen = true
 				}}
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"

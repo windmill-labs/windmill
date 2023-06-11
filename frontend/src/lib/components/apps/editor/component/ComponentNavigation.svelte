@@ -15,7 +15,8 @@
 	const { app, selectedComponent, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, movingcomponents, jobsDrawerOpen } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItems: GridItem[] | undefined = undefined
 
@@ -129,7 +130,7 @@
 	}
 
 	async function handleCopy(event: KeyboardEvent) {
-		if (!$selectedComponent) {
+		if (!$selectedComponent || $jobsDrawerOpen) {
 			return
 		}
 		tempGridItems = undefined
@@ -198,7 +199,6 @@
 				if (parsed.type == ITEM_TYPE) {
 					copiedGridItems = parsed.items
 					subgrids = parsed.subgrids ?? subgrids
-					console.log('subgrids', subgrids)
 				} else {
 					copiedGridItems = undefined
 				}
@@ -242,7 +242,7 @@
 		} else if (copiedGridItems) {
 			let nitems: string[] = []
 			for (let copiedGridItem of copiedGridItems) {
-				let newItem = copyComponent(copiedGridItem, $focusedGrid, subgrids)
+				let newItem = copyComponent(copiedGridItem, $focusedGrid, subgrids, [])
 				newItem && nitems.push(newItem)
 			}
 			$selectedComponent = nitems.map((x) => x)
@@ -255,10 +255,12 @@
 		item: GridItem,
 		parentGrid: FocusedGrid | undefined,
 		subgrids: Record<string, GridItem[]>,
-		doNotVisit?: string
+		alreadyVisited: string[]
 	) {
-		if (item.id === doNotVisit) {
+		if (alreadyVisited.includes(item.id)) {
 			return
+		} else {
+			alreadyVisited.push(item.id)
 		}
 		const newItem = insertNewGridItem(
 			$app,
@@ -273,7 +275,7 @@
 					subgridItem,
 					{ parentComponentId: newItem, subGridIndex: i },
 					subgrids,
-					doNotVisit ?? newItem
+					alreadyVisited
 				)
 			})
 		}

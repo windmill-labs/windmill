@@ -668,6 +668,9 @@ export const quickStyleProperties: Record<
 	textinputcomponent: {
 		input: inputDefaultProps
 	},
+	quillcomponent: {
+		input: inputDefaultProps
+	},
 	textareainputcomponent: {
 		input: inputDefaultProps
 	},
