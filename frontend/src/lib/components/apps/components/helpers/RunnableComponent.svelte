@@ -265,7 +265,11 @@
 
 	export async function runComponent() {
 		try {
-			await executeComponent()
+			if (cancellableRun) {
+				await cancellableRun()
+			} else {
+				executeComponent()
+			}
 		} catch (e) {
 			setResult({ error: e.body ?? e.message }, undefined)
 		}
@@ -345,10 +349,11 @@
 		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
 	}
 
+	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
+		undefined
+
 	onMount(() => {
-		const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
-			inlineScript?: InlineScript
-		) => {
+		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject

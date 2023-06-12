@@ -1,18 +1,16 @@
 <script lang="ts">
-	import {
-		Dialog,
-		DialogOverlay,
-		DialogTitle,
-		Transition,
-		TransitionChild
-	} from '@rgossiaux/svelte-headlessui'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
-	import Button from '../button/Button.svelte'
-	import Badge from '../badge/Badge.svelte'
+	import { clickOutside } from '$lib/utils'
+	import { X } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 
 	export let title: string
 	export let style: string = ''
+	export let css: any = {}
+
+	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let isOpen = false
 
@@ -26,58 +24,54 @@
 </script>
 
 <Portal target="#app-editor-top-level-drawer">
-	<Transition show={isOpen}>
-		<Dialog as="div" class="absolute inset-0 overflow-y-auto z-50" on:close={close}>
-			<div class="min-h-screen px-4 text-center">
-				<TransitionChild
-					enter="ease-out duration-100"
-					enterFrom="opacity-0"
-					enterTo="opacity-100"
-					leave="ease-in duration-100"
-					leaveFrom="opacity-100"
-					leaveTo="opacity-0"
-				>
-					<DialogOverlay class="fixed inset-0 bg-gray-800/50 " />
-				</TransitionChild>
-
-				<TransitionChild
-					enter="ease-out duration-[50ms]"
-					enterFrom="opacity-0 scale-95"
-					enterTo="opacity-100 scale-100"
-					leave="ease-in dduration-[50ms]"
-					leaveFrom="opacity-100 scale-100"
-					leaveTo="opacity-0 scale-95"
-				>
-					<!-- This element is to trick the browser into centering the modal contents. -->
-					<span class="inline-block h-screen align-middle" aria-hidden="true"> &#8203; </span>
-					<div
-						class="inline-block w-full max-w-md p-6 text-left align-middle transition-all transform bg-white shadow-xl rounded-md"
-					>
-						<DialogTitle class="text-lg font-medium leading-6 text-gray-900">
-							{title}
-						</DialogTitle>
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
-							<div
-								class={twMerge(
-									'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
-									$$props.class
-								)}
-								{style}
-							>
-								<div class="flex-1">
-									<slot />
-								</div>
-								<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-									<Button on:click={close} color="light" size="sm">
-										<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
-									</Button>
-								</div>
-							</div>
-						</div>
+	<div
+		class={twMerge(
+			`${
+				$mode == 'dnd' ? 'absolute' : 'fixed'
+			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
+			isOpen ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
+		)}
+	>
+		<div class="flex min-h-full items-center justify-center p-4">
+			<div
+				style={css?.popup?.style}
+				class={twMerge(
+					'bg-white max-w-5xl m-24 overflow-y-auto rounded-lg relative',
+					css?.popup?.class
+				)}
+				use:clickOutside
+				on:click_outside={() => {
+					close()
+				}}
+			>
+				<div class="px-4 py-2 border-b flex justify-between items-center">
+					<div>{title}</div>
+					<div class="w-8">
+						<button
+							on:click={() => {
+								isOpen = false
+							}}
+							style={css?.button?.style}
+							class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+						>
+							<X class="text-gray-500" />
+						</button>
 					</div>
-				</TransitionChild>
+				</div>
+
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
+					<div
+						class={twMerge(
+							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
+							$$props.class
+						)}
+						{style}
+					>
+						<slot />
+					</div>
+				</div>
 			</div>
-		</Dialog>
-	</Transition>
-</Portal>
+		</div>
+	</div></Portal
+>

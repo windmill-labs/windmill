@@ -43,6 +43,8 @@
 	/>
 {/each}
 
+<InitializeComponent {id} />
+
 <div class="h-full w-full">
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
@@ -73,8 +75,6 @@
 		</Button>
 	</AlignWrapper>
 </div>
-
-<InitializeComponent {id} />
 
 <Portal target="#app-editor-top-level-drawer">
 	<Drawer

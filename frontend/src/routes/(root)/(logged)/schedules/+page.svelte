@@ -317,9 +317,3 @@
 		loadSchedules()
 	}}
 />
-
-<style lang="postcss">
-	td {
-		@apply px-2;
-	}
-</style>

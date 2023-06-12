@@ -113,7 +113,7 @@
 		pickVariableCallback,
 		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined),
-		jobsDrawerOpen: writable(false),
+		jobsDrawerOpen: writable(false)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

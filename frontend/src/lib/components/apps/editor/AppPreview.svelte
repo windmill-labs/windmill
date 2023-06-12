@@ -106,9 +106,9 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div id="app-editor-top-level-drawer" />
-
 <div class="relative">
+	<div id="app-editor-top-level-drawer" />
+
 	<div
 		class="{$$props.class} {lockedClasses} {width} h-full {app.fullscreen
 			? ''
