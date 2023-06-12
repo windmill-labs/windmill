@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.114.1](https://github.com/windmill-labs/windmill/compare/v1.114.0...v1.114.1) (2023-06-12)
+
+
+### Bug Fixes
+
+* fix app button form modal ([a121ca0](https://github.com/windmill-labs/windmill/commit/a121ca08759194dd33fed6b034c84aea8ce4703c))
+* fix use input from input library + make selected subgrid clearer ([e942c43](https://github.com/windmill-labs/windmill/commit/e942c437cba3dd5e02ebf7f25173442cc14a6236))
+* **frontend:** Fix text input ([#1712](https://github.com/windmill-labs/windmill/issues/1712)) ([f495cf0](https://github.com/windmill-labs/windmill/commit/f495cf0b045e99f324d5616ffc0ac826a2aa23fa))
+
 ## [1.114.0](https://github.com/windmill-labs/windmill/compare/v1.113.2...v1.114.0) (2023-06-12)
 
 
