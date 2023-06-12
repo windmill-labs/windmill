@@ -56,9 +56,9 @@
 		$runFormStore = undefined
 	}
 
-	export function setArgs(nargs: Record<string, any>) {
+	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
-		reloadArgs += 1
+		reloadArgs++
 	}
 
 	export function run() {
@@ -73,7 +73,6 @@
 	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
 		args
 	)}'`
-
 	let reloadArgs = 0
 </script>
 
