@@ -65,48 +65,48 @@
 			bind:value
 			{placeholder}
 		/>
+	{:else}
+		<AlignWrapper {render} {verticalAlignment}>
+			{#if inputType === 'password'}
+				<input
+					class={twMerge(
+						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+						css?.input?.class ?? ''
+					)}
+					style={css?.input?.style ?? ''}
+					on:pointerdown|stopPropagation={(e) =>
+						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					type="password"
+					bind:value
+					{placeholder}
+				/>
+			{:else if inputType === 'text'}
+				<input
+					class={twMerge(
+						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+						css?.input?.class ?? ''
+					)}
+					style={css?.input?.style ?? ''}
+					on:pointerdown|stopPropagation={(e) =>
+						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					type="text"
+					bind:value
+					{placeholder}
+				/>
+			{:else if inputType === 'email'}
+				<input
+					class={twMerge(
+						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+						css?.input?.class ?? ''
+					)}
+					style={css?.input?.style ?? ''}
+					on:pointerdown|stopPropagation={(e) =>
+						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					type="email"
+					bind:value
+					{placeholder}
+				/>
+			{/if}
+		</AlignWrapper>
 	{/if}
-{:else}
-	<AlignWrapper {render} {verticalAlignment}>
-		{#if inputType === 'password'}
-			<input
-				class={twMerge(
-					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-					css?.input?.class ?? ''
-				)}
-				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) =>
-					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-				type="password"
-				bind:value
-				{placeholder}
-			/>
-		{:else if inputType === 'text'}
-			<input
-				class={twMerge(
-					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-					css?.input?.class ?? ''
-				)}
-				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) =>
-					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-				type="text"
-				bind:value
-				{placeholder}
-			/>
-		{:else if inputType === 'email'}
-			<input
-				class={twMerge(
-					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-					css?.input?.class ?? ''
-				)}
-				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) =>
-					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-				type="email"
-				bind:value
-				{placeholder}
-			/>
-		{/if}
-	</AlignWrapper>
 {/if}
