@@ -58,6 +58,7 @@
 
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
+		reloadArgs += 1
 	}
 
 	export function run() {
@@ -72,6 +73,8 @@
 	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
 		args
 	)}'`
+
+	let reloadArgs = 0
 </script>
 
 <div class="max-w-3xl">
@@ -131,14 +134,16 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm
-				prettifyHeader
-				{noVariablePicker}
-				{autofocus}
-				schema={runnable.schema}
-				bind:isValid
-				bind:args
-			/>
+			{#key reloadArgs}
+				<SchemaForm
+					prettifyHeader
+					{noVariablePicker}
+					{autofocus}
+					schema={runnable.schema}
+					bind:isValid
+					bind:args
+				/>
+			{/key}
 		{/if}
 	{:else}
 		<div class="text-xs text-gray-600">No arguments</div>
