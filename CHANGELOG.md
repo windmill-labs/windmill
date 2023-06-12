@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.113.0](https://github.com/windmill-labs/windmill/compare/v1.112.0...v1.113.0) (2023-06-12)
+
+
+### Features
+
+* add rich text editor as component to apps (quill) ([1a7aa4c](https://github.com/windmill-labs/windmill/commit/1a7aa4cda31426f0a960cc243c8c5d0da7065e8d))
+* rework schedule page entirely to display jobs informations ([4963286](https://github.com/windmill-labs/windmill/commit/4963286edde771a9e6aa17b1f105060828cb1ebc))
+
 ## [1.112.0](https://github.com/windmill-labs/windmill/compare/v1.111.3...v1.112.0) (2023-06-10)
 
 
