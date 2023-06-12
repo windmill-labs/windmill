@@ -275,9 +275,12 @@
 							</div>
 						</div>
 						<div class="w-full flex justify-between items-baseline">
-							<div class="flex gap-1.5 ml-0.5 items-baseline">
+							<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+								{#if avg_s}
+									<div class="pl-2 text-gray-600 text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+								{/if}
 								{#each jobs ?? [] as job}
-									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 10}
+									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
 									<a href="/run/{job.id}">
 										<JobPreview id={job.id}>
 											<div>
@@ -292,9 +295,6 @@
 										</JobPreview>
 									</a>
 								{/each}
-								{#if avg_s}
-									<div class="pl-2 text-gray-600 text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
-								{/if}
 							</div>
 							<div class="flex flex-wrap text-[0.7em] text-gray-500 gap-1 justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"

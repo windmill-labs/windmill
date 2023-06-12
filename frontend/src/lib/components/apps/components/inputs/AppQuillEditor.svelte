@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, RichConfigurations } from '../../types'
-
+	import '../../../../../../node_modules/quill/dist/quill.snow.css'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
@@ -90,7 +90,3 @@
 		<div bind:this={editor} />
 	</div>
 {/if}
-
-<style>
-	@import 'https://cdn.quilljs.com/1.3.6/quill.snow.css';
-</style>
