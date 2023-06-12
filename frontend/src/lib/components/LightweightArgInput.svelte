@@ -311,7 +311,7 @@
 				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
-					<div class="flex flex-row w-full items- justify-between">
+					<div class="flex flex-row w-full items-center justify-between">
 						<textarea
 							rows="1"
 							bind:this={el}

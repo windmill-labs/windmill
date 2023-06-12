@@ -390,14 +390,14 @@
 												>{curlCommand(true)} <span
 													on:click={() => copyToClipboard(curlCommand(true))}
 													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-												></TabContent
+												><br /><br />//^ returns an UUID. Fetch result until completed == true<br
+												/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
+													.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID</TabContent
 											><TabContent value="sync"
 												>{curlCommand(false)} <span
 													on:click={() => copyToClipboard(curlCommand(false))}
 													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-												><br /><br />//^ returns an UUID. Fetch result until completed == true<br
-												/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
-													.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID</TabContent
+												></TabContent
 											></pre
 										>
 									</svelte:fragment>

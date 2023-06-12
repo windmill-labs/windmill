@@ -52,9 +52,8 @@
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
 <InitializeComponent {id} />
-
-{#if inputType === 'textarea'}
-	{#if render}
+{#if render}
+	{#if inputType === 'textarea'}
 		<textarea
 			class={twMerge(
 				'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',

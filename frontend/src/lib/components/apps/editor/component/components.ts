@@ -709,6 +709,12 @@ export const components = {
 			},
 			recomputeIds: true,
 			configuration: {
+				modalTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Modal title',
+					onlyStatic: true
+				},
 				label: {
 					type: 'static',
 					value: 'Open popup',

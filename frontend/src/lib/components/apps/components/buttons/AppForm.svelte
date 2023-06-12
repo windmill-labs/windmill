@@ -40,7 +40,6 @@
 	)
 
 	let runnableComponent: RunnableComponent
-	let isLoading: boolean = false
 	let loading = false
 
 	$: noInputs =
@@ -97,7 +96,7 @@
 			<div class="flex justify-end my-1">
 				{#if !noInputs}
 					<Button
-						loading={isLoading}
+						{loading}
 						btnClasses={css?.button?.class}
 						style={css?.button?.style ?? ''}
 						on:pointerdown={(e) => {
