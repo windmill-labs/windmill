@@ -130,6 +130,7 @@
 				</div>
 			</div>
 			<div
+				class=""
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {
@@ -146,7 +147,6 @@
 						visible={open && render}
 						{id}
 						noPadding
-						noYPadding
 						subGridId={`${id}-0`}
 						on:focus={() => {
 							if (!$connectingInput.opened) {
