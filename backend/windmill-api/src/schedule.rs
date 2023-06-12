@@ -16,7 +16,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
@@ -31,6 +31,7 @@ use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_schedule))
+        .route("/list_with_jobs", get(list_schedule_with_jobs))
         .route("/get/*path", get(get_schedule))
         .route("/exists/*path", get(exists_schedule))
         .route("/create", post(create_schedule))
@@ -230,6 +231,57 @@ async fn list_schedule(
     tx.commit().await?;
     Ok(Json(rows))
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ScheduleWJobs {
+    pub workspace_id: String,
+    pub path: String,
+    pub edited_by: String,
+    pub edited_at: DateTime<chrono::Utc>,
+    pub schedule: String,
+    pub timezone: String,
+    pub enabled: bool,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub args: Option<serde_json::Value>,
+    pub extra_perms: serde_json::Value,
+    pub email: String,
+    pub error: Option<String>,
+    pub on_failure: Option<String>,
+    pub jobs: Option<Vec<serde_json::Value>>,
+}
+
+async fn list_schedule_with_jobs(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
+) -> JsonResult<Vec<ScheduleWJobs>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let (per_page, offset) = paginate(pagination);
+    let rows = sqlx::query_as!(ScheduleWJobs,
+        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
+        completed_job.schedule_path = schedule_path AND schedule.workspace_id = completed_job.workspace_id AND parent_job IS NULL ORDER BY created_at DESC LIMIT 20) AS jobs ) t
+        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
+        w_id,
+        per_page as i64,
+        offset as i64
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+// SELECT id, title AS item_title, t.tag_array
+// FROM   items i, LATERAL (  -- this is an implicit CROSS JOIN
+//    SELECT ARRAY (
+//       SELECT t.title
+//       FROM   items_tags it
+//       JOIN   tags       t  ON t.id = it.tag_id
+//       WHERE  it.item_id = i.id
+//       ) AS tag_array
+//    ) t;
 
 async fn get_schedule(
     authed: Authed,

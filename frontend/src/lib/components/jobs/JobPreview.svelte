@@ -11,33 +11,33 @@
 	import JobArgs from '../JobArgs.svelte'
 	import { writable } from 'svelte/store'
 	import LogViewer from '../LogViewer.svelte'
-	import { forLater } from '$lib/utils'
+	import { forLater, msToSec } from '$lib/utils'
+	import { Icon } from 'svelte-awesome'
+	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
+	import { Badge } from '../common'
 
 	const POPUP_HEIGHT = 240 as const
 
-	export let job: Job | undefined
+	export let id: string
+	let job: Job | undefined = undefined
 	let hovered = false
 	let timeout: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
-	let args = job?.args
 	let result: any
 	let loaded = false
 	let wrapper: HTMLElement
 	let popupOnTop = true
 
-	$: open = $openStore === job?.id
+	$: open = $openStore === id
 
 	async function instantOpen() {
 		if (!open) {
 			hovered = true
-			if (!job) {
-				return
-			}
 			popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
-			openStore.set(job.id)
+			openStore.set(id)
 			if (!loaded) {
 				await tick()
-				watchJob && watchJob(job.id)
+				watchJob && watchJob(id)
 			}
 		} else {
 			timeout && clearTimeout(timeout)
@@ -99,8 +99,18 @@
 			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
 		>
-			<div class="w-1/2 h-full overflow-auto px-2">
-				<JobArgs {args} tableClass="!pt-0 !min-w-0 !block" />
+			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5">
+				<Badge>
+					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
+				</Badge>
+				<Badge>
+					<Icon class="text-gray-700" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
+						Ran in {msToSec(job?.['duration_ms'])}s</span
+					>
+				</Badge>
+			</div>
+			<div class="w-1/2 h-full overflow-auto px-2 -mt-3">
+				<JobArgs args={job?.args} tableClass="!pt-0 !min-w-0 !block" />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}

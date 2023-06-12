@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
 	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import {  setQueryWithoutLoad } from '$lib/utils'
+	import { setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -40,6 +40,7 @@
 	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
+	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
 	let nbOfJobs = 30
 
@@ -81,6 +82,7 @@
 			workspace: $workspaceStore!,
 			startedBefore,
 			startedAfter,
+			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,

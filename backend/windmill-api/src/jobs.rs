@@ -431,6 +431,7 @@ pub struct ListQueueQuery {
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
+    pub schedule_path: Option<String>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
@@ -453,6 +454,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(p) = &lq.script_path_exact {
         sqlb.and_where_eq("script_path", "?".bind(p));
+    }
+    if let Some(p) = &lq.schedule_path {
+        sqlb.and_where_eq("schedule_path", "?".bind(p));
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("script_hash", "?".bind(h));
@@ -597,6 +601,7 @@ async fn list_jobs(
             suspended: lq.suspended,
             args: lq.args,
             tag: lq.tag,
+            schedule_path: lq.schedule_path,
         },
         &[
             "'QueuedJob' as typ",
@@ -610,7 +615,7 @@ async fn list_jobs(
             "running",
             "script_hash",
             "script_path",
-            "CASE WHEN pg_column_size(args) > 1000 THEN '\"too large args\"'::jsonb ELSE args END",
+            "null as args",
             "null as duration_ms",
             "null as success",
             "false as deleted",
@@ -646,7 +651,7 @@ async fn list_jobs(
             "null as running",
             "script_hash",
             "script_path",
-            "CASE WHEN pg_column_size(args) > 1000 THEN '\"too large args\"'::jsonb ELSE args END",
+            "null as args",
             "duration_ms",
             "success",
             "deleted",
@@ -2123,6 +2128,10 @@ fn list_completed_jobs_query(
         .limit(per_page)
         .clone();
 
+    if let Some(p) = &lq.schedule_path {
+        sqlb.and_where_eq("schedule_path", "?".bind(p));
+    }
+
     if let Some(ps) = &lq.script_path_start {
         sqlb.and_where_like_left("script_path", "?".bind(ps));
     }
@@ -2188,6 +2197,7 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
+    pub schedule_path: Option<String>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset

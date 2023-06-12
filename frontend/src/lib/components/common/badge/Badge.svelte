@@ -6,6 +6,7 @@
 
 	export let color: BadgeColor = 'gray'
 	export let large = false
+	export let small = false
 	export let href = ''
 	export let rounded = false
 	export let dismissable = false
@@ -45,7 +46,7 @@
 
 	$: badgeClass = classNames(
 		baseClass,
-		large ? 'text-sm font-medium' : 'text-xs font-semibold',
+		small ? 'text-xs' : large ? 'text-sm font-medium' : 'text-xs font-semibold',
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
