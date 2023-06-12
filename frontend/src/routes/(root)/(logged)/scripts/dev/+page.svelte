@@ -10,6 +10,7 @@
 	import { emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { onDestroy, onMount } from 'svelte'
 
 	let testJobLoader: TestJobLoader
 
@@ -40,17 +41,21 @@
 		connectWs()
 	}
 
-	window.addEventListener(
-		'message',
-		(event) => {
-			if (event.data.type == 'runTest') {
-				runTest()
-				return
-			}
+	const el = (event) => {
+		if (event.data.type == 'runTest') {
+			runTest()
+		} else if (event.data.type == 'replaceScript') {
 			replaceScript(event.data)
-		},
-		false
-	)
+		}
+	}
+
+	onMount(() => {
+		window.addEventListener('message', el, false)
+	})
+
+	onDestroy(() => {
+		window.removeEventListener('message', el)
+	})
 
 	function connectWs() {
 		const port = searchParams?.get('port') || '3001'
