@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.113.1](https://github.com/windmill-labs/windmill/compare/v1.113.0...v1.113.1) (2023-06-12)
+
+
+### Bug Fixes
+
+* fix retrieving last jobs of schedules ([e266337](https://github.com/windmill-labs/windmill/commit/e2663371d5a4c0b6bb27546c9847ea7707f64536))
+
 ## [1.113.0](https://github.com/windmill-labs/windmill/compare/v1.112.0...v1.113.0) (2023-06-12)
 
 
