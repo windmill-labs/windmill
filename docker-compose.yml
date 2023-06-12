@@ -29,7 +29,7 @@ services:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
-      ## You can set the number of workers to > 0 and not need any separate worker service
+      ## You can set the number of workers to > 0 and not need any separate worker service but not recommended
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false
@@ -50,7 +50,6 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=${WM_BASE_URL}
-      - BASE_INTERNAL_URL=http://windmill_server:8000
       - RUST_LOG=info
       - NUM_WORKERS=1
       - DISABLE_SERVER=true
