@@ -98,14 +98,14 @@
 		class={twMerge(
 			`${
 				$mode == 'dnd' ? 'absolute' : 'fixed'
-			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
+			} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
 			open ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
 		)}
 	>
 		<div
 			style={css?.popup?.style}
 			class={twMerge(
-				'm-24 h-[80%] bg-white overflow-y-auto rounded-lg relative',
+				'm-24 max-h-[80%] bg-white overflow-y-auto rounded-lg relative',
 				css?.popup?.class
 			)}
 			use:clickOutside

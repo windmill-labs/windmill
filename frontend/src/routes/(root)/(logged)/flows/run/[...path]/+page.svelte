@@ -88,8 +88,6 @@
 		duration: 200,
 		easing: cubicOut
 	})
-
-	let reloadArgs = 0
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -186,20 +184,18 @@
 							</div>
 						</Button>
 					</div>
-					{#key reloadArgs}
-						<RunForm
-							{loading}
-							autofocus
-							bind:this={runForm}
-							bind:isValid
-							detailed={false}
-							runnable={flow}
-							runAction={runFlow}
-							viewCliRun
-							isFlow
-							bind:args
-						/>
-					{/key}
+					<RunForm
+						{loading}
+						autofocus
+						bind:this={runForm}
+						bind:isValid
+						detailed={false}
+						runnable={flow}
+						runAction={runFlow}
+						viewCliRun
+						isFlow
+						bind:args
+					/>
 				{:else}
 					<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
 				{/if}
@@ -212,8 +208,7 @@
 					{isValid}
 					{args}
 					on:selected_args={(e) => {
-						args = JSON.parse(JSON.stringify(e.detail))
-						reloadArgs += 1
+						runForm?.setArgs(JSON.parse(JSON.stringify(e.detail)))
 					}}
 				/>
 			{/if}
