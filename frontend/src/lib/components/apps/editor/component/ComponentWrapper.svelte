@@ -6,7 +6,7 @@
 	export let id: string
 	export let type: string
 
-	const { app, connectingInput, selectedComponent, focusedGrid } =
+	const { app, connectingInput, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
@@ -14,9 +14,6 @@
 	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
 			selectId(e, id, selectedComponent, $app)
-			if ($focusedGrid?.parentComponentId != id) {
-				$focusedGrid = undefined
-			}
 		}
 	}
 

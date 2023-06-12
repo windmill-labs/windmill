@@ -56,6 +56,10 @@
 		$runFormStore = undefined
 	}
 
+	export function setArgs(nargs: Record<string, any>) {
+		args = nargs
+	}
+
 	export function run() {
 		runAction(scheduledForStr, args, invisible_to_owner)
 	}
