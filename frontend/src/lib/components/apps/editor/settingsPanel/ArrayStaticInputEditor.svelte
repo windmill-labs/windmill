@@ -136,11 +136,11 @@
 				on:finalize={handleFinalize}
 			>
 				{#each items as item, index (item.id)}
-					<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none">
+					<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none w-full">
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
-						<div class="flex flex-row gap-2 items-center relative my-1">
-							<div class="grow overflow-x-auto">
+						<div class="flex flex-row gap-2 items-center relative my-1 w-full">
+							<div class="grow min-w-0">
 								<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
 							</div>
 							<div class="flex justify-between flex-col items-center">
