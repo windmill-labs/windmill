@@ -24,7 +24,7 @@
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
-		"@types/d3-zoom": "^3.0.2",
+		"@types/d3-zoom": "^3.0.3",
 		"@types/lodash": "^4.14.195",
 		"@types/node": "^20.2.5",
 		"@types/vscode": "~1.78.1",
