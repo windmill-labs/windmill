@@ -108,6 +108,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       path: string;
       content: string;
     }
+
     let counter = 0;
     const seen_names = new Set<string>();
     function assignPath(
@@ -133,6 +134,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "bash") ext = "sh";
       return `${name}.inline_script.${ext}`;
     }
+
     function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
       return modules.flatMap((m) => {
         if (m.value.type == "rawscript") {
@@ -156,6 +158,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
         }
       });
     }
+
     const flowPath = transformPath();
     return {
       isDirectory: isFlow,
