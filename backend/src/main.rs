@@ -47,22 +47,30 @@ async fn main() -> anyhow::Result<()> {
 
     let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
-    let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
+    let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR));
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    let server_bind_address: IpAddr = if server_mode {
+        std::env::var("SERVER_BIND_ADDR")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR))
+    } else {
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+    };
 
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|x| x.parse::<u16>().ok())
         .unwrap_or(DEFAULT_PORT as u16);
-    let base_internal_url: String = std::env::var("BASE_INTERNAL_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", port.to_string()));
 
-    let server_mode = !std::env::var("DISABLE_SERVER")
-        .ok()
-        .and_then(|x| x.parse::<bool>().ok())
-        .unwrap_or(false);
+    if std::env::var("BASE_INTERNAL_URL").is_ok() {
+        tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
+    }
+
+    let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
     let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
         let url = x.parse::<url::Url>().unwrap();
@@ -100,10 +108,8 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    if server_mode {
-        // migration code to avoid break
-        windmill_api::migrate_db(&db).await?;
-    }
+    // migration code to avoid break
+    windmill_api::migrate_db(&db).await?;
 
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx.clone(), rx.resubscribe());
@@ -131,7 +137,6 @@ Windmill Community Edition {GIT_VERSION}
         "METRICS_ADDR",
         "JSON_FMT",
         "BASE_URL",
-        "BASE_INTERNAL_URL",
         "TIMEOUT",
         "ZOMBIE_JOB_TIMEOUT",
         "RESTART_ZOMBIE_JOBS",
@@ -183,9 +188,7 @@ Windmill Community Edition {GIT_VERSION}
 
         let rsmq2 = rsmq.clone();
         let server_f = async {
-            if server_mode {
-                windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
-            }
+            windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
             Ok(()) as anyhow::Result<()>
         };
 
