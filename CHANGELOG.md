@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.113.2](https://github.com/windmill-labs/windmill/compare/v1.113.1...v1.113.2) (2023-06-12)
+
+
+### Bug Fixes
+
+* correct schedule jobs ordering + avoid cdn for quill css ([7418923](https://github.com/windmill-labs/windmill/commit/7418923e950f376e94a6d7c9235c62f6d83f44e5))
+
 ## [1.113.1](https://github.com/windmill-labs/windmill/compare/v1.113.0...v1.113.1) (2023-06-12)
 
 
