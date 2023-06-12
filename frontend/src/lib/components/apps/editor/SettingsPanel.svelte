@@ -85,7 +85,7 @@
 	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
 	<div class="mb-8">
-		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
+		{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
 					<InputsSpecsEditor
