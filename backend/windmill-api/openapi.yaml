@@ -3555,6 +3555,7 @@ paths:
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/SchedulePath"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -3588,6 +3589,7 @@ paths:
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/SchedulePath"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -3628,6 +3630,7 @@ paths:
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/SchedulePath"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -4292,6 +4295,26 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Schedule"
+
+  /w/{workspace}/schedules/list_with_jobs:
+    get:
+      summary: list schedules with last 20 jobs
+      operationId: listSchedulesWithJobs
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: schedule list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScheduleWJobs"
 
   /w/{workspace}/groups/list:
     get:
@@ -5213,6 +5236,12 @@ components:
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path
+      in: query
+      schema:
+        type: string
+    SchedulePath:
+      name: schedule_path
+      description: mask to filter by schedule path
       in: query
       schema:
         type: string
@@ -6284,6 +6313,27 @@ components:
         - is_flow
         - enabled
         - email
+
+    ScheduleWJobs:
+      allOf:
+        - $ref: "#/components/schemas/Schedule"
+        - type: object
+          properties:
+            jobs:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  success:
+                    type: boolean
+                  duration_ms:
+                    type: number
+                required:
+                  - id
+                  - success
+                  - duration_ms
 
     NewSchedule:
       type: object

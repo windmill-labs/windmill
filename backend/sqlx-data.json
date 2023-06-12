@@ -604,6 +604,112 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
+  "15e143ab2dc6368238849beb3ee3969cd601b060b5d58d9831e6be7008156d26": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 5,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 6,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 7,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 10,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "on_failure",
+          "ordinal": 13,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "jobs",
+          "ordinal": 14,
+          "type_info": "JsonArray"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE\n        completed_job.schedule_path = schedule_path AND schedule.workspace_id = completed_job.workspace_id AND parent_job IS NULL ORDER BY created_at DESC LIMIT 20) AS jobs ) t\n        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3"
+  },
   "163f00eb8b1a489d5f382cdba22a5744e88a8e6f1532d7cb02af560f5f5d49f7": {
     "describe": {
       "columns": [
