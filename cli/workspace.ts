@@ -175,8 +175,10 @@ export async function add(
     return;
   }
 
-  if (!workspaceName) {
-    workspaceName = await Input.prompt("Name this workspace:");
+  while (workspaceName === undefined) {
+    if (!workspaceName) {
+      workspaceName = await Input.prompt("Name this workspace:");
+    }
   }
 
   if (!workspaceId) {
@@ -241,7 +243,7 @@ export async function add(
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,
-          name: opts.createWorkspaceName ?? workspaceId,
+          name: opts.createWorkspaceName ?? workspaceName,
           username: opts.createUsername,
         },
       });

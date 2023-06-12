@@ -94,8 +94,12 @@
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
+	let oldDefaultValue = defaultValue
 	function handleDefaultValueChange() {
-		value = defaultValue
+		if (value == oldDefaultValue) {
+			value = defaultValue
+		}
+		oldDefaultValue = defaultValue
 	}
 
 	function evalValueToRaw() {
