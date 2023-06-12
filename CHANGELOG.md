@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.114.0](https://github.com/windmill-labs/windmill/compare/v1.113.2...v1.114.0) (2023-06-12)
+
+
+### Features
+
+* remove the need for BASE_INTERNAL_URL ([263e03c](https://github.com/windmill-labs/windmill/commit/263e03c2bd508dd94ae6f30fd4cbc67b416b7ef4))
+
 ## [1.113.2](https://github.com/windmill-labs/windmill/compare/v1.113.1...v1.113.2) (2023-06-12)
 
 
