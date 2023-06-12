@@ -213,9 +213,9 @@
 			<div class="mb-1 text-sm font-semibold">
 				Frontend
 				<Tooltip
-					documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#frontend-script"
+					documentationLink="https://docs.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
 				>
-					Frontend scripts are executed in the browser and can manipulate the app context directly
+					Frontend scripts are executed in the browser and can manipulate the app context directly.
 				</Tooltip>
 			</div>
 

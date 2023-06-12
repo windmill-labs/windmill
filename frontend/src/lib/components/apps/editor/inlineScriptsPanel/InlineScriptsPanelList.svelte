@@ -159,7 +159,7 @@
 					Background runnables
 					<Tooltip
 						class="mb-0.5"
-						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-runnable"
+						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>
 						Background runnables can be triggered on app refresh or when their input changes. The
 						result can be shared among many components.
