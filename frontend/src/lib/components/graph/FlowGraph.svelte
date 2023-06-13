@@ -70,7 +70,7 @@
 
 	$: rebuildOnChange && triggerRebuild()
 
-	let oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
+	let oldRebuildOnChange = rebuildOnChange ? JSON.parse(JSON.stringify(rebuildOnChange)) : undefined
 
 	function triggerRebuild() {
 		if (!deepEqual(oldRebuildOnChange, rebuildOnChange)) {
