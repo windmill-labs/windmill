@@ -1146,6 +1146,13 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
+				},
+				extraConfig: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'any configuration that can be passed to ag-grid top level',
+					onlyStatic: true
 				}
 			},
 			componentInput: {
