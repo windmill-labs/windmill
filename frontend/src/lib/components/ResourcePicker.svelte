@@ -98,11 +98,17 @@
 		>
 	{/if}
 
-	<Button variant="border" size="xs" on:click={() => appConnect?.open?.(resourceType)}>
+	<Button
+		color="light"
+		variant="border"
+		size="xs"
+		on:click={() => appConnect?.open?.(resourceType)}
+	>
 		<Icon scale={0.8} data={faPlus} /></Button
 	>
 	<Button
 		variant="border"
+		color="light"
 		size="xs"
 		on:click={() => {
 			loadResources(resourceType)

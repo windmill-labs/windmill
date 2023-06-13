@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { FlowService, ScheduleService, type Flow, type FlowModule, DraftService } from '$lib/gen'
+	import {
+		FlowService,
+		ScheduleService,
+		type Flow,
+		type FlowModule,
+		DraftService,
+		type PathScript
+	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron } from '$lib/utils'
@@ -24,6 +31,7 @@
 	import { loadHubScripts } from '$lib/scripts'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
+	import { getAllModules } from './flows/previousResults'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -93,10 +101,21 @@
 		loadingDraft = false
 	}
 
+	export function computeUnlockedSteps(flow: Flow) {
+		return Object.fromEntries(
+			getAllModules(flow)
+				.filter((m) => m.value.type == 'script' && m.value.hash == null)
+				.map((m) => [m.id, (m.value as PathScript).path])
+		)
+	}
+
 	async function saveFlow(): Promise<void> {
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
+			// console.log('flow', computeUnlockedSteps(flow)) // del
+			// loadingSave = false // del
+			// return
 			const { cron, timezone, args, enabled } = $scheduleStore
 			$dirtyStore = false
 			if (initialPath === '') {
