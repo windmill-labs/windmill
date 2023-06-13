@@ -11,6 +11,7 @@
 	import { DollarSign } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
+	import autosize from 'svelte-autosize'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -31,7 +32,7 @@
 	{#if fieldType === 'number' || fieldType === 'integer'}
 		<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
 	{:else if fieldType === 'textarea'}
-		<textarea on:keydown|stopPropagation bind:value={componentInput.value} />
+		<textarea use:autosize on:keydown|stopPropagation bind:value={componentInput.value} />
 	{:else if fieldType === 'date'}
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if fieldType === 'boolean'}
@@ -116,9 +117,10 @@
 		</div>
 	{:else}
 		<div class="flex gap-1 relative w-full">
-			<input
+			<textarea
+				rows="1"
+				use:autosize
 				on:keydown|stopPropagation
-				type="text"
 				placeholder={placeholder ?? 'Static value'}
 				bind:value={componentInput.value}
 				class="!pr-12"
@@ -126,7 +128,7 @@
 			{#if !noVariablePicker}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<button
-					class="absolute right-1 top-1 bottom-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+					class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 					on:click={() => {
 						$pickVariableCallback = (variable) => {
 							if (componentInput) {
