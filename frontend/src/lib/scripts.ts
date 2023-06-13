@@ -32,13 +32,23 @@ export async function loadSchema(path: string, hash?: string): Promise<Schema> {
 			workspace: get(workspaceStore)!,
 			hash
 		})
-		return script.schema as any
+		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
 			workspace: get(workspaceStore)!,
 			path: path ?? ''
 		})
+		return inferSchemaIfNecessary(script)
+	}
+}
+
+async function inferSchemaIfNecessary(script: Script) {
+	if (script.schema) {
 		return script.schema as any
+	} else {
+		const newSchema = emptySchema()
+		await inferArgs(script.language, script.content ?? '', newSchema)
+		return newSchema
 	}
 }
 
