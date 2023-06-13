@@ -1,20 +1,14 @@
 <script lang="ts">
-	import type { BadgeColor } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import { RawScript, ScriptService, type FlowModule, type PathScript } from '$lib/gen'
+	import { ScriptService, type FlowModule, type PathScript } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { Lock, Unlock } from 'lucide-svelte'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
-
-	const languageColors: Record<RawScript.language, BadgeColor> = {
-		[RawScript.language.GO]: 'dark-indigo',
-		[RawScript.language.DENO]: 'dark-blue',
-		[RawScript.language.PYTHON3]: 'dark-green',
-		[RawScript.language.BASH]: 'dark-yellow'
-	}
 
 	let latestHash: string | undefined = undefined
 	async function loadLatestHash(value: PathScript) {
@@ -33,7 +27,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2 h-full max-h-12 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 border-b border-gray-100 space-x-2 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm w-full mr-4">
@@ -41,9 +35,9 @@
 				{#if flowModule.value.type === 'identity'}
 					<span class="font-bold text-xs">Identity (input copied to output)</span>
 				{:else if flowModule?.value.type === 'rawscript'}
-					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
-						{flowModule?.value.language}
-					</Badge>
+					<div class="w-4 mx-0.5">
+						<LanguageIcon lang={flowModule.value.language} class="w-4 h-4" />
+					</div>
 					<input bind:value={flowModule.summary} placeholder={'Summary'} class="w-full grow" />
 				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
 					<IconedPath path={flowModule.value.path} hash={flowModule.value.hash} class="grow" />
@@ -62,25 +56,27 @@
 							>
 						{/if}
 						<Button
+							title="Unlock hash to always use latest deployed version at that path"
 							size="xs"
+							btnClasses="text-gray-600 inline-flex gap-1 items-center"
 							color="light"
-							variant="border"
 							on:click={() => {
 								if (flowModule?.value.type == 'script') {
 									flowModule.value.hash = undefined
 								}
-							}}>Unlock hash</Button
+							}}><Unlock size={12} />hash</Button
 						>
 					{:else if latestHash}
 						<Button
+							title="Lock hash to always use this specific version"
 							color="light"
 							size="xs"
-							variant="border"
+							btnClasses="text-gray-600 inline-flex gap-1 items-center"
 							on:click={() => {
 								if (flowModule?.value.type == 'script') {
 									flowModule.value.hash = latestHash
 								}
-							}}>Lock hash</Button
+							}}><Lock size={12} />hash</Button
 						>
 					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />

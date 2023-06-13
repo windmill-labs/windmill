@@ -12,6 +12,7 @@
 	export let icon: any | undefined = undefined
 	export let disabled: boolean = false
 	export let selectedColor: string = '#3b82f6'
+	export let small: boolean = false
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -20,7 +21,8 @@
 	<Tab
 		{disabled}
 		class={twMerge(
-			'px-2 py-1 rounded-md transition-all text-xs flex gap-1 flex-row items-center',
+			' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
+			small ? 'px-1 py-0.5' : 'px-2 py-1',
 			$selected === value ? 'bg-white shadow-md text-gray-800' : 'text-gray-600 hover:bg-gray-200',
 			$$props.class
 		)}

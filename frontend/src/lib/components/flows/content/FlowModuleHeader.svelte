@@ -30,9 +30,9 @@
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
 		<Popover
 			placement="bottom"
-			class="center-center rounded border p-2 
+			class="center-center rounded p-2 
 			{moduleRetry
-				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
 				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleRetry')}
 		>
@@ -41,10 +41,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded border p-2 
+			class="center-center rounded p-2 
 		{module.cache_ttl != undefined
-				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800  hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleCache')}
 		>
 			<Database size={14} />
@@ -52,10 +52,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded border p-2
+			class="center-center rounded  p-2
 			{module.stop_after_if
-				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleStopAfterIf')}
 		>
 			<Square size={14} />
@@ -63,10 +63,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded border p-2 
+			class="center-center rounded p-2 
 			{module.suspend
-				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border  border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800  hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleSuspend')}
 		>
 			<PhoneIncoming size={14} />
@@ -74,10 +74,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded border p-2
+			class="center-center rounded  p-2
 			{module.sleep
-				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800  hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleSleep')}
 		>
 			<Bed size={14} />
@@ -90,7 +90,6 @@
 			<Button
 				size="xs"
 				color="light"
-				variant="border"
 				on:click={async () => {
 					if (module.value.type == 'script') {
 						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
@@ -110,7 +109,6 @@
 		<Button
 			size="xs"
 			color="light"
-			variant="border"
 			on:click={() => dispatch('fork')}
 			startIcon={{ icon: faCodeBranch }}
 			iconOnly={false}
@@ -149,7 +147,7 @@
 		<Button
 			size="xs"
 			color="light"
-			variant="border"
+			btnClasses="text-gray-600"
 			startIcon={{ icon: faSave }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}

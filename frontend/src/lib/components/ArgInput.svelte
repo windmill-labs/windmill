@@ -319,7 +319,7 @@
 					<div class="flex mt-2">
 						<Button
 							variant="border"
-							color="dark"
+							color="light"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {

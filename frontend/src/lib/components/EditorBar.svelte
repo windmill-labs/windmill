@@ -6,9 +6,9 @@
 	import { ResourceService, VariableService } from '$lib/gen'
 
 	import {
+		faBook,
 		faCube,
 		faDollarSign,
-		faEye,
 		faPlus,
 		faRotate,
 		faRotateLeft
@@ -22,7 +22,7 @@
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Badge, Drawer } from './common'
+	import { Drawer } from './common'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
@@ -253,16 +253,17 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<div class="flex justify-between items-center overflow-y-auto w-full p-1">
+<div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
-		<Badge color={validCode ? 'green' : 'red'} class="min-w-[60px] mr-3">
-			{validCode ? 'Valid' : 'Invalid'}
-		</Badge>
-		<div class="flex items-center divide-x">
+		<div
+			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
+			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+		/>
+		<div class="flex items-center">
 			<Button
 				title="Add context variable"
 				color="light"
-				btnClasses="!font-medium !h-full"
+				btnClasses="!font-medium text-gray-600"
 				on:click={contextualVariablePicker.openDrawer}
 				size="xs"
 				spacingSize="md"
@@ -275,7 +276,7 @@
 			<Button
 				title="Add variable"
 				color="light"
-				btnClasses="!font-medium !h-full"
+				btnClasses="!font-medium text-gray-600"
 				on:click={variablePicker.openDrawer}
 				size="xs"
 				spacingSize="md"
@@ -287,7 +288,7 @@
 
 			<Button
 				title="Add resource"
-				btnClasses="!font-medium !h-full"
+				btnClasses="!font-medium text-gray-600"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -300,7 +301,7 @@
 
 			<Button
 				title="Reset Content"
-				btnClasses="!font-medium !h-full"
+				btnClasses="!font-medium text-gray-600"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -312,7 +313,7 @@
 			</Button>
 
 			<Button
-				btnClasses="!font-medium !h-full"
+				btnClasses="!font-medium text-gray-600"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -399,16 +400,16 @@
 
 	{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 		<Button
-			btnClasses="!font-medium"
+			btnClasses="!font-medium text-gray-600"
 			size="xs"
 			spacingSize="md"
 			color="light"
 			on:click={scriptPicker.openDrawer}
 			{iconOnly}
-			startIcon={{ icon: faEye }}
+			startIcon={{ icon: faBook }}
 			title="Explore other scripts"
 		>
-			Explore other scripts
+			Library
 		</Button>
 	{/if}
 </div>

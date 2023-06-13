@@ -61,7 +61,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<div class="z-10 pt-1.5">
+				<div class="z-10 pt-4">
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
