@@ -96,7 +96,7 @@ export function getDependeeAndDependentComponents(
 	let module = all_modules.find((x) => x.id === id)
 	let allIds: [string, string][] = [
 		['Input', 'flow_input'],
-		...modules.map((x) => [x.id, `results.${x.id}`] as [string, string])
+		...all_modules.map((x) => [x.id, `results.${x.id}`] as [string, string])
 	]
 	let dependees = {}
 	if (module) {
