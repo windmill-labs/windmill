@@ -56,7 +56,7 @@
 	<div
 		class={classNames(
 			'flex gap-1',
-			onlyStatic ? 'flex-row items-center justify-between' : 'flex-col'
+			onlyStatic && fieldType != 'object' ? 'flex-row items-center justify-between' : 'flex-col'
 		)}
 	>
 		<div class="flex justify-between items-end">
@@ -123,7 +123,11 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full flex flex-row-reverse'}>
+			<div
+				class={onlyStatic && fieldType != 'object'
+					? 'w-2/3 flex justify-end'
+					: 'w-full flex flex-row-reverse'}
+			>
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}

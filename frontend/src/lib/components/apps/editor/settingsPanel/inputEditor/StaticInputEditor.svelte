@@ -104,6 +104,7 @@
 		{:else}
 			<div class="flex w-full flex-col">
 				<JsonEditor
+					small
 					bind:value={componentInput.value}
 					code={JSON.stringify(componentInput.value, null, 2)}
 				/>

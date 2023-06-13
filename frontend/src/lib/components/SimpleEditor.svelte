@@ -60,6 +60,7 @@
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
+	export let small = false
 
 	const dispatch = createEventDispatcher()
 
@@ -109,7 +110,8 @@
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
-			overflowWidgetsDomNode: widgets
+			overflowWidgetsDomNode: widgets,
+			fontSize: small ? 12 : 14
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

@@ -109,42 +109,45 @@
 					class="ag-theme-alpine"
 				>
 					{#key resolvedConfig?.pagination}
-						<AgGridSvelte
-							bind:rowData={result}
-							columnDefs={resolvedConfig?.columnDefs}
-							pagination={resolvedConfig?.pagination}
-							paginationAutoPageSize={resolvedConfig?.pagination}
-							defaultColDef={{
-								flex: resolvedConfig.flex ? 1 : 0,
-								editable: resolvedConfig?.allEditable,
-								onCellValueChanged
-							}}
-							onPaginationChanged={(event) => {
-								outputs?.page.set(event.api.paginationGetCurrentPage())
-							}}
-							rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
-							suppressRowDeselection={true}
-							rowMultiSelectWithClick={resolvedConfig?.multipleSelectable
-								? resolvedConfig.rowMultiselectWithClick
-								: undefined}
-							onSelectionChanged={(e) => {
-								if (resolvedConfig?.multipleSelectable) {
-									const rows = e.api.getSelectedNodes()
-									if (rows != undefined) {
-										toggleRows(rows)
+						{#key resolvedConfig?.extraConfig}
+							<AgGridSvelte
+								bind:rowData={result}
+								columnDefs={resolvedConfig?.columnDefs}
+								pagination={resolvedConfig?.pagination}
+								paginationAutoPageSize={resolvedConfig?.pagination}
+								defaultColDef={{
+									flex: resolvedConfig.flex ? 1 : 0,
+									editable: resolvedConfig?.allEditable,
+									onCellValueChanged
+								}}
+								onPaginationChanged={(event) => {
+									outputs?.page.set(event.api.paginationGetCurrentPage())
+								}}
+								rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
+								suppressRowDeselection={true}
+								rowMultiSelectWithClick={resolvedConfig?.multipleSelectable
+									? resolvedConfig.rowMultiselectWithClick
+									: undefined}
+								onSelectionChanged={(e) => {
+									if (resolvedConfig?.multipleSelectable) {
+										const rows = e.api.getSelectedNodes()
+										if (rows != undefined) {
+											toggleRows(rows)
+										}
+									} else {
+										const row = e.api.getSelectedNodes()?.[0]
+										if (row != undefined) {
+											toggleRow(row)
+										}
 									}
-								} else {
-									const row = e.api.getSelectedNodes()?.[0]
-									if (row != undefined) {
-										toggleRow(row)
-									}
-								}
-							}}
-							onGridReady={(e) => {
-								outputs?.ready.set(true)
-								$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
-							}}
-						/>
+								}}
+								{...resolvedConfig.extraConfig}
+								onGridReady={(e) => {
+									outputs?.ready.set(true)
+									$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
+								}}
+							/>
+						{/key}
 					{/key}
 				</div>
 			</div>
