@@ -13,6 +13,7 @@
 
 	import { onDestroy } from 'svelte'
 	import { Expand, Minus, Plus } from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	//these are typscripted as any, however they have been transformed inside of store.ts
 	export let canvasId: string
@@ -22,7 +23,10 @@
 	export let boundary = false
 	export let scroll = false
 
+	export let dataflow = false
 	export let download = false
+	export let showDataflowToggle: boolean = false
+
 	// here we lookup the store using the unique key
 	const store = findStore(canvasId)
 	const {
@@ -198,6 +202,19 @@
 		</g>
 	</svg>
 </div>
+{#if showDataflowToggle}
+	<div id="dataflow_toggle">
+		<Toggle
+			textClass="!text-gray-600"
+			size="xs"
+			bind:checked={dataflow}
+			options={{
+				right: 'dataflow'
+			}}
+		/>
+	</div>
+{/if}
+
 <div id="buttons">
 	<button title="Zoom In" id="zoom_in">
 		<Plus size="14" class="flex justify-start m-1" />
@@ -205,6 +222,7 @@
 	<button title="Zoom Out" id="zoom_out">
 		<Minus size="14" class="flex justify-start m-1" />
 	</button>
+
 	{#if download}
 		<button on:click={() => dispatch('expand')}>
 			<Expand size="14" class="flex justify-start m-1" />
@@ -213,6 +231,11 @@
 </div>
 
 <style>
+	#dataflow_toggle {
+		position: absolute;
+		top: 3px;
+		left: 8px;
+	}
 	#buttons {
 		position: absolute;
 		top: 8px;

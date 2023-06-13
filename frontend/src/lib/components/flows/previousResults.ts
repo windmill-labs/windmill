@@ -1,6 +1,7 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, InputTransform } from '$lib/gen'
+import type { Flow, FlowModule } from '$lib/gen'
 import { schemaToObject } from '$lib/schema'
+import { getAllSubmodules, getSubModules } from './flowExplorer'
 import type { FlowState } from './flowState'
 
 export type PickableProperties = {
@@ -16,27 +17,6 @@ type StepPropPicker = {
 }
 
 type ModuleBranches = FlowModule[][]
-
-function getSubModules(flowModule: FlowModule): ModuleBranches {
-	if (flowModule.value.type === 'forloopflow') {
-		return [flowModule.value.modules]
-	} else if (flowModule.value.type === 'branchall') {
-		return flowModule.value.branches.map((branch) => branch.modules)
-	} else if (flowModule.value.type == 'branchone') {
-		return [...flowModule.value.branches.map((branch) => branch.modules), flowModule.value.default]
-	}
-	return []
-}
-
-function getAllSubmodules(flowModule: FlowModule): ModuleBranches {
-	return getSubModules(flowModule).map((modules) => {
-		return modules
-			.map((module) => {
-				return [module, ...getAllSubmodules(module).flat()]
-			})
-			.flat()
-	})
-}
 
 function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
@@ -98,56 +78,6 @@ function getFlowInput(
 	} else {
 		return schemaToObject(schema, args)
 	}
-}
-
-export function getAllModules(flow: Flow): FlowModule[] {
-	let modules = [
-		...flow.value.modules,
-		...flow.value.modules.map((x) => getAllSubmodules(x).flat()),
-		...(flow.value.failure_module ? [flow.value.failure_module] : [])
-	].flat()
-	return modules
-}
-
-function getExpr(x: InputTransform | undefined) {
-	if (x == undefined) return []
-	return x.type === 'javascript' ? [x.expr] : []
-}
-
-function exprsOfInputTransforms(x: Record<string, InputTransform>): string[] {
-	return Object.values(x)
-		.map((x) => getExpr(x))
-		.flat()
-}
-export function getDependentComponents(id: string, flow: Flow): Record<string, string[]> {
-	let modules = getAllModules(flow)
-	return Object.fromEntries(
-		modules
-			.map((x) => {
-				let exprs: string[] = []
-				if (x.value.type === 'forloopflow') {
-					exprs.push(...getExpr(x.value.iterator))
-				} else if (x.value.type === 'branchone') {
-					x.value.branches.map((branch) => {
-						exprs.push(branch.expr)
-					})
-				} else if (
-					x.value.type === 'flow' ||
-					x.value.type === 'script' ||
-					x.value.type == 'rawscript'
-				) {
-					exprs.push(...exprsOfInputTransforms(x.value.input_transforms))
-					exprs.push(...getExpr(x.sleep))
-					if (x.stop_after_if?.expr) {
-						exprs.push(x.stop_after_if.expr)
-					}
-					exprs.push(...getExpr(x.sleep))
-				}
-				exprs = exprs.filter((x) => x.includes(`results.${id}`))
-				return [x.id, exprs]
-			})
-			.filter((x) => x[1].length > 0)
-	)
 }
 
 export function getStepPropPicker(

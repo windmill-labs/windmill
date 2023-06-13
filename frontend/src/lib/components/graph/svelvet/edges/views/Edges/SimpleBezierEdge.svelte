@@ -1,16 +1,6 @@
 <script lang="ts">
 	import BaseEdge from './BaseEdge.svelte'
-	// import { Position } from '../types/utils';
-	// // enumerable values (static) set for Position
-	// export var Position;
-	// (function (Position) {
-	//     Position["Left"] = "left";
-	//     Position["Right"] = "right";
-	//     Position["Top"] = "top";
-	//     Position["Bottom"] = "bottom";
-	// })(Position || (Position = {}));
-	// //
-	// // export type CoordinateExtent = [[number, number], [number, number]];
+
 	const Position = { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' }
 
 	import { findStore } from '../../../store/controllers/storeApi'
@@ -133,10 +123,10 @@
 		const targetAnchor = getAnchorFromEdge(store, edge.id, 'target')
 		const mapAngle = { 0: 'right', 90: 'top', 180: 'left', 270: 'bottom' }
 		params = {
-			sourceX: edge.sourceX,
+			sourceX: edge.sourceX + (edge.offset ?? 0),
 			sourceY: edge.sourceY,
 			sourcePosition: mapAngle[sourceAnchor.angle],
-			targetX: edge.targetX,
+			targetX: edge.targetX + (edge.offset ?? 0),
 			targetY: edge.targetY,
 			targetPosition: mapAngle[targetAnchor.angle],
 			curvature: 0.25

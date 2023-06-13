@@ -31,7 +31,7 @@
 	import { loadHubScripts } from '$lib/scripts'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
-	import { getAllModules } from './flows/previousResults'
+	import { getAllModules } from './flows/flowExplorer'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -103,7 +103,7 @@
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
-			getAllModules(flow)
+			getAllModules(flow.value.modules, flow.value.failure_module)
 				.filter((m) => m.value.type == 'script' && m.value.hash == null)
 				.map((m) => [m.id, (m.value as PathScript).path])
 		)
