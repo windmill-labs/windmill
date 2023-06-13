@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.114.2](https://github.com/windmill-labs/windmill/compare/v1.114.1...v1.114.2) (2023-06-12)
+
+
+### Bug Fixes
+
+* improve dev cli ([afce4ef](https://github.com/windmill-labs/windmill/commit/afce4ef77aa598b2ed7c6785ee7ca61a89eb64ab))
+
 ## [1.114.1](https://github.com/windmill-labs/windmill/compare/v1.114.0...v1.114.1) (2023-06-12)
 
 
