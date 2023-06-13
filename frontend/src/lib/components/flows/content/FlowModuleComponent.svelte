@@ -219,9 +219,11 @@
 								/>
 							{/key}
 						{:else if flowModule.value.type === 'script'}
-							{#key forceReload}
-								<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
-							{/key}
+							<div class="border-t border-gray-200">
+								{#key forceReload}
+									<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+								{/key}
+							</div>
 						{:else if flowModule.value.type === 'flow'}
 							<FlowPathViewer path={flowModule.value.path} />
 						{/if}

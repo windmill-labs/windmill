@@ -27,7 +27,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 border-b border-gray-100 space-x-2 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 py-space-x-2 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm w-full mr-4">
