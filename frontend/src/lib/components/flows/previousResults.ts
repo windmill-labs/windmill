@@ -108,6 +108,7 @@ export function getAllModules(flow: Flow): FlowModule[] {
 	].flat()
 	return modules
 }
+
 function getExpr(x: InputTransform | undefined) {
 	if (x == undefined) return []
 	return x.type === 'javascript' ? [x.expr] : []
@@ -148,6 +149,7 @@ export function getDependentComponents(id: string, flow: Flow): Record<string, s
 			.filter((x) => x[1].length > 0)
 	)
 }
+
 export function getStepPropPicker(
 	flowState: FlowState,
 	parentModule: FlowModule | undefined,
