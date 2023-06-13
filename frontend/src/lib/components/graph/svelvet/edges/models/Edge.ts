@@ -38,7 +38,8 @@ export class Edge implements EdgeType {
 		public noHandle: boolean,
 		public arrow: boolean,
 		public clickCallback: Function,
-		public className: string
+		public className: string,
+		public offset?: number
 	) {}
 
 	/**

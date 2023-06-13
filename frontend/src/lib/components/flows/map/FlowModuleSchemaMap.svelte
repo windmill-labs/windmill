@@ -18,8 +18,8 @@
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { getDependentComponents } from '../previousResults'
 	import Portal from 'svelte-portal'
+	import { getDependentComponents } from '../flowExplorer'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
