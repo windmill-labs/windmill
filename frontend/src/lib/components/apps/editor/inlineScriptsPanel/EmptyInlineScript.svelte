@@ -238,6 +238,7 @@ state.foo += 1
 
 // you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
 // Inputs and display components support settings their value directly (setValue)
+// Tables support setting their selected index (setSelectedIndex)
 
 return state.foo`,
 							language: 'frontend',

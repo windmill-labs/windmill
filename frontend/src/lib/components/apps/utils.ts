@@ -217,6 +217,7 @@ declare function setTab(id: string, index: string): void;
 declare function recompute(id: string): void;
 declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
 declare function setValue(id: string, value: any): void;
+declare function setSelectedIndex(id: string, index: number): void;
 `
 		: ''
 }

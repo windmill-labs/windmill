@@ -196,6 +196,7 @@ export type AppViewerContext = {
 				setCode?: (value: string) => void
 				onDelete?: () => void
 				setValue?: (value: any) => void
+				setSelectedIndex?: (index: number) => void
 			}
 		>
 	>
