@@ -20,7 +20,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	let result: Record<number, any>[] | undefined = undefined
+	let result: any[] | undefined = undefined
 
 	const { worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -34,7 +34,7 @@
 		selectedRowIndex: 0,
 		selectedRow: {},
 		selectedRows: [] as any[],
-		result: [] as Record<number, any>[],
+		result: [] as any[],
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
@@ -45,7 +45,8 @@
 
 	function toggleRow(row: any) {
 		let rowIndex = row.rowIndex
-		let data = row.data
+		let data = { ...row.data }
+		delete data['__index']
 		if (selectedRowIndex !== rowIndex) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(data)
@@ -54,21 +55,26 @@
 	}
 
 	function toggleRows(rows: any[]) {
-		console.log(rows)
 		if (rows.length === 0) {
 			outputs?.selectedRows.set([])
 		}
 		toggleRow(rows[0])
-		outputs?.selectedRows.set(rows.map((x) => x.data))
+		outputs?.selectedRows.set(
+			rows.map((x) => {
+				let data = { ...x.data }
+				delete data['__index']
+				return data
+			})
+		)
 	}
 
-	$: outputs?.result?.set(result ?? [])
+	$: outputs?.result?.set(value)
 
 	let clientHeight
 	let clientWidth
 
 	function onCellValueChanged(event) {
-		if (result) {
+		if (value) {
 			let dataCell = event.newValue
 			try {
 				dataCell = JSON.parse(dataCell)
@@ -78,9 +84,14 @@
 				column: event.colDef.field,
 				value: dataCell
 			})
-			result[event.node.rowIndex][event.colDef.field] = dataCell
+			value[event.node.rowIndex][event.colDef.field] = dataCell
+			let data = { ...value[event.node.rowIndex] }
+			delete data['__index']
+			outputs?.selectedRow?.set(data)
 		}
 	}
+
+	$: value = (result ?? []).map((x, i) => ({ ...x, __index: i.toString() }))
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -111,7 +122,7 @@
 					{#key resolvedConfig?.pagination}
 						{#key resolvedConfig?.extraConfig}
 							<AgGridSvelte
-								bind:rowData={result}
+								bind:rowData={value}
 								columnDefs={resolvedConfig?.columnDefs}
 								pagination={resolvedConfig?.pagination}
 								paginationAutoPageSize={resolvedConfig?.pagination}
@@ -141,10 +152,19 @@
 										}
 									}
 								}}
+								getRowId={(data) => data.data['__index']}
 								{...resolvedConfig.extraConfig}
 								onGridReady={(e) => {
 									outputs?.ready.set(true)
-									$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
+									if (value.length > 0) {
+										e.api.getRowNode('0')?.setSelected(true)
+									}
+									$componentControl[id] = {
+										agGrid: { api: e.api, columnApi: e.columnApi },
+										setSelectedIndex: (index) => {
+											e.api.getRowNode(index.toString())?.setSelected(true)
+										}
+									}
 								}}
 							/>
 						{/key}

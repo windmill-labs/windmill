@@ -48,6 +48,44 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	return query.rows;
 }`
 	},
+	aggridcomponent: {
+		deno: `export async function main() {
+	return [
+		{
+			"id": 1,
+			"name": "A cell with a long name",
+			"age": 42
+		},
+		{
+			"id": 2,
+			"name": "A briefer cell",
+			"age": 84
+		}
+	]
+}`,
+		python3: `def main():
+	return [
+		{
+			"id": 1,
+			"name": "A cell with a long name",
+			"age": 42
+		},
+		{
+			"id": 2,
+			"name": "A briefer cell",
+			"age": 84
+		}
+	]`,
+		pgsql: `import {
+	pgSql,
+	type Resource,
+} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+
+export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+	const query = await pgSql(db)\`SELECT * FROM demo;\`;
+	return query.rows;
+}`
+	},
 	steppercomponent: {
 		deno: `export async function main(stepIndex: number) {
 		// if (stepIndex == 0) {

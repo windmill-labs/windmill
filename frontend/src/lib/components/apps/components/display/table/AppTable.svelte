@@ -193,6 +193,11 @@
 				return true
 			}
 			return false
+		},
+		setSelectedIndex: (index: number) => {
+			if (filteredResult) {
+				toggleRow({ original: filteredResult[index] }, index, true)
+			}
 		}
 	}
 </script>

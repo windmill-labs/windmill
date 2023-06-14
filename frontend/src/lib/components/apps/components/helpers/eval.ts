@@ -20,7 +20,7 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 
 function create_context_function_template(eval_string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue) {
+return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex) {
 "use strict";
 ${
 	Object.keys(context).length > 0
@@ -36,7 +36,16 @@ function make_context_evaluator(
 	eval_string,
 	context,
 	noReturn: boolean
-): (context, state, goto, setTab, recompute, getAgGrid, setValue) => Promise<any> {
+): (
+	context,
+	state,
+	goto,
+	setTab,
+	recompute,
+	getAgGrid,
+	setValue,
+	setSelectedIndex
+) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
 	return functor()
@@ -86,6 +95,7 @@ export async function eval_like(
 			setTab?: (index: number) => void
 			agGrid?: { api: any; columnApi: any }
 			setValue?: (value: any) => void
+			setSelectedIndex?: (index: number) => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -133,6 +143,9 @@ export async function eval_like(
 		},
 		(id, value) => {
 			controlComponents[id]?.setValue?.(value)
+		},
+		(id, index) => {
+			controlComponents[id]?.setSelectedIndex?.(index)
 		}
 	)
 }
