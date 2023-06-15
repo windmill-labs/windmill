@@ -2,14 +2,14 @@ const plugin = require('tailwindcss/plugin')
 
 const lightTheme = {
 	primaryBackground: 'white',
-	secondaryBackground: '#f7fafc',
+	secondaryBackground: '#f3f4f6',
 	primaryText: '#2d3748',
 	border: '#cccccc'
 }
 
 const darkTheme = {
 	primaryBackground: '#2e3440',
-	secondaryBackground: '#d8dee9',
+	secondaryBackground: '#3b4252',
 	primaryText: '#DADCEA',
 	border: '#3e3f53'
 }
@@ -21,6 +21,8 @@ const config = {
 		'hljs',
 		'splitpanes__pane',
 		'splitpanes__splitter',
+		'wm-tab',
+		'wm-tab-selected',
 		...(process.env.NODE_ENV === 'production'
 			? [
 					{ pattern: /^m(\w?)-.*$/ },
@@ -568,6 +570,9 @@ const config = {
 						color: theme('colors.gray.900'),
 						textTransform: 'capitalize'
 					},
+					'.dark & th': {
+						color: theme('colors.gray.200')
+					},
 					'& td': {
 						paddingLeft: theme('spacing.1'),
 						paddingRight: theme('spacing.1'),
@@ -576,11 +581,20 @@ const config = {
 						fontSize: theme('fontSize.sm'),
 						color: theme('colors.gray.700')
 					},
+					'.dark & td ': {
+						color: theme('colors.gray.200')
+					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
 						borderTop: `1px solid ${theme('colors.gray.200')}`
 					},
+					'.dark & tbody > :not([hidden]) ~ :not([hidden])': {
+						borderTop: `1px solid ${theme('colors.gray.700')}`
+					},
 					'& tbody > tr:hover': {
 						backgroundColor: theme('colors.gray.50')
+					},
+					'.dark & tbody > tr:hover': {
+						backgroundColor: theme('colors.gray.800')
 					}
 				},
 				'.commit-hash': {
@@ -669,6 +683,18 @@ const config = {
 						left: '0 !important',
 						width: '100% !important'
 					}
+				},
+
+				// Windmill Tab classes
+
+				'.wm-tab-active': {
+					borderColor: theme('colors.gray.600'),
+					color: theme('colors.gray.800')
+				},
+
+				'.dark .wm-tab-active': {
+					borderColor: 'white',
+					color: darkTheme.primaryText
 				}
 			})
 			addUtilities({
