@@ -36,18 +36,17 @@
 		drawer?.openDrawer()
 	}
 
-	export function toggleDrawer() {
-		drawer?.toggleDrawer()
-	}
-
 	export function closeDrawer() {
 		drawer?.closeDrawer()
+		removeHash()
+	}
+
+	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
 		goto(hashRemoved)
 	}
-
 	async function setPassword(): Promise<void> {
 		if (newPassword) {
 			await UserService.setPassword({
@@ -93,7 +92,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="800px">
+<Drawer bind:this={drawer} size="800px" on:clickAway={removeHash}>
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>

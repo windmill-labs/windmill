@@ -24,9 +24,10 @@
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab = window.location.hash?.includes('#')
-		? (window.location.hash?.replace('#', '') as Tab)
-		: 'workspace'
+	let tab: Tab =
+		window.location.hash == '#workspace' || window.location.hash == '#hub'
+			? (window.location.hash?.replace('#', '') as Tab)
+			: 'workspace'
 
 	let subtab: 'flows' | 'scripts' | 'apps' = 'apps'
 
@@ -200,7 +201,7 @@
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden">
-				<Tabs dflt="workspace" hashNavigation bind:selected={tab}>
+				<Tabs values={['hub', 'workspace']} dflt="workspace" hashNavigation bind:selected={tab}>
 					<Tab size="md" value="workspace">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />

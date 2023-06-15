@@ -21,6 +21,7 @@
 	export let style = ''
 	export let hashNavigation = false
 	export let dflt: string | undefined = undefined
+	export let values: string[] | undefined = undefined
 
 	$: selected && updateSelected()
 
@@ -28,6 +29,7 @@
 
 	$: $selectedStore && dispatch('selected', $selectedStore)
 
+	$: hashValues = values ? values.map((x) => '#' + x) : undefined
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
 		update: (value: string) => {
@@ -44,13 +46,10 @@
 	function hashChange() {
 		if (hashNavigation) {
 			const hash = window.location.hash
-			if (hash) {
+			if (hash && hashValues?.includes(hash)) {
 				const id = hash.replace('#', '')
 				selectedStore.set(id)
 				selected = id
-			} else if (dflt) {
-				selectedStore.set(dflt)
-				selected = dflt
 			}
 		}
 	}
