@@ -18,15 +18,15 @@
 		drawer?.openDrawer?.()
 	}
 
-	export function toggleDrawer() {
-		drawer?.toggleDrawer?.()
-	}
-
 	export function closeDrawer() {
 		drawer?.closeDrawer()
+		removeHash()
+	}
+
+	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
-		const href = $page.url.href
-		const hashRemoved = index === -1 ? href : href.slice(0, index)
+		if (index === -1) return
+		const hashRemoved = $page.url.href.slice(0, index)
 		goto(hashRemoved)
 	}
 
@@ -50,7 +50,7 @@
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
 
-<Drawer bind:this={drawer} on:open={listUsers} size="900px">
+<Drawer bind:this={drawer} on:open={listUsers} size="900px" on:clickAway={removeHash}>
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
