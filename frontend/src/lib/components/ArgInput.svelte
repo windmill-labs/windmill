@@ -23,6 +23,7 @@
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let label: string = ''
 	export let value: any
@@ -377,9 +378,12 @@
 							{autofocus}
 							on:focus
 							type="text"
-							class={valid
-								? ''
-								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+							class={twMerge(
+								'secondaryBackground text-red-500',
+								valid
+									? ''
+									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+							)}
 							placeholder={defaultValue ?? ''}
 							bind:value
 						/>
@@ -443,9 +447,12 @@
 								on:keydown={onKeyDown}
 								type="text"
 								{disabled}
-								class="w-full {valid
-									? ''
-									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+								class={twMerge(
+									'w-full secondaryBackground',
+									valid
+										? ''
+										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+								)}
 								placeholder={defaultValue ?? ''}
 								bind:value
 							/>

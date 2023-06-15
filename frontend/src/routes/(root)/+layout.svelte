@@ -8,6 +8,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
+	import githubDark from 'svelte-highlight/styles/github-dark'
+
 	import { refreshSuperadmin } from '$lib/refreshUser'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
@@ -30,6 +32,15 @@
 	async function setUserWorkspaceStore() {
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 	}
+
+	const href = window.location.href
+	const indexQ = href.indexOf('?')
+	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	const darkMode = searchParams?.get('activeColorTheme') === '2'
+
+	darkMode
+		? document.documentElement.classList.add('dark')
+		: document.documentElement.classList.remove('dark')
 
 	async function setLicense() {
 		const license = await SettingsService.getLicenseId()
@@ -128,7 +139,7 @@
 </script>
 
 <svelte:head>
-	{@html github}
+	{@html true ? githubDark : github}
 </svelte:head>
 
 <slot />

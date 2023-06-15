@@ -35,7 +35,7 @@
 </Drawer>
 
 <div class="relative w-full h-full {wrapperClass}">
-	<div bind:this={div} class="w-full h-full overflow-auto bg-gray-50 relative">
+	<div bind:this={div} class="w-full h-full overflow-auto relative">
 		<div
 			class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-gray-500 text-sm bg-gray-50/20"
 		>
@@ -57,7 +57,7 @@
 				>mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
+		<pre class="whitespace-pre-wrap break-words secondaryBackground text-xs w-full p-2"
 			>{#if content}<span>{content}</span>{:else if !isLoading}<span class="text-gray-600"
 					>No logs are available yet</span
 				>{/if}</pre

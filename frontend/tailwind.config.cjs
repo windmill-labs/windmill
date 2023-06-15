@@ -1,5 +1,19 @@
 const plugin = require('tailwindcss/plugin')
 
+const lightTheme = {
+	primaryBackground: 'white',
+	secondaryBackground: '#f7fafc',
+	primaryText: '#2d3748',
+	border: '#cccccc'
+}
+
+const darkTheme = {
+	primaryBackground: '#2e3440',
+	secondaryBackground: '#d8dee9',
+	primaryText: '#DADCEA',
+	border: '#3e3f53'
+}
+
 /** @type {import('tailwindcss').Config} */
 const config = {
 	content: ['./src/**/*.{html,js,svelte,ts}'],
@@ -479,6 +493,16 @@ const config = {
 							backgroundColor: theme('colors.gray.100') + ' !important'
 						}
 					},
+				'.dark input:not(.windmillapp),.dark input[type="text"]:not(.windmillapp),.dark input[type="email"]:not(.windmillapp),.dark input[type="url"]:not(.windmillapp),.dark input[type="password"]:not(.windmillapp),.dark input[type="number"]:not(.windmillapp),.dark input[type="date"]:not(.windmillapp),.dark input[type="datetime-local"]:not(.windmillapp),.dark input[type="month"]:not(.windmillapp),.dark input[type="search"]:not(.windmillapp),.dark input[type="tel"]:not(.windmillapp),.dark input[type="time"]:not(.windmillapp),.dark input[type="week"]:not(.windmillapp),.dark textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp)':
+					{
+						backgroundColor: theme('colors.gray.700'),
+						color: theme('colors.gray.200'),
+						borderColor: theme('colors.gray.600'),
+						'&:focus': {
+							'--tw-ring-color': theme('colors.indigo.700')
+						}
+					},
+
 				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',
@@ -590,8 +614,12 @@ const config = {
 					backgroundColor: theme('colors.white') + ' !important',
 					overflow: 'auto !important'
 				},
+				'.dark .splitpanes__pane': {
+					backgroundColor: darkTheme.primaryBackground + ' !important',
+					overflow: 'auto !important'
+				},
 				'.splitpanes__splitter': {
-					backgroundColor: theme('colors.gray.300') + ' !important',
+					backgroundColor: lightTheme.border + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
@@ -606,6 +634,12 @@ const config = {
 					},
 					'&:hover::after': {
 						opacity: '1'
+					}
+				},
+				'.dark .splitpanes__splitter': {
+					backgroundColor: darkTheme.border + ' !important',
+					'&::after': {
+						backgroundColor: '#8ebdcc !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -638,6 +672,23 @@ const config = {
 				}
 			})
 			addUtilities({
+				html: {
+					backgroundColor: lightTheme.primaryBackground,
+					color: lightTheme.primaryText,
+
+					'&.dark': {
+						backgroundColor: darkTheme.primaryBackground,
+						color: darkTheme.primaryText
+					}
+				},
+				'.secondaryBackground': {
+					backgroundColor: lightTheme.secondaryBackground
+				},
+
+				'.dark .secondaryBackground': {
+					backgroundColor: darkTheme.secondaryBackground
+				},
+
 				'.separator': {
 					backgroundColor: '#ddd !important'
 				},
