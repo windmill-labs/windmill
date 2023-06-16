@@ -36,6 +36,11 @@
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	const darkMode = searchParams?.get('activeColorTheme') === '2'
+
+	darkMode
+		? document.documentElement.classList.add('dark')
+		: document.documentElement.classList.remove('dark')
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -146,9 +151,10 @@
 
 <main class="h-screen w-full">
 	<div class="flex flex-col h-full">
-		<div class="text-center w-full text-lg truncate py-1"
-			>{currentScript?.path ?? 'Not editing a script'} {currentScript?.language ?? ''}</div
-		>
+		<div class="text-center w-full text-lg truncate py-1 dark:text-white">
+			{currentScript?.path ?? 'Not editing a script'}
+			{currentScript?.language ?? ''}
+		</div>
 		{#if !validCode}
 			<div class="text-center w-full text-lg truncate py-1 text-red-500">Invalid code</div>
 		{/if}

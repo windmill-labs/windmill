@@ -713,7 +713,7 @@
 
 <style global lang="postcss">
 	.editor {
-		@apply p-0 border rounded-md border-gray-50;
+		@apply p-0;
 	}
 	.yRemoteSelection {
 		background-color: rgb(250, 129, 0, 0.5);
