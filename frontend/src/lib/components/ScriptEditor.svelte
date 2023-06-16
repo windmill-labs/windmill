@@ -262,7 +262,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible">
+			<div class="pl-2 h-full !overflow-visible">
 				{#key lang}
 					<Editor
 						folding
