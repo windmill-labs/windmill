@@ -2,7 +2,7 @@ const plugin = require('tailwindcss/plugin')
 
 const lightTheme = {
 	primaryBackground: 'white',
-	secondaryBackground: '#f3f4f6',
+	secondaryBackground: '#f9fafb',
 	primaryText: '#2d3748',
 	border: '#cccccc'
 }
