@@ -8,6 +8,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
+
 	import { refreshSuperadmin } from '$lib/refreshUser'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined

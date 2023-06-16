@@ -25,11 +25,11 @@
 
 	{#if displayType}
 		{#if format && format != ''}
-			<span class="text-sm italic ml-1 text-indigo-800">
+			<span class="text-sm italic ml-1 text-indigo-800 dark:text-indigo-400">
 				({format})
 			</span>
 		{:else}
-			<span class="text-sm italic ml-1 text-indigo-800">
+			<span class="text-sm italic ml-1 text-indigo-800 dark:text-indigo-400">
 				({type ?? 'any'}{contentEncoding && contentEncoding != ''
 					? `, encoding: ${contentEncoding}`
 					: ''})

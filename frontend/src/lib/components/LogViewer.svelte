@@ -35,10 +35,8 @@
 </Drawer>
 
 <div class="relative w-full h-full {wrapperClass}">
-	<div bind:this={div} class="w-full h-full overflow-auto bg-gray-50 relative">
-		<div
-			class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-gray-500 text-sm bg-gray-50/20"
-		>
+	<div bind:this={div} class="w-full h-full overflow-auto relative secondaryBackground">
+		<div class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-1">
 				<button on:click={logViewer.openDrawer}>Expand</button>
 				<div class="py-2 pr-2 text-xs flex gap-2 items-center">
@@ -50,16 +48,17 @@
 		{#if isLoading}
 			<Loader2 class="animate-spin absolute top-2 left-2" />
 		{:else if duration}
-			<span class="absolute text-xs text-gray-500 top-2 left-2">took {duration}ms</span>
+			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-2"
+				>took {duration}ms</span
+			>
 		{/if}
 		{#if mem}
-			<span class="absolute text-xs text-gray-500 top-2 left-36"
+			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-36"
 				>mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
-			>{#if content}<span>{content}</span>{:else if !isLoading}<span class="text-gray-600"
-					>No logs are available yet</span
+		<pre class="whitespace-pre-wrap break-words text-xs w-full p-2"
+			>{#if content}<span>{content}</span>{:else if !isLoading}<span>No logs are available yet</span
 				>{/if}</pre
 		>
 	</div>
