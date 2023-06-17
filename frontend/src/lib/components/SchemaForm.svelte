@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -60,6 +60,13 @@
 			}
 		}
 	}
+
+	let resourceTypes: string[] | undefined = undefined
+
+	async function loadResourceTypes() {
+		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+	}
+	loadResourceTypes()
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
@@ -70,6 +77,7 @@
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
 							<ArgInput
+								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}
@@ -96,6 +104,7 @@
 							/>
 						{:else}
 							<ArgInput
+								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}

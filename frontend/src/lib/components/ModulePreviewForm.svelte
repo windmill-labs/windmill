@@ -8,9 +8,10 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
-	import type { FlowModule } from '$lib/gen'
+	import { ResourceService, type FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -58,6 +59,13 @@
 	}
 
 	let editor: Record<string, SimpleEditor | undefined> = {}
+
+	let resourceTypes: string[] | undefined = undefined
+
+	async function loadResourceTypes() {
+		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+	}
+	loadResourceTypes()
 </script>
 
 <div class="w-full pt-2">
@@ -67,6 +75,7 @@
 				<div class="flex gap-2 items-center">
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						<ArgInput
+							{resourceTypes}
 							minW={false}
 							autofocus={i == 0 && autofocus}
 							label={argName}

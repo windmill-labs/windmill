@@ -33,6 +33,8 @@
 	import { getScriptByPath } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
 	import { Link, Users } from 'lucide-svelte'
+	import { capitalize } from '$lib/utils'
+	import type { Schema, SchemaProperty } from '$lib/common'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -54,6 +56,7 @@
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
+	let resourceTypePicker: ItemPicker
 	let variableEditor: VariableEditor
 	let resourceEditor: ResourceEditor
 
@@ -95,6 +98,33 @@
 	let version = __pkg__.version
 
 	const dispatch = createEventDispatcher()
+
+	function compile(schema: Schema) {
+		function rec(x: { [name: string]: SchemaProperty }, root = false) {
+			let res = '{\n'
+			const entries = Object.entries(x)
+			let i = 0
+			for (let [name, prop] of entries) {
+				if (prop.type == 'object') {
+					res += `${name}: ${rec(prop.properties ?? {})}`
+				} else if (prop.type == 'array') {
+					res += `${name}: ${prop?.items?.type ?? 'any'}[]`
+				} else {
+					let typ = prop?.type ?? 'any'
+					if (typ == 'integer') {
+						typ = 'number'
+					}
+					res += `${name}: ${typ}`
+				}
+				i++
+				if (i < entries.length) {
+					res += ',\n'
+				}
+			}
+			return res
+		}
+		return rec(schema.properties, true)
+	}
 </script>
 
 <Drawer bind:this={scriptPicker} size="900px">
@@ -250,6 +280,34 @@
 	</div>
 </ItemPicker>
 
+{#if lang == 'deno'}
+	<ItemPicker
+		bind:this={resourceTypePicker}
+		pickCallback={async (_, name) => {
+			if (!editor) return
+			const toCamel = (s) => {
+				return s.replace(/([-_][a-z])/gi, ($1) => {
+					return $1.toUpperCase().replace('-', '').replace('_', '')
+				})
+			}
+			const resourceType = await ResourceService.getResourceType({
+				workspace: $workspaceStore ?? 'NO_W',
+				path: name
+			})
+
+			const tsSchema = compile(resourceType.schema)
+			console.log(tsSchema)
+			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+			sendUserToast(`${name} inserted at cursor`)
+		}}
+		tooltip="Resources Types are the schemas associated with a Resource. They define the structure of the data that is returned from a Resource."
+		documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
+		itemName="Resource Type"
+		extraField="name"
+		loadItems={async () =>
+			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
+	/>
+{/if}
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
@@ -298,6 +356,21 @@
 			>
 				+Resource
 			</Button>
+
+			{#if lang == 'deno'}
+				<Button
+					title="Add resource"
+					btnClasses="!font-medium text-gray-600"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={resourceTypePicker.openDrawer}
+					{iconOnly}
+					startIcon={{ icon: faCube }}
+				>
+					+Resource Type
+				</Button>
+			{/if}
 
 			<Button
 				title="Reset Content"

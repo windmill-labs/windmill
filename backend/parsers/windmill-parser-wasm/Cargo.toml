@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
+
 [lib]
 crate-type = ["cdylib"]
 name = "windmill_parser_wasm"
@@ -21,3 +22,4 @@ windmill-parser-py.workspace = true
 windmill-parser-ts.workspace = true
 wasm-bindgen.workspace = true
 serde_json.workspace = true
+

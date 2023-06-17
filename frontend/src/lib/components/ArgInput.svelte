@@ -55,6 +55,7 @@
 	export let extra: Record<string, any> = {}
 	export let minW = true
 	export let prettifyHeader = false
+	export let resourceTypes: string[] | undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -335,9 +336,9 @@
 						</Button>
 					</div>
 				</div>
-			{:else if inputCat == 'resource-object'}
+			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
 				<ObjectResourceInput {format} bind:value />
-			{:else if inputCat == 'object'}
+			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm

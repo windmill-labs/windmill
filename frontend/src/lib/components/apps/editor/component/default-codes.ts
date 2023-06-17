@@ -38,12 +38,11 @@ export const DEFAULT_CODES: Partial<
 			"age": 84
 		}
 	]`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return query.rows;
 }`
@@ -76,12 +75,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			"age": 84
 		}
 	]`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return query.rows;
 }`
@@ -134,12 +132,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			"<3"
 		]
 	}`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		data: query.rows.map((row) => row['0']),
@@ -209,12 +206,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			"y": { "field": "b", "type": "quantitative" },
 		},
 	}`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(Postgresqlstgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		data: {
@@ -257,12 +253,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			}
 		}
 	}`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(Postgresqlstgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		type: 'bar',
@@ -305,12 +300,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			"<3"
 		]
 	}`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb") {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		data: query.rows.map((row) => row['0']),
@@ -362,12 +356,11 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 			"backgroundColor": "orange"
 		}
 	]`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-export async function main(db: Resource<"postgresql">) {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
 	try {
 		const query = await pgSql(db)\`SELECT * FROM demo;\`;
     const rows = query.rows.map((row, i) => ({
@@ -474,12 +467,11 @@ export async function main(db: Resource<"postgresql">) {
 			"backgroundColor": "orange"
 		}
 	]`,
-		pgsql: `import {
-	pgSql,
-	type Resource,
-} from "https://deno.land/x/windmill@v1.88.1/mod.ts";
+		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
 
-export async function main(db: Resource<"postgresql">) {
+type Postgresql = object
+
+export async function main(db: Postgresql) {
   try {
     const query = await pgSql(db)\`SELECT * FROM demo;\`;
     const rows = query.rows.map((row, i) => ({
