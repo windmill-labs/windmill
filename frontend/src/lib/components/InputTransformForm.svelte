@@ -15,10 +15,11 @@
 
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
-	import type { InputTransform } from '$lib/gen'
+	import { ResourceService, type InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat } from '$lib/utils'
 	import { Code, Plug } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -130,6 +131,13 @@
 	}
 
 	$: schema.properties[argName].default && setDefaultCode()
+
+	let resourceTypes: string[] | undefined = undefined
+
+	async function loadResourceTypes() {
+		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+	}
+	loadResourceTypes()
 </script>
 
 {#if arg != undefined}
@@ -266,6 +274,7 @@
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput
+				{resourceTypes}
 				noMargin
 				compact
 				bind:this={argInput}

@@ -30,6 +30,10 @@ edition = "2021"
 name = "windmill"
 path = "./src/main.rs"
 
+[profile.dev]
+opt-level = 1
+incremental = true
+
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
 
@@ -170,3 +174,4 @@ gethostname = "0.4.3"
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.4"
 wasm-bindgen-test = "0.3.0"
+convert_case = "0.6.0"

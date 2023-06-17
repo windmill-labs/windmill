@@ -120,14 +120,15 @@ function argSigToJsonSchemaType(
 			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
-		} else if (t.list && typeof t.list == 'object' && `object` in t.list) {
-			newS.items = { type: 'object' }
-		} else {
+		} else if (t.list == 'string' || (t.list && typeof t.list == 'object' && 'str' in t.list)) {
 			newS.items = { type: 'string' }
+		} else {
+			newS.items = { type: 'object' }
 		}
 	} else {
 		newS.type = 'object'
 	}
+
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
 			if (prop != 'description') {
@@ -136,6 +137,8 @@ function argSigToJsonSchemaType(
 		}
 	} else if (oldS.format == 'date-time' && newS.format != 'date-time') {
 		delete oldS.format
+	} else if (oldS.items?.type != newS.items?.type) {
+		delete oldS.items
 	}
 
 	Object.assign(oldS, newS)

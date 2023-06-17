@@ -17,10 +17,13 @@ export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports ho
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
+
 export async function main(
   a: number,
   b: "my" | "enum",
-  //c: wmill.Resource<'postgresql'>,
+  //c: Postgresql,
   d = "inferred type string from default arg",
   e = { nested: "object" },
   //e: wmill.Base64
@@ -87,12 +90,14 @@ export async function main(message: string, name: string) {
 
 export const POSTGRES_INIT_CODE = `import {
   pgSql,
-  type Resource,
 } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+type Postgresql = object
 
 //PG parameterized statement. No SQL injection is possible.
 export async function main(
-  db: Resource<"postgresql"> = "$res:f/examples/demodb",
+  db: Postgresql,
   key: number,
   value: string,
 ) {
@@ -105,9 +110,12 @@ export async function main(
 	/**
 	// The following code accepts raw queries. The code above is recommended because it uses SQL prepared statement.
 	import { pgClient, type Resource, type Sql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
+	// fill the type, or use the +Resource type to get a type-safe reference to a resource
+
+	type Postgresql = object
 
 	export async function main(
-		db: Resource<"postgresql">,
+		db: Postgresql,
 		query: Sql = "SELECT * FROM demo;",
 	) {
 		if(!query) {
@@ -125,9 +133,12 @@ export const MYSQL_INIT_CODE = `import {
   type Resource
 } from "https://deno.land/x/windmill@v${__pkg__.version}/mysql.ts";
 
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+type Mysql = object
+
 // MySQL parameterized statement. No SQL injection is possible.
 export async function main(
-  db: Resource<"mysql">,
+  db: Mysql,
   key: number,
   value: string,
 ) {

@@ -183,3 +183,31 @@ export function main(test2 = \"burkina\",
 
     Ok(())
 }
+
+#[wasm_bindgen_test]
+fn test_parse_deno_types() -> anyhow::Result<()> {
+    let code = "
+type FooBar = {
+    a: string,
+    b: number,
+}
+export function main(foo: FooBar) {
+}
+";
+    assert_eq!(
+        parse_deno_signature(code, false)?,
+        MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![Arg {
+                name: "foo".to_string(),
+                otyp: None,
+                typ: Typ::Resource("foo_bar".to_string()),
+                default: None,
+                has_default: false
+            }]
+        }
+    );
+
+    Ok(())
+}

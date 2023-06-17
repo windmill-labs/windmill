@@ -171,6 +171,7 @@
 			<div>
 				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
+						resourceTypes={[]}
 						label="Default"
 						bind:value={property.default}
 						type={property.selectedType}

@@ -1,3 +1,4 @@
+use convert_case::{Case, Casing};
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022
@@ -45,7 +46,6 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
         .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid typescript"))?
         .body;
 
-    // println!("{ast:?}");
     let params = ast.into_iter().find_map(|x| match x {
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
             decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, function, .. }),
@@ -258,7 +258,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 "Base64" => (Typ::Bytes, false),
                 "Email" => (Typ::Email, false),
                 "Sql" => (Typ::Sql, false),
-                _ => (Typ::Unknown, false),
+                x @ _ => (Typ::Resource(x.to_case(Case::Snake)), false),
             }
         }
         _ => (Typ::Unknown, false),
@@ -270,6 +270,8 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
 extern "C" {
     pub fn eval(s: &str) -> JsValue;
     pub fn alert(s: &str);
+    // #[wasm_bindgen(js_namespace = console)]
+    // fn log(s: &str);
 
 }
 
