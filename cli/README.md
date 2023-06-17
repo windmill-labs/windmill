@@ -62,6 +62,12 @@ You can push individual resources using
 `wmill <type> push <file_name> \<remote_name\>`. This does not require a special
 folder layout or file name, as this is given at runtime.
 
+### Git
+
+`wmill workspace add` creates a .wmill directory in the the current directory
+containing all workspaces, flows and scripts that can be version controlled
+with git.
+
 ## Listing
 
 All commands support listing by just not providing a subcommand, ie
