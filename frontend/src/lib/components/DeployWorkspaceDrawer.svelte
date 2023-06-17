@@ -33,7 +33,7 @@
 		<svelte:fragment slot="actions">
 			<Button
 				disabled={workspaceToDeployTo == undefined}
-				on:click={() => deployWorkspace?.deploy(kind, initialPath)}>Deploy All</Button
+				on:click={() => deployWorkspace?.deployAll()}>Deploy All</Button
 			>
 		</svelte:fragment>
 	</DrawerContent>
