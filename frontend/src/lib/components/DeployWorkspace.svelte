@@ -21,7 +21,6 @@
 	import Badge from './common/badge/Badge.svelte'
 	import * as Diff from 'diff'
 	import { Drawer, DrawerContent } from './common'
-	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -38,7 +37,7 @@
 
 	const allAlreadyExists: { [key: string]: boolean } = {}
 
-	let notSet: boolean = undefined
+	let notSet: boolean | undefined = undefined
 	$: WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
 		workspaceToDeployTo = x.deploy_to
 		if (x.deploy_to == undefined) {
