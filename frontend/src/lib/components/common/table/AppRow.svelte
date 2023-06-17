@@ -23,12 +23,14 @@
 	import { Eye } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let {
@@ -156,6 +158,13 @@
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
 						disabled: !canWrite
+					},
+					{
+						displayName: 'Deploy to staging/prod',
+						icon: faFileExport,
+						action: () => {
+							deploymentDrawer.openDrawer(path, 'app')
+						}
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
