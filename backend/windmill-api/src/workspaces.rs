@@ -59,9 +59,11 @@ pub fn workspaced_service() -> Router {
         .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
+        .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
+        .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info));
 
@@ -109,6 +111,7 @@ pub struct WorkspaceSettings {
     pub customer_id: Option<String>,
     pub plan: Option<String>,
     pub webhook: Option<String>,
+    pub deploy_to: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -129,6 +132,11 @@ pub enum WorkspaceKeyKind {
 #[derive(Deserialize)]
 struct EditCommandScript {
     slack_command_script: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EditDeployTo {
+    deploy_to: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -407,6 +415,29 @@ async fn get_settings(
     Ok(Json(settings))
 }
 
+#[derive(Serialize)]
+struct DeployTo {
+    deploy_to: Option<String>,
+}
+async fn get_deploy_to(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<DeployTo> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        DeployTo,
+        "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
+
+    tx.commit().await?;
+    Ok(Json(settings))
+}
+
 async fn edit_slack_command(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -445,6 +476,51 @@ async fn edit_slack_command(
     tx.commit().await?;
 
     Ok(format!("Edit command script {}", &w_id))
+}
+
+async fn edit_deploy_to(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(es): Json<EditDeployTo>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    #[cfg(not(feature = "enterprise"))]
+    {
+        return Err(Error::BadRequest(
+            "Deploy to is only available on enterprise".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        es.deploy_to,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_deploy_to",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some(
+            [(
+                "script",
+                es.deploy_to.unwrap_or("NO_DEPLOY_TO".to_string()).as_str(),
+            )]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit deploy to for {}", &w_id))
 }
 
 const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");

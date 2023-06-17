@@ -677,6 +677,11 @@
           "name": "webhook",
           "ordinal": 9,
           "type_info": "Text"
+        },
+        {
+          "name": "deploy_to",
+          "ordinal": 10,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -685,6 +690,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2369,6 +2375,11 @@
           "name": "webhook",
           "ordinal": 9,
           "type_info": "Text"
+        },
+        {
+          "name": "deploy_to",
+          "ordinal": 10,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -2377,6 +2388,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -6950,6 +6962,26 @@
     },
     "query": "SELECT distinct(path) FROM script WHERE  workspace_id = $1"
   },
+  "f2f42aded6f1a400c84e2575abb551dfcd9260714eef333a85b1e5d7d5c9f67e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "deploy_to",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1"
+  },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {
     "describe": {
       "columns": [],
@@ -7275,5 +7307,18 @@
       }
     },
     "query": "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3"
+  },
+  "ff89e9f0941507d5cbfbb27e7c3b1ebad6b2b0a836334a5e20f151711fc11370": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2"
   }
 }
