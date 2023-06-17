@@ -1927,7 +1927,7 @@ pub async fn get_reserved_variables(
         job.script_path.clone(),
         job.parent_job.map(|x| x.to_string()),
         flow_path,
-        job.schedule_path.clone(),
+        job.schedule_path.clone()
     );
     Ok(variables
         .into_iter()

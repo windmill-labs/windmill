@@ -20,7 +20,6 @@
 	export let wrapperClass = ''
 	export let style = ''
 	export let hashNavigation = false
-	export let dflt: string | undefined = undefined
 	export let values: string[] | undefined = undefined
 
 	$: selected && updateSelected()

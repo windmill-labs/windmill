@@ -21,12 +21,13 @@
 	import { writable } from 'svelte/store'
 	import { Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
-	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Folder, User } from 'lucide-svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -277,7 +278,7 @@
 			<div class="flex gap-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<span class="text-gray-700 text-sm whitespace-nowrap">Owner</span>
+					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
 						class="mt-0.5"
@@ -286,7 +287,8 @@
 							const kind = e.detail
 							if (meta) {
 								if (kind === 'folder') {
-									meta.owner = $userStore?.folders?.[0] ?? ''
+									console.log($userStore?.folders)
+									meta.owner = folders?.[0]?.name ?? ''
 								} else if (kind === 'group') {
 									meta.owner = 'all'
 								} else {
@@ -295,9 +297,25 @@
 							}
 						}}
 					>
-						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
+						<ToggleButton
+							icon={User}
+							{disabled}
+							light
+							size="xs"
+							value="user"
+							position="left"
+							label="User"
+						/>
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
+						<ToggleButton
+							icon={Folder}
+							{disabled}
+							light
+							size="xs"
+							value="folder"
+							position="right"
+							label="Folder"
+						/>
 					</ToggleButtonGroup>
 				</label>
 				{#if meta.ownerKind === 'user'}
@@ -308,7 +326,7 @@
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
-							disabled={!($superadmin || ($userStore?.is_admin ?? false))}
+							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
@@ -334,6 +352,7 @@
 								title="View folder"
 								btnClasses="!p-1.5"
 								variant="border"
+								color="light"
 								size="xs"
 								disabled={!meta.owner || meta.owner == ''}
 								on:click={viewFolder.openDrawer}
@@ -344,6 +363,7 @@
 								title="New folder"
 								btnClasses="!p-1.5"
 								variant="border"
+								color="light"
 								size="xs"
 								{disabled}
 								on:click={newFolder.openDrawer}

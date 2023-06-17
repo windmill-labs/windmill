@@ -7,11 +7,13 @@
 	import Select from 'svelte-select'
 
 	import { getScriptByPath } from '$lib/scripts'
-	import RadioButton from './RadioButton.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { Code2, Globe } from 'lucide-svelte'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -27,9 +29,9 @@
 	let code: string = ''
 	let lang: 'deno' | 'python3' | 'go' | 'bash' | undefined
 
-	let options: [[string, any]] = [['Script', 'script']]
-	allowHub && options.unshift(['Hub', 'hub'])
-	allowFlow && options.push(['Flow', 'flow'])
+	let options: [[string, any, any]] = [['Script', 'script', Code2]]
+	allowHub && options.unshift(['Hub', 'hub', Globe])
+	allowFlow && options.push(['Flow', 'flow', undefined])
 	const dispatch = createEventDispatcher()
 
 	async function loadItems(): Promise<void> {
@@ -69,10 +71,14 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-row items-center gap-4 w-full">
+<div class="flex flex-row items-center gap-4 w-full mt-2">
 	{#if options.length > 1}
-		<div class="w-80 mt-1">
-			<RadioButton {disabled} bind:value={itemKind} {options} />
+		<div>
+			<ToggleButtonGroup bind:selected={itemKind}>
+				{#each options as [label, value, icon]}
+					<ToggleButton {icon} {disabled} {value} {label} />
+				{/each}
+			</ToggleButtonGroup>
 		</div>
 	{/if}
 

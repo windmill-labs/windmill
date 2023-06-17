@@ -935,6 +935,28 @@ paths:
                     type: string
                   webhook:
                     type: string
+                  deploy_to:
+                    type: string
+
+  /w/{workspace}/workspaces/get_deploy_to:
+    get:
+      summary: get deploy to
+      operationId: getDeployTo
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deploy_to:
+                    type: string
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -977,6 +999,32 @@ paths:
               type: object
               properties:
                 slack_command_script:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_deploy_to:
+    post:
+      summary: edit deploy to
+      operationId: editDeployTo
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deploy_to:
                   type: string
 
       responses:

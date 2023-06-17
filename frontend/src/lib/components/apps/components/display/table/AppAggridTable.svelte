@@ -91,7 +91,9 @@
 		}
 	}
 
-	$: value = (result ?? []).map((x, i) => ({ ...x, __index: i.toString() }))
+	$: value = Array.isArray(result)
+		? result.map((x, i) => ({ ...x, __index: i.toString() }))
+		: [{ error: 'input was not an array' }]
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}

@@ -17,6 +17,7 @@
 		faClipboard,
 		faCodeFork,
 		faEdit,
+		faFileExport,
 		faList,
 		faPlay,
 		faShare,
@@ -41,6 +42,7 @@
 	import { slide } from 'svelte/transition'
 	import { sendUserToast } from '$lib/toast'
 	import Urlize from '$lib/components/Urlize.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	let userSettings: UserSettings
 
@@ -147,6 +149,7 @@
 
 	let webhook: HTMLHeadElement
 	let moveDrawer: MoveDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
 
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
@@ -158,6 +161,8 @@
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
+
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <MoveDrawer
 	bind:this={moveDrawer}
@@ -285,6 +290,15 @@
 						startIcon={{ icon: faEdit }}
 					>
 						Move/Rename
+					</Button>
+					<Button
+						on:click={() => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow')}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faFileExport }}
+					>
+						Deploy to staging/prod
 					</Button>
 					<Button
 						btnClasses="ml-2"
