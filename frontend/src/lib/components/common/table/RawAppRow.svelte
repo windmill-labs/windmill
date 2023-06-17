@@ -19,6 +19,7 @@
 	import DrawerContent from '../drawer/DrawerContent.svelte'
 	import FileInput from '../fileInput/FileInput.svelte'
 	import { goto } from '$app/navigation'
+	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -26,6 +27,7 @@
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let deploymentDrawer: DeployWorkspaceDrawer
 
 	let updateAppDrawer: Drawer
 
@@ -111,6 +113,21 @@
 							moveDrawer.openDrawer(path, summary, 'raw_app')
 						},
 						disabled: !canWrite
+					},
+					{
+						displayName: 'Move/Rename',
+						icon: faFileExport,
+						action: () => {
+							moveDrawer.openDrawer(path, summary, 'raw_app')
+						},
+						disabled: !canWrite
+					},
+					{
+						displayName: 'Deploy to prod/staging',
+						icon: faFileExport,
+						action: () => {
+							deploymentDrawer.openDrawer(path, 'raw_app')
+						}
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',

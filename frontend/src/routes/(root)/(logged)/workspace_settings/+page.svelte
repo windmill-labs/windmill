@@ -7,6 +7,7 @@
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -24,9 +25,15 @@
 		WorkspaceService,
 		type WorkspaceInvite
 	} from '$lib/gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, setQueryWithoutLoad } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 
@@ -45,13 +52,15 @@
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
+	let workspaceToDeployTo: string | undefined = undefined
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
 			| 'premium'
 			| 'export_delete'
-			| 'webhook') ?? 'users'
+			| 'webhook'
+			| 'deploy_to') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -112,6 +121,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		initialPath = scriptPath
+		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 	}
 
@@ -197,9 +207,17 @@
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<div class="overflow-x-auto scrollbar-hidden">
-			<Tabs bind:selected={tab}>
+			<Tabs
+				bind:selected={tab}
+				on:selected={() => {
+					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+				}}
+			>
 				<Tab size="md" value="users">
 					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
+				</Tab>
+				<Tab size="md" value="deploy_to">
+					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="md" value="slack">
@@ -448,6 +466,22 @@
 			{#if !allowedAutoDomain}
 				<div class="text-red-400 text-sm mb-2">{domain} domain not allowed for auto-invite</div>
 			{/if}
+		{:else if tab == 'deploy_to'}
+			<div class="my-2"
+				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
+					>Linking this workspace to another staging/prod workspace unlock the Web-based flow to
+					deploy to another workspace.</Alert
+				></div
+			>
+			{#if $enterpriseLicense}
+				<DeployToSetting bind:workspaceToDeployTo />
+			{:else}
+				<div class="my-2"
+					><Alert type="error" title="Enterprise license required"
+						>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
+					></div
+				>
+			{/if}
 		{:else if tab == 'premium'}
 			{#if isCloudHosted()}
 				<div class="mt-4" />
@@ -639,9 +673,11 @@
 					</Button>
 				</div>
 			{:else}
-				<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
-					Connect to Slack
-				</Button>
+				<div class="flex">
+					<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
+						Connect to Slack
+					</Button>
+				</div>
 			{/if}
 			<h3 class="mt-5 text-gray-700"
 				>Script or flow to run on /windmill command <Tooltip>

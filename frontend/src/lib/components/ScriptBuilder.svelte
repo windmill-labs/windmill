@@ -409,7 +409,7 @@
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Custom env variables<Tooltip
-					documentationLink="https://docs.windmill.dev/docs/reference#custom-environment-variables"
+						documentationLink="https://docs.windmill.dev/docs/reference#custom-environment-variables"
 						>Additional static custom env variables to pass to the script.</Tooltip
 					></h2
 				>
@@ -463,7 +463,7 @@
 
 	<div class="flex flex-col h-screen">
 		<div class="flex flex-col w-full px-2 py-1 border-b shadow-sm">
-			<div class="justify-between flex gap-8 w-full items-center px-2">
+			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center px-2">
 				<div class="min-w-64 w-full max-w-md">
 					<input
 						type="text"
@@ -513,7 +513,7 @@
 					<Awareness />
 				{/if}
 
-				<div class="flex flex-row gap-x-4">
+				<div class="flex flex-row gap-x-1 lg:gap-x-4">
 					<Button
 						color="light"
 						variant="border"
@@ -548,7 +548,7 @@
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript()}
-						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
+						dropdownItems={initialPath != '' ? computeDropdownItems : []}
 					>
 						Deploy
 					</Button>
@@ -563,7 +563,7 @@
 						Script kind &nbsp;
 						<Tooltip>
 							Tag this script's purpose within flows such that it is available as the corresponding
-							action. 
+							action.
 						</Tooltip>
 					</h2>
 					<div class="flex flex-wrap gap-2">
@@ -599,6 +599,7 @@
 				<ScriptSchema bind:schema={script.schema} />
 			</DrawerContent>
 		</Drawer>
+
 		<ScriptEditor
 			collabMode
 			edit={initialPath != ''}

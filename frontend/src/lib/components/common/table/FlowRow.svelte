@@ -26,6 +26,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner } from '$lib/utils'
+	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -33,6 +34,7 @@
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let deploymentDrawer: DeployWorkspaceDrawer
 
 	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
@@ -189,6 +191,14 @@
 							moveDrawer.openDrawer(path, summary, 'flow')
 						},
 						disabled: !owner || archived
+					},
+					{
+						displayName: 'Deploy to staging/prod',
+						icon: faFileExport,
+						action: () => {
+							deploymentDrawer.openDrawer(path, 'flow')
+						},
+						disabled: archived
 					},
 					{
 						displayName: 'Schedule',

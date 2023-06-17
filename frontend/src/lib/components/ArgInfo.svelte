@@ -23,7 +23,7 @@
 </script>
 
 <Drawer bind:this={jsonViewer} size="800px">
-	<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer}>
+	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}

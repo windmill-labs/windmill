@@ -111,9 +111,9 @@
 		<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 		<div class="flex flex-col mb-2 gap-6">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
-			<div class="mt-4" />
-			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
-			<div />
 		</div>
+		<svelte:fragment slot="actions">
+			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

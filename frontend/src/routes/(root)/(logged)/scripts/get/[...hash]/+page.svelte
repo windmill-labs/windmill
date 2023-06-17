@@ -23,7 +23,8 @@
 		faClipboard,
 		faArrowLeft,
 		faChevronUp,
-		faChevronDown
+		faChevronDown,
+		faFileExport
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -56,6 +57,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { scriptToHubUrl } from '$lib/hub'
 	import Urlize from '$lib/components/Urlize.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -197,6 +199,7 @@
 		}/p/${script?.path}`
 	}
 	let moveDrawer: MoveDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
 
 <MoveDrawer
@@ -206,6 +209,7 @@
 		loadScript($page.params.hash)
 	}}
 />
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
@@ -343,6 +347,15 @@
 					startIcon={{ icon: faEdit }}
 				>
 					Move/Rename
+				</Button>
+				<Button
+					on:click={() => deploymentDrawer.openDrawer(script?.path ?? '', 'script')}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faFileExport }}
+				>
+					Deploy to staging/prod
 				</Button>
 				<Button
 					color="dark"

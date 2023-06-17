@@ -37,6 +37,7 @@
 	import { canWrite } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
+	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -62,6 +63,7 @@
 
 	let shareModal: ShareModal
 	let moveDrawer: MoveDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer
 
 	let loading = true
 
@@ -270,6 +272,7 @@
 	}}
 />
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={() => {
@@ -376,6 +379,7 @@
 									script={item}
 									{shareModal}
 									{moveDrawer}
+									{deploymentDrawer}
 								/>
 							{:else if item.type == 'flow'}
 								<FlowRow
@@ -386,6 +390,7 @@
 									flow={item}
 									{shareModal}
 									{moveDrawer}
+									{deploymentDrawer}
 								/>
 							{:else if item.type == 'app'}
 								<AppRow
@@ -396,6 +401,7 @@
 									app={item}
 									{moveDrawer}
 									{shareModal}
+									{deploymentDrawer}
 								/>
 							{:else if item.type == 'raw_app'}
 								<RawAppRow
@@ -406,6 +412,7 @@
 									app={item}
 									{moveDrawer}
 									{shareModal}
+									{deploymentDrawer}
 								/>
 							{/if}
 						{/key}

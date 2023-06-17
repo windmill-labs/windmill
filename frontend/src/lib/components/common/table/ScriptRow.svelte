@@ -28,12 +28,14 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner } from '$lib/utils'
+	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let {
@@ -208,6 +210,14 @@
 							moveDrawer.openDrawer(path, summary, 'script')
 						},
 						disabled: !owner || archived
+					},
+					{
+						displayName: 'Deploy to staging/prod',
+						icon: faFileExport,
+						action: () => {
+							deploymentDrawer.openDrawer(path, 'script')
+						},
+						disabled: archived
 					},
 					{
 						displayName: 'View runs',
