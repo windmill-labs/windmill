@@ -59,7 +59,7 @@
 				</button>
 			</div>
 		</div>
-		<div class="mt-2 flex flex-row gap-2 h-15">
+		<div class="mt-2 flex flex-col gap-2 h-15">
 			{#each actions as action, index (index)}
 				<Button
 					on:click={() => {

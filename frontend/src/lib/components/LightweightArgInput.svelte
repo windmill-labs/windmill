@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat } from '$lib/utils'
 	import { Badge, Button } from './common'
