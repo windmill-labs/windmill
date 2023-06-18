@@ -325,11 +325,10 @@ export function getAllSubgridsAndComponentIds(
 export function deleteGridItem(
 	app: App,
 	component: AppComponent,
-	parent: string | undefined,
-	shouldKeepSubGrid: boolean
+	parent: string | undefined
 ): string[] {
 	let [subgrids, components] = getAllSubgridsAndComponentIds(app, component)
-	if (app.subgrids && !shouldKeepSubGrid) {
+	if (app.subgrids) {
 		subgrids.forEach((id) => {
 			delete app.subgrids![id]
 		})
