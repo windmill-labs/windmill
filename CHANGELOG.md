@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [1.115.0](https://github.com/windmill-labs/windmill/compare/v1.114.2...v1.115.0) (2023-06-18)
+
+
+### Features
+
+* add dataflow view for workflows ([d31959b](https://github.com/windmill-labs/windmill/commit/d31959b30b6b888d5ae0c75d24311bb4a555a7e6))
+* add dataflow view for workflows ([d7d5bce](https://github.com/windmill-labs/windmill/commit/d7d5bce499fb65091692926d65e47fadcc6c7bb0))
+* add extra config to aggrid ([1a75641](https://github.com/windmill-labs/windmill/commit/1a75641d08fd94344036fec963b2a0c70274191c))
+* dev/staging/prod and deploy from web ([#1733](https://github.com/windmill-labs/windmill/issues/1733)) ([ac1a432](https://github.com/windmill-labs/windmill/commit/ac1a432bb9a7033a068fe77c92ffb54e3ec43806))
+* **frontend:** vscode extension dark mode ([#1730](https://github.com/windmill-labs/windmill/issues/1730)) ([157d722](https://github.com/windmill-labs/windmill/commit/157d722c1e7bc3ee3c3c902543b622976504ca62))
+* new default encoding for resource types in deno ([a16798b](https://github.com/windmill-labs/windmill/commit/a16798b4d666dfc074088b31d423e935abcdfc6f))
+
+
+### Bug Fixes
+
+* autosize app inputs ([5210150](https://github.com/windmill-labs/windmill/commit/5210150722ead3015f6ce4ee8a6f3ec7c9dec7eb))
+* flow editor design improvements ([d87e5ea](https://github.com/windmill-labs/windmill/commit/d87e5ea4fe3b5356275ff8268ed7ea3ab063679c))
+* flow editor design improvements ([eafb6ed](https://github.com/windmill-labs/windmill/commit/eafb6edb45ffcacc8cb30748df5cc33093e98699))
+* flow viewer ([6ccbf2d](https://github.com/windmill-labs/windmill/commit/6ccbf2d791ff4bbf47a836221fc48923fa321d3e))
+* improve agGrid persistence when result change + setSelectedIndex ([fe9c757](https://github.com/windmill-labs/windmill/commit/fe9c757add83747bbec304a8ea0f5f775a19d1d9))
+* infer schema for script without schema in flows ([2db5337](https://github.com/windmill-labs/windmill/commit/2db533774cb1e6dd7dc9f3317c1441294c623724))
+
 ## [1.114.2](https://github.com/windmill-labs/windmill/compare/v1.114.1...v1.114.2) (2023-06-12)
 
 
