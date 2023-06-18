@@ -56,6 +56,20 @@
 
 	onMount(() => {
 		window.addEventListener('message', el, false)
+		document.addEventListener('keydown', (e) => {
+			const obj = {
+				altKey: e.altKey,
+				code: e.code,
+				ctrlKey: e.ctrlKey,
+				isComposing: e.isComposing,
+				key: e.key,
+				location: e.location,
+				metaKey: e.metaKey,
+				repeat: e.repeat,
+				shiftKey: e.shiftKey
+			}
+			window.parent?.postMessage(JSON.stringify(obj), '*')
+		})
 	})
 
 	onDestroy(() => {
