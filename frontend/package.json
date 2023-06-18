@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.114.2",
+	"version": "1.115.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
