@@ -63,7 +63,7 @@
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
 		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid, false)
+			const components = deleteGridItem($app, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -87,7 +87,7 @@
 		})
 		items = items
 
-		delete $app!.subgrids![items.length]
+		delete $app!.subgrids![`${component.id}-${items.length}`]
 		$app = $app
 	}
 

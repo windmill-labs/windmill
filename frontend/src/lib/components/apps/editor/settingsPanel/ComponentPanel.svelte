@@ -77,7 +77,7 @@
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSettings?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent, false)
+			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
