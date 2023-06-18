@@ -3,7 +3,7 @@
 
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { DollarSign, Pen, X } from 'lucide-svelte'
+	import { DollarSign, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -24,6 +24,8 @@
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ArgEnum from './ArgEnum.svelte'
+	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -41,7 +43,11 @@
 	export let disabled = false
 	export let editableSchema = false
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
+		| {
+				type?: 'string' | 'number' | 'bytes' | 'object'
+				contentEncoding?: 'base64'
+				enum?: string[]
+		  }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -178,52 +184,47 @@
 			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 		{#if editableSchema}
-			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<span
-					class="underline"
-					on:click={() => {
-						seeEditable = !seeEditable
-					}}
-				>
-					Customize property
-					<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
-				</span>
+			<label class="text-gray-700">
+				Description
+				<textarea
+					class="mb-1"
+					use:autosize
+					rows="1"
+					bind:value={description}
+					on:keydown={onKeyDown}
+					placeholder="Field description"
+				/>
+			</label>
 
-				{#if seeEditable}
-					<div class="mt-2">
-						<label class="text-gray-700">
-							Description
-							<textarea
-								class="mb-1"
-								use:autosize
-								rows="1"
-								bind:value={description}
-								on:keydown={onKeyDown}
-								placeholder="Field description"
-							/>
+			{#if type == 'array'}
+				<ArrayTypeNarrowing bind:itemsType />
+			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
+				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<span
+						class="underline"
+						on:click={() => {
+							seeEditable = !seeEditable
+						}}
+					>
+						Customize
+						<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
+					</span>
+
+					{#if seeEditable}
+						<div class="mt-2">
 							{#if type == 'string' && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'number'}
 								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
-							{:else if type == 'array'}
-								<select bind:value={itemsType}>
-									<option value={undefined}>No specific item type</option>
-									<option value={{ type: 'string' }}> Items are strings</option>
-									<option value={{ type: 'object' }}> Items are objects (JSON)</option>
-									<option value={{ type: 'number' }}>Items are numbers</option>
-									<option value={{ type: 'string', contentEncoding: 'base64' }}
-										>Items are bytes</option
-									>
-								</select>
 							{/if}
-						</label>
-					</div>
-				{/if}
-			</div>
-			<span class="text-2xs">Input preview:</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
+			<span class="text-2xs font-semibold">Preview:</span>
 		{/if}
 
 		{#if description}
@@ -293,12 +294,24 @@
 												/>
 											{:else if itemsType?.type == 'object'}
 												<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+											{:else if Array.isArray(itemsType?.enum)}
+												<select
+													on:focus={(e) => {
+														dispatch('focus')
+													}}
+													class="px-6"
+													bind:value={v}
+												>
+													{#each itemsType?.enum ?? [] as e}
+														<option>{e}</option>
+													{/each}
+												</select>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 ml-2"
 												aria-label="Clear"
 												on:click={() => {
 													value.splice(i, 1)
@@ -361,46 +374,7 @@
 				{/if}
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
-					{#if !customValue}
-						<select
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							{disabled}
-							class="px-6"
-							bind:value
-						>
-							{#each enum_ ?? [] as e}
-								<option>{e}</option>
-							{/each}
-						</select>
-					{:else}
-						<input
-							{autofocus}
-							on:focus
-							type="text"
-							class={twMerge(
-								'secondaryBackground',
-								valid
-									? ''
-									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
-							)}
-							placeholder={defaultValue ?? ''}
-							bind:value
-						/>
-					{/if}
-
-					{#if !disabled}
-						<button
-							class="min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-							on:click={() => {
-								customValue = !customValue
-							}}
-							title="Custom Value"
-						>
-							<Pen size={14} />
-						</button>
-					{/if}
+					<ArgEnum {defaultValue} {valid} {customValue} {disabled} bind:value {enum_} {autofocus} />
 				</div>
 			{:else if inputCat == 'date'}
 				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
@@ -449,7 +423,7 @@
 								type="text"
 								{disabled}
 								class={twMerge(
-									'w-full secondaryBackground',
+									'w-full',
 									valid
 										? ''
 										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'

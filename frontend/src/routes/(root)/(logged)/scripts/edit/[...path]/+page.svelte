@@ -87,6 +87,7 @@
 		if (script) {
 			initialPath = script.path
 			scriptBuilder?.setCode(script.content)
+			script.parent_hash = topHash
 		}
 	}
 
@@ -98,5 +99,5 @@
 </script>
 
 {#if script}
-	<ScriptBuilder bind:this={scriptBuilder} bind:topHash {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:this={scriptBuilder} {topHash} {initialPath} {script} {initialArgs} />
 {/if}
