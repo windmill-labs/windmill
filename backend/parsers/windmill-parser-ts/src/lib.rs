@@ -14,8 +14,9 @@ use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
     ModuleDecl, ModuleItem, Number, ObjectLit, Param, Pat, Str, TsArrayType, TsEntityName,
-    TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsPropertySignature,
-    TsType, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsParenthesizedType,
+    TsPropertySignature, TsType, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType,
+    TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -151,7 +152,7 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
-    //println!("{:?}", ts_type);
+    // log(&format!("{:?}", ts_type));
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
@@ -186,6 +187,9 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 })
                 .collect();
             (Typ::Object(properties), false)
+        }
+        TsType::TsParenthesizedType(TsParenthesizedType { type_ann, .. }) => {
+            tstype_to_typ(type_ann)
         }
         // TODO: we can do better here and extract the inner type of array
         TsType::TsArrayType(TsArrayType { elem_type, .. }) => {

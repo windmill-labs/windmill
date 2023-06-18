@@ -23,7 +23,11 @@ export interface SchemaProperty {
 	enum?: string[]
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
-	items?: { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
+	items?: {
+		type?: 'string' | 'number' | 'bytes' | 'object'
+		contentEncoding?: 'base64'
+		enum?: string[]
+	}
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 }

@@ -342,7 +342,7 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbg_eval_d9c460c7b796e0b4 = function(arg0, arg1) {
+    imports.wbg.__wbg_eval_1acc8bc05c9160ad = function(arg0, arg1) {
         const ret = eval(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
     };

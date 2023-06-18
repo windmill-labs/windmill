@@ -211,3 +211,31 @@ export function main(foo: FooBar) {
 
     Ok(())
 }
+
+#[wasm_bindgen_test]
+fn test_parse_enum_list() -> anyhow::Result<()> {
+    let code = "
+export function main(foo: (\"foo\" | \"bar\")[]) {
+
+}
+";
+    assert_eq!(
+        parse_deno_signature(code, false)?,
+        MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![Arg {
+                name: "foo".to_string(),
+                otyp: None,
+                typ: Typ::List(Box::new(Typ::Str(Some(vec![
+                    "foo".to_string(),
+                    "bar".to_string()
+                ])))),
+                default: None,
+                has_default: false
+            }]
+        }
+    );
+
+    Ok(())
+}

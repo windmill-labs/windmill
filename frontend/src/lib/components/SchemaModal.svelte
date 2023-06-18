@@ -53,6 +53,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
+	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 
 	export let error = ''
 	export let editing = false
@@ -150,6 +151,11 @@
 								property.contentEncoding = undefined
 								property.enum_ = undefined
 								property.pattern = undefined
+								if (argType == 'array') {
+									property.items = { type: 'string' }
+								} else {
+									property.items = undefined
+								}
 							}}
 						>
 							{argType}
@@ -176,6 +182,7 @@
 						bind:value={property.default}
 						type={property.selectedType}
 						pattern={property.pattern}
+						itemsType={property.items}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
@@ -203,11 +210,7 @@
 							bind:contentEncoding={property.contentEncoding}
 						/>
 					{:else if property.selectedType == 'array'}
-						<select bind:value={property.items}>
-							<option value={undefined}>No specific item type</option>
-							<option value={{ type: 'string' }}> Items are strings</option>
-							<option value={{ type: 'number' }}>Items are numbers</option>
-						</select>
+						<ArrayTypeNarrowing bind:itemsType={property.items} />
 					{:else if property.selectedType == 'object'}
 						<h3 class="mb-2 font-bold mt-4">Resource type</h3>
 						<ObjectTypeNarrowing bind:format={property.format} />

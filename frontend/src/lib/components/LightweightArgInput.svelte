@@ -15,6 +15,8 @@
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import { twMerge } from 'tailwind-merge'
+	import { fade } from 'svelte/transition'
+	import { X } from 'lucide-svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -32,7 +34,11 @@
 	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
+		| {
+				type?: 'string' | 'number' | 'bytes' | 'object'
+				contentEncoding?: 'base64'
+				enum?: string[]
+		  }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -202,10 +208,10 @@
 					<span>&nbsp; Not set</span>
 				{/if}
 			{:else if inputCat == 'list'}
-				<div>
-					<div>
+				<div class="w-full">
+					<div class="w-full">
 						{#each value ?? [] as v, i}
-							<div class="flex flex-row max-w-md mt-1">
+							<div class="flex flex-row max-w-md mt-1 w-full">
 								{#if itemsType?.type == 'number'}
 									<input type="number" bind:value={v} />
 								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
@@ -215,14 +221,25 @@
 										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 										multiple={false}
 									/>
+								{:else if Array.isArray(itemsType?.enum)}
+									<select
+										on:focus={(e) => {
+											dispatch('focus')
+										}}
+										class="px-6"
+										bind:value={v}
+									>
+										{#each itemsType?.enum ?? [] as e}
+											<option>{e}</option>
+										{/each}
+									</select>
 								{:else}
 									<input type="text" bind:value={v} />
 								{/if}
-								<Button
-									variant="border"
-									color="red"
-									size="sm"
-									btnClasses="mx-6"
+								<button
+									transition:fade|local={{ duration: 100 }}
+									class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 ml-2"
+									aria-label="Clear"
 									on:click={() => {
 										value = value.filter((el) => el != v)
 										if (value.length == 0) {
@@ -230,15 +247,15 @@
 										}
 									}}
 								>
-									<Icon data={faMinus} />
-								</Button>
+									<X size={14} />
+								</button>
 							</div>
 						{/each}
 					</div>
-					<div class="flex">
+					<div class="flex my-2">
 						<Button
 							variant="border"
-							color="blue"
+							color="light"
 							size="sm"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -249,7 +266,7 @@
 							}}
 						>
 							<Icon data={faPlus} class="mr-2" />
-							Add item
+							Add
 						</Button>
 					</div>
 					<span class="ml-2">

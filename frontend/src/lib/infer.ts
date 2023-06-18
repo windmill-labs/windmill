@@ -43,7 +43,6 @@ export async function inferArgs(
 
 	schema.required = []
 	const oldProperties = JSON.parse(JSON.stringify(schema.properties))
-
 	schema.properties = {}
 
 	for (const arg of inferedSchema.args) {
@@ -120,8 +119,10 @@ function argSigToJsonSchemaType(
 			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
-		} else if (t.list == 'string' || (t.list && typeof t.list == 'object' && 'str' in t.list)) {
+		} else if (t.list == 'string') {
 			newS.items = { type: 'string' }
+		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
+			newS.items = { type: 'string', enum: t.list.str }
 		} else {
 			newS.items = { type: 'object' }
 		}
@@ -141,7 +142,16 @@ function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
+	let sameItems = oldS.items?.type == 'string' && newS.items?.type == 'string'
+	let savedItems: any = undefined
+	if (sameItems) {
+		savedItems = JSON.parse(JSON.stringify(oldS.items))
+	}
 	Object.assign(oldS, newS)
+	if (sameItems) {
+		oldS.items = savedItems
+	}
+
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
 	}
