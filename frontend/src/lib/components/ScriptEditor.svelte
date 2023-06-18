@@ -245,7 +245,7 @@
 			<div class="py-1">
 				<Button
 					target="_blank"
-					href="https://github.com/windmill-labs/windmill/tree/main/cli"
+					href="https://docs.windmill.dev/docs/cli_local_dev/vscode-extension"
 					color="light"
 					size="xs"
 					btnClasses="mr-1 hidden lg:block"
@@ -253,7 +253,7 @@
 						icon: faGithub
 					}}
 				>
-					Sync from Github
+					Use VScode
 				</Button>
 			</div>
 		{/if}

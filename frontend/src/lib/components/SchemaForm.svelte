@@ -72,7 +72,7 @@
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
-			{#if Object.keys(schema.properties ?? {}).includes(argName)}
+			{#if Object.keys(schema?.properties ?? {}).includes(argName)}
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}

@@ -19,8 +19,7 @@
 	import Toggle from './Toggle.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import * as Diff from 'diff'
-	import { Drawer, DrawerContent } from './common'
+	import DiffDrawer from './DiffDrawer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -37,7 +36,9 @@
 
 	const allAlreadyExists: { [key: string]: boolean } = {}
 
+	let diffDrawer: DiffDrawer
 	let notSet: boolean | undefined = undefined
+
 	$: WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
 		workspaceToDeployTo = x.deploy_to
 		if (x.deploy_to == undefined) {
@@ -348,33 +349,6 @@
 		return `${kind}:${path}`
 	}
 
-	export function showDiff(local: string, remote: string) {
-		let finalString = ''
-		for (const part of Diff.diffLines(local, remote)) {
-			if (part.removed) {
-				// print red if removed without newline
-				finalString += `<span class="text-red-600">${part.value}</span>`
-			} else if (part.added) {
-				// print green if added
-				finalString += `<span class="text-green-600">${part.value}</span>`
-			} else {
-				let lines = part.value.split('\n')
-
-				if (lines.length > 12) {
-					lines = lines.slice(0, 6)
-					lines.push('...')
-					lines = lines.concat(part.value.split('\n').slice(-6))
-				}
-				// print white if unchanged
-				finalString += `${lines.join('\n')}`
-			}
-		}
-		return finalString
-	}
-
-	let diffViewer: Drawer
-	let diffContent: string | undefined = undefined
-
 	async function getValue(kind: Kind, path: string, workspace: string) {
 		try {
 			if (kind == 'flow') {
@@ -439,12 +413,13 @@
 		}
 	}
 
-	async function computeDiff(kind: Kind, path: string) {
+	async function showDiff(kind: Kind, path: string) {
+		diffDrawer.openDrawer()
 		let values = await Promise.all([
 			getValue(kind, path, $workspaceStore!),
 			getValue(kind, path, workspaceToDeployTo!)
 		])
-		diffContent = showDiff(JSON.stringify(values[0], null, 2), JSON.stringify(values[1], null, 2))
+		diffDrawer.setDiff(JSON.stringify(values[0], null, 2), JSON.stringify(values[1], null, 2))
 	}
 </script>
 
@@ -477,20 +452,7 @@
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
-		<Drawer bind:this={diffViewer} size="800px">
-			<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
-				{#if diffContent == undefined}
-					<Loader2 class="animate-spin" />
-				{:else}
-					<pre class="border bg-white p-2"><code>{@html diffContent}</code></pre>
-					<div class="flex flex-row-reverse gap-2">
-						<div class="text-red-600">Removed</div>
-						<div class="text-green-600">Added</div></div
-					>
-				{/if}
-			</DrawerContent>
-		</Drawer>
-
+		<DiffDrawer bind:this={diffDrawer} />
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
 			{#each dependencies ?? [] as { kind, path, include }}
 				{@const statusPath = computeStatusPath(kind, path)}
@@ -519,9 +481,7 @@
 						<button
 							class="text-blue-600 font-normal mt-1"
 							on:click={() => {
-								diffContent = undefined
-								computeDiff(kind, path)
-								diffViewer.openDrawer()
+								showDiff(kind, path)
 							}}>diff</button
 						>
 					{/if}</div
