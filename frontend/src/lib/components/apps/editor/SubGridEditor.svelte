@@ -22,7 +22,6 @@
 	export let visible: boolean = true
 	export let id: string
 	export let shouldHighlight: boolean = true
-	export let forceView = false
 
 	const dispatch = createEventDispatcher()
 
@@ -76,9 +75,9 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight ? `height: ${containerHeight}px;` : ''} {style ?? ''}"
+		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
 	>
-		{#if $mode !== 'preview' || forceView}
+		{#if $mode !== 'preview'}
 			<div
 				class={highlight ? 'border-gray-600 animate-border border-dashed border-2 min-h-full' : ''}
 			>

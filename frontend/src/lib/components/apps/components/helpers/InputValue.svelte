@@ -2,7 +2,7 @@
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
-	import type { AppViewerContext, RichConfiguration } from '../../types'
+	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
@@ -19,6 +19,9 @@
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+
+	$: fullContext = iterContext ? { ...extraContext, iter: $iterContext } : extraContext
 	const dispatch = createEventDispatcher()
 
 	if (input == undefined) {
@@ -116,7 +119,7 @@
 		try {
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, extraContext),
+				computeGlobalContext($worldStore, fullContext),
 				true,
 				$state,
 				$mode == 'dnd',
@@ -138,7 +141,7 @@
 			try {
 				const r = await eval_like(
 					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, extraContext),
+					computeGlobalContext($worldStore, fullContext),
 					true,
 					$state,
 					$mode == 'dnd',
