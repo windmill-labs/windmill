@@ -440,24 +440,24 @@
 						{/if}
 					{/if}
 				</div>
+				<div class="flex mt-2">
+					<Button
+						variant="border"
+						color="dark"
+						size="xs"
+						btnClasses="mt-1"
+						on:click={() => {
+							if (script.envs == undefined || !Array.isArray(script.envs)) {
+								script.envs = []
+							}
+							script.envs = script.envs.concat('')
+						}}
+					>
+						<Icon data={faPlus} class="mr-2" />
+						Add item
+					</Button>
+				</div>
 			{/if}
-			<div class="flex mt-2">
-				<Button
-					variant="border"
-					color="dark"
-					size="xs"
-					btnClasses="mt-1"
-					on:click={() => {
-						if (script.envs == undefined || !Array.isArray(script.envs)) {
-							script.envs = []
-						}
-						script.envs = script.envs.concat('')
-					}}
-				>
-					<Icon data={faPlus} class="mr-2" />
-					Add item
-				</Button>
-			</div>
 		</DrawerContent>
 	</Drawer>
 

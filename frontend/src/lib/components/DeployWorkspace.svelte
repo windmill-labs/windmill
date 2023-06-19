@@ -59,7 +59,8 @@
 
 		dependencies = (await getDependencies(kind, path)).map((x) => ({
 			...x,
-			include: x.kind != 'variable' && x.kind != 'resource'
+			include:
+				kind == 'variable' || kind == 'resource' || (x.kind != 'variable' && x.kind != 'resource')
 		}))
 		dependencies.forEach((x) => {
 			checkAlreadyExists(x.kind, x.path).then(
