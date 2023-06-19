@@ -2,6 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -23,6 +24,7 @@
 		faCircle,
 		faEdit,
 		faEyeSlash,
+		faFileExport,
 		faPlus,
 		faRefresh,
 		faShare,
@@ -94,7 +96,11 @@
 		}
 	}
 	let tab: 'workspace' | 'contextual' = 'workspace'
+
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
+
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <SearchItems
 	{filter}
@@ -305,6 +311,13 @@
 														}
 													},
 													disabled: !owner
+												},
+												{
+													displayName: 'Deploy to prod/staging',
+													icon: faFileExport,
+													action: () => {
+														deploymentDrawer.openDrawer(path, 'variable')
+													}
 												},
 												{
 													displayName: owner ? 'Share' : 'See Permissions',

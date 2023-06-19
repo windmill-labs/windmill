@@ -7,6 +7,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
@@ -32,6 +33,7 @@
 		faChain,
 		faCircle,
 		faEdit,
+		faFileExport,
 		faPlus,
 		faRefresh,
 		faSave,
@@ -233,7 +235,10 @@
 		}
 		inferrer?.closeDrawer?.()
 	}
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
+
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <Portal>
 	<Drawer bind:this={inferrer} size="800px">
@@ -392,7 +397,7 @@
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
-		<ListFilters  bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
 		{#if tab != 'states' && tab != 'cache'}
 			<ListFilters
 				queryName="app_filter"
@@ -549,6 +554,13 @@
 													disabled: !canWrite,
 													action: () => {
 														resourceEditor?.initEdit?.(path)
+													}
+												},
+												{
+													displayName: 'Deploy to prod/staging',
+													icon: faFileExport,
+													action: () => {
+														deploymentDrawer.openDrawer(path, 'resource')
 													}
 												},
 												{
