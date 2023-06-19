@@ -68,13 +68,13 @@
 		)
 	}
 
-	$: outputs?.result?.set(value)
+	$: outputs?.result?.set(result ?? [])
 
 	let clientHeight
 	let clientWidth
 
 	function onCellValueChanged(event) {
-		if (value) {
+		if (result) {
 			let dataCell = event.newValue
 			try {
 				dataCell = JSON.parse(dataCell)
@@ -84,9 +84,8 @@
 				column: event.colDef.field,
 				value: dataCell
 			})
-			value[event.node.rowIndex][event.colDef.field] = dataCell
-			let data = { ...value[event.node.rowIndex] }
-			delete data['__index']
+			result[event.node.rowIndex][event.colDef.field] = dataCell
+			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
 		}
 	}
