@@ -3,7 +3,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, type ListableApp } from '$lib/gen'
+	import { AppService, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faCodeFork,
@@ -24,6 +24,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { DELETE } from '$lib/utils'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -189,6 +190,24 @@
 											`${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
 										goto(url)
 									}
+								}
+						  ]
+						: []),
+					...(has_draft
+						? [
+								{
+									displayName: 'Delete Draft',
+									icon: faTrashAlt,
+									action: async () => {
+										await DraftService.deleteDraft({
+											workspace: $workspaceStore ?? '',
+											path,
+											kind: 'app'
+										})
+										dispatch('change')
+									},
+									type: DELETE,
+									disabled: !canWrite
 								}
 						  ]
 						: []),

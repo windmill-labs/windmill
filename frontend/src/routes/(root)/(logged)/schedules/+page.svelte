@@ -159,6 +159,15 @@
 								</div>
 							</a>
 
+							<div class="gap-2 items-center hidden md:flex">
+								<Badge large color="blue">{schedule}</Badge>
+								<Badge small color="gray">{timezone}</Badge>
+							</div>
+
+							<div class="hidden lg:flex flex-row gap-1 items-center">
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</div>
+
 							<div class="w-10">
 								{#if error}
 									<Popover notClickable>
@@ -182,14 +191,6 @@
 										</div>
 									</Popover>
 								{/if}
-							</div>
-							<div class="gap-2 items-center hidden md:flex">
-								<Badge large color="blue">{schedule}</Badge>
-								<Badge small color="gray">{timezone}</Badge>
-							</div>
-
-							<div class="hidden lg:flex flex-row gap-1 items-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 
 							<Toggle

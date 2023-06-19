@@ -13,15 +13,17 @@ use crate::{
 
 use axum::{
     extract::{Extension, Path},
-    routing::post,
+    routing::{delete, post},
     Json, Router,
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use windmill_common::error::Result;
+use windmill_common::{error::Result, utils::StripPath};
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/create", post(create_draft))
+    Router::new()
+        .route("/create", post(create_draft))
+        .route("/delete/:kind/*path", delete(delete_draft))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -70,6 +72,26 @@ async fn create_draft(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, format!("draft {} created", draft.path)))
+}
+
+async fn delete_draft(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, DraftType, StripPath)>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND typ = $2 AND workspace_id = $3",
+        path.to_path(),
+        kind: DraftType,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("deleted draft"))
 }
 
 // async fn get_draft(

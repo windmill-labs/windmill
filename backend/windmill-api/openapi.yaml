@@ -2284,6 +2284,32 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/delete/{kind}/{path}:
+    delete:
+      summary: delete draft
+      operationId: deleteDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: draft deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script

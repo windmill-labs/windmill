@@ -143,6 +143,8 @@ export interface DropdownItem {
 	icon?: any | undefined
 }
 
+export const DELETE = 'delete' as 'delete'
+
 export function emptySchema() {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,

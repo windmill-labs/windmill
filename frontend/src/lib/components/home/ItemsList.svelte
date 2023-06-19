@@ -45,6 +45,7 @@
 		type?: U
 		time?: number
 		starred?: boolean
+		has_draft?: boolean
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -370,51 +371,53 @@
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#key item.summary}
 						{#key item.starred}
-							{#if item.type == 'script'}
-								<ScriptRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadScripts}
-									script={item}
-									{shareModal}
-									{moveDrawer}
-									{deploymentDrawer}
-								/>
-							{:else if item.type == 'flow'}
-								<FlowRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadFlows}
-									flow={item}
-									{shareModal}
-									{moveDrawer}
-									{deploymentDrawer}
-								/>
-							{:else if item.type == 'app'}
-								<AppRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadApps}
-									app={item}
-									{moveDrawer}
-									{shareModal}
-									{deploymentDrawer}
-								/>
-							{:else if item.type == 'raw_app'}
-								<RawAppRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadRawApps}
-									app={item}
-									{moveDrawer}
-									{shareModal}
-									{deploymentDrawer}
-								/>
-							{/if}
+							{#key item.has_draft}
+								{#if item.type == 'script'}
+									<ScriptRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadScripts}
+										script={item}
+										{shareModal}
+										{moveDrawer}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'flow'}
+									<FlowRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadFlows}
+										flow={item}
+										{shareModal}
+										{moveDrawer}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'app'}
+									<AppRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadApps}
+										app={item}
+										{moveDrawer}
+										{shareModal}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'raw_app'}
+									<RawAppRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadRawApps}
+										app={item}
+										{moveDrawer}
+										{shareModal}
+										{deploymentDrawer}
+									/>
+								{/if}
+							{/key}
 						{/key}
 					{/key}
 				{/each}

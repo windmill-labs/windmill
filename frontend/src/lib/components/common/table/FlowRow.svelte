@@ -5,7 +5,7 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { FlowService, type Flow } from '$lib/gen'
+	import { FlowService, type Flow, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faArchive,
@@ -25,7 +25,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isOwner } from '$lib/utils'
+	import { DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -224,6 +224,24 @@
 						type: 'delete',
 						disabled: !owner
 					},
+					...(has_draft
+						? [
+								{
+									displayName: 'Delete Draft',
+									icon: faTrashAlt,
+									action: async () => {
+										await DraftService.deleteDraft({
+											workspace: $workspaceStore ?? '',
+											path,
+											kind: 'flow'
+										})
+										dispatch('change')
+									},
+									type: DELETE,
+									disabled: !owner
+								}
+						  ]
+						: []),
 					{
 						displayName: 'Delete',
 						icon: faTrashAlt,
