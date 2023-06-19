@@ -38,7 +38,8 @@ import {
 	Split,
 	Download,
 	PanelLeft,
-	PanelTopInactive
+	PanelTopInactive,
+	ListIcon
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -109,6 +110,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
 }
+export type ListComponent = BaseComponent<'listcomponent'>
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
 export type MapComponent = BaseComponent<'mapcomponent'>
@@ -163,6 +165,7 @@ export type TypedComponent =
 	| PlotlyComponent
 	| TabsComponent
 	| ContainerComponent
+	| ListComponent
 	| IconComponent
 	| HorizontalDividerComponent
 	| VerticalDividerComponent
@@ -466,6 +469,38 @@ export const components = {
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
+			numberOfSubgrids: 1
+		}
+	},
+	listcomponent: {
+		name: 'List',
+		icon: ListIcon,
+		dims: '2:8-6:8' as AppComponentDimensions,
+
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				minWidthPx: {
+					type: 'static',
+					fieldType: 'number',
+					value: 300,
+					tooltip: 'Min Width in pixels'
+				},
+				maxHeightPx: {
+					type: 'static',
+					fieldType: 'number',
+					value: 300,
+					tooltip: 'Max Height in pixels'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
 			numberOfSubgrids: 1
 		}
 	},

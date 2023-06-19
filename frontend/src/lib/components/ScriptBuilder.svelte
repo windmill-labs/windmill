@@ -548,7 +548,7 @@
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript()}
-						dropdownItems={initialPath != '' ? computeDropdownItems : []}
+						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
 					>
 						Deploy
 					</Button>

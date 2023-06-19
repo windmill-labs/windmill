@@ -50,6 +50,7 @@
 	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
 	import AppChartJs from '../../components/display/AppChartJs.svelte'
 	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
+	import AppList from '../../components/layout/AppList.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -452,6 +453,16 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
+			/>
+		{:else if component.type === 'listcomponent'}
+			<AppList
+				id={component.id}
+				customCss={component.customCss}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
 			/>
 		{:else if component.type === 'verticalsplitpanescomponent'}
 			<AppSplitpanes

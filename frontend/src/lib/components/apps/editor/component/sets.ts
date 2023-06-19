@@ -10,6 +10,7 @@ const layout: ComponentSet = {
 	title: 'Layout',
 	components: [
 		'containercomponent',
+		// 'listcomponent',
 		'horizontaldividercomponent',
 		'verticaldividercomponent',
 		'drawercomponent',

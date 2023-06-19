@@ -150,6 +150,11 @@ export interface CancelablePromise<T> extends Promise<T> {
 	cancel: () => void
 }
 
+export type ListContext = {
+	index: number
+	value: any
+}
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
