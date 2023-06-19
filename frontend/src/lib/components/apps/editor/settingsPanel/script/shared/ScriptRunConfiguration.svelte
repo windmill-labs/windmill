@@ -16,8 +16,8 @@
 	<ScriptSettingsSection title="Triggers">
 		<div class="flex flex-col">
 			{#if autoRefresh !== undefined && canConfigureRunOnStart}
-				<div class="flex items-center justify-between w-full">
-					<div class="flex flex-row items-center gap-2 text-xs">
+				<div class="flex items-center justify-between w-full gap-1">
+					<div class="flex flex-row items-center gap-2 text-xs mb-0.5">
 						Run on start and app refresh
 						<Tooltip>
 							You may want to disable this so that the background runnable is only triggered by

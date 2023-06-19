@@ -10,7 +10,7 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
+	import type { AppViewerContext, CancelablePromise, InlineScript, ListContext } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -57,6 +57,7 @@
 		app,
 		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -165,7 +166,7 @@
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, {}),
+					computeGlobalContext($worldStore, iterContext ? { iter: $iterContext } : {}),
 					false,
 					$state,
 					$mode == 'dnd',

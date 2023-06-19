@@ -659,6 +659,9 @@ export const quickStyleProperties: Record<
 	containercomponent: {
 		container: containerDefaultProps
 	},
+	listcomponent: {
+		container: containerDefaultProps
+	},
 	dateinputcomponent: {
 		input: inputDefaultProps
 	},

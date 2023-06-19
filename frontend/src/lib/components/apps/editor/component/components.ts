@@ -482,16 +482,29 @@ export const components = {
 		},
 		initialData: {
 			configuration: {
-				minWidthPx: {
-					type: 'static',
-					fieldType: 'number',
-					value: 300,
-					tooltip: 'Min Width in pixels'
-				},
+				width: {
+					type: 'oneOf',
+					selected: 'card',
+					labels: {
+						card: 'Card',
+						row: 'Full Row'
+					},
+					configuration: {
+						card: {
+							minWidthPx: {
+								type: 'static',
+								fieldType: 'number',
+								value: 300,
+								tooltip: 'Min Width in pixels'
+							}
+						},
+						row: {}
+					}
+				} as const,
 				heightPx: {
 					type: 'static',
 					fieldType: 'number',
-					value: 300,
+					value: 280,
 					tooltip: 'Height in pixels'
 				}
 			},
