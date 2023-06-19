@@ -9,13 +9,18 @@
 	$: tooBig = code && code?.length > 1000000
 	function parseJson() {
 		try {
+			if (code == '') {
+				value = undefined
+				error = ''
+				return
+			}
 			value = JSON.parse(code ?? '')
 			error = ''
 		} catch (e) {
 			error = e.message
 		}
 	}
-	$: code && parseJson()
+	$: code != undefined && parseJson()
 </script>
 
 {#if tooBig}
