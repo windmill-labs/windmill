@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.116.0](https://github.com/windmill-labs/windmill/compare/v1.115.0...v1.116.0) (2023-06-19)
+
+
+### Features
+
+* add delete draft from home ([4b7f681](https://github.com/windmill-labs/windmill/commit/4b7f681e5a0a87a0e6922595b1e5aa7d142b4415))
+* add diff viewer to script autosave discard menu ([80c07ad](https://github.com/windmill-labs/windmill/commit/80c07ad905c51a1e247d95238126a10a9d2bab75))
+* add enums to array args ([1060d32](https://github.com/windmill-labs/windmill/commit/1060d3271cb5ed3f7bc518a2baf8bf1dbbabf971))
+
+
+### Bug Fixes
+
+* deploy dev/staging/prod small fixes ([848c03b](https://github.com/windmill-labs/windmill/commit/848c03ba50cd4e7643791644443778073f92b95c))
+
 ## [1.115.0](https://github.com/windmill-labs/windmill/compare/v1.114.2...v1.115.0) (2023-06-18)
 
 
