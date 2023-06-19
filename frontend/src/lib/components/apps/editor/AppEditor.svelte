@@ -150,7 +150,7 @@
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
-				if (item?.data.type === 'containercomponent') {
+				if (item?.data.type === 'containercomponent' || item?.data.type === 'listcomponent') {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex: 0

@@ -475,7 +475,7 @@ export const components = {
 	listcomponent: {
 		name: 'List',
 		icon: ListIcon,
-		dims: '2:8-6:8' as AppComponentDimensions,
+		dims: '3:8-12:8' as AppComponentDimensions,
 
 		customCss: {
 			container: { class: '', style: '' }
@@ -488,11 +488,11 @@ export const components = {
 					value: 300,
 					tooltip: 'Min Width in pixels'
 				},
-				maxHeightPx: {
+				heightPx: {
 					type: 'static',
 					fieldType: 'number',
 					value: 300,
-					tooltip: 'Max Height in pixels'
+					tooltip: 'Height in pixels'
 				}
 			},
 			componentInput: {

@@ -460,7 +460,6 @@
 				customCss={component.customCss}
 				configuration={component.configuration}
 				componentInput={component.componentInput}
-				{componentContainerHeight}
 				{render}
 				bind:initializing
 			/>

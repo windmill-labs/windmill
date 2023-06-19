@@ -12,7 +12,6 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let componentContainerHeight: number
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
@@ -58,7 +57,7 @@
 		{#if $app.subgrids?.[`${id}-0`]}
 			{#each result ?? [] as value, index}
 				<div
-					style={`min-width: ${resolvedConfig.minWidthPx}px; max-height: ${resolvedConfig.maxHeightPx}px;`}
+					style={`min-width: ${resolvedConfig.minWidthPx}px; max-height: ${resolvedConfig.heightPx}px;`}
 					class="border overflow-auto"
 				>
 					<ListWrapper {value} {index}>
@@ -68,7 +67,7 @@
 							class={css?.container?.class}
 							style={css?.container?.style}
 							subGridId={`${id}-0`}
-							containerHeight={componentContainerHeight}
+							containerHeight={resolvedConfig.heightPx}
 							forceView={index != 0}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
