@@ -1540,6 +1540,12 @@ Hello \${ctx.username}
 					value: 1,
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
+				},
+				vertical: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
 				}
 			}
 		}

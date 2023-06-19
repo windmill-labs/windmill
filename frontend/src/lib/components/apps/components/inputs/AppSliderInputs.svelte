@@ -80,18 +80,21 @@
 	$: if (max && step && render) {
 		computeWidth()
 	}
+
+	let vertical = false
 </script>
 
 <InputValue {id} input={configuration.step} bind:value={step} />
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
+<InputValue {id} input={configuration.vertical} bind:value={vertical} />
 <InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
 <InitializeComponent {id} />
 
-<AlignWrapper {render} {verticalAlignment}>
-	<div class="flex items-center w-full gap-1 px-1">
+<AlignWrapper {render} hFull {verticalAlignment}>
+	<div class="flex {vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1">
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{+min}
+			{vertical ? +max : +min}
 		</span>
 		<div
 			class="grow"
@@ -99,10 +102,10 @@
 				''}"
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
-			<RangeSlider bind:slider bind:values {step} min={+min} max={+max} />
+			<RangeSlider {vertical} bind:slider bind:values {step} min={+min} max={+max} />
 		</div>
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{+max}
+			{vertical ? +min : +max}
 		</span>
 		<span class="mx-2">
 			<span
@@ -114,3 +117,10 @@
 		</span>
 	</div>
 </AlignWrapper>
+
+<style global>
+	.rangeSlider.vertical {
+		height: 80%;
+		min-height: 10px !important;
+	}
+</style>
