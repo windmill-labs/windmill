@@ -1516,8 +1516,7 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: 0,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
