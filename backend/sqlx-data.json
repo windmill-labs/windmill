@@ -6620,6 +6620,31 @@
     },
     "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin, email)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)"
   },
+  "ea1637af410b48f3673f64ae783dda41f946268be4ffbaacc7fc1865c8974628": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "flow",
+                  "app"
+                ]
+              },
+              "name": "draft_type"
+            }
+          },
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM draft WHERE path = $1 AND typ = $2 AND workspace_id = $3"
+  },
   "ea2b88dc050aec038641ea37399d68d4385c5bdc721d1351609f27ca45e4dbdc": {
     "describe": {
       "columns": [
