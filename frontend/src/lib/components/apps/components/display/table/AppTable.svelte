@@ -465,6 +465,7 @@
 			</div>
 
 			<AppTableFooter
+				download={resolvedConfig?.downloadButton}
 				pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
 				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
 				result={filteredResult}

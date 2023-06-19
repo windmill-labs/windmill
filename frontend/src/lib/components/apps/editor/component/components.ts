@@ -1078,7 +1078,14 @@ Hello \${ctx.username}
 					tooltip:
 						'Search can be configured in the following ways: Disabled: The search is disabled,By Runnable: The search is done in the backend, or by component: The search is done in the frontend.'
 				},
-				pagination: paginationOneOf
+				pagination: paginationOneOf,
+				downloadButton: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'display a button to download the table as a csv file'
+				}
 			},
 			componentInput: {
 				type: 'static',

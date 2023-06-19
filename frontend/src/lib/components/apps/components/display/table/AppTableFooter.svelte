@@ -15,6 +15,7 @@
 	let c = ''
 	export { c as class }
 	export let style = ''
+	export let download: boolean = true
 
 	function downloadResultAsJSON() {
 		const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(result))
@@ -27,49 +28,53 @@
 	}
 </script>
 
-<div
-	class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
-	{style}
->
-	{#if result.length > pageSize || manualPagination}
+{#if result.length > pageSize || manualPagination || download}
+	<div
+		class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
+		{style}
+	>
+		{#if result.length > pageSize || manualPagination}
+			<div class="flex items-center gap-2 flex-row">
+				<Button
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="!py-1 !pl-1"
+					on:click={() => $table.previousPage()}
+					disabled={!$table.getCanPreviousPage()}
+				>
+					<ChevronLeft size={14} />
+					Previous
+				</Button>
+				<Button
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="!py-1 !pr-1"
+					on:click={() => $table.nextPage()}
+					disabled={!$table.getCanNextPage()}
+				>
+					Next
+					<ChevronRight size={14} />
+				</Button>
+				{$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
+			</div>
+		{:else}
+			<div />
+		{/if}
 		<div class="flex items-center gap-2 flex-row">
-			<Button
-				size="xs"
-				variant="border"
-				color="light"
-				btnClasses="!py-1 !pl-1"
-				on:click={() => $table.previousPage()}
-				disabled={!$table.getCanPreviousPage()}
-			>
-				<ChevronLeft size={14} />
-				Previous
-			</Button>
-			<Button
-				size="xs"
-				variant="border"
-				color="light"
-				btnClasses="!py-1 !pr-1"
-				on:click={() => $table.nextPage()}
-				disabled={!$table.getCanNextPage()}
-			>
-				Next
-				<ChevronRight size={14} />
-			</Button>
-			{$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
+			{#if download}
+				<Button
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="!py-1"
+					on:click={downloadResultAsJSON}
+					startIcon={{ icon: faDownload }}
+				>
+					Download
+				</Button>
+			{/if}
 		</div>
-	{:else}
-		<div />
-	{/if}
-	<div class="flex items-center gap-2 flex-row">
-		<Button
-			size="xs"
-			variant="border"
-			color="light"
-			btnClasses="!py-1"
-			on:click={downloadResultAsJSON}
-			startIcon={{ icon: faDownload }}
-		>
-			Download
-		</Button>
 	</div>
-</div>
+{/if}
