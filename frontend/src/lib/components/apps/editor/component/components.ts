@@ -475,24 +475,37 @@ export const components = {
 	listcomponent: {
 		name: 'List',
 		icon: ListIcon,
-		dims: '2:8-6:8' as AppComponentDimensions,
+		dims: '3:8-12:8' as AppComponentDimensions,
 
 		customCss: {
 			container: { class: '', style: '' }
 		},
 		initialData: {
 			configuration: {
-				minWidthPx: {
+				width: {
+					type: 'oneOf',
+					selected: 'card',
+					labels: {
+						card: 'Card',
+						row: 'Full Row'
+					},
+					configuration: {
+						card: {
+							minWidthPx: {
+								type: 'static',
+								fieldType: 'number',
+								value: 300,
+								tooltip: 'Min Width in pixels'
+							}
+						},
+						row: {}
+					}
+				} as const,
+				heightPx: {
 					type: 'static',
 					fieldType: 'number',
-					value: 300,
-					tooltip: 'Min Width in pixels'
-				},
-				maxHeightPx: {
-					type: 'static',
-					fieldType: 'number',
-					value: 300,
-					tooltip: 'Max Height in pixels'
+					value: 280,
+					tooltip: 'Height in pixels'
 				}
 			},
 			componentInput: {

@@ -222,6 +222,7 @@ declare function setSelectedIndex(id: string, index: number): void;
 		: ''
 }
 declare const state: ${JSON.stringify(state)};
+declare const iter: {index: number, value: any};
 `
 }
 
