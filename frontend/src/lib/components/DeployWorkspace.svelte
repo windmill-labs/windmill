@@ -100,7 +100,7 @@
 						})
 					}
 					if (x.value.type == 'script') {
-						if (x.value.path) {
+						if (x.value.path && !x.value.path.startsWith('hub/')) {
 							result.push({ kind: 'script', path: x.value.path })
 						}
 					} else if (x.value.type == 'flow') {
@@ -336,7 +336,7 @@
 		}
 	}
 
-	function deployAll() {
+	export function deployAll() {
 		dependencies?.slice().forEach(async ({ kind, path, include }) => {
 			if (include) {
 				await deploy(kind, path)
