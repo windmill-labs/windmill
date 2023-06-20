@@ -4,7 +4,7 @@
 	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
 
 	import { isObject } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -21,6 +21,22 @@
 	export let render: boolean
 
 	let result: any[] | undefined = undefined
+
+	let value: any[] = Array.isArray(result)
+		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+		: [{ error: 'input was not an array' }]
+
+	$: result && setValues()
+
+	let timeout: any
+	async function setValues() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(() => {
+			value = Array.isArray(result)
+				? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+				: [{ error: 'input was not an array' }]
+		}, 25)
+	}
 
 	const { worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -89,10 +105,6 @@
 			outputs?.selectedRow?.set(data)
 		}
 	}
-
-	$: value = Array.isArray(result)
-		? result.map((x, i) => ({ ...x, __index: i.toString() }))
-		: [{ error: 'input was not an array' }]
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -123,7 +135,7 @@
 					{#key resolvedConfig?.pagination}
 						{#key resolvedConfig?.extraConfig}
 							<AgGridSvelte
-								bind:rowData={value}
+								rowData={value}
 								columnDefs={resolvedConfig?.columnDefs}
 								pagination={resolvedConfig?.pagination}
 								paginationAutoPageSize={resolvedConfig?.pagination}
@@ -157,7 +169,7 @@
 								{...resolvedConfig.extraConfig}
 								onGridReady={(e) => {
 									outputs?.ready.set(true)
-									if (value.length > 0) {
+									if (result && result.length > 0) {
 										e.api.getRowNode('0')?.setSelected(true)
 									}
 									$componentControl[id] = {
@@ -172,7 +184,7 @@
 					{/key}
 				</div>
 			</div>
-		{:else if result != undefined}
+		{:else if resolvedConfig.columnDefs != undefined}
 			<Alert title="Parsing issues" type="error" size="xs">
 				The columnDefs should be an array of objects, received:
 				<pre class="overflow-auto">
