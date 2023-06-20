@@ -62,6 +62,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # volumes:
+    # - ./oauth.json/:/usr/src/app/oauth.json
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
