@@ -152,6 +152,8 @@ pub struct Suspend {
     pub required_events: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_form: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
