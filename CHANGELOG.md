@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.117.0](https://github.com/windmill-labs/windmill/compare/v1.116.0...v1.117.0) (2023-06-20)
+
+
+### Features
+
+* add dynamic default args to approval page form ([a4365cb](https://github.com/windmill-labs/windmill/commit/a4365cb864120b3545564871c507c8224a85b749))
+* add schema form to approval steps ([59e395a](https://github.com/windmill-labs/windmill/commit/59e395a92ad13a1d2d09d4f6bbdc400257087c22))
+* list component for apps ([#1740](https://github.com/windmill-labs/windmill/issues/1740)) ([dd03f33](https://github.com/windmill-labs/windmill/commit/dd03f33337c2787b56981ad1c6e1b7200c94376a))
+
+
+### Bug Fixes
+
+* make postgresql attempt to create users regardless of if superadmin or not ([6dabc93](https://github.com/windmill-labs/windmill/commit/6dabc933890709746aab83cbbd0cad41a42723bc))
+* remove __index from aggrid ([258943c](https://github.com/windmill-labs/windmill/commit/258943cb8590f51e1af725b68ea727705288ac93))
+
 ## [1.116.0](https://github.com/windmill-labs/windmill/compare/v1.115.0...v1.116.0) (2023-06-19)
 
 
