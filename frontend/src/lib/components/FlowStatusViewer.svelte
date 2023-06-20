@@ -15,9 +15,8 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import SchemaForm from './SchemaForm.svelte'
+	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -165,8 +164,6 @@
 
 	$: selected = isListJob ? 'sequence' : 'graph'
 
-	let payload: any = {}
-
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
 			return undefined
@@ -227,48 +224,7 @@
 						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
-					<div class="w-full h-full mt-2 text-sm text-gray-600">
-						<p>Waiting to be resumed</p>
-						<div>
-							{#if is_owner}
-								<div class="flex flex-row gap-2 mt-2">
-									<div>
-										<Button
-											color="green"
-											variant="border"
-											on:click={async () =>
-												await JobService.resumeSuspendedFlowAsOwner({
-													workspace: workspaceId ?? $workspaceStore ?? '',
-													id: job?.id ?? '',
-													requestBody: JSON.parse(payload)
-												})}
-											>Resume <Tooltip
-												>Since you are an owner of this flow, you can send resume events without
-												necessarily knowing the resume id sent by the approval step</Tooltip
-											></Button
-										>
-									</div>
-									{#if job.raw_flow?.modules?.[job?.flow_status?.step - 1]?.suspend?.resume_form?.schema}
-										<div class="w-full border rounded-lg p-2">
-											<SchemaForm
-												noVariablePicker
-												bind:args={payload}
-												schema={job.raw_flow?.modules?.[job?.flow_status?.step - 1]?.suspend
-													?.resume_form?.schema}
-											/>
-										</div>
-									{/if}
-									<Tooltip
-										>The payload is optional, it is passed to the following step through the
-										`resume` variable</Tooltip
-									>
-								</div>
-							{:else}
-								You cannot resume the flow yourself without receiving the resume secret since you
-								are not an owner of {job.script_path}
-							{/if}
-						</div>
-					</div>
+					<FlowStatusWaitingForEvents {workspaceId} {job} {is_owner} />
 				{:else if job.logs}
 					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
 						<pre class="w-full">{job.logs}</pre>

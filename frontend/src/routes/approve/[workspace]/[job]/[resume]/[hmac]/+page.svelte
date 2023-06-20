@@ -21,8 +21,8 @@
 		.map((x) => x.resume_id)
 		.includes(new Number($page.params.resume).valueOf())
 
-	$: schema =
-		job?.raw_flow?.modules?.[(job?.flow_status?.step ?? 1) - 1]?.suspend?.resume_form?.schema
+	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
+	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
 	let timeout: NodeJS.Timer | undefined = undefined
 	let error: string | undefined = undefined
 	let payload: any = {}
@@ -52,6 +52,20 @@
 	onDestroy(() => {
 		timeout && clearInterval(timeout)
 	})
+
+	$: job && getDefaultArgs()
+
+	async function getDefaultArgs() {
+		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
+		if (!jobId) {
+			return {}
+		}
+		let job_result = await JobService.getCompletedJobResult({
+			workspace: job?.workspace_id ?? '',
+			id: jobId
+		})
+		payload = job_result?.default_args ?? {}
+	}
 
 	async function getJob() {
 		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
