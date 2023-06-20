@@ -263,7 +263,7 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="cache">Cache</Tab>
 										<Tab value="early-stop">Early Stop/Break</Tab>
-										<Tab value="suspend">Suspend</Tab>
+										<Tab value="suspend">Suspend/Approval</Tab>
 										<Tab value="sleep">Sleep</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 									{/if}

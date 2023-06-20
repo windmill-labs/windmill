@@ -111,7 +111,7 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop/Break</Tab>
-					<Tab value="suspend">Suspend</Tab>
+					<Tab value="suspend">Suspend/Approval</Tab>
 					<Tab value="sleep">Sleep</Tab>
 
 					<svelte:fragment slot="content">

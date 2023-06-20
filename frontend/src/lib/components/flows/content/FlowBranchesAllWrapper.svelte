@@ -65,7 +65,7 @@
 					<Pane size={40}>
 						<Tabs bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
-							<Tab value="suspend">Suspend</Tab>
+							<Tab value="suspend">Suspend/Approval</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-white">

@@ -203,7 +203,7 @@ curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compos
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
 
-docker compose up -d --pull always
+docker compose up -d
 ```
 
 Go to http://localhost et voilà :)
@@ -373,12 +373,11 @@ it being synced automatically everyday.
 This will use the backend of <https://app.windmill.dev> but your own frontend
 with hot-code reloading.
 
-1. Install [caddy](https://caddyserver.com)
-2. Go to `frontend/`:
+1. Go to `frontend/`:
    1. `npm install`
    2. `npm run generate-backend-client`
    3. `npm run dev`
-3. Et voilà, windmill should be available at `http://localhost:3000/`
+2. Et voilà, windmill should be available at `http://localhost:3000/`
 
 ### Backend + Frontend
 
