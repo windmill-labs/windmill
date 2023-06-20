@@ -99,6 +99,11 @@ components:
               type: integer
             timeout:
               type: integer
+            resume_form:
+              type: object
+              properties:
+                schema:
+                  type: object
         retry:
           $ref: "#/components/schemas/Retry"
       required:

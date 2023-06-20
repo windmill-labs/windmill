@@ -4,7 +4,6 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import autosize from 'svelte-autosize'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -105,7 +104,6 @@
 		}
 		return 'json'
 	}
-	let payload = ''
 
 	let jsonViewer: Drawer
 </script>
@@ -219,14 +217,14 @@
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
-		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
+		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button
 					color="green"
 					variant="border"
 					on:click={() =>
 						fetch(result['resume'], {
 							method: 'POST',
-							body: JSON.stringify(payload),
+							body: JSON.stringify({}),
 							headers: { 'Content-Type': 'application/json' }
 						})}
 				>
@@ -234,12 +232,6 @@
 				>
 				<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}>Cancel</Button
 				>
-				<div>
-					<h3>Payload</h3>
-					<div class="border border-black">
-						<input type="text" bind:value={payload} use:autosize />
-					</div>
-				</div>
 				<div class="center-center"
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>

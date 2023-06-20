@@ -16,8 +16,8 @@
 	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import SchemaForm from './SchemaForm.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -165,7 +165,7 @@
 
 	$: selected = isListJob ? 'sequence' : 'graph'
 
-	let payload: string = '"a test payload in json"'
+	let payload: any = {}
 
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
@@ -248,9 +248,16 @@
 											></Button
 										>
 									</div>
-									<div class="w-full border rounded-lg border-gray-600 p-2">
-										<SimpleEditor automaticLayout lang="json" bind:code={payload} autoHeight />
-									</div>
+									{#if job.raw_flow?.modules?.[job?.flow_status?.step - 1]?.suspend?.resume_form?.schema}
+										<div class="w-full border rounded-lg p-2">
+											<SchemaForm
+												noVariablePicker
+												bind:args={payload}
+												schema={job.raw_flow?.modules?.[job?.flow_status?.step - 1]?.suspend
+													?.resume_form?.schema}
+											/>
+										</div>
+									{/if}
 									<Tooltip
 										>The payload is optional, it is passed to the following step through the
 										`resume` variable</Tooltip
@@ -492,7 +499,7 @@
 							failureModule={job.raw_flow?.failure_module}
 						/>
 					</div>
-					<div class="border-l border-gray-400 pt-1 overflow-hidden">
+					<div class="border-l border-gray-400 pt-1 overflow-auto min-h-[800px] flex flex-col">
 						{#if selectedNode}
 							{@const node = localFlowModuleStates[selectedNode]}
 							{#if selectedNode == 'end'}
