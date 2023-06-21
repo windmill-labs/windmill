@@ -146,6 +146,7 @@
 			return r
 		} catch (e) {
 			error = e.message
+			console.error("Eval error in app input '" + id + "' with key '" + key, e)
 			return value
 		}
 	}
@@ -169,6 +170,7 @@
 				error = ''
 				return r
 			} catch (e) {
+				console.debug("Eval error in app input '" + id + "' with key '" + key, e)
 				return e.message
 			}
 		} else if (input.type === 'static') {

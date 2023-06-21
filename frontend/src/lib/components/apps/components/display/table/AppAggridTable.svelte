@@ -117,7 +117,7 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	{#if Array.isArray(result) && result.every(isObject)}
+	{#if Array.isArray(value) && value.every(isObject)}
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
 				class="border border-gray-300 shadow-sm divide-y divide-gray-300 flex flex-col h-full"
@@ -191,6 +191,8 @@
 				{JSON.stringify(resolvedConfig.columnDefs)}
 			</pre>
 			</Alert>
+		{:else}
+			<Alert title="Parsing issues" type="error" size="xs">The columnDefs are undefined</Alert>
 		{/if}
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
