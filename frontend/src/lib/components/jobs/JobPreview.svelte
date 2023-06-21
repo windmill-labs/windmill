@@ -16,7 +16,7 @@
 	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
 	import { Badge } from '../common'
 
-	const POPUP_HEIGHT = 240 as const
+	const POPUP_HEIGHT = 320 as const
 
 	export let id: string
 	let job: Job | undefined = undefined
