@@ -156,6 +156,8 @@ export type ListContext = Writable<{
 	disabled: boolean
 }>
 
+export type ListInputs = (id: string, value: any) => void
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>

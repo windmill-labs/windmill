@@ -2,7 +2,13 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
@@ -20,6 +26,8 @@
 
 	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -41,6 +49,9 @@
 		}
 
 		outputs.values.set(newArgs, true)
+		if (iterContext && listInputs) {
+			listInputs(id, newArgs)
+		}
 	}
 
 	$componentControl[id] = {

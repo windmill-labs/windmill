@@ -89,10 +89,24 @@
 		$state &&
 		debounce(debounceTemplate)
 
+	let lastExpr: any = undefined
+
 	const debounceEval = async () => {
 		let nvalue = await evalExpr(lastInput)
 		if (!deepEqual(nvalue, value)) {
-			value = nvalue
+			if (
+				typeof nvalue == 'string' ||
+				typeof nvalue == 'number' ||
+				typeof nvalue == 'boolean' ||
+				typeof nvalue == 'bigint'
+			) {
+				if (nvalue != lastExpr) {
+					lastExpr = nvalue
+					value = nvalue as T
+				}
+			} else {
+				value = nvalue
+			}
 		}
 	}
 
@@ -117,7 +131,6 @@
 
 	async function evalExpr(input: EvalAppInput): Promise<any> {
 		if (iterContext && $iterContext.disabled) return
-
 		try {
 			const r = await eval_like(
 				input.expr,
