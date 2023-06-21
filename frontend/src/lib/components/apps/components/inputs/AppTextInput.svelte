@@ -2,7 +2,13 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput, selectId } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -23,6 +29,9 @@
 	const { app, worldStore, selectedComponent, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	let placeholder: string | undefined = undefined
 	let defaultValue: string | undefined = undefined
 	let value: string | undefined = undefined
@@ -39,7 +48,13 @@
 
 	$: handleDefault(defaultValue)
 
-	$: outputs?.result.set(value ?? '')
+	$: {
+		let val = value ?? ''
+		outputs?.result.set(val)
+		if (iterContext && listInputs) {
+			listInputs(id, val)
+		}
+	}
 
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue

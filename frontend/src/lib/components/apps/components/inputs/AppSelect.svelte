@@ -2,7 +2,13 @@
 	import { getContext } from 'svelte'
 	import Select from 'svelte-select'
 
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
@@ -30,6 +36,9 @@
 		runnableComponents,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -75,6 +84,9 @@
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}
+		if (iterContext && listInputs) {
+			listInputs(id, rawValue)
+		}
 	}
 
 	function onChange(e: CustomEvent) {
@@ -97,6 +109,9 @@
 		} catch (_) {}
 		value = nvalue
 		outputs?.result.set(result)
+		if (iterContext && listInputs) {
+			listInputs(id, result)
+		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
 		}

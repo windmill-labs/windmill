@@ -2,7 +2,13 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -24,6 +30,8 @@
 
 	const { app, worldStore, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let resolvedConfig = initConfig(
 		components['checkboxcomponent'].initialData.configuration,
@@ -51,6 +59,9 @@
 
 	function handleInput() {
 		outputs.result.set(value)
+		if (iterContext && listInputs) {
+			listInputs(id, value)
+		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
 		}

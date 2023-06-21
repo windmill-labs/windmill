@@ -2,7 +2,13 @@
 	import { initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -17,6 +23,8 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const outputs = initOutput($worldStore, id, {
 		result: null as number | null
@@ -37,6 +45,9 @@
 
 	function handleInput() {
 		outputs?.result.set(value ?? null)
+		if (iterContext && listInputs) {
+			listInputs(id, value ?? null)
+		}
 	}
 
 	function handleDefault() {
