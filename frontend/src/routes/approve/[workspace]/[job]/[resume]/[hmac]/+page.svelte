@@ -53,9 +53,12 @@
 		timeout && clearInterval(timeout)
 	})
 
-	$: job && getDefaultArgs()
+	let argsFetched = false
+	$: job && !argsFetched && getDefaultArgs()
 
+	let valid = true
 	async function getDefaultArgs() {
+		argsFetched = true
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
 		if (!jobId) {
 			return {}
@@ -159,7 +162,7 @@
 	{/if}
 
 	{#if schema}
-		<SchemaForm {schema} bind:args={payload} noVariablePicker />
+		<SchemaForm bind:isValid={valid} {schema} bind:args={payload} noVariablePicker />
 	{/if}
 
 	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
@@ -175,7 +178,7 @@
 			color="green"
 			on:click|once={resume}
 			size="md"
-			disabled={completed || alreadyResumed}>Approve/Resume</Button
+			disabled={completed || alreadyResumed || !valid}>Approve/Resume</Button
 		>
 	</div>
 

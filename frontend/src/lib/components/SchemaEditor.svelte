@@ -274,18 +274,20 @@
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
-								<tr animate:flip={{ duration: moveAnimationDuration }}>
-									<PropertyRow
-										{displayInfo}
-										{isAnimated}
-										{lightMode}
-										on:startEditArgument={handleStartEditEvent}
-										on:deleteArgument={handleDeleteEvent}
-										on:changePosition={handleChangePositionEvent}
-									/>
-								</tr>
-							{/each}
+							{#key schema.required}
+								{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
+									<tr animate:flip={{ duration: moveAnimationDuration }}>
+										<PropertyRow
+											{displayInfo}
+											{isAnimated}
+											{lightMode}
+											on:startEditArgument={handleStartEditEvent}
+											on:deleteArgument={handleDeleteEvent}
+											on:changePosition={handleChangePositionEvent}
+										/>
+									</tr>
+								{/each}
+							{/key}
 						</tbody>
 					</TableCustom>
 				{:else}
