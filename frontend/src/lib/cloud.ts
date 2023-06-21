@@ -1,5 +1,4 @@
 import { BROWSER } from 'esm-env'
-import { get } from 'svelte/store'
 import { premiumStore, userStore, workspaceStore } from './stores'
 import { getUserExt } from './user'
 import { WorkspaceService } from './gen'
@@ -25,18 +24,4 @@ if (BROWSER) {
 			userStore.set(undefined)
 		}
 	})
-
-	setInterval(async () => {
-		try {
-			const workspace = get(workspaceStore)
-			const user = get(userStore)
-
-			if (workspace && user) {
-				userStore.set(await getUserExt(workspace))
-				console.log('refreshed user')
-			}
-		} catch (e) {
-			console.error('Could not refresh user', e)
-		}
-	}, 300000)
 }
