@@ -6,7 +6,7 @@
 	import { enterpriseLicense, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
@@ -72,6 +72,7 @@
 		}
 	}
 
+	let interval: NodeJS.Timer | undefined = undefined
 	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
@@ -124,7 +125,24 @@
 			setUserWorkspaceStore()
 			loadUser()
 			setLicense()
+			interval = setInterval(async () => {
+				try {
+					const workspace = $workspaceStore
+					const user = $userStore
+
+					if (workspace && user) {
+						userStore.set(await getUserExt(workspace))
+						console.log('refreshed user')
+					}
+				} catch (e) {
+					console.error('Could not refresh user', e)
+				}
+			}, 300000)
 		}
+	})
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
 	})
 </script>
 
