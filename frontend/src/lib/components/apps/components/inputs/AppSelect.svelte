@@ -77,7 +77,7 @@
 		let rawValue
 		if (resolvedConfig.defaultValue !== undefined) {
 			rawValue = resolvedConfig.defaultValue
-		} else if (listItems.length > 0) {
+		} else if (listItems.length > 0 && resolvedConfig?.preselectFirst) {
 			rawValue = resolvedConfig.items[0].value
 		}
 		if (rawValue !== undefined) {
@@ -114,6 +114,14 @@
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+		}
+	}
+
+	function onClear() {
+		value = undefined
+		outputs?.result.set(undefined)
+		if (iterContext && listInputs) {
+			listInputs(id, undefined)
 		}
 	}
 
@@ -168,7 +176,7 @@
 			--border-color="#999"
 			bind:filterText
 			on:filter={handleFilter}
-			on:clear={onChange}
+			on:clear={onClear}
 			on:change={onChange}
 			items={listItems}
 			listAutoWidth={resolvedConfig.fullWidth}
