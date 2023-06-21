@@ -161,6 +161,10 @@
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		console.debug(`Executing ${id}`)
+		if (iterContext && $iterContext.disabled) {
+			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
+			return
+		}
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 			try {

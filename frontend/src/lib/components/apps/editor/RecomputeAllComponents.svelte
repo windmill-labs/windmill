@@ -99,6 +99,10 @@
 	]
 </script>
 
+<!-- {allItems($app.grid, $app.subgrids)
+	.map((x) => x.id)
+	.filter((x) => !$initialized.initializedComponents?.includes(x))} -->
+
 <div class="flex items-center">
 	<Button
 		disabled={componentNumber == 0}

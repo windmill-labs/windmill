@@ -5,10 +5,11 @@
 
 	export let index: number
 	export let value: any
+	export let disabled = false
 
-	const ctx = writable({ index, value })
+	const ctx = writable({ index, value, disabled })
 
-	$: $ctx = { index, value }
+	$: $ctx = { index, value, disabled }
 	setContext<ListContext>('ListWrapperContext', ctx)
 </script>
 
