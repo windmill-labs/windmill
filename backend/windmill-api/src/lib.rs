@@ -122,7 +122,9 @@ pub async fn run_server(
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
-        .allow_origin(Any);
+        .allow_origin(Any)
+        .allow_credentials(true)
+        .allow_preflight(true);
 
     // build our application with a route
     let app = Router::new()
