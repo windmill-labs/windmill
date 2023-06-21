@@ -116,6 +116,8 @@
 	}
 
 	async function evalExpr(input: EvalAppInput): Promise<any> {
+		if (iterContext && $iterContext.disabled) return
+
 		try {
 			const r = await eval_like(
 				input.expr,
@@ -136,6 +138,8 @@
 	}
 
 	async function getValue(input: AppInput) {
+		if (iterContext && $iterContext.disabled) return
+
 		if (!input) return
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
@@ -162,6 +166,8 @@
 	}
 
 	function onValueChange(newValue: any): void {
+		if (iterContext && $iterContext.disabled) return
+
 		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = lastInput
 			if (!connection) {

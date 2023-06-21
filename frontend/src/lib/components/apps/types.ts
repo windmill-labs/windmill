@@ -153,6 +153,7 @@ export interface CancelablePromise<T> extends Promise<T> {
 export type ListContext = Writable<{
 	index: number
 	value: any
+	disabled: boolean
 }>
 
 export type AppViewerContext = {
