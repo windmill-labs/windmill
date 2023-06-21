@@ -34,6 +34,7 @@
 		faCircle,
 		faEdit,
 		faFileExport,
+		faPen,
 		faPlus,
 		faRefresh,
 		faSave,
@@ -63,7 +64,13 @@
 	}
 
 	let resourceTypeDrawer: Drawer
+	let editResourceTypeDrawer: Drawer
 	let newResourceType = {
+		name: '',
+		schema: emptySchema(),
+		description: ''
+	}
+	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
 		description: ''
@@ -165,6 +172,20 @@
 		loadResourceTypes()
 	}
 
+	async function updateResourceType(): Promise<void> {
+		await ResourceService.updateResourceType({
+			workspace: $workspaceStore!,
+			path: editResourceType.name,
+			requestBody: {
+				schema: editResourceType.schema,
+				description: newResourceType.description
+			}
+		})
+		editResourceTypeDrawer.closeDrawer?.()
+		sendUserToast('Resource type updated')
+		loadResourceTypes()
+	}
+
 	async function handleDeleteResourceType(name: string) {
 		try {
 			await ResourceService.deleteResourceType({ workspace: $workspaceStore!, path: name })
@@ -188,6 +209,16 @@
 			description: ''
 		}
 		resourceTypeDrawer.openDrawer?.()
+	}
+
+	async function startEditResourceType(name: string) {
+		const rt = await ResourceService.getResourceType({ workspace: $workspaceStore!, path: name })
+		editResourceType = {
+			name: rt.name,
+			schema: rt.schema,
+			description: rt.description ?? ''
+		}
+		editResourceTypeDrawer.openDrawer?.()
 	}
 
 	$: {
@@ -264,6 +295,47 @@
 				{resourceTypeViewerObj.description ?? ''}
 			</div>
 			<SchemaViewer schema={resourceTypeViewerObj.schema} />
+		</div>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={editResourceTypeDrawer} size="800px">
+	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button startIcon={{ icon: faSave }} on:click={updateResourceType}>Update</Button>
+		</svelte:fragment>
+		<div class="flex flex-col gap-6">
+			<label for="inp">
+				<div class="mb-1 font-semibold text-gray-700 gap-1 flex flex-row items-center"
+					>Name
+					<div class="flex flex-row items-center gap-x-4">
+						<div class="flex flex-row items-center">
+							<div class="inline-block">
+								<input
+									disabled
+									id="inp"
+									type="text"
+									bind:value={editResourceType.name}
+									class={classNames('!h-8  !border !border-gray-200')}
+								/>
+							</div>
+						</div>
+					</div>
+				</div></label
+			>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<textarea
+					type="text"
+					use:autosize
+					autocomplete="off"
+					bind:value={editResourceType.description}
+				/></label
+			>
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<SchemaEditor bind:schema={editResourceType.schema} />
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -660,15 +732,26 @@
 												</Tooltip>
 											</Badge>
 										{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-											<Button
-												size="sm"
-												color="red"
-												variant="border"
-												startIcon={{ icon: faTrash }}
-												on:click={() => handleDeleteResourceType(name)}
-											>
-												Delete
-											</Button>
+											<div class="flex flex-row-reverse gap-2">
+												<Button
+													size="sm"
+													color="red"
+													variant="border"
+													startIcon={{ icon: faTrash }}
+													on:click={() => handleDeleteResourceType(name)}
+												>
+													Delete
+												</Button>
+												<Button
+													size="sm"
+													variant="border"
+													color="dark"
+													startIcon={{ icon: faPen }}
+													on:click={() => startEditResourceType(name)}
+												>
+													Edit
+												</Button>
+											</div>
 										{:else}
 											<Badge>
 												Non Editable

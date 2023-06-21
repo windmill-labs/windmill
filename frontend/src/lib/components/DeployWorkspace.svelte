@@ -23,7 +23,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app' | 'raw_app'
+	type Kind =
+		| 'script'
+		| 'resource'
+		| 'schedule'
+		| 'variable'
+		| 'flow'
+		| 'app'
+		| 'raw_app'
+		| 'resource_type'
 
 	export let kind: Kind
 	export let initialPath: string = ''
@@ -60,7 +68,10 @@
 		dependencies = (await getDependencies(kind, path)).map((x) => ({
 			...x,
 			include:
-				kind == 'variable' || kind == 'resource' || (x.kind != 'variable' && x.kind != 'resource')
+				kind == 'variable' ||
+				kind == 'resource' ||
+				kind == 'resource_type' ||
+				(x.kind != 'variable' && x.kind != 'resource' && x.kind != 'resource_type')
 		}))
 		dependencies.forEach((x) => {
 			checkAlreadyExists(x.kind, x.path).then(
@@ -123,9 +134,8 @@
 					}
 				}
 
-				return recObj(res.value)
+				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
 			}
-
 			return []
 		}
 		let toProcess = [{ kind, path }]
@@ -173,6 +183,11 @@
 			})
 		} else if (kind == 'schedule') {
 			return await ScheduleService.existsSchedule({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'resource_type') {
+			return await ResourceService.existsResourceType({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
@@ -313,6 +328,30 @@
 						}
 					})
 				}
+			} else if (kind == 'resource_type') {
+				const resource = await ResourceService.getResourceType({
+					workspace: $workspaceStore!,
+					path: path
+				})
+				if (alreadyExists) {
+					await ResourceService.updateResourceType({
+						workspace: workspaceToDeployTo!,
+						path: path,
+						requestBody: {
+							schema: resource.schema,
+							description: resource.description ?? ''
+						}
+					})
+				} else {
+					await ResourceService.createResourceType({
+						workspace: workspaceToDeployTo!,
+						requestBody: {
+							description: resource.description ?? '',
+							schema: resource.schema,
+							name: resource.name
+						}
+					})
+				}
 			} else if (kind == 'raw_app') {
 				throw new Error('Raw app deploy not implemented yet')
 				// const app = await RawAppService.getRawAppData({
@@ -393,6 +432,12 @@
 					path: path
 				})
 				return resource.value
+			} else if (kind == 'resource_type') {
+				const resource = await ResourceService.getResourceType({
+					workspace: workspace,
+					path: path
+				})
+				return resource.schema
 			} else if (kind == 'raw_app') {
 				throw new Error('Raw app deploy not implemented yet')
 				// const app = await RawAppService.getRawAppData({
@@ -473,8 +518,14 @@
 							<Badge color="red">
 								Missing
 								<Tooltip
-									>This {kind} doesn't exist and is not included in the deployment. Variable and Resources
-									are considered to be workspace specific and are never included by default.</Tooltip
+									>{#if kind == 'resource_type'}
+										Resource types are not re-deployed by default. We strongly recommend to add
+										shared resource types in 'admin' workspace, which will have them be shared to
+										every workspace.
+									{:else}
+										This {kind} doesn't exist and is not included in the deployment. Variables and Resources
+										are considered to be workspace specific and are never included by default.
+									{/if}</Tooltip
 								>
 							</Badge>
 						{/if}

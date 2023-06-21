@@ -6338,8 +6338,7 @@ components:
     EditResourceType:
       type: object
       properties:
-        schema:
-          type: string
+        schema: {}
         description:
           type: string
 
