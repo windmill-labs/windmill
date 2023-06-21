@@ -11,14 +11,14 @@
 
 	export let id: string
 	const dispatch = createEventDispatcher()
-	const regex = /^[a-zA-Z0-9]{1,}$/
+	const regex = /^[a-zA-Z][a-zA-Z0-9]*$/
 	let value = id
 	let button: HTMLButtonElement
 	let input: HTMLInputElement
 	let error = ''
 
 	$: if (!regex.test(value)) {
-		error = 'The ID must include only letters and numbers'
+		error = 'The ID must include only letters and numbers and start with a letter'
 	} else if (forbiddenIds.includes(value)) {
 		error = 'This ID is reserved'
 	} else if (

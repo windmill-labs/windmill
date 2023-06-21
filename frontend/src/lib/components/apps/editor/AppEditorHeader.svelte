@@ -641,6 +641,12 @@
 												>
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>
+											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+												<div class="p-2 text-gray-500">Result is undefined</div>
+											{:else}
+												<div class="p-2 text-gray-500">
+													<Loader2 size={14} class="animate-spin mr-2" />
+												</div>
 											{/if}
 										</Pane>
 									</Splitpanes>
