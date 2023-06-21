@@ -1374,6 +1374,13 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'object'
 				},
+				preselectFirst: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					onlyStatic: true,
+					tooltip: 'Preselect first item in the options if no default value is set'
+				},
 				fullWidth: {
 					type: 'static',
 					fieldType: 'boolean',
