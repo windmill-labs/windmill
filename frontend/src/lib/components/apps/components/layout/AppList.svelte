@@ -23,7 +23,8 @@
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		inputs: {}
 	})
 
 	let resolvedConfig = initConfig(
@@ -42,6 +43,8 @@
 	let result: any[] | undefined = undefined
 
 	$: isCard = resolvedConfig.width?.selected == 'card'
+
+	let inputs = {}
 </script>
 
 {#each Object.keys(components['listcomponent'].initialData.configuration) as key (key)}
@@ -81,7 +84,14 @@
 							} max-height: ${resolvedConfig.heightPx}px;`}
 							class="overflow-auto {!isCard ? 'w-full' : 'border'}"
 						>
-							<ListWrapper {value} {index}>
+							<ListWrapper
+								on:inputsChange={() => {
+									outputs?.inputs.set(inputs, true)
+								}}
+								bind:inputs
+								{value}
+								{index}
+							>
 								<SubGridEditor
 									visible={render}
 									{id}

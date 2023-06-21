@@ -1,7 +1,13 @@
 <script lang="ts">
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		ListInputs,
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		RichConfigurations
+	} from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -14,6 +20,9 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
 	export let render: boolean
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -44,6 +53,9 @@
 		// }
 		const num = isNaN(+values[0]) ? null : +values[0]
 		outputs?.result.set(num)
+		if (iterContext && listInputs) {
+			listInputs(id, num)
+		}
 	}
 
 	$: css = concatCustomCss($app.css?.slidercomponent, customCss)
