@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::response::Response;
 #[cfg(feature = "axum")]
 use axum::{
     body::{self, BoxBody},
@@ -105,5 +106,30 @@ pub trait OrElseNotFound<T> {
 impl<T> OrElseNotFound<T> for Option<T> {
     fn or_else_not_found(self, s: impl ToString) -> Result<T> {
         self.ok_or_else(|| Error::NotFound(s.to_string()))
+    }
+}
+
+// Make our own error that wraps `anyhow::Error`.
+pub struct AppError(anyhow::Error);
+
+// Tell axum how to convert `AppError` into a response.
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
+    }
+}
+
+// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
+// `Result<_, AppError>`. That way you don't need to do that manually.
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
     }
 }

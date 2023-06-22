@@ -30,6 +30,8 @@ use tower_http::{
 };
 use windmill_common::utils::rd_string;
 
+use windmill_common::error::AppError;
+
 mod apps;
 mod audit;
 mod capture;
@@ -189,6 +191,7 @@ pub async fn run_server(
                 )
                 .nest("/oauth", oauth2::global_service())
                 .route("/version", get(git_v))
+                .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi)),
         )
@@ -209,6 +212,31 @@ pub async fn run_server(
 
     server.await?;
     Ok(())
+}
+
+async fn is_up_to_date() -> Result<String, AppError> {
+    let error_reading_version = || anyhow::anyhow!("Error reading latest released version");
+    let version = HTTP_CLIENT
+        .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?
+        .get("tag_name")
+        .ok_or_else(error_reading_version)?
+        .as_str()
+        .ok_or_else(error_reading_version)?
+        .to_string();
+    let release = GIT_VERSION
+        .split('-')
+        .next()
+        .ok_or_else(error_reading_version)?
+        .to_string();
+    if version == release {
+        Ok("yes".to_string())
+    } else {
+        Ok(format!("Update: {GIT_VERSION} -> {version}"))
+    }
 }
 
 #[cfg(feature = "enterprise")]

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { UserService, SettingsService, GlobalUserInfo } from '$lib/gen'
+	import { UserService, GlobalUserInfo } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
@@ -8,12 +8,13 @@
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
+	import Version from './Version.svelte'
+	import Uptodate from './Uptodate.svelte'
 
 	let drawer: Drawer
 	let filter = ''
 
 	export function openDrawer() {
-		loadVersion()
 		listUsers()
 		drawer?.openDrawer?.()
 	}
@@ -30,13 +31,8 @@
 		goto(hashRemoved)
 	}
 
-	let version: string | undefined
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] = []
-
-	async function loadVersion(): Promise<void> {
-		version = await SettingsService.backendVersion()
-	}
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
@@ -54,8 +50,8 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-gray-500">
-					Windmill {version}
+				<div class="text-xs pt-1 text-gray-500 flex flex-col">
+					<div>Windmill <Version /></div><div><Uptodate /></div>
 				</div>
 
 				<PageHeader title="All global users" primary={false} />
