@@ -9,7 +9,6 @@
 	async function loadVersion() {
 		try {
 			const res = await SettingsService.backendUptodate()
-			console.log(res)
 			if (res != 'yes') {
 				uptodate = res
 			}

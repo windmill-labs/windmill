@@ -233,8 +233,8 @@
 		</svelte:fragment>
 	</ActionRow>
 	<CenteredPage>
-		<h1 class="flex flex-row flex-wrap justify-between items-center gap-4 py-6">
-			<div>
+		<h1 class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6">
+			<div class="flex flex-row flex-wrap gap-6 items-center">
 				{#if job}
 					{#if 'success' in job && job.success}
 						{#if job.is_skipped}
@@ -282,22 +282,29 @@
 						/>
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
-					{#if job.script_hash}
-						<a href="/scripts/get/{job.script_hash}?$workspaceStore={$workspaceStore}}"
-							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-						>
-					{/if}
-					{#if job && 'job_kind' in job}<Badge baseClass="ml-2" color="blue">{job.job_kind}</Badge>
-					{/if}
-					{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash', 'other', 'dependency'].includes(job.tag)}
-						<Badge color="indigo">Worker group: {job.tag}</Badge>
-					{/if}
-					{#if !job.visible_to_owner}<Badge color="red"
-							>only visible to you <Tooltip
-								>The option to hide this run from the owner of this script or flow was activated</Tooltip
-							></Badge
-						>
-					{/if}
+					<div class="flex flex-row gap-2 items-center">
+						{#if job.script_hash}
+							<a href="/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
+							>
+						{/if}
+						{#if job && 'job_kind' in job}
+							<div>
+								<Badge color="blue">{job.job_kind}</Badge>
+							</div>
+						{/if}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash', 'other', 'dependency'].includes(job.tag)}
+							<div>
+								<Badge color="indigo">Worker group: {job.tag}</Badge>
+							</div>
+						{/if}
+						{#if !job.visible_to_owner}<Badge color="red"
+								>only visible to you <Tooltip
+									>The option to hide this run from the owner of this script or flow was activated</Tooltip
+								></Badge
+							>
+						{/if}
+					</div>
 				{/if}
 			</div>
 		</h1>
@@ -308,11 +315,11 @@
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
+		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-10">
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>
-			<div>
+			<div class="mt-6">
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}<FlowMetadata {job} />{/if}
 			</div>
