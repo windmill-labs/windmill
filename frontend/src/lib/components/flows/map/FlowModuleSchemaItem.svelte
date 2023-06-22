@@ -2,7 +2,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
-	import { Bed, Database, Move, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
+	import { Bed, Database, Move, PhoneIncoming, Repeat, Square, Voicemail, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
@@ -13,6 +13,7 @@
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
 	export let sleep: boolean = false
+	export let mock: boolean = false
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
@@ -86,6 +87,17 @@
 					<Bed size={14} />
 				</div>
 				<svelte:fragment slot="text">Sleep</svelte:fragment>
+			</Popover>
+		{/if}
+		{#if mock}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+				>
+					<Voicemail size={14} />
+				</div>
+				<svelte:fragment slot="text">Mocked</svelte:fragment>
 			</Popover>
 		{/if}
 	</div>

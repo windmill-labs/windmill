@@ -1225,43 +1225,64 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     let mut transform_context: Option<IdContext> = None;
 
-    let args: windmill_common::error::Result<_> = match &module.value {
-        FlowModuleValue::Script { input_transforms, .. }
-        | FlowModuleValue::RawScript { input_transforms, .. }
-        | FlowModuleValue::Flow { input_transforms, .. } => {
-            let ctx = get_transform_context(&flow_job, previous_id.clone(), &status).await?;
-            transform_context = Some(ctx);
-            let by_id = transform_context.as_ref().unwrap();
-            transform_input(
-                &flow_job.args,
-                last_result.clone(),
-                input_transforms,
-                resume_messages.as_slice(),
-                approvers,
-                by_id,
-                client,
-            )
-            .await
-        }
-        FlowModuleValue::Identity => match last_result.clone() {
-            Value::Object(m) => Ok(m),
-            v @ _ => {
-                let mut m = Map::new();
-                m.insert("previous_result".to_string(), v);
-                Ok(m)
+    let args: windmill_common::error::Result<_> = if module.mock.is_some()
+        && module.mock.as_ref().unwrap().enabled
+    {
+        let mut m = Map::new();
+        let v = module
+            .mock
+            .as_ref()
+            .unwrap()
+            .return_value
+            .clone()
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "mock enabled but no return_value specified for module {}",
+                    module.id
+                ))
+            })?;
+        m.insert("previous_result".to_string(), v);
+        Ok(m)
+    } else {
+        match &module.value {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::Flow { input_transforms, .. } => {
+                let ctx = get_transform_context(&flow_job, previous_id.clone(), &status).await?;
+                transform_context = Some(ctx);
+                let by_id = transform_context.as_ref().unwrap();
+                transform_input(
+                    &flow_job.args,
+                    last_result.clone(),
+                    input_transforms,
+                    resume_messages.as_slice(),
+                    approvers,
+                    by_id,
+                    client,
+                )
+                .await
             }
-        },
-        _ => {
-            /* embedded flow input is augmented with embedding flow input */
-            if let Some(value) = &flow_job.args {
-                Ok(value
-                    .as_object()
-                    .ok_or_else(|| {
-                        Error::BadRequest(format!("Expected an object value, found: {value:?}"))
-                    })?
-                    .clone())
-            } else {
-                Ok(Map::new())
+            FlowModuleValue::Identity => match last_result.clone() {
+                Value::Object(m) => Ok(m),
+                v @ _ => {
+                    let mut m = Map::new();
+                    m.insert("previous_result".to_string(), v);
+                    Ok(m)
+                }
+            },
+
+            _ => {
+                /* embedded flow input is augmented with embedding flow input */
+                if let Some(value) = &flow_job.args {
+                    Ok(value
+                        .as_object()
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!("Expected an object value, found: {value:?}"))
+                        })?
+                        .clone())
+                } else {
+                    Ok(Map::new())
+                }
             }
         }
     };
@@ -1648,6 +1669,18 @@ async fn compute_next_flow_transform<'c>(
     previous_id: String,
     client: &AuthedClient,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
+    if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
+        return Ok((
+            tx,
+            NextFlowTransform::Continue(
+                ContinuePayload::SingleJob(JobPayloadWithTag {
+                    payload: JobPayload::Identity,
+                    tag: None,
+                }),
+                NextStatus::NextStep,
+            ),
+        ));
+    }
     match &module.value {
         FlowModuleValue::Identity => Ok((
             tx,
