@@ -1,16 +1,11 @@
 <script lang="ts">
-	import { SettingsService } from '$lib/gen'
-	import { onMount } from 'svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import Uptodate from './Uptodate.svelte'
+	import Version from './Version.svelte'
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
 	export let disableLogo = false
-	let version = ''
-
-	onMount(async () => {
-		version = await SettingsService.backendVersion()
-	})
 </script>
 
 <div class="center-center min-h-screen p-4 relative bg-gray-50">
@@ -42,7 +37,9 @@
 		</div>
 	</div>
 
-	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
-		<span class="font-mono">{version}</span>
+	<div class="absolute top-0 right-0 text-2xs text-gray-600 italic px-3 py-1">
+		<span class="font-mono flex flex-col">
+			<div>Windmill <Version /></div><div><Uptodate /></div>
+		</span>
 	</div>
 </div>

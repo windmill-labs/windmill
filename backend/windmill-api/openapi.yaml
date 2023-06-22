@@ -41,6 +41,20 @@ paths:
               schema:
                 type: string
 
+  /uptodate:
+    get:
+      summary: is backend up to date
+      operationId: backendUptodate
+      tags:
+        - settings
+      responses:
+        "200":
+          description: is backend up to date
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /ee_license:
     get:
       summary: get license id

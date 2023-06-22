@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { usersWorkspaceStore } from '$lib/stores'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
-	import { UserService, SettingsService } from '$lib/gen'
+	import { UserService } from '$lib/gen'
 	import { displayDate, copyToClipboard } from '$lib/utils'
 	import { faClipboard, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -12,7 +12,6 @@
 
 	let newPassword: string | undefined
 	let passwordError: string | undefined
-	let version: string | undefined
 	let tokens: TruncatedToken[]
 	let newToken: string | undefined
 	let newTokenLabel: string | undefined
@@ -26,11 +25,11 @@
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
+	import Version from './Version.svelte'
 
 	let drawer: Drawer
 
 	export function openDrawer() {
-		loadVersion()
 		loadLoginType()
 		listTokens()
 		drawer?.openDrawer()
@@ -60,9 +59,6 @@
 		}
 	}
 
-	async function loadVersion(): Promise<void> {
-		version = await SettingsService.backendVersion()
-	}
 	async function loadLoginType(): Promise<void> {
 		login_type = (await UserService.globalWhoami()).login_type
 	}
@@ -96,8 +92,8 @@
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 pb-2 text-gray-500">
-					Windmill {version}
+				<div class="text-xs pt-1 pb-2 text-gray-500 flex-col flex">
+					Windmill <Version />
 				</div>
 
 				{#if scopes == undefined}

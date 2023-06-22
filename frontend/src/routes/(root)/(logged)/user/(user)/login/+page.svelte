@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
+	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -12,6 +12,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import Version from '$lib/components/Version.svelte'
+	import Uptodate from '$lib/components/Uptodate.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -151,17 +153,11 @@
 	$: if (error) {
 		sendUserToast(error, true)
 	}
-
-	let version = ''
-
-	onMount(async () => {
-		version = await SettingsService.backendVersion()
-	})
 </script>
 
 <div class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-gray-50 h-screen">
 	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
-		<span class="font-mono">{version}</span>
+		<div class="font-mono flex-col flex"><Version /><div><Uptodate /></div></div>
 	</div>
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
