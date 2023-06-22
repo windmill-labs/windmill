@@ -809,6 +809,9 @@ const command = new Command()
   .option("--raw", "Pull without using state, just overwrite.")
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
+  .option("--skip-variables", "Skip syncing variables (including secrets)")
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--skip-resources", "Skip syncing  resources")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -824,6 +827,9 @@ const command = new Command()
   .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
+  .option("--skip-variables", "Skip syncing variables (including secrets)")
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--skip-resources", "Skip syncing  resources")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
