@@ -1,12 +1,15 @@
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
-	import { Drawer, DrawerContent } from './common'
+	import { ClipboardCopy, Download, Loader2 } from 'lucide-svelte'
+	import { Button, Drawer, DrawerContent } from './common'
+	import { copyToClipboard } from '$lib/utils'
+	import { workspaceStore } from '$lib/stores'
 
 	export let content: string | undefined
 	export let isLoading: boolean
 	export let duration: number | undefined = undefined
 	export let mem: number | undefined = undefined
 	export let wrapperClass = ''
+	export let jobId: string | undefined = undefined
 
 	let scroll = true
 	let div: HTMLElement | null = null
@@ -26,6 +29,16 @@
 
 <Drawer bind:this={logViewer} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<a
+				class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+				download="windmill-logs.json"
+				href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}">Download <Download size={14} /></a
+			>
+			<Button on:click={() => copyToClipboard(content)} color="light" size="xs">
+				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+			</Button>
+		</svelte:fragment>
 		<div>
 			<pre class="bg-gray-50 text-xs w-full p-2"
 				>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre

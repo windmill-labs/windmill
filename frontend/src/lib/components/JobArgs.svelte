@@ -6,7 +6,7 @@
 	import Portal from 'svelte-portal'
 	import { Highlight } from 'svelte-highlight'
 	import { copyToClipboard } from '$lib/utils'
-	import { json, r } from 'svelte-highlight/languages'
+	import { json } from 'svelte-highlight/languages'
 
 	export let args: any
 	export let tableClass = ''

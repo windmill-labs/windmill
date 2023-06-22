@@ -120,6 +120,7 @@ pub fn global_service() -> Router {
             get(get_suspended_job_flow),
         )
         .route("/get/:id", get(get_job))
+        .route("/get_logs/:id", get(get_job_logs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route(
@@ -274,6 +275,22 @@ async fn get_job(
     let job = not_found_if_none(job_o, "Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
+}
+
+async fn get_job_logs(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    let text = sqlx::query_scalar!(
+        "SELECT logs FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    let text = not_found_if_none(text, "Job Logs", id.to_string())?;
+    Ok(text)
 }
 
 pub async fn get_job_by_id<'c>(
