@@ -1,36 +1,132 @@
 <script lang="ts">
+	import { ChevronRightSquare, ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import ArgInfo from './ArgInfo.svelte'
-	import { Skeleton } from './common'
+	import { Button, Drawer, DrawerContent, Skeleton } from './common'
 	import TableCustom from './TableCustom.svelte'
+	import Portal from 'svelte-portal'
+	import { Highlight } from 'svelte-highlight'
+	import { copyToClipboard } from '$lib/utils'
+	import { json, r } from 'svelte-highlight/languages'
 
 	export let args: any
 	export let tableClass = ''
+
+	let jsonViewer: Drawer
+	let runLocally: Drawer
+	let jsonStr = ''
+
+	function pythonCode() {
+		return `
+if __name__ == 'main':
+${Object.entries(args)
+	.map(([arg, value]) => {
+		return `  ${arg} = ${JSON.stringify(value)}`
+	})
+	.join('\n')}
+
+  main(${Object.keys(args)
+		.map((x) => `${x} = ${x}`)
+		.join(', ')})
+`
+	}
+
+	function typescriptCode() {
+		return `
+if (import.meta.main) {
+${Object.entries(args)
+	.map(([arg, value]) => {
+		return `  let ${arg} = ${JSON.stringify(value)}`
+	})
+	.join('\n')}
+
+  await main(...)
+}
+`
+	}
 </script>
 
-<TableCustom class="py-2 {tableClass}">
-	<tr slot="header-row">
-		<th>Argument</th>
-		<th>Value</th>
-	</tr>
-	<tbody slot="body">
-		{#if args && Object.keys(args).length > 0}
-			{#each Object.entries(args) as [arg, value]}
+<div class="relative">
+	<div class="text-gray-500 text-xs absolute top-8 right-0">
+		<button
+			on:click={() => {
+				jsonStr = JSON.stringify(args, null, 4)
+				jsonViewer.openDrawer()
+			}}><Expand size={18} /></button
+		>
+	</div>
+	<TableCustom class="py-2 {tableClass}">
+		<tr slot="header-row">
+			<th>Argument</th>
+			<th>Value</th>
+		</tr>
+		<tbody slot="body">
+			{#if args && Object.keys(args).length > 0}
+				{#each Object.entries(args) as [arg, value]}
+					<tr>
+						<td class="font-semibold">{arg}</td>
+						<td><ArgInfo {value} /></td>
+					</tr>
+				{/each}
+			{:else if args}
+				<tr><div class="text-gray-600 pt-2 pl-1 text-sm">No arguments</div></tr>
+			{:else}
 				<tr>
-					<td class="font-semibold">{arg}</td>
-					<td><ArgInfo {value} /></td>
+					<td>
+						<Skeleton layout={[[3], 0.5, [3]]} />
+					</td>
+					<td>
+						<Skeleton layout={[[3], 0.5, [3]]} />
+					</td>
 				</tr>
-			{/each}
-		{:else if args}
-			<tr><div class="text-gray-600 pt-2 pl-1 text-sm">No arguments</div></tr>
-		{:else}
-			<tr>
-				<td>
-					<Skeleton layout={[[3], 0.5, [3]]} />
-				</td>
-				<td>
-					<Skeleton layout={[[3], 0.5, [3]]} />
-				</td>
-			</tr>
-		{/if}
-	</tbody>
-</TableCustom>
+			{/if}
+		</tbody>
+	</TableCustom>
+</div>
+
+<Portal>
+	<Drawer bind:this={jsonViewer} size="900px">
+		<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<a
+					class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+					download="windmill-args.json"
+					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}"
+					>Download <Download size={14} /></a
+				>
+				<Button on:click={runLocally.openDrawer} color="light" size="xs">
+					<div class="flex gap-2 items-center">Use in a local script<ChevronRightSquare /> </div>
+				</Button>
+				<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">
+					<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+				</Button>
+			</svelte:fragment>
+			{#if jsonStr.length > 100000}
+				<div class="text-sm mb-2 text-gray-600">
+					<a
+						download="windmill-args.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+					>
+					JSON is too large to be displayed in full.
+				</div>
+			{:else}
+				<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
+			{/if}
+		</DrawerContent>
+	</Drawer>
+	<Drawer bind:this={runLocally} size="900px">
+		<DrawerContent title="Run locally" on:close={runLocally.closeDrawer}>
+			<h3 class="mb-2">Envs</h3>
+			If using the wmill client in your code, set the following env variables:
+			<pre
+				><code
+					>BASE_URL="{window.location.origin}"
+WM_TOKEN="{'<TOKEN>'}"</code
+				></pre
+			>
+			<h3 class="mt-8">TypeScript</h3>
+			<pre><code>{typescriptCode()}</code></pre>
+			<h3 class="mt-8">Python</h3>
+			<pre><code>{pythonCode()}</code></pre>
+		</DrawerContent>
+	</Drawer>
+</Portal>

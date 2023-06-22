@@ -4,7 +4,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { ClipboardCopy } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
@@ -106,6 +106,7 @@
 	}
 
 	let jsonViewer: Drawer
+	$: jsonStr = JSON.stringify(result, null, 4)
 </script>
 
 <div class="inline-highlight">
@@ -117,8 +118,8 @@
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-gray-500 text-xs absolute top-5 right-0">
-						<button on:click={jsonViewer.openDrawer}>Expand</button>
+					<div class="text-gray-500 text-xs absolute top-5.5 right-0">
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
 			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
@@ -237,7 +238,6 @@
 				>
 			</div>
 		{:else}
-			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 			{#if jsonStr.length > 10000}
 				<div class="text-sm mb-2 text-gray-600">
 					<a
@@ -252,7 +252,7 @@
 			{/if}
 		{/if}
 	{:else}
-		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>
+		<div class="text-gray-500 text-sm">No result: {jsonStr}</div>
 	{/if}
 </div>
 
@@ -261,25 +261,26 @@
 		<Drawer bind:this={jsonViewer} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-						color="light"
-						size="xs"
+					<a
+						class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+						download="{filename ?? 'result'}.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}"
+						>Download <Download size={14} /></a
 					>
+					<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">
 						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
 					</Button>
 				</svelte:fragment>
-				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
-				{#if str.length > 100000}
+				{#if jsonStr.length > 100000}
 					<div class="text-sm mb-2 text-gray-600">
 						<a
 							download="{filename ?? 'result'}.json"
-							href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
 						>
 						JSON is too large to be displayed in full.
 					</div>
 				{:else}
-					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 				{/if}
 			</DrawerContent>
 		</Drawer>

@@ -2,7 +2,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard, truncate } from '$lib/utils'
-	import { ClipboardCopy } from 'lucide-svelte'
+	import { ClipboardCopy, Expand } from 'lucide-svelte'
 	import { Button, DrawerContent } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -68,16 +68,18 @@
 		>
 	{/if}
 {:else}
-	<div class="max-h-40 overflow-auto">
-		<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+	<div class="relative">
+		{#if JSON.stringify(value).length > 120}
+			<button
+				class="text-xs absolute top-0 right-4 text-gray-500"
+				on:click={() => {
+					jsonViewerContent = value
+					jsonViewer.toggleDrawer()
+				}}><Expand size={18} /></button
+			>
+		{/if}
+		<div class="max-h-40 overflow-auto">
+			<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+		</div>
 	</div>
-	{#if JSON.stringify(value).length > 120}
-		<button
-			class="text-xs text-blue-500"
-			on:click={() => {
-				jsonViewerContent = value
-				jsonViewer.toggleDrawer()
-			}}>See JSON</button
-		>
-	{/if}
 {/if}
