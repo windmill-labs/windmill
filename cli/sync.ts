@@ -409,7 +409,13 @@ async function pull(
     )
   );
   const remote = ZipFSElement(
-    (await downloadZip(workspace, opts.plainSecrets))!,
+    (await downloadZip(
+      workspace,
+      opts.plainSecrets,
+      opts.skipVariables,
+      opts.skipResources,
+      opts.skipSecrets
+    ))!,
     !opts.json
   );
   const local = opts.raw
@@ -620,7 +626,13 @@ async function push(
   const remote = opts.raw
     ? undefined
     : ZipFSElement(
-        (await downloadZip(workspace, opts.plainSecrets))!,
+        (await downloadZip(
+          workspace,
+          opts.plainSecrets,
+          opts.skipVariables,
+          opts.skipResources,
+          opts.skipSecrets
+        ))!,
         !opts.json
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));

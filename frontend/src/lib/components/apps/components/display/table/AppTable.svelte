@@ -13,6 +13,7 @@
 		createSvelteTable,
 		flexRender,
 		type HeaderGroup,
+		type Row,
 		type Table,
 		type TableOptions
 	} from '@tanstack/svelte-table'
@@ -216,6 +217,16 @@
 			return []
 		}
 	}
+
+	function safeVisibleCell<T>(row: Row<T>) {
+		try {
+			return row.getVisibleCells()
+		} catch (e) {
+			sendUserToast("Couldn't render table header groups: " + e, true)
+			console.error(e)
+			return []
+		}
+	}
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -299,7 +310,7 @@
 										: 'divide-gray-200'
 								)}
 							>
-								{#each row.getVisibleCells() as cell, index (index)}
+								{#each safeVisibleCell(row) as cell, index (index)}
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}

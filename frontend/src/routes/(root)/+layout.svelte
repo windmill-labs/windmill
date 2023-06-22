@@ -53,7 +53,10 @@
 					}
 				}
 			} else {
-				if (!$page.url.pathname.startsWith('/user/')) {
+				if (
+					!$page.url.pathname.startsWith('/user/') ||
+					$page.url.pathname.startsWith('/user/cli')
+				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(
 							$page.url.href.replace($page.url.origin, '')
