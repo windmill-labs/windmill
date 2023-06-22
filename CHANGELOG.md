@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.119.0](https://github.com/windmill-labs/windmill/compare/v1.118.0...v1.119.0) (2023-06-22)
+
+
+### Features
+
+* **cli:** add skipSecrets, skipVariables, skipResources ([2df29a1](https://github.com/windmill-labs/windmill/commit/2df29a131e2c3a556b50be6c73234ce8e752a7e7))
+
+
+### Bug Fixes
+
+* bump dependencies ([66ca3f1](https://github.com/windmill-labs/windmill/commit/66ca3f1522b3838707681d553b1612169619bddd))
+
 ## [1.118.0](https://github.com/windmill-labs/windmill/compare/v1.117.0...v1.118.0) (2023-06-22)
 
 
