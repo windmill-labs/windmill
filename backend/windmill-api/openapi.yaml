@@ -3768,6 +3768,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  /w/{workspace}/jobs_u/get_logs/{id}:
+    get:
+      summary: get job logs
+      operationId: getJob logs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job details
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates

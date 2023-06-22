@@ -78,6 +78,7 @@
 				<Splitpanes horizontal>
 					<Pane class="relative">
 						<LogViewer
+							jobId={previewJob?.id}
 							duration={previewJob?.['duration_ms']}
 							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}

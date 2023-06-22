@@ -632,7 +632,7 @@
 								{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 									<Splitpanes horizontal class="grow border w-full">
 										<Pane size={50} minSize={10}>
-											<LogViewer content={job?.logs} isLoading={testIsLoading} />
+											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
 										</Pane>
 										<Pane size={50} minSize={10} class="text-sm text-gray-600">
 											{#if job != undefined && 'result' in job && job.result != undefined}

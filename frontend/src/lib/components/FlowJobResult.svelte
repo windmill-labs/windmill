@@ -9,6 +9,7 @@
 	export let noBorder = false
 	export let loading
 	export let filename: string | undefined = undefined
+	export let jobId: string | undefined = undefined
 </script>
 
 <div
@@ -26,6 +27,6 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
-		<LogViewer content={logs ?? ''} isLoading={false} />
+		<LogViewer content={logs ?? ''} {jobId} isLoading={false} />
 	</div>
 </div>

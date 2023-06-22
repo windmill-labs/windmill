@@ -346,6 +346,7 @@
 						{#if viewTab == 'logs'}
 							<div class="w-full">
 								<LogViewer
+									jobId={job.id}
 									duration={job?.['duration_ms']}
 									mem={job?.['mem_peak']}
 									isLoading={!(job && 'logs' in job && job.logs)}

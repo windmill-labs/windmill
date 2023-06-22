@@ -218,6 +218,7 @@
 				{#if `result` in job}
 					<div class="w-full h-full">
 						<FlowJobResult
+							jobId={job?.id}
 							loading={job['running'] == true}
 							result={job.result}
 							logs={job.logs ?? ''}
@@ -460,6 +461,7 @@
 							{@const node = localFlowModuleStates[selectedNode]}
 							{#if selectedNode == 'end'}
 								<FlowJobResult
+									jobId={job?.id}
 									filename={job.id}
 									loading={job['running']}
 									noBorder
@@ -498,6 +500,7 @@
 								</div>
 
 								<FlowJobResult
+									jobId={job?.id}
 									loading={job['running'] == true}
 									noBorder
 									col

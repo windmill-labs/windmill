@@ -9,9 +9,15 @@
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import { createSvelteTable, flexRender, type TableOptions } from '@tanstack/svelte-table'
+	import {
+		createSvelteTable,
+		flexRender,
+		type HeaderGroup,
+		type Table,
+		type TableOptions
+	} from '@tanstack/svelte-table'
 	import AppButton from '../../buttons/AppButton.svelte'
-	import { classNames, isObject } from '$lib/utils'
+	import { classNames, isObject, sendUserToast } from '$lib/utils'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
@@ -200,6 +206,16 @@
 			}
 		}
 	}
+
+	function getHeaderGroups<T>(table: Table<T>): Array<HeaderGroup<T>> {
+		try {
+			return table.getHeaderGroups()
+		} catch (e) {
+			sendUserToast("Couldn't render table header groups: " + e, true)
+			console.error(e)
+			return []
+		}
+	}
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -241,7 +257,7 @@
 						)}
 						style={css?.tableHeader?.style ?? ''}
 					>
-						{#each $table.getHeaderGroups() as headerGroup}
+						{#each getHeaderGroups($table) as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
 									{#if header?.column?.columnDef?.header}
