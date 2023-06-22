@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.120.0](https://github.com/windmill-labs/windmill/compare/v1.119.0...v1.120.0) (2023-06-22)
+
+
+### Features
+
+* add ability to copy job args ([29a2eeb](https://github.com/windmill-labs/windmill/commit/29a2eeb382b1d9359eb385fc21fc332c861ea2ff))
+* add update checker on version info ([f9341af](https://github.com/windmill-labs/windmill/commit/f9341af2feaf3bf2e0681c82350cdf24adfd7e8d))
+
+
+### Bug Fixes
+
+* **cli:** expose --skip-secrets --skip-variables --skip-resources ([a1b5c14](https://github.com/windmill-labs/windmill/commit/a1b5c142bd1012e83b2f194d073a1d1531753618))
+
 ## [1.119.0](https://github.com/windmill-labs/windmill/compare/v1.118.0...v1.119.0) (2023-06-22)
 
 
