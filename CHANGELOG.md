@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.121.0](https://github.com/windmill-labs/windmill/compare/v1.120.0...v1.121.0) (2023-06-22)
+
+
+### Features
+
+* download logs from backend ([7a1f999](https://github.com/windmill-labs/windmill/commit/7a1f999cea6d068d8971a7196fc9ce39e8273aed))
+* script versions history ([ee433bd](https://github.com/windmill-labs/windmill/commit/ee433bdd4b00a6b4d45df4332203554682c51bc1))
+
 ## [1.120.0](https://github.com/windmill-labs/windmill/compare/v1.119.0...v1.120.0) (2023-06-22)
 
 
