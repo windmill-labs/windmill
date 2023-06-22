@@ -287,8 +287,7 @@ type Change = Added | Deleted | Edit;
 async function elementsToMap(
   els: DynFSElement,
   ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean,
-  workspace: string
+  json: boolean
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
@@ -311,15 +310,14 @@ async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
-  json: boolean,
-  workspace: string
+  json: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, workspace),
-        elementsToMap(els2, ignore, json, workspace),
+        elementsToMap(els1, ignore, json),
+        elementsToMap(els2, ignore, json),
       ])
-    : [await elementsToMap(els1, ignore, json, workspace), {}];
+    : [await elementsToMap(els1, ignore, json), {}];
 
   const changes: Change[] = [];
 
@@ -393,6 +391,9 @@ async function pull(
     failConflicts: boolean;
     plainSecrets?: boolean;
     json?: boolean;
+    skipVariables?: boolean;
+    skipResources?: boolean;
+    skipSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -592,6 +593,9 @@ async function push(
     failConflicts: boolean;
     plainSecrets?: boolean;
     json?: boolean;
+    skipVariables?: boolean;
+    skipResources?: boolean;
+    skipSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {

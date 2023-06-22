@@ -1194,6 +1194,10 @@ impl ArchiveImpl {
 struct ArchiveQueryParams {
     archive_type: Option<String>,
     plain_secret: Option<bool>,
+    plain_secrets: Option<bool>,
+    skip_secrets: Option<bool>,
+    skip_variables: Option<bool>,
+    skip_resources: Option<bool>,
 }
 
 #[inline]
@@ -1241,7 +1245,14 @@ async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Query(ArchiveQueryParams { archive_type, plain_secret }): Query<ArchiveQueryParams>,
+    Query(ArchiveQueryParams {
+        archive_type,
+        plain_secret,
+        plain_secrets,
+        skip_resources,
+        skip_secrets,
+        skip_variables,
+    }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1317,7 +1328,7 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
             "SELECT * FROM resource WHERE workspace_id = $1",
@@ -1334,7 +1345,7 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_resources.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
             "SELECT * FROM resource_type WHERE workspace_id = $1",
@@ -1370,9 +1381,13 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_variables.unwrap_or(false) {
         let variables = sqlx::query_as::<_, ExportableListableVariable>(
-            "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1",
+            if !skip_secrets.unwrap_or(false) { 
+                "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1" 
+            } else {
+                "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1 AND is_secret = false" 
+            }
         )
         .bind(&w_id)
         .fetch_all(&db)
@@ -1381,7 +1396,10 @@ async fn tarball_workspace(
         let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
 
         for mut var in variables {
-            if plain_secret.unwrap_or(false) && var.value.is_some() && var.is_secret {
+            if plain_secret.or(plain_secrets).unwrap_or(false)
+                && var.value.is_some()
+                && var.is_secret
+            {
                 var.value = Some(
                     mc.decrypt_base64_to_string(var.value.unwrap())
                         .map_err(|e| Error::InternalErr(e.to_string()))?,
