@@ -532,7 +532,7 @@
 </Drawer>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-	<DrawerContent title="Deployment History" on:close={() => historyBrowserDrawerOpen}>
+	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore {versions} />
 	</DrawerContent>
 </Drawer>
