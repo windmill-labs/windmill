@@ -194,7 +194,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
             let stop_early = success
                 && if let Some(expr) = r.stop_early_expr.clone() {
-                    compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client))
+                    compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client), None)
                         .await?
                 } else {
                     false
@@ -705,21 +705,25 @@ async fn compute_bool_from_expr(
     result: serde_json::Value,
     by_id: Option<IdContext>,
     client: Option<&AuthedClient>,
+    resumes: Option<(&[Value], Vec<String>)>,
 ) -> error::Result<bool> {
     let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
-    match eval_timeout(
-        expr,
-        [
-            ("flow_input".to_string(), flow_input),
-            ("result".to_string(), result.clone()),
-            ("previous_result".to_string(), result),
-        ]
-        .into(),
-        client,
-        by_id,
-    )
-    .await?
-    {
+    let mut env = vec![
+        ("flow_input".to_string(), flow_input),
+        ("result".to_string(), result.clone()),
+        ("previous_result".to_string(), result),
+    ];
+
+    if let Some(resumes) = resumes {
+        env.push((
+            "resume".to_string(),
+            resumes.0.last().map(|v| json!(v)).unwrap_or_default(),
+        ));
+        env.push(("resumes".to_string(), resumes.0.clone().into()));
+        env.push(("approvers".to_string(), json!(resumes.1.clone())));
+    }
+
+    match eval_timeout(expr, env.into(), client, by_id).await? {
         serde_json::Value::Bool(true) => Ok(true),
         serde_json::Value::Bool(false) => Ok(false),
         a @ _ => Err(Error::ExecutionErr(format!(
@@ -1256,7 +1260,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     last_result.clone(),
                     input_transforms,
                     resume_messages.as_slice(),
-                    approvers,
+                    approvers.clone(),
                     by_id,
                     client,
                 )
@@ -1300,6 +1304,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         last_result.clone(),
         previous_id,
         client,
+        resume_messages.as_slice(),
+        approvers.clone(),
     )
     .await?;
     tx.commit().await?;
@@ -1668,6 +1674,8 @@ async fn compute_next_flow_transform<'c>(
     last_result: serde_json::Value,
     previous_id: String,
     client: &AuthedClient,
+    resumes: &[Value],
+    approvers: Vec<String>,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok((
@@ -1763,6 +1771,12 @@ async fn compute_next_flow_transform<'c>(
                                 ("flow_input".to_string(), flow_input),
                                 ("result".to_string(), last_result.clone()),
                                 ("previous_result".to_string(), last_result.clone()),
+                                (
+                                    "resume".to_string(),
+                                    resumes.last().map(|v| json!(v)).unwrap_or_default(),
+                                ),
+                                ("resumes".to_string(), resumes.clone().into()),
+                                ("approvers".to_string(), json!(approvers.clone())),
                             ]
                         },
                         Some(client),
@@ -1885,6 +1899,7 @@ async fn compute_next_flow_transform<'c>(
                             last_result.clone(),
                             Some(idcontext.clone()),
                             Some(client),
+                            Some((resumes, approvers.clone())),
                         )
                         .await?;
 
