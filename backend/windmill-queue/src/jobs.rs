@@ -589,6 +589,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 summary: Some(
                     "Virtual module needed for suspend/sleep when last module".to_string(),
                 ),
+                mock: None,
                 retry: None,
                 sleep: None,
                 suspend: None,

@@ -11,6 +11,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import SplitPanesWrapper from '../../splitPanes/SplitPanesWrapper.svelte'
+	import FlowModuleMock from './FlowModuleMock.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
@@ -67,6 +68,7 @@
 							<Tab value="early-stop">Early Stop/Break</Tab>
 							<Tab value="suspend">Suspend/Approval</Tab>
 							<Tab value="sleep">Sleep</Tab>
+							<Tab value="mock">Mock</Tab>
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-white">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
@@ -82,6 +84,11 @@
 									<TabContent value="sleep" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="mock" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleMock bind:flowModule />
 										</div>
 									</TabContent>
 								</div>

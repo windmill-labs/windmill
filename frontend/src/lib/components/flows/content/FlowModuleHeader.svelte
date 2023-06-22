@@ -3,7 +3,7 @@
 	import { WorkerService, type FlowModule } from '$lib/gen'
 	import { faCodeBranch, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Bed, Database, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
+	import { Bed, Database, PhoneIncoming, Repeat, Square, Voicemail } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { sendUserToast } from '$lib/utils'
@@ -82,6 +82,17 @@
 		>
 			<Bed size={14} />
 			<svelte:fragment slot="text">Sleep</svelte:fragment>
+		</Popover>
+		<Popover
+			placement="bottom"
+			class="center-center rounded  p-2
+		{module.mock?.enabled
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800  hover:bg-gray-100'}"
+			on:click={() => dispatch('toggleMock')}
+		>
+			<Voicemail size={14} />
+			<svelte:fragment slot="text">Mock</svelte:fragment>
 		</Popover>
 	{/if}
 	{#if module.value.type === 'script'}

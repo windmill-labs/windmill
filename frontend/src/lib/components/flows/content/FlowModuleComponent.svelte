@@ -29,6 +29,7 @@
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import { schemaToObject } from '$lib/schema'
+	import FlowModuleMock from './FlowModuleMock.svelte'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -133,6 +134,7 @@
 					bind:module={flowModule}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
+					on:toggleMock={() => selectAdvanced('mock')}
 					on:toggleRetry={() => selectAdvanced('retries')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
@@ -265,6 +267,7 @@
 										<Tab value="early-stop">Early Stop/Break</Tab>
 										<Tab value="suspend">Suspend/Approval</Tab>
 										<Tab value="sleep">Sleep</Tab>
+										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 									{/if}
 								</Tabs>
@@ -284,6 +287,10 @@
 									{:else if advancedSelected === 'cache'}
 										<div>
 											<FlowModuleCache bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'mock'}
+										<div>
+											<FlowModuleMock bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'same_worker'}
 										<div>

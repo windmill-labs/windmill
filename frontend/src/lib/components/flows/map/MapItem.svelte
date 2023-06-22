@@ -42,7 +42,8 @@
 		earlyStop: mod.stop_after_if != undefined,
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
-		cache: Boolean(mod.cache_ttl)
+		cache: Boolean(mod.cache_ttl),
+		mock: Boolean(mod.mock?.enabled)
 	}
 
 	function onDelete(event: CustomEvent<MouseEvent>) {

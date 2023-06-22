@@ -652,7 +652,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
-                    cache_ttl: None
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -672,7 +673,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
-                    cache_ttl: None
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -690,7 +692,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
-                    cache_ttl: None
+                    cache_ttl: None,
+                    mock: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -708,7 +711,8 @@ mod tests {
                 suspend: Default::default(),
                 retry: None,
                 sleep: None,
-                cache_ttl: None
+                cache_ttl: None,
+                mock: None,
             }),
             same_worker: false,
         };

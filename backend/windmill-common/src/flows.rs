@@ -157,6 +157,13 @@ pub struct Suspend {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Mock {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_value: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
     #[serde(default = "default_id")]
     pub id: String,
@@ -167,6 +174,8 @@ pub struct FlowModule {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<Suspend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mock: Option<Mock>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<Retry>,
     #[serde(skip_serializing_if = "Option::is_none")]
