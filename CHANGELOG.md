@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.118.0](https://github.com/windmill-labs/windmill/compare/v1.117.0...v1.118.0) (2023-06-22)
+
+
+### Features
+
+* add dynamic args for input list ([05d1b20](https://github.com/windmill-labs/windmill/commit/05d1b20b663a3b0cf38638472fb4f7823d56db4c))
+* add preselect first config for app selects ([11c6ff7](https://github.com/windmill-labs/windmill/commit/11c6ff7481f351a0e9549d3ac8e2dbc8ce2ca4d8))
+* editable resource types + rt in deployments ([fdb7ab7](https://github.com/windmill-labs/windmill/commit/fdb7ab7f51f739094e785438a5bff45d983556d5))
+* resume and approvers available in iterator and branch expr ([a98e146](https://github.com/windmill-labs/windmill/commit/a98e146aedfa39539bd86685dbe9c4f5a7e8f1df))
+* step mocking for flows ([4c594c0](https://github.com/windmill-labs/windmill/commit/4c594c0e649d8b416a53823e457e43a029e5f940))
+
+
+### Bug Fixes
+
+* correctly handle deeply nested results for out-of-order loops ([82f20d3](https://github.com/windmill-labs/windmill/commit/82f20d3ef4fe3c43adc9489d5fe950c3504f2425))
+
 ## [1.117.0](https://github.com/windmill-labs/windmill/compare/v1.116.0...v1.117.0) (2023-06-20)
 
 
