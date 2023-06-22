@@ -483,9 +483,9 @@ dependencies = [
 
 [[package]]
 name = "better_scoped_tls"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b73e8ecdec39e98aa3b19e8cd0b8ed8f77ccb86a6b0b2dc7cd86d105438a2123"
+checksum = "794edcc9b3fb07bb4aecaa11f093fd45663b4feadb782d68303a2268bc2701de"
 dependencies = [
  "scoped-tls",
 ]
@@ -4048,9 +4048,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.31.14"
+version = "0.31.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5fc6ab986a680b4f1d5c78d53976b395eb01372977e46db5c71557039bce439"
+checksum = "31f3acface9a59ac1bb76ec0b71dccadf413169db89d426f6cafc51d1f4d108f"
 dependencies = [
  "ahash 0.8.3",
  "ast_node",
@@ -4075,9 +4075,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.106.4"
+version = "0.106.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fd7945b03e384d1a1a56577d4457c21a0d5751ff6830d21b6bdab67a57f7a2e"
+checksum = "8be2269591931983cd0d977018e4362bc17c7576ea4c6a7aa22bb4223fd2095a"
 dependencies = [
  "bitflags 2.3.2",
  "is-macro",
@@ -4091,9 +4091,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.136.5"
+version = "0.136.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dda315283416b168710540fc9f19c1f9b363c62b67a588166bb23dec3699193"
+checksum = "acc053020267c317a35c464c01f2990ca155c97c02d34a460b66f1f4b568b7eb"
 dependencies = [
  "either",
  "lexical",
@@ -5164,7 +5164,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5199,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5255,7 +5255,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -5272,7 +5272,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5285,7 +5285,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5310,7 +5310,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5318,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -5329,7 +5329,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5339,7 +5339,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -5350,7 +5350,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -5365,7 +5365,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -5380,7 +5380,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -5395,7 +5395,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5424,7 +5424,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.119.0"
+version = "1.120.0"
 dependencies = [
  "anyhow",
  "async-recursion",
