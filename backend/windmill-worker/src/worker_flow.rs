@@ -1375,7 +1375,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
-        let root_job = if matches!(module.value, FlowModuleValue::Flow { .. }) {
+        let root_job = if matches!(
+            module.value,
+            FlowModuleValue::Flow { .. } | FlowModuleValue::ForloopFlow { parallel: true, .. }
+        ) {
             None
         } else {
             flow_job.root_job.or_else(|| Some(flow_job.id))

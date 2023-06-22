@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use async_recursion::async_recursion;
 use itertools::Itertools;
 use reqwest::Client;
 use sqlx::{Pool, Postgres, Transaction};
@@ -220,23 +221,42 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
     Ok(job)
 }
 
+#[async_recursion]
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
     flow_id: Uuid,
     node_id: String,
 ) -> error::Result<serde_json::Value> {
-    let job_result: Option<JobResult> = sqlx::query_scalar!(
-        "SELECT leaf_jobs->$1::text FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
+    let flow_job_result = sqlx::query!(
+        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
         node_id,
         flow_id,
         w_id,
     )
     .fetch_optional(&db)
-    .await?
-    .flatten()
-    .map(|x| serde_json::from_value(x).ok())
-    .flatten();
+    .await?;
+
+    let flow_job_result = windmill_common::utils::not_found_if_none(
+        flow_job_result,
+        "Flow result by id",
+        format!("{}, {}", flow_id, node_id),
+    )?;
+
+    let job_result = flow_job_result
+        .leaf_jobs
+        .map(|x| serde_json::from_value(x).ok())
+        .flatten();
+
+    if job_result.is_none() && flow_job_result.parent_job.is_some() {
+        let parent_job = flow_job_result.parent_job.unwrap();
+        let root_job = sqlx::query_scalar!("SELECT root_job FROM queue WHERE id = $1", parent_job)
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .unwrap_or(parent_job);
+        return get_result_by_id(db, w_id, root_job, node_id).await;
+    }
 
     let result_id = windmill_common::utils::not_found_if_none(
         job_result,
@@ -572,7 +592,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 retry: None,
                 sleep: None,
                 suspend: None,
-                cache_ttl: None
+                cache_ttl: None,
             });
             raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }
