@@ -225,6 +225,10 @@
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
 		},
+		"./components/flows/flowStore": {
+			"types": "./package/components/flows/flowStore.d.ts",
+			"default": "./package/components/flows/flowStore.js"
+		},
 		"./components/icons": {
 			"types": "./package/components/icons/index.d.ts",
 			"svelte": "./package/components/icons/index.js",
@@ -319,6 +323,9 @@
 			],
 			"stores": [
 				"./package/stores.d.ts"
+			],
+			"components/flows/flowStore": [
+				"./package/components/flows/flowStore.d.ts"
 			],
 			"components/icons": [
 				"./package/components/icons/index.d.ts"
