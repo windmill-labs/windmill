@@ -9,6 +9,7 @@
 		faBook,
 		faCube,
 		faDollarSign,
+		faHistory,
 		faPlus,
 		faRotate,
 		faRotateLeft
@@ -35,6 +36,7 @@
 	import { Link, Users } from 'lucide-svelte'
 	import { capitalize } from '$lib/utils'
 	import type { Schema, SchemaProperty } from '$lib/common'
+	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -52,6 +54,7 @@
 	export let collabMode = false
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
+	export let scriptPath: string | undefined = undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -125,7 +128,17 @@
 		}
 		return rec(schema.properties, true)
 	}
+
+	let historyBrowserDrawerOpen = false
 </script>
+
+{#if scriptPath}
+	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+			<ScriptVersionHistory {scriptPath} />
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
@@ -471,20 +484,36 @@
 		</div>
 	</div>
 
-	{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
-		<Button
-			btnClasses="!font-medium text-gray-600"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={scriptPicker.openDrawer}
-			{iconOnly}
-			startIcon={{ icon: faBook }}
-			title="Explore other scripts"
-		>
-			Library
-		</Button>
-	{/if}
+	<div class="flex flex-row items-center gap-2">
+		{#if scriptPath}
+			<Button
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={() => (historyBrowserDrawerOpen = true)}
+				{iconOnly}
+				startIcon={{ icon: faHistory }}
+				title="See history"
+			>
+				History
+			</Button>
+		{/if}
+		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
+			<Button
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={scriptPicker.openDrawer}
+				{iconOnly}
+				startIcon={{ icon: faBook }}
+				title="Explore other scripts"
+			>
+				Library
+			</Button>
+		{/if}
+	</div>
 </div>
 
 <style lang="postcss">

@@ -223,6 +223,7 @@
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
+			scriptPath={edit ? path : undefined}
 			on:toggleCollabMode={() => {
 				if (wsProvider?.shouldConnect) {
 					disableCollaboration()
