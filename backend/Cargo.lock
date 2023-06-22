@@ -5433,6 +5433,7 @@ name = "windmill-queue"
 version = "1.117.0"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "chrono",
  "chrono-tz",
  "cron",
