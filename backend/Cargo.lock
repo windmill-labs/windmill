@@ -1864,6 +1864,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1922,7 +1931,7 @@ dependencies = [
  "diff",
  "ena",
  "is-terminal",
- "itertools",
+ "itertools 0.10.5",
  "lalrpop-util",
  "petgraph",
  "regex",
@@ -3289,7 +3298,7 @@ dependencies = [
  "bincode",
  "bitflags 1.3.2",
  "bstr",
- "itertools",
+ "itertools 0.10.5",
  "lz4_flex",
  "num-bigint",
  "num-complex",
@@ -3306,7 +3315,7 @@ checksum = "db7348e148144ba85bc1284d97004062137306554fd00e7eb500d91720de5e78"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
- "itertools",
+ "itertools 0.10.5",
  "lalrpop",
  "lalrpop-util",
  "log",
@@ -3812,7 +3821,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c12bc9199d1db8234678b7051747c07f517cdcf019262d1847b94ec8b1aee3e"
 dependencies = [
- "itertools",
+ "itertools 0.10.5",
  "nom",
  "unicode_categories",
 ]
@@ -5155,7 +5164,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5190,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5209,7 +5218,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools",
+ "itertools 0.11.0",
  "lazy_static",
  "magic-crypt",
  "mime_guess",
@@ -5246,7 +5255,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -5263,7 +5272,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5276,7 +5285,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5301,7 +5310,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5309,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -5320,20 +5329,20 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools",
+ "itertools 0.11.0",
  "windmill-parser",
 ]
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.11.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -5341,10 +5350,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.11.0",
  "lazy_static",
  "phf 0.11.1",
  "regex",
@@ -5356,7 +5365,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -5371,7 +5380,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -5386,7 +5395,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5396,7 +5405,7 @@ dependencies = [
  "futures-core",
  "hex",
  "hmac",
- "itertools",
+ "itertools 0.11.0",
  "lazy_static",
  "prometheus",
  "reqwest",
@@ -5415,7 +5424,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.118.0"
+version = "1.119.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5426,7 +5435,7 @@ dependencies = [
  "dyn-iter",
  "futures",
  "git-version",
- "itertools",
+ "itertools 0.11.0",
  "lazy_static",
  "once_cell",
  "prometheus",
