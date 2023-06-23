@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.122.0](https://github.com/windmill-labs/windmill/compare/v1.121.0...v1.122.0) (2023-06-23)
+
+
+### Features
+
+* release wmillbench publicly ([161f793](https://github.com/windmill-labs/windmill/commit/161f793ae6a67761709d4ced2de060c9546b2d3b))
+
 ## [1.121.0](https://github.com/windmill-labs/windmill/compare/v1.120.0...v1.121.0) (2023-06-22)
 
 
