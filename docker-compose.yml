@@ -75,7 +75,8 @@ services:
     restart: unless-stopped
     expose:
       - 3001
-
+    volumes:
+      - lsp_cache:/root/.cache
   # Uncomment to enable multiplayer on the enterprise edition
   # multiplayer:
   #   image: ghcr.io/windmill-labs/windmill-multiplayer:latest
@@ -91,6 +92,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
     ports:
+      # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
     environment:
       - BASE_URL=":80"
@@ -98,3 +100,4 @@ services:
 volumes:
   db_data: null
   worker_dependency_cache: null
+  lsp_cache: null
