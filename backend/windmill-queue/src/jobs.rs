@@ -553,6 +553,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 (None, Some(flow), None, JobKind::Flow, Some(value), None)
             }
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
+            JobPayload::Graphql => (None, None, None, JobKind::Graphql, None, None),
+            JobPayload::Http => (None, None, None, JobKind::Identity, None, None),
+            JobPayload::Postgresql => (None, None, None, JobKind::Postgresql, None, None),
         };
 
     let is_running = same_worker;
@@ -685,6 +688,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
+            JobKind::Http => "jobs.run.http",
+            JobKind::Graphql => "jobs.run.graphql",
+            JobKind::Postgresql => "jobs.run.postgresql",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 

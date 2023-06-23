@@ -23,6 +23,9 @@ pub enum JobKind {
     FlowPreview,
     Identity,
     FlowDependencies,
+    Http,
+    Postgresql,
+    Graphql,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -156,6 +159,9 @@ pub enum JobPayload {
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
     Identity,
+    Http,
+    Postgresql,
+    Graphql,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
