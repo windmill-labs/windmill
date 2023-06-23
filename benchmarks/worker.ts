@@ -10,6 +10,7 @@ const promise = new Promise<{
   workspace_id: string;
   per_worker_throughput: number;
   useFlows: boolean;
+  flowPattern: string;
   continous: boolean;
   max_per_worker: number;
   custom: Action | undefined;
@@ -23,6 +24,7 @@ const promise = new Promise<{
       workspace_id: sharedConfig.workspace_id,
       per_worker_throughput: sharedConfig.per_worker_throughput,
       useFlows: sharedConfig.useFlows,
+      flowPattern: sharedConfig.flowPattern,
       continous: sharedConfig.continous,
       max_per_worker: sharedConfig.max_per_worker,
       custom: sharedConfig.custom,
@@ -82,9 +84,46 @@ while (cont) {
     await evaluate(config.custom);
     continue;
   } else if (config.useFlows) {
-    uuid = await windmill.JobService.runFlowPreview({
-      workspace: config.workspace_id,
-      requestBody: {
+    let payload: api.FlowPreview;
+    if (config.flowPattern == "branchone") {
+      payload = {
+        args: {},
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                input_transforms: {},
+                language: api.RawScript.language.DENO,
+                type: "rawscript",
+                content:
+                  'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+              },
+            },
+            {
+              id: "b",
+              value: {
+                type: "branchone",
+                branches: [],
+                default: [
+                  {
+                    id: "c",
+                    value: {
+                      input_transforms: {},
+                      language: api.RawScript.language.DENO,
+                      type: "rawscript",
+                      content:
+                        'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+    } else {
+      payload = {
         args: {},
         value: {
           modules: [
@@ -110,7 +149,11 @@ while (cont) {
             },
           ],
         },
-      },
+      };
+    }
+    uuid = await windmill.JobService.runFlowPreview({
+      workspace: config.workspace_id,
+      requestBody: payload,
     });
   } else {
     uuid = await windmill.JobService.runScriptPreview({

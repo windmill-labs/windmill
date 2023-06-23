@@ -1,10 +1,16 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="deno.window" />
 
-import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
+import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 import { Action } from "./action.ts";
+import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
+import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
+export {
+  DenoLandProvider,
+  UpgradeCommand,
+} from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
 async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -15,10 +21,12 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
+export const VERSION = "v1.121.0";
+
 await new Command()
-  .name("windmill-bench")
+  .name("wmillbench")
   .description("Run Benchmark to measure throughput of windmill.")
-  .version("v0.0.0")
+  .version(VERSION)
   .option("--host <url:string>", "The windmill host to benchmark.", {
     default: "http://127.0.0.1:8000",
   })
@@ -83,6 +91,10 @@ await new Command()
     }
   )
   .option("--use-flows", "Run flows instead of jobs.")
+  .option(
+    "--flow-pattern <pattern:string>",
+    "Use a different flow pattern among: 2steps, onebranch (Default 2steps)"
+  )
   .option("--custom <custom_path:string>", "Use custom actions during bench")
   .option(
     "--zombie-timeout",
@@ -133,6 +145,7 @@ await new Command()
       histogramBuckets,
       maximumThroughput,
       useFlows,
+      flowPattern,
       zombieTimeout,
       continous,
       max,
@@ -189,6 +202,7 @@ await new Command()
             exportSimple,
             maximumThroughput,
             useFlows,
+            flowPattern,
             zombieTimeout,
           },
           null,
@@ -226,6 +240,7 @@ await new Command()
         per_worker_throughput,
         max_per_worker,
         useFlows,
+        flowPattern,
         continous,
         custom: custom_content,
       };
@@ -384,5 +399,19 @@ await new Command()
       }
       console.log("done");
     }
+  )
+  .command(
+    "upgrade",
+    new UpgradeCommand({
+      main: "main.ts",
+      args: [
+        "--allow-net",
+        "--allow-read",
+        "--allow-write",
+        "--allow-env",
+        "--unstable",
+      ],
+      provider: new DenoLandProvider({ name: "wmillbench" }),
+    })
   )
   .parse();
