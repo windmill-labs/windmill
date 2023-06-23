@@ -20,67 +20,67 @@ await new Command()
   .description("Run Benchmark to measure throughput of windmill.")
   .version("v0.0.0")
   .option("--host <url:string>", "The windmill host to benchmark.", {
-    default: "http://127.0.0.1",
+    default: "http://127.0.0.1:8000",
   })
   .option(
     "--workers <workers:number>",
     "The number of workers to run at once.",
     {
       default: 1,
-    },
+    }
   )
   .option(
     "-s --seconds <seconds:number>",
     "How long to run the benchmark for (in seconds).",
     {
       default: 30,
-    },
+    }
   )
   .option("--max <max:number>", "Maximum number of operations performed.")
   .option("-e --email <email:string>", "The email to use to login.")
   .option("-p --password <password:string>", "The password to use to login.")
   .env(
     "WM_TOKEN=<token:string>",
-    "The token to use when talking to the API server. Preferred over manual login.",
+    "The token to use when talking to the API server. Preferred over manual login."
   )
   .option(
     "-t --token <token:string>",
-    "The token to use when talking to the API server. Preferred over manual login.",
+    "The token to use when talking to the API server. Preferred over manual login."
   )
   .env(
     "WM_WORKSPACE=<workspace:string>",
-    "The workspace to spawn scripts from.",
+    "The workspace to spawn scripts from."
   )
   .option(
     "-w --workspace <workspace:string>",
     "The workspace to spawn scripts from.",
-    { default: "starter" },
+    { default: "admins" }
   )
   .option("-m --metrics <metrics:string>", "The url to scrape metrics from.", {
     default: "http://localhost:8001/metrics",
   })
   .option(
     "--export-json <export_json:string>",
-    "If set, exports will be into a JSON file.",
+    "If set, exports will be into a JSON file."
   )
   .option(
     "--export-csv <export_csv:string>",
-    "If set, exports will be into a csv file.",
+    "If set, exports will be into a csv file."
   )
   .option(
     "--export-histograms [histograms...:string]",
-    "Mark metrics (without label) that are reported as histograms to export.",
+    "Mark metrics (without label) that are reported as histograms to export."
   )
   .option(
     "--export-simple [simple...:string]",
-    "Mark metrics (without label) that are reported as simple values.",
+    "Mark metrics (without label) that are reported as simple values."
   )
   .option(
     "--maximum-throughput <maximum_throughput:number>",
     "Maximum number of jobs/flows to start in one second.",
     {
       default: Infinity,
-    },
+    }
   )
   .option("--use-flows", "Run flows instead of jobs.")
   .option("--custom <custom_path:string>", "Use custom actions during bench")
@@ -89,11 +89,11 @@ await new Command()
     "The maximum time in ms to wait for jobs to complete.",
     {
       default: 90000,
-    },
+    }
   )
   .option(
     "--continous",
-    "Run the benchmark forever. This effectively disables metric collection & exports. No zombie jobs will be tracked.",
+    "Run the benchmark forever. This effectively disables metric collection & exports. No zombie jobs will be tracked."
   )
   .option(
     "--histogram-buckets [buckets...:string]",
@@ -114,7 +114,7 @@ await new Command()
         "0.01",
         "0.005",
       ],
-    },
+    }
   )
   .action(
     async ({
@@ -162,7 +162,7 @@ await new Command()
           new URL("./scraper.ts", import.meta.url).href,
           {
             type: "module",
-          },
+          }
         );
 
         metrics_worker.postMessage({
@@ -192,8 +192,8 @@ await new Command()
             zombieTimeout,
           },
           null,
-          4,
-        ),
+          4
+        )
       );
 
       const config = {
@@ -245,22 +245,22 @@ await new Command()
       const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
         const sum = jobsSent.reduce((a, b) => a + b, 0);
-        const queue_length = (await (await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } },
-        )).json()).database_length;
+        const queue_length = (
+          await (
+            await fetch(
+              host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+              { headers: { ["Authorization"]: "Bearer " + config.token } }
+            )
+          ).json()
+        ).database_length;
         await Deno.stdout.write(
           enc(
-            `elapsed: ${elapsed}/${seconds} | jobs sent: ${
-              JSON.stringify(
-                jobsSent,
-              )
-            } (sum: ${sum} thr: ${
-              (sum / elapsed).toFixed(
-                2,
-              )
-            }) | queue: ${queue_length}                          \r`,
-          ),
+            `elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(
+              jobsSent
+            )} (sum: ${sum} thr: ${(sum / elapsed).toFixed(
+              2
+            )}) | queue: ${queue_length}                          \r`
+          )
         );
       }, 100);
 
@@ -287,7 +287,7 @@ await new Command()
 
       const sum = jobsSent.reduce((a, b) => a + b, 0);
       await Deno.stdout.write(
-        enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`),
+        enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`)
       );
 
       const shutdown_start = Date.now();
@@ -305,26 +305,33 @@ await new Command()
         };
         worker.addEventListener("message", l);
         worker.postMessage(
-          Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000,
+          Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
         );
       });
 
-      console.log("waiting for shutdown");
+      console.log("waiting for shutdown\n");
       while (workers.length > 0) {
         await sleep(0.1);
       }
       const tts = (Date.now() - shutdown_start) / 1000;
-      console.log("time to shutdown:", tts);
-      console.log("throughput /s", sum / (seconds + tts));
+      const time = seconds + tts;
+      console.log("\ntime to shutdown:", tts);
+      console.log("jobs:", sum);
+      console.log("time (s + tts):", time);
+      console.log("throughput /s (jobs/time):", sum / time);
 
       console.log("zombie jobs: ", zombie_jobs);
       console.log("incorrect results: ", incorrect_results);
       console.log(
         "queue length:",
-        (await (await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } },
-        )).json()).database_length,
+        (
+          await (
+            await fetch(
+              host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+              { headers: { ["Authorization"]: "Bearer " + config.token } }
+            )
+          ).json()
+        ).database_length
       );
 
       metrics_worker!.postMessage("stop");
@@ -348,7 +355,7 @@ await new Command()
           const value = values[i]!;
           const mean = value.reduce((acc, e) => acc + e, 0) / values.length;
           const stdev = Math.sqrt(
-            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length,
+            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length
           );
           obj[name] = { mean, stdev };
         }
@@ -376,6 +383,6 @@ await new Command()
         f.close();
       }
       console.log("done");
-    },
+    }
   )
   .parse();

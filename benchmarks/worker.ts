@@ -1,9 +1,9 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="deno.worker" />
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
-import { Job } from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.121.0/mod.ts";
+import * as api from "https://deno.land/x/windmill@v1.121.0/windmill-api/index.ts";
+import { Job } from "https://deno.land/x/windmill@v1.121.0/windmill-api/index.ts";
 import { Action, evaluate } from "./action.ts";
 
 const promise = new Promise<{
@@ -50,20 +50,24 @@ const updateStatusInterval = setInterval(() => {
 }, 100);
 
 while (cont) {
-  const queue_length = (await (await fetch(
-    config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-    { headers: { ["Authorization"]: "Bearer " + config.token } },
-  )).json()).database_length;
+  const queue_length = (
+    await (
+      await fetch(
+        config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+        { headers: { ["Authorization"]: "Bearer " + config.token } }
+      )
+    ).json()
+  ).database_length;
   if (queue_length > 2500) {
     console.log(
-      `queue length: ${queue_length} > 2500. waiting...                                                            `,
+      `queue length: ${queue_length} > 2500. waiting...                                                            `
     );
     await sleep(0.5);
     continue;
   }
   if (
     (total_spawned * 1000) / (Date.now() - start_time) >
-      config.per_worker_throughput
+    config.per_worker_throughput
   ) {
     console.log("at maximum throughput. waiting...");
     await sleep(0.1);
@@ -85,8 +89,9 @@ while (cont) {
         value: {
           modules: [
             {
-              input_transforms: {},
+              id: "a",
               value: {
+                input_transforms: {},
                 language: api.RawScript.language.DENO,
                 type: "rawscript",
                 content:
@@ -94,8 +99,9 @@ while (cont) {
               },
             },
             {
-              input_transforms: {},
+              id: "b",
               value: {
+                input_transforms: {},
                 language: api.RawScript.language.DENO,
                 type: "rawscript",
                 content:
@@ -134,8 +140,8 @@ while (outstanding.length > 0 && Date.now() < end_time) {
       workspace: config.workspace_id,
       id: uuid,
     });
-  } catch {
-    console.log("job not found: " + uuid);
+  } catch (e) {
+    console.log("job not found: " + uuid + " " + e.message);
     continue;
   }
   if (r.type == "QueuedJob") {
@@ -143,13 +149,19 @@ while (outstanding.length > 0 && Date.now() < end_time) {
     await Deno.stdout.write(
       enc(
         `uuid: ${uuid}, queue length: ${
-          (await (await fetch(
-            config.server + "/api/w/" + config.workspace_id +
-              "/jobs/queue/count",
-            { headers: { ["Authorization"]: "Bearer " + config.token } },
-          )).json()).database_length
-        }                                                                                   \r`,
-      ),
+          (
+            await (
+              await fetch(
+                config.server +
+                  "/api/w/" +
+                  config.workspace_id +
+                  "/jobs/queue/count",
+                { headers: { ["Authorization"]: "Bearer " + config.token } }
+              )
+            ).json()
+          ).database_length
+        }                                                                                   \r`
+      )
     );
   } else if (!config.useFlows) {
     r = r as api.CompletedJob;
@@ -161,7 +173,7 @@ while (outstanding.length > 0 && Date.now() < end_time) {
             " != " +
             uuid +
             "job: \n" +
-            JSON.stringify(r, null, 2),
+            JSON.stringify(r, null, 2)
         );
         incorrect_results++;
       }
