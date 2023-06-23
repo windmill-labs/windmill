@@ -4,7 +4,11 @@ use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use windmill_common::{error, jobs::{JobKind, QueuedJob}, METRICS_ENABLED};
+use windmill_common::{
+    error,
+    jobs::{JobKind, QueuedJob},
+    METRICS_ENABLED,
+};
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SESSION_TOKEN_EXPIRY,
 };
@@ -84,13 +88,14 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     }
 
-    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2".to_string();
+    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3".to_string();
     if *RESTART_ZOMBIE_JOBS {
         timeout_query.push_str(" AND same_worker = true");
     };
     let timeouts = sqlx::query_as::<_, QueuedJob>(&timeout_query)
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .bind(JobKind::Flow)
+        .bind(JobKind::FlowPreview)
         .fetch_all(db)
         .await
         .ok()
