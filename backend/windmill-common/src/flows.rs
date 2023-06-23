@@ -276,6 +276,9 @@ pub enum FlowModuleValue {
         language: ScriptLang,
     },
     Identity,
+    Postgresql,
+    Http,
+    Graphql,
 }
 
 fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>

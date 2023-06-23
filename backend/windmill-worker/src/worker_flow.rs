@@ -1689,17 +1689,20 @@ async fn compute_next_flow_transform<'c>(
             ),
         ));
     }
-    match &module.value {
-        FlowModuleValue::Identity => Ok((
+    let trivial_next_job = |tx, payload| {
+        Ok((
             tx,
             NextFlowTransform::Continue(
-                ContinuePayload::SingleJob(JobPayloadWithTag {
-                    payload: JobPayload::Identity,
-                    tag: None,
-                }),
+                ContinuePayload::SingleJob(JobPayloadWithTag { payload, tag: None }),
                 NextStatus::NextStep,
             ),
-        )),
+        ))
+    };
+    match &module.value {
+        FlowModuleValue::Identity => trivial_next_job(tx, JobPayload::Identity),
+        FlowModuleValue::Graphql => trivial_next_job(tx, JobPayload::Graphql),
+        FlowModuleValue::Http => trivial_next_job(tx, JobPayload::Http),
+        FlowModuleValue::Postgresql => trivial_next_job(tx, JobPayload::Postgresql),
         FlowModuleValue::Flow { path, .. } => {
             let payload = JobPayload::Flow(path.to_string());
             Ok((

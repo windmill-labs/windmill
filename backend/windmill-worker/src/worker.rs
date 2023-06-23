@@ -10,6 +10,7 @@ use anyhow::{Result};
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
+use serde::Deserialize;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use windmill_parser::Typ;
@@ -889,6 +890,11 @@ fn hash_args(v: &serde_json::Value) -> i64 {
     dh.finish() as i64
 }
 
+#[derive(Deserialize)]
+struct HttpArgs {
+    url: String
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -1013,6 +1019,18 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         }
                         args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
                     },
+                    JobKind::Http => {
+                        let http_args: HttpArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
+                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                        let res = HTTP_CLIENT.get(http_args.url).send().await.map_err(|e| Error::ExecutionErr(format!("Invalid http request: {e}")))?;
+                        if res.headers().get("Content-Type").is_some_and(|x| x == "application/json") {
+                            Ok(res.json().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?)
+                        } else {
+                            Ok(serde_json::Value::String(res.text().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?))
+                        }
+                    },
+                    JobKind::Graphql => todo!(),
+                    JobKind::Postgresql => todo!(),
                     _ => {
                         handle_code_execution_job(
                             &job,

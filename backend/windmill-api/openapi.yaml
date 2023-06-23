@@ -5729,6 +5729,9 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "http",
+              "postgresql",
+              "graphql",
             ]
         schedule_path:
           type: string
