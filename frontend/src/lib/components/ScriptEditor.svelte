@@ -246,7 +246,7 @@
 			<div class="py-1">
 				<Button
 					target="_blank"
-					href="https://docs.windmill.dev/docs/cli_local_dev/vscode-extension"
+					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
 					color="light"
 					size="xs"
 					btnClasses="mr-1 hidden lg:block"

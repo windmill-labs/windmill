@@ -543,7 +543,7 @@
 		title="Debug Runs"
 		on:close={() => ($jobsDrawerOpen = false)}
 		tooltip="Look at latests runs to spot potential bugs."
-		documentationLink="https://docs.windmill.dev/docs/apps/app_debugging"
+		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
 	>
 		<Splitpanes class="!overflow-visible">
 			<Pane size={25}>

@@ -33,7 +33,7 @@ Scripts are turned into UIs and no-code modules, no-code modules can be composed
 </p>
 
 <p align="center">
-  <a href="https://app.windmill.dev">Try it</a> - <a href="https://docs.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://docs.windmill.dev/docs/misc/contributing">Contributor's guide</a>
+  <a href="https://app.windmill.dev">Try it</a> - <a href="https://www.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://www.windmill.dev/docs/misc/contributing">Contributor's guide</a>
 </p>
 
 # Windmill - Turn scripts into workflows and UIs that you can share and run at scale
@@ -137,7 +137,7 @@ instance from local commands. See
 You can run your script locally easily, you simply need to pass the right
 environment variables for the `wmill` client library to fetch resources and
 variables from your instance if necessary. See more:
-<https://docs.windmill.dev/docs/advanced/local_development/>.
+<https://www.windmill.dev/docs/advanced/local_development/>.
 
 ## Stack
 
@@ -194,7 +194,7 @@ back to the database is ~50ms. A typical lightweight deno job will take around
 
 We only provide docker-compose setup here. For more advanced setups, like
 compiling from source or using without a postgres super user, see
-[documentation](https://docs.windmill.dev/docs/advanced/self_host).
+[documentation](https://www.windmill.dev/docs/advanced/self_host).
 
 ### Docker compose
 
@@ -267,7 +267,7 @@ rights.
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
 To add more "connect an app" OAuth clients to the Windmill project, read the
-[Contributor's guide](https://docs.windmill.dev/docs/misc/contributing). We
+[Contributor's guide](https://www.windmill.dev/docs/misc/contributing). We
 welcome contributions!
 
 You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:

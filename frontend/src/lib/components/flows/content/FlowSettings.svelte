@@ -71,7 +71,7 @@
 									<ul class="pt-4">
 										<li>
 											1. <a
-												href="https://docs.windmill.dev/docs/core_concepts/auto_generated_uis"
+												href="https://www.windmill.dev/docs/core_concepts/auto_generated_uis"
 												target="_blank">Auto-generated UIs</a
 											>
 										</li>
@@ -82,7 +82,7 @@
 											3. <a href="/schedules" target="_blank">Scheduling</a>
 										</li>
 										<li>
-											4. <a href="https://docs.windmill.dev/docs/advanced/cli" target="_blank"
+											4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
 												>Windmill CLI</a
 											>
 										</li>
@@ -94,7 +94,7 @@
 										</li>
 										<li class="mt-2">
 											5. Send a <a
-												href="https://docs.windmill.dev/docs/core_concepts/webhooks"
+												href="https://www.windmill.dev/docs/core_concepts/webhooks"
 												target="_blank">webhook</a
 											>
 											after each event:
@@ -138,7 +138,7 @@
 										<br />
 										<li>
 											6. Use a <a
-												href="https://docs.windmill.dev/docs/flows/flow_trigger"
+												href="https://www.windmill.dev/docs/flows/flow_trigger"
 												target="_blank">trigger script</a
 											>
 											and schedule this flow to run as frequently as needed and compare a state persisted
@@ -161,7 +161,7 @@
 						<Alert
 							type="info"
 							title="Primary Schedule"
-							documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling"
+							documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 						>
 							Flows can be triggered by any schedules, their webhooks or their UI but they only have
 							only one primary schedules with which they share the same path. The primary schedule

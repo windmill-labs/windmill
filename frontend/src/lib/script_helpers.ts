@@ -241,7 +241,7 @@ export async function main(approver?: string) {
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
-# See documentation: https://docs.windmill.dev/docs/advanced/docker
+# See documentation: https://www.windmill.dev/docs/advanced/docker
 msg="\${1:-world}"
 
 IMAGE="alpine:latest"

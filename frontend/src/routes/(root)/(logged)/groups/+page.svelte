@@ -62,7 +62,7 @@
 	<PageHeader
 		title="Groups"
 		tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/groups_and_folders"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 	>
 		<div class="flex flex-row">
 			<input

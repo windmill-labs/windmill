@@ -109,7 +109,7 @@
 	<PageHeader
 		title="Schedules"
 		tooltip="Trigger Scripts and Flows according to a cron schedule"
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 	>
 		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
 			New&nbsp;schedule

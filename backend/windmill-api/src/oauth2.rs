@@ -415,7 +415,12 @@ async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
     let mut client = OAUTH_CLIENTS
         .slack
         .as_ref()
-        .ok_or_else(|| error::Error::BadRequest("slack client not setup. See: https://docs.windmill.dev/docs/misc/setup_oauth#slack".to_string()))?
+        .ok_or_else(|| {
+            error::Error::BadRequest(
+                "slack client not setup. See: https://www.windmill.dev/docs/misc/setup_oauth#slack"
+                    .to_string(),
+            )
+        })?
         .to_owned();
     let state = State::new_random();
 
@@ -616,7 +621,12 @@ async fn connect_slack_callback(
     let client = OAUTH_CLIENTS
         .slack
         .as_ref()
-        .ok_or_else(|| error::Error::BadRequest("slack client not setup. See: https://docs.windmill.dev/docs/misc/setup_oauth#slack".to_string()))?
+        .ok_or_else(|| {
+            error::Error::BadRequest(
+                "slack client not setup. See: https://www.windmill.dev/docs/misc/setup_oauth#slack"
+                    .to_string(),
+            )
+        })?
         .to_owned();
     let token =
         exchange_code::<SlackTokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await?;

@@ -14,10 +14,10 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 
   x-logo:
-    url: https://docs.windmill.dev/img/windmill.svg
+    url: https://windmill.dev/img/windmill.svg
 externalDocs:
   description: documentation portal
-  url: https://docs.windmill.dev
+  url: https://windmill.dev
 
 servers:
   - url: /api

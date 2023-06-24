@@ -201,7 +201,7 @@
 		title="Runs {path ? `of ${path}` : ''}"
 		tooltip="All past and schedule executions of scripts and flows, including previews.
 	You only see your own runs or runs of groups you belong to unless you are an admin."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
 	/>
 
 	<div class="max-w-7x mt-2">

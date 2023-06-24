@@ -34,7 +34,7 @@
 <div class="h-full flex flex-col {$$props.class ?? ''}">
 	<h2>
 		Retries
-		<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/retries">
+		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/retries">
 			If defined, upon error this step will be retried with a delay and a maximum number of attempts
 			as defined below.
 		</Tooltip>

@@ -16,7 +16,7 @@ paths: {}
 
 externalDocs:
   description: documentation portal
-  url: https://docs.windmill.dev
+  url: https://windmill.dev
 
 components:
   schemas:
