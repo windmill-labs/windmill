@@ -15,7 +15,7 @@
 
 <h2 class="pb-4">
 	Suspend/Approval
-	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
+	<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
 		If defined, at the end of the step, the flow will be suspended until it receives external
 		requests to be resumed or canceled. This is most useful to implement approval steps but can be
 		used flexibly for other purpose.

@@ -4,7 +4,7 @@ version = "1.122.0"
 description = "An extension client for the wmill client library focused on pg"
 license = "Apache-2.0"
 homepage = "https://windmill.dev"
-documentation = "https://docs.windmill.dev"
+documentation = "https://windmill.dev"
 
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 

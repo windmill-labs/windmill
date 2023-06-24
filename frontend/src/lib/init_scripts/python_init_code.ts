@@ -2,7 +2,7 @@ export default `import os
 import wmill
 
 # You can import any PyPi package. 
-# See here for more info: https://docs.windmill.dev/docs/advanced/imports#python
+# See here for more info: https://www.windmill.dev/docs/advanced/imports#python
 
 # you can use typed resources by doing a type alias to dict
 #postgresql = dict

@@ -12,7 +12,7 @@
 
 <h2 class="pb-4">
 	Cache
-	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/cache">
+	<Tooltip documentationLink="https://www.windmill.dev/docs/flows/cache">
 		If defined, the result of the step will be cached for the number of seconds defined such that if
 		this step were to be re-triggered with the same input it would retrieve and return its cached
 		value instead of recomputing it.

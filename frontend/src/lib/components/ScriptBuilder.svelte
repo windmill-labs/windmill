@@ -86,19 +86,19 @@
 			value: Script.kind.TRIGGER,
 			title: 'Trigger',
 			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_trigger'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_trigger'
 		},
 		{
 			value: Script.kind.APPROVAL,
 			title: 'Approval',
 			desc: 'Send notifications externally to ask for approval to continue a flow.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_approval'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_approval'
 		},
 		{
 			value: Script.kind.FAILURE,
 			title: 'Error Handler',
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_error_handler'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_error_handler'
 		}
 	]
 
@@ -335,7 +335,7 @@
 									{
 										label: 'Learn more',
 										callback: () => {
-											window.open('https://docs.windmill.dev/docs/advanced/docker', '_blank')
+											window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
 										}
 									}
 								]
@@ -374,7 +374,7 @@
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip
-					documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
+					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 					>The script will be executed on a worker configured to accept its worker group tag. For
 					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
 				></h2
@@ -409,7 +409,7 @@
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Custom env variables<Tooltip
-						documentationLink="https://docs.windmill.dev/docs/reference#custom-environment-variables"
+						documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
 						>Additional static custom env variables to pass to the script.</Tooltip
 					></h2
 				>

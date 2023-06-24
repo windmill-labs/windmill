@@ -51,7 +51,7 @@
 								startIcon={{ icon: faBolt }}
 							>
 								Trigger &nbsp;<Tooltip
-									documentationLink="https://docs.windmill.dev/docs/flows/flow_trigger"
+									documentationLink="https://www.windmill.dev/docs/flows/flow_trigger"
 								>
 									Used as a first step most commonly with a state and a schedule to watch for
 									changes on an external system, compute the diff since last time and set the new
@@ -61,7 +61,7 @@
 						{/if}
 						<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
 							Approval &nbsp;<Tooltip
-								documentationLink="https://docs.windmill.dev/docs/flows/flow_approval"
+								documentationLink="https://www.windmill.dev/docs/flows/flow_approval"
 							>
 								An approval step will suspend the execution of a flow until it has been approved
 								through the resume endpoints or the approval page by and solely by the recipients of
@@ -81,7 +81,7 @@
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_error_handler">
+			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_error_handler">
 				Embed a script directly inside a flow instead of saving the script into your workspace for
 				reuse. You can always save an inline script to your workspace later.
 			</Tooltip>
@@ -158,7 +158,7 @@
 											{
 												label: 'Learn more',
 												callback: () => {
-													window.open('https://docs.windmill.dev/docs/advanced/docker', '_blank')
+													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
 												}
 											}
 										]

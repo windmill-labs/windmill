@@ -39,7 +39,7 @@
 	]
 
 	const thirdMenuLinks = [
-		{ label: 'Docs', href: 'https://docs.windmill.dev/docs/intro/', icon: faBookOpen },
+		{ label: 'Docs', href: 'https://www.windmill.dev/docs/intro/', icon: faBookOpen },
 		{ label: 'Feedbacks', href: 'https://discord.gg/V7PM2YHsPB', icon: faDiscord },
 		{
 			label: 'Issues',

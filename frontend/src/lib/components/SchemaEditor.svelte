@@ -250,7 +250,7 @@
 			/>
 			<div class="ml-2">
 				<Tooltip
-					documentationLink="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema"
+					documentationLink="https://www.windmill.dev/docs/reference/#script-parameters-to-json-schema"
 				>
 					Arguments can be edited either using the wizard, or by editing their JSON Schema
 				</Tooltip>

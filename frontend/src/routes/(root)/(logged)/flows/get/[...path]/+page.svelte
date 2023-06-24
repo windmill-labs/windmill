@@ -336,7 +336,7 @@
 						Pass the input as a json payload, the token as a Bearer token or as query arg
 						`?token=XXX` and pass as header: 'Content-Type: application/json'. The webhook also
 						support 'x-www-form-urlencoded' encoded payloads <a
-							href="https://docs.windmill.dev/docs/core_concepts/webhooks">See docs</a
+							href="https://www.windmill.dev/docs/core_concepts/webhooks">See docs</a
 						></Tooltip
 					></h2
 				>
