@@ -29,7 +29,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path},
     utils::{rd_string, StripPath},
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob}, IS_READY,
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob, Metrics}, IS_READY,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT};
 
@@ -59,8 +59,9 @@ use rand::Rng;
 #[cfg(feature = "enterprise")]
 use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache, copy_denogo_cache_from_bucket_as_tar, copy_all_piptars_from_bucket};
 
+use windmill_queue::{add_completed_job, add_completed_job_error};
+
 use crate::{
-    jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies},
@@ -145,11 +146,6 @@ const NUM_SECS_PING: u64 = 5;
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
-
-#[derive(Clone)]
-pub struct Metrics {
-    pub worker_execution_failed: prometheus::IntCounter,
-}
 
 pub const DEFAULT_TIMEOUT: u64 = 900;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;

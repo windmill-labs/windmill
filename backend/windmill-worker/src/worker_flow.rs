@@ -9,7 +9,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::jobs::{add_completed_job, add_completed_job_error, handle_maybe_scheduled_job};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{worker, AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
@@ -20,7 +19,7 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
 use windmill_common::jobs::{
-    script_hash_to_tag, script_path_to_payload, JobPayload, QueuedJob, RawCode,
+    script_hash_to_tag, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
 };
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -30,6 +29,7 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
+use windmill_queue::{add_completed_job, add_completed_job_error, handle_maybe_scheduled_job};
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
@@ -46,7 +46,7 @@ pub async fn update_flow_status_after_job_completion<
     w_id: &str,
     success: bool,
     result: serde_json::Value,
-    metrics: Option<worker::Metrics>,
+    metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
@@ -115,7 +115,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     w_id: &str,
     success: bool,
     result: serde_json::Value,
-    metrics: Option<worker::Metrics>,
+    metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
