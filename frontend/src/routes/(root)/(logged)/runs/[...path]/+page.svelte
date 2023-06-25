@@ -22,6 +22,7 @@
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
 	import { setQuery } from '$lib/navigation'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -222,6 +223,7 @@
 				<option value={true}>If a flow job, show only if it was not skipped</option>
 				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
 			</select>
+			<Tooltip>Skipped flows are flows that did an early break</Tooltip>
 		</div>
 		<div>
 			<div class="my-2 pb-2">

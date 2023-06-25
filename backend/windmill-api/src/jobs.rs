@@ -155,7 +155,7 @@ async fn cancel_job_api(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, false).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -198,7 +198,7 @@ async fn force_cancel(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, true).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, true).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -913,6 +913,7 @@ pub async fn cancel_suspended_job(
         parent_flow,
         &w_id,
         tx,
+        &db,
         rsmq,
         false,
     )

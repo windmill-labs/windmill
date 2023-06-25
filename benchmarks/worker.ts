@@ -87,6 +87,7 @@ while (cont) {
     let payload: api.FlowPreview;
     if (config.flowPattern == "branchone") {
       payload = {
+        path: "branchone",
         args: {},
         value: {
           modules: [
@@ -97,7 +98,7 @@ while (cont) {
                 language: api.RawScript.language.DENO,
                 type: "rawscript",
                 content:
-                  'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+                  'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
               },
             },
             {
@@ -109,11 +110,15 @@ while (cont) {
                   {
                     id: "c",
                     value: {
-                      input_transforms: {},
+                      input_transforms: {
+                        x: {
+                          type: "javascript",
+                          expr: "results.a",
+                        },
+                      },
                       language: api.RawScript.language.DENO,
                       type: "rawscript",
-                      content:
-                        'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+                      content: "export function main(x: string){ return x; }",
                     },
                   },
                 ],
@@ -124,6 +129,7 @@ while (cont) {
       };
     } else {
       payload = {
+        path: "2steps",
         args: {},
         value: {
           modules: [
@@ -206,7 +212,7 @@ while (outstanding.length > 0 && Date.now() < end_time) {
         }                                                                                   \r`
       )
     );
-  } else if (!config.useFlows) {
+  } else {
     r = r as api.CompletedJob;
     try {
       if (r.result != uuid) {
