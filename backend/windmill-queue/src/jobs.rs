@@ -946,7 +946,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             }
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
             JobPayload::Graphql => (None, None, None, JobKind::Graphql, None, None),
-            JobPayload::Http => (None, None, None, JobKind::Identity, None, None),
+            JobPayload::Http => (None, None, None, JobKind::Http, None, None),
             JobPayload::Postgresql => (None, None, None, JobKind::Postgresql, None, None),
         };
 
