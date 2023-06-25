@@ -11,6 +11,7 @@ const promise = new Promise<{
   per_worker_throughput: number;
   useFlows: boolean;
   flowPattern: string;
+  scriptPattern: string;
   continous: boolean;
   max_per_worker: number;
   custom: Action | undefined;
@@ -25,6 +26,7 @@ const promise = new Promise<{
       per_worker_throughput: sharedConfig.per_worker_throughput,
       useFlows: sharedConfig.useFlows,
       flowPattern: sharedConfig.flowPattern,
+      scriptPattern: sharedConfig.scriptPattern,
       continous: sharedConfig.continous,
       max_per_worker: sharedConfig.max_per_worker,
       custom: sharedConfig.custom,
@@ -162,13 +164,34 @@ while (cont) {
       requestBody: payload,
     });
   } else {
-    uuid = await windmill.JobService.runScriptPreview({
-      workspace: config.workspace_id,
-      requestBody: {
+    let payload: api.Preview;
+    if (config.scriptPattern == "httpversion") {
+      payload = {
+        path: "httpversion",
+        kind: "http",
+        args: {
+          url: "http://localhost:8000/api/version",
+        },
+      };
+    } else if (config.scriptPattern == "identity") {
+      payload = {
+        path: "identity",
+        kind: "identity",
+        args: {
+          identity: "itsme",
+        },
+      };
+    } else {
+      payload = {
+        path: "denosimple",
         language: api.Preview.language.DENO,
         content: 'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
         args: {},
-      },
+      };
+    }
+    uuid = await windmill.JobService.runScriptPreview({
+      workspace: config.workspace_id,
+      requestBody: payload,
     });
   }
   if (!config.continous) outstanding.push(uuid);
@@ -215,7 +238,11 @@ while (outstanding.length > 0 && Date.now() < end_time) {
   } else {
     r = r as api.CompletedJob;
     try {
-      if (r.result != uuid) {
+      if (
+        config.scriptPattern != "httpversion" &&
+        config.scriptPattern != "identity" &&
+        r.result != uuid
+      ) {
         console.log(
           "job did not return correct UUID: " +
             r.result +
@@ -225,6 +252,8 @@ while (outstanding.length > 0 && Date.now() < end_time) {
             JSON.stringify(r, null, 2)
         );
         incorrect_results++;
+      } else {
+        // console.log(r.result);
       }
     } catch (e) {
       console.log("error during wait: ", e);

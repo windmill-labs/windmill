@@ -95,6 +95,10 @@ await new Command()
     "--flow-pattern <pattern:string>",
     "Use a different flow pattern among: 2steps, onebranch (Default 2steps)"
   )
+  .option(
+    "--script-pattern <pattern:string>",
+    "Use a different script pattern among: denotrivial, identity, httpversion (Default denotrivial)"
+  )
   .option("--custom <custom_path:string>", "Use custom actions during bench")
   .option(
     "--zombie-timeout",
@@ -146,6 +150,7 @@ await new Command()
       maximumThroughput,
       useFlows,
       flowPattern,
+      scriptPattern,
       zombieTimeout,
       continous,
       max,
@@ -203,6 +208,7 @@ await new Command()
             maximumThroughput,
             useFlows,
             flowPattern,
+            scriptPattern,
             zombieTimeout,
           },
           null,
@@ -241,6 +247,7 @@ await new Command()
         max_per_worker,
         useFlows,
         flowPattern,
+        scriptPattern,
         continous,
         custom: custom_content,
       };

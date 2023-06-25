@@ -53,7 +53,7 @@
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
 		if (jobKindsCat == 'all') {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB},${CompletedJob.job_kind.HTTP},${CompletedJob.job_kind.GRAPHQL},${CompletedJob.job_kind.POSTGRESQL}`
 		} else if (jobKindsCat == 'dependencies') {
 			return CompletedJob.job_kind.DEPENDENCIES
 		} else if (jobKindsCat == 'previews') {

@@ -1235,11 +1235,21 @@ struct CancelJob {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PreviewKind {
+    Code,
+    Identity,
+    Http,
+    Postgresql,
+    Graphql,
+}
+#[derive(Deserialize)]
 struct Preview {
-    content: String,
+    content: Option<String>,
+    kind: Option<PreviewKind>,
     path: Option<String>,
     args: Option<serde_json::Map<String, serde_json::Value>>,
-    language: ScriptLang,
+    language: Option<ScriptLang>,
     tag: Option<String>,
 }
 
@@ -1963,12 +1973,18 @@ async fn run_preview_job(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::Code(RawCode {
-            content: preview.content,
-            path: preview.path,
-            language: preview.language,
-            lock: None,
-        }),
+        match preview.kind {
+            Some(PreviewKind::Identity) => JobPayload::Identity,
+            Some(PreviewKind::Http) => JobPayload::Http,
+            Some(PreviewKind::Graphql) => JobPayload::Graphql,
+            Some(PreviewKind::Postgresql) => JobPayload::Postgresql,
+            _ => JobPayload::Code(RawCode {
+                content: preview.content.unwrap_or_default(),
+                path: preview.path,
+                language: preview.language.unwrap_or(ScriptLang::Deno),
+                lock: None,
+            }),
+        },
         args,
         &authed.username,
         &authed.email,

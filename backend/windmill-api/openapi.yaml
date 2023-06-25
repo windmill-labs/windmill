@@ -5821,6 +5821,9 @@ components:
               "flowpreview",
               "script_hub",
               "identity",
+              "http",
+              "graphql",
+              "postgresql",
             ]
         schedule_path:
           type: string
@@ -6268,11 +6271,12 @@ components:
           enum: [python3, deno, go, bash]
         tag:
           type: string
+        kind:
+          type: string
+          enum: [code, identity, graphql, postgresql, http]
 
       required:
-        - content
         - args
-        - language
 
     CreateResource:
       type: object
