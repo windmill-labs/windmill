@@ -170,7 +170,7 @@ while (cont) {
         path: "httpversion",
         kind: "http",
         args: {
-          url: "http://localhost:8000/api/version",
+          url: "https://google.com",
         },
       };
     } else if (config.scriptPattern == "identity") {
