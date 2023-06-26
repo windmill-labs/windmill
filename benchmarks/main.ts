@@ -97,7 +97,7 @@ await new Command()
   )
   .option(
     "--script-pattern <pattern:string>",
-    "Use a different script pattern among: denotrivial, identity, httpversion (Default denotrivial)"
+    "Use a different script pattern among: denotrivial, identity, httpversion, httpslow (Default denotrivial)"
   )
   .option("--custom <custom_path:string>", "Use custom actions during bench")
   .option(

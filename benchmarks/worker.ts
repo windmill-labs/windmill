@@ -170,7 +170,16 @@ while (cont) {
         path: "httpversion",
         kind: "http",
         args: {
-          url: "https://google.com",
+          url: "http://localhost:8000/api/version",
+        },
+      };
+    }
+    if (config.scriptPattern == "httpslow") {
+      payload = {
+        path: "httpversion",
+        kind: "http",
+        args: {
+          url: "https://hub.dummyapis.com/delay?seconds=10",
         },
       };
     } else if (config.scriptPattern == "identity") {
@@ -239,8 +248,9 @@ while (outstanding.length > 0 && Date.now() < end_time) {
     r = r as api.CompletedJob;
     try {
       if (
-        config.scriptPattern != "httpversion" &&
-        config.scriptPattern != "identity" &&
+        !["httpversion", "identity", "httpslow"].includes(
+          config.scriptPattern
+        ) &&
         r.result != uuid
       ) {
         console.log(
