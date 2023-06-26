@@ -176,7 +176,7 @@ export type AppViewerContext = {
 			{
 				autoRefresh: boolean
 				refreshOnStart?: boolean
-				cb: (inlineScript?: InlineScript) => CancelablePromise<void>
+				cb: ((inlineScript?: InlineScript) => CancelablePromise<void>)[]
 			}
 		>
 	>

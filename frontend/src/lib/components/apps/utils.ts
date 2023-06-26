@@ -227,7 +227,7 @@ declare const iter: {index: number, value: any};
 }
 
 export function getAllScriptNames(app: App): string[] {
-	const names = app.grid.reduce((acc, gridItem: GridItem) => {
+	const names = allItems(app.grid, app?.subgrids).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
 		if (

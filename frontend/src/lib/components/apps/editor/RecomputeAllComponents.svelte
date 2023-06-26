@@ -50,7 +50,7 @@
 		loading = true
 
 		const promises = Object.keys($runnableComponents)
-			.map((id) => {
+			.flatMap((id) => {
 				if (
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
@@ -58,7 +58,7 @@
 					return
 				}
 
-				return $runnableComponents?.[id]?.cb?.()
+				return $runnableComponents?.[id]?.cb?.map((f) => f())
 			})
 			.filter(Boolean)
 

@@ -99,7 +99,7 @@ export async function eval_like(
 		}
 	>,
 	worldStore: World | undefined,
-	runnableComponents: Record<string, { cb?: () => void }>
+	runnableComponents: Record<string, { cb?: (() => void)[] }>
 ) {
 	const proxiedState = new Proxy(state, {
 		set(target, key, value) {
@@ -136,7 +136,7 @@ export async function eval_like(
 			controlComponents[id]?.setTab?.(index)
 		},
 		(id) => {
-			runnableComponents[id]?.cb?.()
+			runnableComponents[id]?.cb?.forEach((f) => f())
 		},
 		(id) => {
 			return controlComponents[id]?.agGrid

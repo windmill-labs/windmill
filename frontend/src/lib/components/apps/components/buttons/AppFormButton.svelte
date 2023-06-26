@@ -110,7 +110,7 @@
 					}}
 					on:click={async () => {
 						if (!runnableComponent) {
-							runnableWrapper?.onSuccess()
+							runnableWrapper?.handleSideEffect(true)
 						} else {
 							await runnableComponent?.runComponent()
 						}
