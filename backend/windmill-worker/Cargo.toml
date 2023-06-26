@@ -51,3 +51,4 @@ git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
 rsmq_async.workspace = true
+tokio-postgres.workspace = true

@@ -2151,7 +2151,7 @@ paths:
                   schema: {}
                   language:
                     type: string
-                    enum: [deno, python3, go, bash]
+                    enum: [deno, python3, go, bash, postgresql]
                   summary:
                     type: string
                 required:
@@ -5531,7 +5531,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash]
+          enum: [python3, deno, go, bash, postgresql]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5730,7 +5730,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "postgresql",
               "graphql",
             ]
         schedule_path:
@@ -5823,7 +5822,6 @@ components:
               "identity",
               "http",
               "graphql",
-              "postgresql",
             ]
         schedule_path:
           type: string
@@ -6273,7 +6271,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [code, identity, graphql, postgresql, http]
+          enum: [code, identity, graphql, http]
 
       required:
         - args
