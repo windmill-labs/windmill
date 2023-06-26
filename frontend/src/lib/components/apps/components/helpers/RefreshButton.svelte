@@ -8,7 +8,7 @@
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function refresh() {
-		await $runnableComponents[componentId]?.cb?.()
+		await $runnableComponents[componentId]?.cb?.map((cb) => cb())
 	}
 </script>
 

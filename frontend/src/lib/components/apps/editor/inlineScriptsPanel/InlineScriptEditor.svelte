@@ -214,7 +214,7 @@
 							inlineScript.content = editor?.getCode() ?? ''
 						}
 						runLoading = true
-						await $runnableComponents[id]?.cb?.(inlineScript)
+						await Promise.all($runnableComponents[id]?.cb?.map((f) => f?.(inlineScript)) ?? [])
 						runLoading = false
 					}}
 					on:change={async (e) => {
@@ -241,7 +241,9 @@
 					lang="javascript"
 					cmdEnterAction={async () => {
 						runLoading = true
-						await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
+						await await Promise.all(
+							$runnableComponents[id]?.cb?.map((f) => f(!transformer ? inlineScript : undefined))
+						)
 						runLoading = false
 					}}
 					on:change={() => {

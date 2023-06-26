@@ -377,7 +377,7 @@
 		$runnableComponents[id] = {
 			autoRefresh: autoRefresh && recomputableByRefreshButton,
 			refreshOnStart: refreshOnStart,
-			cb: cancellableRun
+			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}
 
 		if (!$initialized.initializedComponents.includes(id)) {
@@ -388,7 +388,10 @@
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
-		delete $runnableComponents[id]
+		$runnableComponents[id] = {
+			...$runnableComponents[id],
+			cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
+		}
 		$runnableComponents = $runnableComponents
 	})
 

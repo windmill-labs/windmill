@@ -63,7 +63,7 @@
 			listInputs(id, value)
 		}
 		if (recomputeIds) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 

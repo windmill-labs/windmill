@@ -84,7 +84,7 @@
 		const sideEffect = success ? doOnSuccess : doOnError
 
 		if (recomputeIds && success) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb.map((cb) => cb()))
 		}
 		if (!sideEffect) return
 
