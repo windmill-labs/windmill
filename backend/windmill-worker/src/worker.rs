@@ -12,7 +12,7 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
-use windmill_api_client::Client;
+use windmill_api_client::{Client, types::CompletedJob};
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
@@ -673,7 +673,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
-                    if let Some(err) = handle_queued_job(
+                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
                         &authed_client,
@@ -891,6 +891,21 @@ struct HttpArgs {
     url: String
 }
 
+async fn do_http_req(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
+    let http_args: HttpArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
+    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let res = HTTP_CLIENT.get(http_args.url).send().await.map_err(|e| Error::ExecutionErr(format!("Invalid http request: {e}")))?;
+    let res = if res.headers().get("Content-Type").is_some_and(|x| x == "application/json") {
+        res.json().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?
+    } else {
+        serde_json::Value::String(res.text().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?)
+    };
+    return Ok(JobCompleted {
+        job: job,
+        result: res,
+        logs: "".to_string(),
+    });
+}
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -928,6 +943,13 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .await?;
         }
         _ => {
+            if matches!(job.job_kind, JobKind::Http) {
+                tokio::task::spawn(async move {
+                    let jc = do_http_req(job).await.expect("do http req");
+                    job_completed_tx.send(jc).await.expect("send job completed");           
+                 });
+                 return Ok(());
+            }
             let mut logs = "".to_string();
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
@@ -1016,14 +1038,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
                     },
                     JobKind::Http => {
-                        let http_args: HttpArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
-                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                        let res = HTTP_CLIENT.get(http_args.url).send().await.map_err(|e| Error::ExecutionErr(format!("Invalid http request: {e}")))?;
-                        if res.headers().get("Content-Type").is_some_and(|x| x == "application/json") {
-                            Ok(res.json().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?)
-                        } else {
-                            Ok(serde_json::Value::String(res.text().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?))
-                        }
+                        panic!("should not be here")
                     },
                     JobKind::Graphql => todo!(),
                     JobKind::Postgresql => todo!(),
@@ -1041,7 +1056,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         .await
                     }
                 }
-        };
+            };
 
             //it's a test job, no need to update the db
             if job.workspace_id == "" {
