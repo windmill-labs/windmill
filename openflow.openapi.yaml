@@ -160,7 +160,6 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
-        - $ref: "#/components/schemas/Postgresql"
         - $ref: "#/components/schemas/Http"
         - $ref: "#/components/schemas/Graphql"
       discriminator:
@@ -173,7 +172,6 @@ components:
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
-          postgresql: "#/components/schemas/Postgresql"
           http: "#/components/schemas/Http"
           graphql: "#/components/schemas/Graphql"
 
@@ -343,16 +341,6 @@ components:
         flow:
           type: boolean
 
-      required:
-        - type
-
-    Postgresql:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - postgresql
       required:
         - type
 

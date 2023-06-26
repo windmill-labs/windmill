@@ -190,6 +190,15 @@ while (cont) {
           identity: "itsme",
         },
       };
+    } else if (config.scriptPattern == "postgresql") {
+      payload = {
+        path: "postgresql",
+        language: "postgresql",
+        args: {
+          query: "SELECT email FROM usr",
+          database_url: "postgres://postgres:changeme@localhost:5432/windmill",
+        },
+      };
     } else {
       payload = {
         path: "denosimple",

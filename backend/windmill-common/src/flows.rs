@@ -276,7 +276,6 @@ pub enum FlowModuleValue {
         language: ScriptLang,
     },
     Identity,
-    Postgresql,
     Http,
     Graphql,
 }

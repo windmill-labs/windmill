@@ -1240,7 +1240,6 @@ enum PreviewKind {
     Code,
     Identity,
     Http,
-    Postgresql,
     Graphql,
 }
 #[derive(Deserialize)]
@@ -1977,7 +1976,6 @@ async fn run_preview_job(
             Some(PreviewKind::Identity) => JobPayload::Identity,
             Some(PreviewKind::Http) => JobPayload::Http,
             Some(PreviewKind::Graphql) => JobPayload::Graphql,
-            Some(PreviewKind::Postgresql) => JobPayload::Postgresql,
             _ => JobPayload::Code(RawCode {
                 content: preview.content.unwrap_or_default(),
                 path: preview.path,

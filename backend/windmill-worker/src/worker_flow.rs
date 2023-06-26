@@ -1695,7 +1695,6 @@ async fn compute_next_flow_transform(
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Graphql => trivial_next_job(JobPayload::Graphql),
         FlowModuleValue::Http => trivial_next_job(JobPayload::Http),
-        FlowModuleValue::Postgresql => trivial_next_job(JobPayload::Postgresql),
         FlowModuleValue::Flow { path, .. } => {
             let payload = JobPayload::Flow(path.to_string());
             Ok(NextFlowTransform::Continue(

@@ -114,7 +114,6 @@
 						} else {
 							await runnableComponent?.runComponent()
 						}
-						console.log('close')
 						modal?.close()
 					}}
 					size="xs"

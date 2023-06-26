@@ -12,6 +12,7 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
+use tokio_postgres::NoTls;
 use windmill_api_client::{Client, types::CompletedJob};
 use windmill_parser::Typ;
 use std::{
@@ -64,7 +65,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies},
 };
 
 
@@ -338,7 +339,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Python3),
         Some(ScriptLang::Deno),
         Some(ScriptLang::Go),
-        Some(ScriptLang::Bash)];
+        Some(ScriptLang::Bash),
+        Some(ScriptLang::Postgresql)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
@@ -453,8 +455,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let rsmq2 = rsmq.clone();
     let worker_name2 = worker_name.clone();
     let send_result = tokio::spawn(async move {
-        while let Some(JobCompleted { job, logs, result}) = job_completed_rx.recv().await {
-            if let Err(e) = add_completed_job(&db2, &job, true, false, result, logs, rsmq2.clone()).await {
+        while let Some(JobCompleted { job, logs, result, success}) = job_completed_rx.recv().await {
+            if let Err(e) = add_completed_job(&db2, &job, success, false, result, logs, rsmq2.clone()).await {
                 tracing::error!(worker = %worker_name2, "failed to add completed job: {}", e);
             }
         }
@@ -878,6 +880,7 @@ struct JobCompleted {
     job: QueuedJob,
     result: serde_json::Value,
     logs: String,
+    success: bool
 }
 
 fn hash_args(v: &serde_json::Value) -> i64 {
@@ -890,6 +893,8 @@ fn hash_args(v: &serde_json::Value) -> i64 {
 struct HttpArgs {
     url: String
 }
+
+
 
 async fn do_http_req(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
     let http_args: HttpArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
@@ -904,8 +909,49 @@ async fn do_http_req(job: QueuedJob) -> windmill_common::error::Result<JobComple
         job: job,
         result: res,
         logs: "".to_string(),
+        success: true
     });
 }
+
+#[derive(Deserialize)]
+struct PostgresqlArgs {
+    database_url: String,
+    query: String,
+    args: Option<Vec<String>>,
+}
+async fn do_postgresql(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
+    let pg_args: PostgresqlArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
+    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let (client, connection) =
+    tokio_postgres::connect(&pg_args.database_url, NoTls).await.map_err(to_anyhow)?;
+
+
+    // The connection object performs the actual communication with the database,
+    // so spawn it off to run on its own.
+    let handle = tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    use tokio_postgres::types::ToSql;
+    // Now we can execute a simple statement that just returns its parameter.
+    let rows = client
+    .query(&pg_args.query, &pg_args.args
+        .iter()
+        .map(|x| x as &(dyn ToSql + Sync))
+        .collect::<Vec<&(dyn ToSql + Sync)>>())
+    .await.map_err(to_anyhow)?;
+    handle.abort();
+    // And then check that we got back the same string we sent over.
+    return Ok(JobCompleted {
+        job: job,
+        result: json!(rows.into_iter().map(postgres_row_to_json_value).collect::<Result<Vec<_>, _>>()?),
+        logs: "".to_string(),
+        success: true
+    });
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -945,11 +991,37 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         _ => {
             if matches!(job.job_kind, JobKind::Http) {
                 tokio::task::spawn(async move {
-                    let jc = do_http_req(job).await.expect("do http req");
-                    job_completed_tx.send(jc).await.expect("send job completed");           
-                 });
-                 return Ok(());
+                    let jc = do_http_req(job.clone()).await;
+                    match jc {
+                        Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                        Err(e) => job_completed_tx.send(JobCompleted {
+                            job: job,
+                            result: extract_error_value(&e.to_string(), 1),
+                            logs: "".to_string(),
+                            success: false
+                        }).await.expect("send job completed"),
+                    };
+                    });
+                    return Ok(());      
             }
+            
+            if job.language == Some(ScriptLang::Postgresql) {
+                tokio::task::spawn(async move {
+                    let jc = do_postgresql(job.clone()).await;
+                    match jc {
+                        Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                        Err(e) => job_completed_tx.send(JobCompleted {
+                            job: job,
+                            result: extract_error_value(&e.to_string(), 1),
+                            logs: "".to_string(),
+                            success: false
+                        }).await.expect("send job completed"),
+                    };
+                });
+                return Ok(());     
+            }
+
+
             let mut logs = "".to_string();
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
@@ -1041,7 +1113,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         panic!("should not be here")
                     },
                     JobKind::Graphql => todo!(),
-                    JobKind::Postgresql => todo!(),
                     _ => {
                         handle_code_execution_job(
                             &job,
@@ -1105,7 +1176,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         }
                     } else {
                         // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
-                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs,}).await.expect("send job completed");
+                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs, success: true}).await.expect("send job completed");
                         
                     }
                 }
@@ -1340,7 +1411,7 @@ mount {{
             return Err(Error::ExecutionErr(
                 "Require language to be not null".to_string(),
             ))?;
-        }
+        },
         Some(ScriptLang::Python3) => {
             handle_python_job(
                 requirements_o,
@@ -1402,7 +1473,8 @@ mount {{
                 envs
             )
             .await
-        }
+        },
+        _ => panic!("unreachable"),
     };
     tracing::info!(
         worker_name = %worker_name,
@@ -1924,7 +1996,8 @@ async fn capture_dependency_job(
         ScriptLang::Deno => {
             Ok(String::new())
             // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
-        }
+        },
+        ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
     }
 }
