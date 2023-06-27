@@ -4,6 +4,7 @@ import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
 import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
 import PYTHON_INIT_CODE_TRIGGER from '$lib/init_scripts/python_init_code_trigger'
 import PYTHON_FAILURE_MODULE_CODE from '$lib/init_scripts/python_failure_module'
+import type { SupportedLanguage } from './common'
 
 export {
 	PYTHON_INIT_CODE,
@@ -274,7 +275,7 @@ export function isInitialCode(content: string): boolean {
 }
 
 export function initialCode(
-	language: 'deno' | 'python3' | 'go' | 'bash',
+	language: SupportedLanguage,
 	kind: Script.kind | undefined,
 	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | undefined
 ): string {

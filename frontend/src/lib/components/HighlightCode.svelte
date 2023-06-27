@@ -4,9 +4,10 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import go from 'svelte-highlight/languages/go'
 	import shell from 'svelte-highlight/languages/shell'
+	import type { Script } from '$lib/gen'
 
 	export let code: string = ''
-	export let language: 'python3' | 'deno' | 'go' | 'bash' | undefined
+	export let language: Script.language | undefined
 	export let lines = false
 
 	function getLang(lang: string | undefined) {

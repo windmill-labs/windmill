@@ -1,6 +1,6 @@
 import type { MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
-import type { Schema, SchemaProperty } from './common.js'
+import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
 import { sortObject } from './utils.js'
 import { tick } from 'svelte'
 import init, { parse_deno, parse_bash, parse_go, parse_python } from 'windmill-parser-wasm'
@@ -11,7 +11,7 @@ init(wasmUrl)
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
 export async function inferArgs(
-	language: 'python3' | 'deno' | 'go' | 'bash',
+	language: SupportedLanguage,
 	code: string,
 	schema: Schema
 ): Promise<void> {

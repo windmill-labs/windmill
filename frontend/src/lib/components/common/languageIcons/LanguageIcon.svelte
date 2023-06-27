@@ -25,7 +25,8 @@
 		mysql: MySQLIcon,
 		javascript: JavaScript,
 		fetch: FetchIcon,
-		docker: DockerIcon
+		docker: DockerIcon,
+		postgresql: PostgresIcon
 	}
 </script>
 

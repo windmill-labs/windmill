@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppService, FlowService, type OpenFlow } from '$lib/gen'
+	import { AppService, FlowService, Script, type OpenFlow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -41,7 +41,7 @@
 
 	let codeViewer: Drawer
 	let codeViewerContent: string = ''
-	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
+	let codeViewerLanguage: Script.language = 'deno' as Script.language
 	let codeViewerObj: HubItem | undefined = undefined
 
 	const breakpoint = writable<EditorBreakpoint>('lg')

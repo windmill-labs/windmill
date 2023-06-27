@@ -35,10 +35,10 @@
 	import Toggle from './Toggle.svelte'
 	import { Link, Users } from 'lucide-svelte'
 	import { capitalize } from '$lib/utils'
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 
-	export let lang: 'python3' | 'deno' | 'go' | 'bash'
+	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
 	export let websocketAlive: {
 		pyright: boolean
@@ -64,8 +64,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeObj: { language: 'python3' | 'deno' | 'go' | 'bash'; content: string } | undefined =
-		undefined
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
