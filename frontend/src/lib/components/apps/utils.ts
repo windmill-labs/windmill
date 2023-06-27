@@ -1,4 +1,4 @@
-import type { Schema } from '$lib/common'
+import type { Schema, SupportedLanguage } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
@@ -70,7 +70,7 @@ export async function loadSchema(
 			script.schema = emptySchema()
 		}
 
-		await inferArgs(script.language, script.content, script.schema)
+		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
 		return { schema: script.schema, summary: script.summary }
 	}
 }

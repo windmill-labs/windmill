@@ -14,6 +14,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code2, Globe } from 'lucide-svelte'
+	import type { SupportedLanguage } from '$lib/common'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -27,7 +28,7 @@
 	let drawerViewer: Drawer
 	let drawerFlowViewer: Drawer
 	let code: string = ''
-	let lang: 'deno' | 'python3' | 'go' | 'bash' | undefined
+	let lang: SupportedLanguage | undefined
 
 	let options: [[string, any, any]] = [['Script', 'script', Code2]]
 	allowHub && options.unshift(['Hub', 'hub', Globe])

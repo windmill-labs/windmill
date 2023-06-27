@@ -28,6 +28,7 @@
 		{/each}
 	</select>
 {:else}
+	<!-- svelte-ignore a11y-autofocus -->
 	<input
 		{autofocus}
 		on:focus

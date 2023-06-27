@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import type { Schema } from '$lib/common'
+	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
@@ -97,7 +97,7 @@
 		})
 	}
 
-	export async function inferSchema(code: string, nlang?: 'go' | 'bash' | 'python3' | 'deno') {
+	export async function inferSchema(code: string, nlang?: SupportedLanguage) {
 		let nschema = schema ?? emptySchema()
 
 		try {
