@@ -204,6 +204,7 @@ export function getRecommendedDimensionsByComponent(
 export type AppComponentConfig<T extends TypedComponent['type']> = {
 	name: string
 	icon: any
+	documentationLink: string
 	/**
 	 * Dimensions key formula:
 	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
@@ -404,10 +405,14 @@ const paginationOneOf = {
 	}
 } as const
 
+const documentationBaseUrl =
+	'https://www.windmill.dev/docs/apps/app_configuration-settings/app_component_library'
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#rich-result`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -425,6 +430,7 @@ export const components = {
 	logcomponent: {
 		name: 'Log',
 		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#log-display`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -443,6 +449,7 @@ export const components = {
 	flowstatuscomponent: {
 		name: 'Flow Status',
 		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#flow-status`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -461,8 +468,8 @@ export const components = {
 	containercomponent: {
 		name: 'Container',
 		icon: BoxSelect,
+		documentationLink: `${documentationBaseUrl}#container`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -475,8 +482,8 @@ export const components = {
 	listcomponent: {
 		name: 'List',
 		icon: ListIcon,
+		documentationLink: `${documentationBaseUrl}#list`,
 		dims: '3:8-12:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -521,7 +528,7 @@ export const components = {
 		name: 'Text',
 		icon: Type,
 		dims: '1:1-3:1' as AppComponentDimensions,
-
+		documentationLink: `${documentationBaseUrl}#text`,
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -562,7 +569,7 @@ export const components = {
 		name: 'Button',
 		icon: Inspect,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
+		documentationLink: `${documentationBaseUrl}#button`,
 		customCss: {
 			button: { style: '', class: '' },
 			container: { style: '', class: '' }
@@ -635,8 +642,8 @@ export const components = {
 	downloadcomponent: {
 		name: 'Download Button',
 		icon: Download,
+		documentationLink: `${documentationBaseUrl}#download-button`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			button: { style: '', class: '' }
 		},
@@ -700,6 +707,7 @@ export const components = {
 	formcomponent: {
 		name: 'Submit form',
 		icon: FormInput,
+		documentationLink: `${documentationBaseUrl}#submit-form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -741,6 +749,7 @@ export const components = {
 	formbuttoncomponent: {
 		name: 'Modal Form',
 		icon: PlusSquare,
+		documentationLink: `${documentationBaseUrl}#modal-form`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
@@ -795,6 +804,7 @@ export const components = {
 	piechartcomponent: {
 		name: 'Pie Chart',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#pie-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -825,6 +835,7 @@ export const components = {
 	chartjscomponent: {
 		name: 'ChartJs',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -863,6 +874,7 @@ export const components = {
 	barchartcomponent: {
 		name: 'Bar/Line Chart',
 		icon: BarChart4,
+		documentationLink: `${documentationBaseUrl}#barline-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -893,8 +905,8 @@ export const components = {
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
+		documentationLink: `${documentationBaseUrl}#html`,
 		dims: '1:2-1:2' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -915,8 +927,8 @@ Hello \${ctx.username}
 	vegalitecomponent: {
 		name: 'Vega Lite',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#vega-lite`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -952,8 +964,8 @@ Hello \${ctx.username}
 	plotlycomponent: {
 		name: 'Plotly',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#plotly`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -986,6 +998,7 @@ Hello \${ctx.username}
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal,
+		documentationLink: `${documentationBaseUrl}#timeseries`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1059,6 +1072,7 @@ Hello \${ctx.username}
 	scatterchartcomponent: {
 		name: 'Scatter Chart',
 		icon: GripHorizontal,
+		documentationLink: `${documentationBaseUrl}#scatter-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1108,6 +1122,7 @@ Hello \${ctx.username}
 	tablecomponent: {
 		name: 'Table',
 		icon: Table2,
+		documentationLink: `${documentationBaseUrl}#table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1158,6 +1173,7 @@ Hello \${ctx.username}
 	aggridcomponent: {
 		name: 'AgGrid Table',
 		icon: Table2,
+		documentationLink: `${documentationBaseUrl}#aggrid-table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -1232,8 +1248,8 @@ Hello \${ctx.username}
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
+		documentationLink: `${documentationBaseUrl}#toggle`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -1258,8 +1274,8 @@ Hello \${ctx.username}
 	textinputcomponent: {
 		name: 'Text Input',
 		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#text-input`,
 		dims: '2:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1284,6 +1300,7 @@ Hello \${ctx.username}
 	quillcomponent: {
 		name: 'Rich Text Editor',
 		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
 		dims: '2:1-2:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1308,8 +1325,8 @@ Hello \${ctx.username}
 	textareainputcomponent: {
 		name: 'Textarea',
 		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#textarea`,
 		dims: '2:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1333,8 +1350,8 @@ Hello \${ctx.username}
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: {
 				style: '',
@@ -1394,8 +1411,8 @@ Hello \${ctx.username}
 	multiselectcomponent: {
 		name: 'Multi Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#multiselect`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			multiselect: {
 				style: '',
@@ -1446,8 +1463,8 @@ Hello \${ctx.username}
 	resourceselectcomponent: {
 		name: 'Resource Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#resource-select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { style: '' }
 		},
@@ -1480,8 +1497,8 @@ Hello \${ctx.username}
 	numberinputcomponent: {
 		name: 'Number',
 		icon: Binary,
+		documentationLink: `${documentationBaseUrl}#number-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1522,8 +1539,8 @@ Hello \${ctx.username}
 	currencycomponent: {
 		name: 'Currency',
 		icon: DollarSign,
+		documentationLink: `${documentationBaseUrl}#currency-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1563,8 +1580,8 @@ Hello \${ctx.username}
 	slidercomponent: {
 		name: 'Slider',
 		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}#slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
-
 		customCss: {
 			bar: { style: '' },
 			handle: { style: '' },
@@ -1608,8 +1625,8 @@ Hello \${ctx.username}
 	rangecomponent: {
 		name: 'Range',
 		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}#range`,
 		dims: '3:2-4:2' as AppComponentDimensions,
-
 		customCss: {
 			handles: { style: '' },
 			bar: { style: '' },
@@ -1652,8 +1669,8 @@ Hello \${ctx.username}
 	passwordinputcomponent: {
 		name: 'Password',
 		icon: Lock,
+		documentationLink: `${documentationBaseUrl}#password-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1673,8 +1690,8 @@ Hello \${ctx.username}
 	emailinputcomponent: {
 		name: 'Email Input',
 		icon: AtSignIcon,
+		documentationLink: `${documentationBaseUrl}#email-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1699,8 +1716,8 @@ Hello \${ctx.username}
 	dateinputcomponent: {
 		name: 'Date',
 		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}#date-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1729,8 +1746,8 @@ Hello \${ctx.username}
 	tabscomponent: {
 		name: 'Tabs',
 		icon: ListOrdered,
+		documentationLink: `${documentationBaseUrl}#tabs-2`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -1756,8 +1773,8 @@ Hello \${ctx.username}
 	steppercomponent: {
 		name: 'Stepper',
 		icon: ListOrdered,
+		documentationLink: `${documentationBaseUrl}#stepper`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1776,8 +1793,8 @@ Hello \${ctx.username}
 	iconcomponent: {
 		name: 'Icon',
 		icon: Smile,
+		documentationLink: `${documentationBaseUrl}#icon`,
 		dims: '1:3-1:2' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' },
 			icon: { class: '', style: '' }
@@ -1818,6 +1835,7 @@ Hello \${ctx.username}
 	horizontaldividercomponent: {
 		name: 'Divider X',
 		icon: SeparatorHorizontal,
+		documentationLink: `${documentationBaseUrl}#divider-x`,
 		dims: '3:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1853,6 +1871,7 @@ Hello \${ctx.username}
 	verticaldividercomponent: {
 		name: 'Divider Y',
 		icon: SeparatorVertical,
+		documentationLink: `${documentationBaseUrl}#divider-y`,
 		dims: '1:4-1:6' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1884,6 +1903,7 @@ Hello \${ctx.username}
 	fileinputcomponent: {
 		name: 'File Input',
 		icon: Paperclip,
+		documentationLink: `${documentationBaseUrl}#file-input`,
 		dims: '3:4-6:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1916,6 +1936,7 @@ Hello \${ctx.username}
 	imagecomponent: {
 		name: 'Image',
 		icon: Image,
+		documentationLink: `${documentationBaseUrl}#image`,
 		dims: '3:4-5:4' as AppComponentDimensions,
 		customCss: {
 			image: { class: '', style: '' }
@@ -1954,8 +1975,8 @@ Hello \${ctx.username}
 	drawercomponent: {
 		name: 'Drawer',
 		icon: SidebarClose,
+		documentationLink: `${documentationBaseUrl}#drawer`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			button: { style: '', class: '' },
 			container: { class: '', style: '' }
@@ -2011,6 +2032,7 @@ Hello \${ctx.username}
 	mapcomponent: {
 		name: 'Map',
 		icon: MapPin,
+		documentationLink: `${documentationBaseUrl}#map`,
 		dims: '3:6-6:10' as AppComponentDimensions,
 		customCss: {
 			map: { class: '', style: '' }
@@ -2064,8 +2086,8 @@ Hello \${ctx.username}
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
+		documentationLink: `${documentationBaseUrl}#vertical-split-panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -2079,8 +2101,8 @@ Hello \${ctx.username}
 	horizontalsplitpanescomponent: {
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
+		documentationLink: `${documentationBaseUrl}#horizontal-split-panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -2094,6 +2116,7 @@ Hello \${ctx.username}
 	pdfcomponent: {
 		name: 'PDF',
 		icon: FileText,
+		documentationLink: `${documentationBaseUrl}#pdf`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2122,6 +2145,7 @@ Hello \${ctx.username}
 	modalcomponent: {
 		name: 'Modal',
 		icon: SidebarClose,
+		documentationLink: `${documentationBaseUrl}#modal-layout`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
@@ -2179,6 +2203,7 @@ Hello \${ctx.username}
 	schemaformcomponent: {
 		name: 'Form',
 		icon: FileText,
+		documentationLink: `${documentationBaseUrl}#form-input`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -2221,8 +2246,8 @@ Hello \${ctx.username}
 	selecttabcomponent: {
 		name: 'Select Tab',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#select-tab`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -2261,8 +2286,8 @@ Hello \${ctx.username}
 	selectstepcomponent: {
 		name: 'Select Step',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#select-step`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -2292,8 +2317,8 @@ Hello \${ctx.username}
 	conditionalwrapper: {
 		name: 'Conditional tabs',
 		icon: Split,
+		documentationLink: `${documentationBaseUrl}#conditional-tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
