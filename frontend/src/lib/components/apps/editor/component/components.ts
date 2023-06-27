@@ -204,6 +204,7 @@ export function getRecommendedDimensionsByComponent(
 export type AppComponentConfig<T extends TypedComponent['type']> = {
 	name: string
 	icon: any
+	documentationLink: string
 	/**
 	 * Dimensions key formula:
 	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
