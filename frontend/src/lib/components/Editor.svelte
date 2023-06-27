@@ -65,7 +65,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'postgresql'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined

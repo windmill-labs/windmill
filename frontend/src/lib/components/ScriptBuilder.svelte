@@ -120,7 +120,7 @@
 	}
 
 	function initContent(
-		language: 'deno' | 'python3' | 'go' | 'bash',
+		language: SupportedLanguage,
 		kind: Script.kind | undefined,
 		template: 'pgsql' | 'mysql' | 'script' | 'docker'
 	) {

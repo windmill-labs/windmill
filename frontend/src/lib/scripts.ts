@@ -22,7 +22,7 @@ export async function loadSchema(path: string, hash?: string): Promise<Schema> {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 		if (language == 'deno') {
 			const newSchema = emptySchema()
-			await inferArgs('deno', content ?? '', newSchema)
+			await inferArgs('deno' as SupportedLanguage, content ?? '', newSchema)
 			return newSchema
 		} else {
 			return schema ?? emptySchema()
