@@ -16,7 +16,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents } from '../component'
+	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -26,7 +26,7 @@
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { secondaryMenu } from './secondaryMenu'
 	import StylePanel from './StylePanel.svelte'
-	import { Delete } from 'lucide-svelte'
+	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 
@@ -132,6 +132,22 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
+	<div class="flex justify-between items-center px-3 py-2 bg-gray-100">
+		<div class="text-xs text-gray-900 font-semibold"
+			>{components[componentSettings.item.data.type].name}</div
+		>
+		<a
+			href={components[componentSettings.item.data.type].documentationLink}
+			target="_blank"
+			class="text-frost-500 font-semibold text-xs"
+		>
+			<div class="flex flex-row gap-2">
+				See documentation
+				<ExternalLink size="16" />
+			</div>
+		</a>
+	</div>
+
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
