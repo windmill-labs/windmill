@@ -93,7 +93,8 @@
 			>
 			{#if Object.keys(resources).length > 0}
 				<Alert type="error" title="Missing resources" class="m-4">
-					The following resources are missing. They are required by the steps below.
+					The following resources are missing and the flow will not be fully runnable until they are
+					set. Add your own resources:
 					{#each Object.entries(resources) as [id, r]}
 						{#each r as resource}
 							<div class="mt-2">
