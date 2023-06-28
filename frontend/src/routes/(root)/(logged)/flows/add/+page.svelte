@@ -96,7 +96,7 @@
 				Object.assign(flow, hub.flow)
 				flow = flow
 				goto('?', { replaceState: true })
-				selectedId = 'settings-metadata'
+				selectedId = 'constants'
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)

@@ -13,14 +13,50 @@
 	let hideOptional = false
 	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: steps = (
-		dfs($flowStore.value.modules, (x) => x)
-			.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
-			.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript') as [
-			PathScript | RawScript,
-			FlowModule
-		][]
-	)
+	$: scriptModules = dfs($flowStore.value.modules, (x) => x)
+		.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
+		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript') as [
+		PathScript | RawScript,
+		FlowModule
+	][]
+
+	$: resources = Object.fromEntries(
+		scriptModules
+			.map(([v, m]) => [
+				m.id,
+				Object.entries(v.input_transforms)
+					.map((x) => {
+						let schema = $flowStateStore[m.id]?.schema
+						let val: { argName: string; type: string } | undefined = undefined
+
+						const [k, inputTransform] = x
+						const v = schema.properties[k]
+
+						if (
+							v.format?.includes('resource') &&
+							inputTransform.type === 'static' &&
+							(inputTransform.value === '' ||
+								inputTransform.value === undefined ||
+								inputTransform.value === null)
+						) {
+							val = {
+								argName: k,
+								type: v.format.split('-')[1]
+							}
+						}
+						return val
+					})
+					.filter(Boolean)
+			])
+			.filter((x) => x[1].length > 0)
+	) as {
+		[k: string]: {
+			argName: string
+			type: string
+		}[]
+	}
+
+	$: steps = scriptModules
 		.map(
 			([v, m]) =>
 				[
@@ -55,6 +91,20 @@
 				useful when forking a flow to get an overview of all the variables to parametrize that are
 				not exposed directly as flow inputs.</Alert
 			>
+			{#if Object.keys(resources).length > 0}
+				<Alert type="error" title="Missing resources" class="m-4">
+					The following resources are missing. They are required by the steps below.
+					{#each Object.entries(resources) as [id, r]}
+						{#each r as resource}
+							<div class="mt-2">
+								<Badge color="dark-red">{id}</Badge> is missing a resource of type{' '}
+								<Badge color="dark-red">{resource?.type}</Badge> for the input{' '}
+								<Badge color="dark-red">{resource?.argName}</Badge>
+							</div>
+						{/each}
+					{/each}
+				</Alert>
+			{/if}
 			{#if steps.length == 0}
 				<div class="mt-2" />
 				{#if $flowStore.value.modules.length == 0}
