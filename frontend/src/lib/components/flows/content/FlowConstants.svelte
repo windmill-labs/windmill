@@ -92,15 +92,15 @@
 				not exposed directly as flow inputs.</Alert
 			>
 			{#if Object.keys(resources).length > 0}
-				<Alert type="error" title="Missing resources" class="m-4">
+				<Alert type="warning" title="Missing resources" class="m-4">
 					The following resources are missing and the flow will not be fully runnable until they are
 					set. Add your own resources:
 					{#each Object.entries(resources) as [id, r]}
 						{#each r as resource}
 							<div class="mt-2">
-								<Badge color="dark-red">{id}</Badge> is missing a resource of type{' '}
-								<Badge color="dark-red">{resource?.type}</Badge> for the input{' '}
-								<Badge color="dark-red">{resource?.argName}</Badge>
+								<Badge color="red">{id}</Badge> is missing a resource of type{' '}
+								<Badge color="red">{resource?.type}</Badge> for the input{' '}
+								<Badge color="red">{resource?.argName}</Badge>
 							</div>
 						{/each}
 					{/each}
