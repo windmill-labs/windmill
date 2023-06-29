@@ -105,7 +105,7 @@
 
 	function validateInput(pattern: string | undefined, v: any): void {
 		if (required && (v == undefined || v == null || v === '')) {
-			error = 'This field is required'
+			error = 'Required'
 			valid = false
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
