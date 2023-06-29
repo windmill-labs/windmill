@@ -14,7 +14,7 @@ use crate::{
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT,
+    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT, SMTP_FROM,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -1236,16 +1236,6 @@ async fn add_user_to_workspace<'c>(
         None,
     )
     .await?;
-    send_email_if_possible(
-        &format!("Added to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id}
-
-If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            *BASE_URL
-        ),
-        &email,
-    );
     Ok(tx)
 }
 
@@ -1470,7 +1460,7 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
     if let Some(ref smtp) = *SMTP_CLIENT {
         let message = MessageBuilder::new()
-            .from(("Windmill", "noreply@getwindmill.com"))
+            .from(("Windmill", SMTP_FROM.as_str()))
             .to(to)
             .subject(subject)
             .text_body(content);
@@ -1480,6 +1470,7 @@ pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &st
             .send(message)
             .await
             .map_err(to_anyhow)?;
+        tracing::info!("Sent email to {to}: {subject}");
     }
     return Ok(());
 }

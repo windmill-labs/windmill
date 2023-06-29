@@ -107,6 +107,8 @@ lazy_static::lazy_static! {
         }
     };
 
+    pub static ref SMTP_FROM: String = std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@getwindmill.com".to_string());
+
     pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
 }
 

@@ -27,7 +27,7 @@ use windmill_worker::{
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
-const DEFAULT_NUM_WORKERS: usize = 3;
+const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
@@ -45,6 +45,9 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
+    if num_workers > 1 {
+        tracing::warn!("We recommend using at most 1 worker per container, use more only if you know what you are doing.");
+    }
     let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
     let server_mode = !std::env::var("DISABLE_SERVER")
