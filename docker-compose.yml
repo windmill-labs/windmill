@@ -56,7 +56,7 @@ services:
       - NUM_WORKERS=1
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
-      - METRICS_ADDR=true
+      - METRICS_ADDR=false
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
