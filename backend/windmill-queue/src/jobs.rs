@@ -6,7 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, vec};
+use std::{
+    collections::HashMap,
+    time::{Instant, SystemTime},
+    vec,
+};
 
 use async_recursion::async_recursion;
 use itertools::Itertools;
@@ -28,6 +32,7 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
+    utils::rd_string,
     METRICS_ENABLED,
 };
 
@@ -543,12 +548,16 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         }
     }
 
+    // let rs = rd_string(2);
+    // let instant = Instant::now();
+
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
         let msg = rsmq
             .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
+        // println!("3.1: {:?} {rs}", instant.elapsed());
 
         if let Some(msg) = msg {
             let uuid = Uuid::from_bytes_le(
@@ -606,6 +615,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         .fetch_optional(db)
         .await?
     };
+    // println!("3.2: {:?} {rs}", instant.elapsed());
 
     if job.is_some() && *METRICS_ENABLED {
         QUEUE_PULL_COUNT.inc();
@@ -948,6 +958,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
             JobPayload::Graphql => (None, None, None, JobKind::Graphql, None, None),
             JobPayload::Http => (None, None, None, JobKind::Http, None, None),
+            JobPayload::Noop => (None, None, None, JobKind::Noop, None, None),
         };
 
     let is_running = same_worker;
@@ -1081,6 +1092,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
             JobKind::Http => "jobs.run.http",
+            JobKind::Noop => "jobs.run.noop",
             JobKind::Graphql => "jobs.run.graphql",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };

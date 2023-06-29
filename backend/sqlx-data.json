@@ -443,6 +443,26 @@
     },
     "query": "DELETE FROM workspace_invite WHERE\n        workspace_id = $1 AND email = $2 AND is_admin = $3 AND operator = $4"
   },
+  "0cf42f7e76fe01e6a9a20499b2228d76a1919b8b4050afedb2459be083a4ad4d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)"
+  },
   "0d6412bc3ebb1d58bdd9cbcef774dacf9016fa402af5c1b4e339b9a3d7163d5e": {
     "describe": {
       "columns": [
@@ -803,7 +823,11 @@
                   "flowpreview",
                   "script_hub",
                   "identity",
-                  "flowdependencies"
+                  "flowdependencies",
+                  "http",
+                  "graphql",
+                  "postgresql",
+                  "noop"
                 ]
               },
               "name": "job_kind"
@@ -1174,7 +1198,11 @@
                   "flowpreview",
                   "script_hub",
                   "identity",
-                  "flowdependencies"
+                  "flowdependencies",
+                  "http",
+                  "graphql",
+                  "postgresql",
+                  "noop"
                 ]
               },
               "name": "job_kind"
@@ -1193,7 +1221,8 @@
                   "python3",
                   "deno",
                   "go",
-                  "bash"
+                  "bash",
+                  "postgresql"
                 ]
               },
               "name": "script_lang"
@@ -2055,7 +2084,11 @@
                   "flowpreview",
                   "script_hub",
                   "identity",
-                  "flowdependencies"
+                  "flowdependencies",
+                  "http",
+                  "graphql",
+                  "postgresql",
+                  "noop"
                 ]
               },
               "name": "job_kind"
@@ -2072,7 +2105,8 @@
                   "python3",
                   "deno",
                   "go",
-                  "bash"
+                  "bash",
+                  "postgresql"
                 ]
               },
               "name": "script_lang"
@@ -2739,7 +2773,8 @@
                   "python3",
                   "deno",
                   "go",
-                  "bash"
+                  "bash",
+                  "postgresql"
                 ]
               },
               "name": "script_lang"
@@ -3846,7 +3881,8 @@
                   "python3",
                   "deno",
                   "go",
-                  "bash"
+                  "bash",
+                  "postgresql"
                 ]
               },
               "name": "script_lang"
@@ -7326,7 +7362,11 @@
                   "flowpreview",
                   "script_hub",
                   "identity",
-                  "flowdependencies"
+                  "flowdependencies",
+                  "http",
+                  "graphql",
+                  "postgresql",
+                  "noop"
                 ]
               },
               "name": "job_kind"
@@ -7343,7 +7383,11 @@
                   "flowpreview",
                   "script_hub",
                   "identity",
-                  "flowdependencies"
+                  "flowdependencies",
+                  "http",
+                  "graphql",
+                  "postgresql",
+                  "noop"
                 ]
               },
               "name": "job_kind"

@@ -9,6 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     users::{check_scopes, require_owner_of_path, Authed, OptAuthed},
+    utils::require_super_admin,
     variables::get_workspace_key,
     BASE_URL,
 };
@@ -76,6 +77,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
+        .route("/add_noop_jobs/:n", post(add_noop_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
@@ -1241,6 +1243,7 @@ enum PreviewKind {
     Identity,
     Http,
     Graphql,
+    Noop,
 }
 #[derive(Deserialize)]
 struct Preview {
@@ -1976,6 +1979,7 @@ async fn run_preview_job(
             Some(PreviewKind::Identity) => JobPayload::Identity,
             Some(PreviewKind::Http) => JobPayload::Http,
             Some(PreviewKind::Graphql) => JobPayload::Graphql,
+            Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
                 content: preview.content.unwrap_or_default(),
                 path: preview.path,
@@ -2004,6 +2008,44 @@ async fn run_preview_job(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+async fn add_noop_jobs(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((w_id, n)): Path<(String, i32)>,
+) -> error::JsonResult<Vec<String>> {
+    require_super_admin(&mut db.begin().await?, &authed.email).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+
+    let mut uuids: Vec<String> = Vec::new();
+    for _ in 0..n {
+        let (uuid, ntx) = push(
+            tx,
+            &w_id,
+            JobPayload::Noop,
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+        )
+        .await?;
+        tx = ntx;
+        uuids.push(uuid.to_string());
+    }
+    tx.commit().await?;
+
+    Ok(Json(uuids))
+}
 async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,

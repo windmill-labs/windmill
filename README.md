@@ -62,6 +62,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [Postgres without superuser](#postgres-without-superuser)
     - [Commercial license](#commercial-license)
     - [OAuth for self-hosting](#oauth-for-self-hosting)
+    - [smtp for self-hostring](#smtp-for-self-hostring)
     - [Resource types](#resource-types)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
@@ -296,6 +297,19 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
 }
 ```
 
+### smtp for self-hostring
+
+For users to receive emails when you invite them to workspaces or add them to
+the instances using their emails, configure the SMTP env variables in the
+servers:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=ruben@windmill.dev
+SMTP_PASSWORD=yourpasswordapp
+```
+
 ### Resource types
 
 You will also want to import all the approved resource types from
@@ -365,6 +379,11 @@ it being synced automatically everyday.
 | HTTP_PROXY                          | None                                       | http_proxy                                                                                                                                                                                         | Server + Worker       |
 | HTTPS_PROXY                         | None                                       | https_proxy                                                                                                                                                                                        | Server + Worker       |
 | NO_PROXY                            | None                                       | no_proxy                                                                                                                                                                                           | Server + Worker       |
+| SMTP_HOST                           | None                                       | host for the smtp server to send invite emails                                                                                                                                                     | Server                |
+| SMTP_PORT                           | 587                                        | port for the smtp server to send invite emails                                                                                                                                                     | Server                |
+| SMTP_USERNAME                       | None                                       | username for the smtp server to send invite emails                                                                                                                                                 | Server                |
+| SMTP_PASSWORD                       | None                                       | password for the smtp server to send invite emails                                                                                                                                                 | Server                |
+| SMTP_TLS_IMPLICIT                   | false                                      | https://docs.rs/mail-send/latest/mail_send/struct.SmtpClientBuilder.html#method.implicit_tlsemails                                                                                                 | Server                |
 
 ## Run a local dev setup
 
