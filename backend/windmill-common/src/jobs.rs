@@ -25,6 +25,7 @@ pub enum JobKind {
     FlowDependencies,
     Http,
     Graphql,
+    Noop,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -160,6 +161,7 @@ pub enum JobPayload {
     Identity,
     Http,
     Graphql,
+    Noop,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

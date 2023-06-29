@@ -20,6 +20,7 @@ use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::Method;
+use mail_send::SmtpClientBuilder;
 use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
@@ -90,7 +91,46 @@ lazy_static::lazy_static! {
         .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
         .unwrap();
 
+    pub static ref SMTP_CLIENT: Option<SmtpClientBuilder<String>> = {
+        let smtp = parse_smtp();
+        if let Some(smtp) = smtp {
+            match smtp {
+                Ok(smtp) => Some(smtp),
+                Err(e) => {
+                    tracing::error!("SMTP is not configured correctly, emails will not be sent: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::warn!("SMTP is not configured, emails will not be sent");
+            None
+        }
+    };
+
     pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
+}
+
+pub fn parse_smtp() -> Option<windmill_common::error::Result<SmtpClientBuilder<String>>> {
+    let username = std::env::var("SMTP_USERNAME").ok();
+    let port = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(587);
+    let password = std::env::var("SMTP_PASSWORD").ok();
+    let host = std::env::var("SMTP_HOST").ok();
+    let tls_implicit = std::env::var("SMTP_TLS_IMPLICIT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(false);
+
+    if username.is_some() && password.is_some() && host.is_some() {
+        let smtp = SmtpClientBuilder::new(host.unwrap(), port)
+            .implicit_tls(tls_implicit)
+            .credentials((username.unwrap(), password.unwrap()));
+        Some(Ok(smtp))
+    } else {
+        None
+    }
 }
 
 pub async fn run_server(

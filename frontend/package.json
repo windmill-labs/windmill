@@ -1,5 +1,5 @@
 {
-	"name": "windmill",
+	"name": "windmill-components",
 	"version": "1.122.0",
 	"scripts": {
 		"dev": "vite dev",
@@ -246,9 +246,9 @@
 			"types": "./package/components/apps/editor/inlineScriptsPanel/utils.d.ts",
 			"default": "./package/components/apps/editor/inlineScriptsPanel/utils.js"
 		},
-		"./gen/OpenAPI": {
-			"types": "./package/gen/OpenAPI.d.ts",
-			"default": "./package/gen/OpenAPI.js"
+		"./gen/core/OpenAPI": {
+			"types": "./package/gen/core/OpenAPI.d.ts",
+			"default": "./package/gen/core/OpenAPI.js"
 		}
 	},
 	"files": [
@@ -343,8 +343,8 @@
 			"components/apps/editor/inlineScriptsPanel/utils": [
 				"./package/components/apps/editor/inlineScriptsPanel/utils.d.ts"
 			],
-			"gen/OpenAPI": [
-				"./package/gen/OpenAPI.d.ts"
+			"gen/core/OpenAPI": [
+				"./package/gen/core/OpenAPI.d.ts"
 			]
 		}
 	}

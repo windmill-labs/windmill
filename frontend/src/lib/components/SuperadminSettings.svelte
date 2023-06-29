@@ -56,8 +56,9 @@
 
 				<PageHeader title="All global users" primary={false} />
 
-				<div class="pb-1" />
-				<InviteGlobalUser on:new={listUsers} />
+				<div class="p-2 border mb-4">
+					<InviteGlobalUser on:new={listUsers} />
+				</div>
 				<div class="pb-1" />
 
 				<input placeholder="Search users" bind:value={filter} class="input mt-1" />
@@ -96,7 +97,7 @@
 													})
 													sendUserToast('User updated')
 													listUsers()
-												}}>{super_admin ? 'non-superadmin' : 'superadmin'}</button
+												}}>make {super_admin ? 'non-superadmin' : 'superadmin'}</button
 											>
 											|
 											<button

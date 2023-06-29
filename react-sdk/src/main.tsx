@@ -6,7 +6,6 @@ import { workspaceStore, userStore } from "windmill-components/stores";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { writable } from "svelte/store";
-
 // To be able to test flows and run scripts, or get the app
 // you will need to:
 // 1. have a backend

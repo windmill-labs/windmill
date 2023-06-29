@@ -104,11 +104,11 @@
 
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
-				goto('/')
-				return
-			}
-			if (rd?.startsWith('/user/workspaces')) {
+				goto(rd ?? '/')
+			} else if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
+			} else if (rd == '/#user-settings') {
+				goto(`/user/workspaces#user-settings`)
 			} else {
 				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 			}
@@ -117,7 +117,7 @@
 
 	async function loadLogins() {
 		logins = await OauthService.listOAuthLogins()
-		showPassword = logins.length == 0
+		showPassword = logins.length == 0 || (email != undefined && email.length > 0)
 	}
 
 	onMount(async () => {

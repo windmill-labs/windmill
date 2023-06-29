@@ -75,6 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/connect_slack_callback", post(connect_slack_callback))
 }
 
+#[derive(Debug)]
 pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
@@ -105,6 +106,8 @@ pub struct OAuthClient {
     connect_config: Option<OAuthConfig>,
     login_config: Option<OAuthConfig>,
 }
+
+#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,

@@ -114,13 +114,7 @@ magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = "0.2.0"
 cron = "^0"
-lettre = { version = "^0", features = [
-    "rustls-tls",
-    "tokio1",
-    "tokio1-rustls-tls",
-    "builder",
-    "smtp-transport",
-], default-features = false }
+mail-send = "0.4.0"
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
