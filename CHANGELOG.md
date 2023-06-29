@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.123.0](https://github.com/windmill-labs/windmill/compare/v1.122.0...v1.123.0) (2023-06-29)
+
+
+### Features
+
+* cancel non-yet-running jobs and rework force cancellation ([4763242](https://github.com/windmill-labs/windmill/commit/4763242780fcc65aca857d0e476d19e7ba5f5bb7))
+* **frontend:** Add documentation link in the component settings ([#1773](https://github.com/windmill-labs/windmill/issues/1773)) ([3b25fd9](https://github.com/windmill-labs/windmill/commit/3b25fd9748c958e41e84cdbeede0f259fc46593d))
+* **frontend:** add resources warning ([#1776](https://github.com/windmill-labs/windmill/issues/1776)) ([a8af158](https://github.com/windmill-labs/windmill/commit/a8af158b9f9c4f0bb3f7d3a7f7d0f86238919d07))
+* smtp support to invite users ([#1777](https://github.com/windmill-labs/windmill/issues/1777)) ([7851e93](https://github.com/windmill-labs/windmill/commit/7851e932eca9904c1e192a9bea9ae4002a46fdf2))
+
+
+### Bug Fixes
+
+* **frontend:** Fix typing ([#1774](https://github.com/windmill-labs/windmill/issues/1774)) ([99d19f6](https://github.com/windmill-labs/windmill/commit/99d19f6c36b6cd03bebb2ca6af01ca506a0cf5cc))
+* improve list component force recompute ([13e049a](https://github.com/windmill-labs/windmill/commit/13e049af60d25c8bac05be6c87a850447b1d9d31))
+
 ## [1.122.0](https://github.com/windmill-labs/windmill/compare/v1.121.0...v1.122.0) (2023-06-23)
 
 
