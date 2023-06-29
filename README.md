@@ -62,6 +62,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [Postgres without superuser](#postgres-without-superuser)
     - [Commercial license](#commercial-license)
     - [OAuth for self-hosting](#oauth-for-self-hosting)
+    - [smtp for self-hostring](#smtp-for-self-hostring)
     - [Resource types](#resource-types)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
@@ -294,6 +295,19 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
     }
   }
 }
+```
+
+### smtp for self-hostring
+
+For users to receive emails when you invite them to workspaces or add them to
+the instances using their emails, configure the SMTP env variables in the
+servers:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=ruben@windmill.dev
+SMTP_PASSWORD=yourpasswordapp
 ```
 
 ### Resource types
