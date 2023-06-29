@@ -1,4 +1,6 @@
 <script>
+	// @ts-nocheck
+
 	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
@@ -26,11 +28,11 @@
 	export let multiFullItemClearable = false
 	export let disabled = false
 	export let focused = false
-	export let value = null
+	export let value = undefined
 	export let filterText = ''
 	export let placeholder = 'Please select'
 	export let placeholderAlwaysShow = false
-	export let items = null
+	export let items = undefined
 	export let label = 'label'
 	export let itemFilter = (label, filterText, option) =>
 		`${label}`.toLowerCase().includes(filterText.toLowerCase())
@@ -295,6 +297,7 @@
 	})
 	$: if (listOpen && filteredItems && !multiple && !value) checkHoverSelectable()
 	$: handleFilterEvent(filteredItems)
+
 	$: if (container && floatingConfig) floatingUpdate(Object.assign(_floatingConfig, floatingConfig))
 	$: listDom = !!list
 	$: listMounted(list, listOpen)
