@@ -49,6 +49,11 @@
 	let firstDebounce = true
 	const debounce_ms = 50
 
+	export async function computeExpr() {
+		value = await evalExpr(lastInput)
+		return value
+	}
+
 	function debounce(cb: () => Promise<void>) {
 		if (firstDebounce) {
 			firstDebounce = false
