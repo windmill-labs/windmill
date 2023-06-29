@@ -698,15 +698,22 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
     return Ok(());
 }
 
+lazy_static::lazy_static! {
+
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(false));
+
+}
+
 async fn create_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
-    if &nw.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()));
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+        require_super_admin(&mut tx, &authed.email).await?;
     }
-    let mut tx = db.begin().await?;
     check_name_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
