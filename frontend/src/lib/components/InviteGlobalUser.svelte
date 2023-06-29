@@ -5,10 +5,10 @@
 	import { Button } from './common'
 	import Toggle from './Toggle.svelte'
 	import { generateRandomString } from '$lib/utils'
+	import { globalEmailInvite } from '$lib/stores'
 
 	const dispatch = createEventDispatcher()
 
-	let email: string
 	let is_super_admin = false
 	let password: string = generateRandomString(10)
 	let name: string | undefined
@@ -17,14 +17,16 @@
 	async function addUser() {
 		await UserService.createUserGlobally({
 			requestBody: {
-				email,
+				email: $globalEmailInvite,
 				password,
 				super_admin: is_super_admin,
 				name,
 				company
 			}
 		})
-		sendUserToast(`Added ${email}`)
+		sendUserToast(`Added ${$globalEmailInvite}`)
+		$globalEmailInvite = ''
+		password = generateRandomString(10)
 		dispatch('new')
 	}
 </script>
@@ -32,7 +34,7 @@
 <div class="flex flex-row gap-2 mb-2 items-end">
 	<label class="block shrink min-w-0">
 		<span class="text-gray-700 text-sm">Email</span>
-		<input type="email" placeholder="email" bind:value={email} />
+		<input type="email" placeholder="email" bind:value={$globalEmailInvite} />
 	</label>
 	<label class="block shrink min-w-0">
 		<span class="text-gray-700 text-sm">Password</span>
@@ -47,7 +49,7 @@
 				color="dark"
 				size="sm"
 				on:click={addUser}
-				disabled={email == undefined || password == undefined}
+				disabled={$globalEmailInvite == '' || password == undefined}
 			>
 				Add user to instance
 			</Button>

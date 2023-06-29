@@ -104,11 +104,8 @@
 
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
-				goto('/')
-				return
-			}
-			console.log(rd)
-			if (rd?.startsWith('/user/workspaces')) {
+				goto(rd ?? '/')
+			} else if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)

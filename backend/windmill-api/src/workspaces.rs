@@ -9,7 +9,6 @@
 #[cfg(feature = "enterprise")]
 use std::str::FromStr;
 
-#[cfg(feature = "enterprise")]
 use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
@@ -19,7 +18,7 @@ use crate::{
     users::{Authed, WorkspaceInvite, VALID_USERNAME, send_email_if_possible},
     utils::require_super_admin,
     variables::build_crypt,
-    webhook_util::{InstanceEvent, WebhookShared}, BASE_URL,
+    webhook_util::{InstanceEvent, WebhookShared}
 };
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;

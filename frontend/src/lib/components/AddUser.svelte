@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { superadmin, workspaceStore } from '$lib/stores'
+	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Tooltip from './Tooltip.svelte'
@@ -47,6 +47,7 @@
 								{
 									label: 'Add user to the instance',
 									callback: () => {
+										$globalEmailInvite = email
 										goto('#superadmin-settings')
 									}
 								}

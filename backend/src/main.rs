@@ -182,6 +182,8 @@ Windmill Community Edition {GIT_VERSION}
         "REQUEST_SIZE_LIMIT",
         "SMTP_HOST",
         "SMTP_USERNAME",
+        "SMTP_PORT",
+        "SMTP_TLS_IMPLICIT",
     ]);
 
     tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
