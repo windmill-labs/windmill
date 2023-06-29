@@ -1470,7 +1470,7 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
     if let Some(ref smtp) = *SMTP_CLIENT {
         let message = MessageBuilder::new()
-            .from(("Windmill", "noreply@windmill.dev"))
+            .from(("Windmill", "noreply@getwindmill.com"))
             .to(to)
             .subject(subject)
             .text_body(content);
