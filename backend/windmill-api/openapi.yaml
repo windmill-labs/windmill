@@ -877,6 +877,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
+  /users/exists/{email}:
+    get:
+      summary: exists email
+      operationId: existsEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: user
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /users/list_as_super_admin:
     get:
       summary: list all users as super admin (require to be super amdin)

@@ -17,7 +17,7 @@ use windmill_api_client::{Client, types::CompletedJob};
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration},
+    process::Stdio, time::{Duration, SystemTime},
     sync::{Arc, atomic::Ordering},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
@@ -449,7 +449,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
-    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(10);
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(1000);
 
     let db2 = db.clone();
     let rsmq2 = rsmq.clone();
@@ -468,6 +468,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut last_executed_job: Option<Instant> = None;
     loop {
+        // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
             worker_busy.set(0);
             uptime_metric.inc_by(
@@ -541,6 +542,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let (do_break, next_job) = if first_run { 
                 (false, Ok(Some(QueuedJob::default())))
             } else {
+                // println!("2: {:?}",  instant.elapsed());
                 async {
                     tokio::select! {
                         biased;
@@ -589,6 +591,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                                 let duration_pull_s = timer.stop_and_record();
                                 worker_pull_duration_counter.inc_by(duration_pull_s);
                             });
+                            // println!("Pull: {:?}",  instant.elapsed());
                             (false, job)
                         },
                     }
@@ -606,10 +609,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
             match next_job {
                 Ok(Some(job)) => {
-                    // println!("{:?}",  SystemTime::now());
-
                     last_executed_job = None;
-                    
+                    if matches!(job.job_kind, JobKind::Noop) {
+                        job_completed_tx.send(JobCompleted { job, success: true, result: json!({}), logs: String::new()}).await.expect("send job completed");
+                        return false
+                    }
                     let token = create_token_for_owner_in_bg(&db, &job).await;
                     let language = job.language.clone();
                     let _timer = worker_execution_duration

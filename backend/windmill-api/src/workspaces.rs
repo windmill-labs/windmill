@@ -16,10 +16,10 @@ use crate::{
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{Authed, WorkspaceInvite, VALID_USERNAME},
+    users::{Authed, WorkspaceInvite, VALID_USERNAME, send_email_if_possible},
     utils::require_super_admin,
     variables::build_crypt,
-    webhook_util::{InstanceEvent, WebhookShared},
+    webhook_util::{InstanceEvent, WebhookShared}, BASE_URL,
 };
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;
@@ -1021,6 +1021,17 @@ async fn invite_user(
 
     tx.commit().await?;
 
+    send_email_if_possible(
+        &format!("Invited to Windmill's workspace: {w_id}"),
+        &format!(
+            "You have been granted access to Windmill's workspace {w_id}
+
+If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            *BASE_URL
+        ),
+        &nu.email,
+    );
+    
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
         workspace: w_id,

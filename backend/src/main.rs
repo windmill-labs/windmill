@@ -19,7 +19,7 @@ use tokio::{
     join,
     sync::RwLock,
 };
-use windmill_api::LICENSE_KEY;
+use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
 use windmill_common::{utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
     DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR,
@@ -90,7 +90,6 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
             .into_owned();
         config.port = url.port().unwrap_or(6379).to_string();
-
         config
     });
 
@@ -181,8 +180,19 @@ Windmill Community Edition {GIT_VERSION}
         "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
         "EXIT_AFTER_NO_JOB_FOR_SECS",
         "REQUEST_SIZE_LIMIT",
+        "SMTP_HOST",
+        "SMTP_USERNAME",
     ]);
 
+    tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
+    if let Some(ref smtp) = *SMTP_CLIENT {
+        tracing::info!("Smtp client defined. Testing connection...");
+        if let Err(e) = smtp.connect().await {
+            tracing::error!("Failed to connect to smtp server: {}", e);
+        } else {
+            tracing::info!("Smtp client connected.");
+        }
+    }
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from((server_bind_address, port));
 

@@ -14,7 +14,7 @@ use crate::{
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, IS_SECURE,
+    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -27,6 +27,7 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
+use mail_send::mail_builder::MessageBuilder;
 use rand::rngs::OsRng;
 use regex::Regex;
 use retainer::Cache;
@@ -37,7 +38,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, Error, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
@@ -57,13 +58,14 @@ pub fn workspaced_service() -> Router {
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
         .route("/is_owner/*path", get(is_owner_of_path))
-        .route("/whois/:email", get(whois))
+        .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
 }
 
 pub fn global_service() -> Router {
     Router::new()
+        .route("/exists/:email", get(exists_email))
         .route("/email", get(get_email))
         .route("/whoami", get(global_whoami))
         .route("/list_invites", get(list_invites))
@@ -882,6 +884,17 @@ async fn global_whoami(
     }
 }
 
+async fn exists_email(Extension(db): Extension<DB>, Path(email): Path<String>) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
+        email
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    Ok(Json(exists))
+}
+
 async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
     Ok(email)
 }
@@ -1078,6 +1091,7 @@ lazy_static! {
     .ok()
     .and_then(|x| x.parse::<u32>().ok())
     .unwrap_or(60 * 60 * 24 * 60); // 60 days
+
 }
 
 async fn accept_invite(
@@ -1222,6 +1236,16 @@ async fn add_user_to_workspace<'c>(
         None,
     )
     .await?;
+    send_email_if_possible(
+        &format!("Added to Windmill's workspace: {w_id}"),
+        &format!(
+            "You have been granted access to Windmill's workspace {w_id}
+
+If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            *BASE_URL
+        ),
+        &email,
+    );
     Ok(tx)
 }
 
@@ -1368,6 +1392,7 @@ async fn delete_user(
 
 lazy_static::lazy_static! {
     pub static ref NEW_USER_WEBHOOK: Option<String> = std::env::var("NEW_USER_WEBHOOK").ok();
+
 }
 
 async fn create_user(
@@ -1394,7 +1419,7 @@ async fn create_user(
     VALUES ($1, $2, $3, 'password', $4, $5, $6)",
         &nu.email,
         true,
-        &hash_password(argon2, nu.password)?,
+        &hash_password(argon2, nu.password.clone())?,
         &nu.super_admin,
         nu.name,
         nu.company
@@ -1415,9 +1440,48 @@ async fn create_user(
     tx.commit().await?;
 
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
+    send_email_if_possible(
+        "Invited to Windmill",
+        &format!(
+            "You have been granted access to Windmill by {email}.
 
+Login and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
+
+You can then join or create a workspace. Happy building!",
+            *BASE_URL, &nu.email, &nu.password
+        ),
+        &nu.email,
+    );
     webhook.send_instance_event(InstanceEvent::UserAdded { email: nu.email.clone() });
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
+}
+
+pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
+    let subject = subject.to_string();
+    let content = content.to_string();
+    let to = to.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = send_email_if_possible_intern(&subject, &content, &to).await {
+            tracing::error!("Failed to send email to {}: {}", &to, e);
+        }
+    });
+}
+
+pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
+    if let Some(ref smtp) = *SMTP_CLIENT {
+        let message = MessageBuilder::new()
+            .from(("Windmill", "noreply@windmill.dev"))
+            .to(to)
+            .subject(subject)
+            .text_body(content);
+        smtp.connect()
+            .await
+            .map_err(to_anyhow)?
+            .send(message)
+            .await
+            .map_err(to_anyhow)?;
+    }
+    return Ok(());
 }
 
 async fn delete_workspace_user(

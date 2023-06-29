@@ -70,3 +70,4 @@ async_zip.workspace = true
 rsmq_async.workspace = true
 regex.workspace = true
 bytes.workspace = true
+mail-send.workspace = true

@@ -174,21 +174,23 @@ await new Command()
         exportSimple = [];
       }
 
-      let metrics_worker: Worker;
+      let metrics_worker: Worker | undefined = undefined;
       if (!continous) {
-        metrics_worker = new Worker(
-          new URL("./scraper.ts", import.meta.url).href,
-          {
-            type: "module",
-          }
-        );
+        if (exportJson || exportCsv) {
+          metrics_worker = new Worker(
+            new URL("./scraper.ts", import.meta.url).href,
+            {
+              type: "module",
+            }
+          );
 
-        metrics_worker.postMessage({
-          exportHistograms,
-          histogramBuckets,
-          exportSimple,
-          host: metrics,
-        });
+          metrics_worker.postMessage({
+            exportHistograms,
+            histogramBuckets,
+            exportSimple,
+            host: metrics,
+          });
+        }
       }
 
       console.log(
@@ -287,12 +289,12 @@ await new Command()
       }, 100);
 
       workers.forEach((worker, i) => {
-        worker.postMessage({ ...shared_config, i });
         worker.addEventListener("message", (evt: MessageEvent<any>) => {
           if (evt.data.type === "jobs_sent") {
             jobsSent[i] = evt.data.jobs_sent;
           }
         });
+        worker.postMessage({ ...shared_config, i });
       });
       start = Date.now();
 
@@ -307,7 +309,7 @@ await new Command()
 
       clearInterval(updateState);
 
-      const sum = jobsSent.reduce((a, b) => a + b, 0);
+      let sum = jobsSent.reduce((a, b) => a + b, 0);
       await Deno.stdout.write(
         enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`)
       );
@@ -315,13 +317,14 @@ await new Command()
       const shutdown_start = Date.now();
       let zombie_jobs = 0;
       let incorrect_results = 0;
-      workers.forEach((worker) => {
+      workers.forEach((worker, i) => {
         const l = (evt: MessageEvent<any>) => {
           if (evt.data.type === "zombie_jobs") {
             zombie_jobs += evt.data.zombie_jobs;
             incorrect_results += evt.data.incorrect_results;
             worker.removeEventListener("message", l);
             workers = workers.filter((w) => w != worker);
+            jobsSent[i] = evt.data.jobs_sent;
             worker.terminate();
           }
         };
@@ -335,6 +338,8 @@ await new Command()
       while (workers.length > 0) {
         await sleep(0.1);
       }
+      sum = jobsSent.reduce((a, b) => a + b, 0);
+
       const tts = (Date.now() - shutdown_start) / 1000;
       const time = seconds + tts;
       console.log("\ntime to shutdown:", tts);
@@ -356,53 +361,59 @@ await new Command()
         ).database_length
       );
 
-      metrics_worker!.postMessage("stop");
-      console.log("waiting for metrics");
-      const { columns, transfer_values } = await new Promise<{
-        columns: string[];
-        transfer_values: ArrayBufferLike[];
-      }>((resolve, _reject) => {
-        metrics_worker.onmessage = (e) => {
-          resolve(e.data);
-          metrics_worker.terminate();
-        };
-      });
-      const values = transfer_values.map((x) => new Float32Array(x));
-
-      if (exportJson) {
-        console.log("exporting mean & stdev to json");
-        const obj: any = {};
-        for (let i = 0; i < columns.length; i++) {
-          const name = columns[i]!;
-          const value = values[i]!;
-          const mean = value.reduce((acc, e) => acc + e, 0) / values.length;
-          const stdev = Math.sqrt(
-            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length
-          );
-          obj[name] = { mean, stdev };
-        }
-
-        await Deno.writeTextFile(exportJson, JSON.stringify(obj));
-      }
-
-      if (exportCsv) {
-        const f = await Deno.open(exportCsv, {
-          write: true,
-          create: true,
-          truncate: true,
+      if (metrics_worker) {
+        metrics_worker.postMessage("stop");
+        console.log("waiting for metrics");
+        const { columns, transfer_values } = await new Promise<{
+          columns: string[];
+          transfer_values: ArrayBufferLike[];
+        }>((resolve, _reject) => {
+          if (metrics_worker) {
+            metrics_worker.onmessage = (e) => {
+              resolve(e.data);
+              metrics_worker?.terminate();
+            };
+          }
         });
-        const encoder = new TextEncoder();
-        const newline = new Uint8Array(1);
-        newline[0] = 0x0a;
-        await f.write(encoder.encode(columns.join(",")));
-        await f.write(newline);
+        const values = transfer_values.map((x) => new Float32Array(x));
 
-        for (let i = 0; i < values.length; i++) {
-          await f.write(encoder.encode(values[i].join(",")));
-          await f.write(newline);
+        if (exportJson) {
+          console.log("exporting mean & stdev to json");
+          const obj: any = {};
+          for (let i = 0; i < columns.length; i++) {
+            const name = columns[i]!;
+            const value = values[i]!;
+            const mean = value.reduce((acc, e) => acc + e, 0) / values.length;
+            const stdev = Math.sqrt(
+              value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length
+            );
+            obj[name] = { mean, stdev };
+          }
+
+          await Deno.writeTextFile(exportJson, JSON.stringify(obj));
         }
 
-        f.close();
+        if (exportCsv) {
+          const f = await Deno.open(exportCsv, {
+            write: true,
+            create: true,
+            truncate: true,
+          });
+          const encoder = new TextEncoder();
+          const newline = new Uint8Array(1);
+          newline[0] = 0x0a;
+          await f.write(encoder.encode(columns.join(",")));
+          await f.write(newline);
+
+          for (let i = 0; i < values.length; i++) {
+            await f.write(encoder.encode(values[i].join(",")));
+            await f.write(newline);
+          }
+
+          f.close();
+        }
+      } else {
+        return;
       }
       console.log("done");
     }
