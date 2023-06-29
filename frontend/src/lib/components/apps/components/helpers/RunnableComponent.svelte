@@ -216,19 +216,21 @@
 		}
 
 		try {
-			let njob = await resultJobLoader?.abstractRun(() => {
+			let njob = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
-				Object.keys(fields ?? {}).forEach((k) => {
+				for (const k of Object.keys(fields ?? {})) {
 					let field = fields[k]
 					if (field?.type == 'static' && fields[k]) {
 						staticRunnableInputs[k] = field.value
 					} else if (field?.type == 'user') {
 						nonStaticRunnableInputs[k] = args?.[k]
+					} else if (field?.type == 'eval' && inputValues[k]) {
+						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 					} else {
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
-				})
+				}
 
 				const requestBody = {
 					args: nonStaticRunnableInputs,
@@ -388,19 +390,24 @@
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
-		$runnableComponents[id] = {
-			...$runnableComponents[id],
-			cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
+		if ($runnableComponents[id]) {
+			$runnableComponents[id] = {
+				...$runnableComponents[id],
+				cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
+			}
+			$runnableComponents = $runnableComponents
 		}
-		$runnableComponents = $runnableComponents
 	})
 
 	let lastJobId: string | undefined = undefined
+
+	let inputValues: Record<string, InputValue> = {}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
 		<InputValue
+			bind:this={inputValues[key]}
 			key={key + extraKey}
 			{id}
 			input={fields[key]}
