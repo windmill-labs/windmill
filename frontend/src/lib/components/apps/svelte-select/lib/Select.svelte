@@ -708,6 +708,7 @@
 				class:prefloat
 				on:scroll={handleListScroll}
 				on:pointerup|preventDefault|stopPropagation
+				on:pointerdown|preventDefault|stopPropagation
 			>
 				{#if $$slots['list-prepend']}<slot name="list-prepend" />{/if}
 				{#if $$slots.list}<slot name="list" {filteredItems} />
