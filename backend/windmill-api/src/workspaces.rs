@@ -133,6 +133,8 @@ struct EditCommandScript {
     slack_command_script: Option<String>,
 }
 
+
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct EditDeployTo {
     deploy_to: Option<String>,
@@ -477,6 +479,8 @@ async fn edit_slack_command(
     Ok(format!("Edit command script {}", &w_id))
 }
 
+
+#[cfg(feature = "enterprise")]
 async fn edit_deploy_to(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -485,12 +489,6 @@ async fn edit_deploy_to(
     Json(es): Json<EditDeployTo>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Deploy to is only available on enterprise".to_string(),
-        ));
-    }
 
     let mut tx = db.begin().await?;
     sqlx::query!(
@@ -520,6 +518,13 @@ async fn edit_deploy_to(
     tx.commit().await?;
 
     Ok(format!("Edit deploy to for {}", &w_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn edit_deploy_to() -> Result<String> {
+    return Err(Error::BadRequest(
+        "Deploy to is only available on enterprise".to_string(),
+    ));
 }
 
 const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");

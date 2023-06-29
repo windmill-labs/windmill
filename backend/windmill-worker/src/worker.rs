@@ -13,11 +13,11 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
 use tokio_postgres::NoTls;
-use windmill_api_client::{Client, types::CompletedJob};
+use windmill_api_client::{Client};
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration, SystemTime},
+    process::Stdio, time::{Duration},
     sync::{Arc, atomic::Ordering},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
@@ -43,8 +43,11 @@ use tokio::{
     sync::{
         mpsc::{self, Sender},  watch, broadcast, RwLock, Barrier
     },
-    time::{interval, sleep, Instant, MissedTickBehavior}, join
+    time::{interval, sleep, Instant, MissedTickBehavior}
 };
+
+#[cfg(feature = "enterprise")]
+use tokio::join;
 
 use futures::{
     future::{self, ready, FutureExt},
@@ -419,8 +422,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     }
 
 
-    let (copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
+    let (_copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
 
+    #[cfg(feature = "enterprise")]
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     tracing::info!(worker = %worker_name, "starting worker");
@@ -436,7 +440,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
             let bucket = s.to_string();
-            let copy_to_bucket_tx2 = copy_to_bucket_tx.clone();
+            let copy_to_bucket_tx2 = _copy_to_bucket_tx.clone();
             let worker_name2 = worker_name.clone();
 
             handles.push(tokio::task::spawn(async move {
@@ -479,7 +483,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
 
         #[cfg(feature = "enterprise")]
-        let copy_tx = copy_to_bucket_tx.clone();
+        let copy_tx = _copy_to_bucket_tx.clone();
 
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_PING {

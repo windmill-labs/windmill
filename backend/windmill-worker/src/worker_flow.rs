@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{worker, AuthedClient, KEEP_JOB_DIR};
+use crate::{AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use serde_json::{json, Map, Value};
