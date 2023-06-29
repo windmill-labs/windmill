@@ -49,11 +49,14 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 #[cfg(feature = "enterprise")]
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
+#[cfg(feature = "enterprise")]
+use crate::S3_CACHE_BUCKET;
+
 use crate::{
     common::{read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY, NO_PROXY,
-    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, S3_CACHE_BUCKET,
+    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
