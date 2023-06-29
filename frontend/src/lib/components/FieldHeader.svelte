@@ -24,15 +24,15 @@
 	<Required {required} class="!ml-0" />
 
 	{#if displayType}
-		{#if format && format != ''}
-			<span class="text-sm italic ml-1 text-indigo-800 dark:text-indigo-400">
-				({format})
+		{#if format && !format.startsWith('resource')}
+			<span class="text-xs italic ml-2 text-gray-500 dark:text-indigo-400">
+				{format}
 			</span>
 		{:else}
-			<span class="text-sm italic ml-1 text-indigo-800 dark:text-indigo-400">
-				({type ?? 'any'}{contentEncoding && contentEncoding != ''
+			<span class="text-xs italic ml-2 text-gray-500 dark:text-indigo-400">
+				{type ?? 'any'}{contentEncoding && contentEncoding != ''
 					? `, encoding: ${contentEncoding}`
-					: ''})
+					: ''}
 			</span>
 		{/if}
 	{/if}
