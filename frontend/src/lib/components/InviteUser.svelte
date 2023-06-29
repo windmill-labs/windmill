@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import { superadmin, workspaceStore } from '$lib/stores'
+	import { UserService, WorkspaceService } from '$lib/gen'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Tooltip from './Tooltip.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import { goto } from '$app/navigation'
 
 	const dispatch = createEventDispatcher()
 
@@ -28,6 +30,29 @@
 			}
 		})
 		sendUserToast(`Invited ${email}`)
+		if (!(await UserService.existsEmail({ email }))) {
+			let isSuperadmin = $superadmin
+			if (!isCloudHosted()) {
+				sendUserToast(
+					`User ${email} is not registered yet on the instance. ${
+						!isSuperadmin
+							? `If not using SSO, ask an administrator to add ${email} to the instance`
+							: ''
+					}`,
+					true,
+					isSuperadmin
+						? [
+								{
+									label: 'Add user to the instance',
+									callback: () => {
+										goto('#superadmin-settings')
+									}
+								}
+						  ]
+						: []
+				)
+			}
+		}
 		dispatch('new')
 	}
 

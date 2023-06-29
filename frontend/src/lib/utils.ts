@@ -468,11 +468,11 @@ export function sortObject<T>(o: T & object): T {
 		}, {}) as T
 }
 
-export function generateRandomString(): string {
+export function generateRandomString(len: number = 24): string {
 	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 	let result = ''
 
-	for (let i = 0; i < 24; i++) {
+	for (let i = 0; i < len; i++) {
 		result += chars.charAt(Math.floor(Math.random() * chars.length))
 	}
 
