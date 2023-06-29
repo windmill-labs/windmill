@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.123.1](https://github.com/windmill-labs/windmill/compare/v1.123.0...v1.123.1) (2023-06-29)
+
+
+### Bug Fixes
+
+* add CREATE_WORKSPACE_REQUIRE_SUPERADMIN ([ff942f4](https://github.com/windmill-labs/windmill/commit/ff942f4d06ed06877ec2512e6940c346e3484c47))
+
 ## [1.123.0](https://github.com/windmill-labs/windmill/compare/v1.122.0...v1.123.0) (2023-06-29)
 
 
