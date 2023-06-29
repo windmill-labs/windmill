@@ -53,6 +53,8 @@ services:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
+      # DO NOT INCREASE NUM_WORKERS > 1 UNLESS YOU KNOW WHAT YOU ARE DOING
+      # Increase the number of replicas instead.
       - NUM_WORKERS=1
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false

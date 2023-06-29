@@ -1043,7 +1043,7 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 }
 
 async fn add_user(
-    Authed { username, is_admin, .. }: Authed,
+    Authed { username, email, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -1083,6 +1083,17 @@ async fn add_user(
     .await?;
 
     tx.commit().await?;
+
+    send_email_if_possible(
+        &format!("Added to Windmill's workspace: {w_id}"),
+        &format!(
+            "You have been granted access to Windmill's workspace {w_id} by {email}
+
+If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            *BASE_URL
+        ),
+        &nu.email,
+    );
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),

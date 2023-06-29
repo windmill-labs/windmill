@@ -304,6 +304,7 @@ the instances using their emails, configure the SMTP env variables in the
 servers:
 
 ```
+SMTP_FROM=noreply@windmill.dev
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=ruben@windmill.dev
@@ -379,6 +380,7 @@ it being synced automatically everyday.
 | HTTP_PROXY                          | None                                       | http_proxy                                                                                                                                                                                         | Server + Worker       |
 | HTTPS_PROXY                         | None                                       | https_proxy                                                                                                                                                                                        | Server + Worker       |
 | NO_PROXY                            | None                                       | no_proxy                                                                                                                                                                                           | Server + Worker       |
+| SMTP_FROM                           | None                                       | the address to use as the from field for emails send                                                                                                                                               | Server                |
 | SMTP_HOST                           | None                                       | host for the smtp server to send invite emails                                                                                                                                                     | Server                |
 | SMTP_PORT                           | 587                                        | port for the smtp server to send invite emails                                                                                                                                                     | Server                |
 | SMTP_USERNAME                       | None                                       | username for the smtp server to send invite emails                                                                                                                                                 | Server                |
