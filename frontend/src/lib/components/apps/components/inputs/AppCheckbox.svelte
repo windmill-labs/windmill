@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
-	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
@@ -12,8 +12,7 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { components } from '../../editor/component'
+	import { InputValue } from '../helpers'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -33,13 +32,10 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let resolvedConfig = initConfig(
-		components['checkboxcomponent'].initialData.configuration,
-		configuration
-	)
+	let value: boolean = false
 
-	let value: boolean = (resolvedConfig.defaultValue as boolean | undefined) ?? false
-
+	let defaultValue: boolean | undefined = undefined
+	let label: string = ''
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
@@ -68,33 +64,26 @@
 	}
 
 	function handleDefault() {
-		value = resolvedConfig.defaultValue ?? false
+		value = defaultValue ?? false
 		handleInput()
 	}
 
 	$: value != undefined && handleInput()
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
+	$: defaultValue != undefined && handleDefault()
 
 	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
 </script>
 
-{#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
-	<ResolveConfig
-		{id}
-		{extraKey}
-		{key}
-		bind:resolvedConfig={resolvedConfig[key]}
-		configuration={configuration[key]}
-	/>
-{/each}
+<InputValue {id} key={extraKey} input={configuration.label} bind:value={label} />
+<InputValue {id} key={extraKey} input={configuration.defaultValue} bind:value={defaultValue} />
 
 <InitializeComponent {id} />
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		size="sm"
 		bind:checked={value}
-		options={{ right: resolvedConfig.label }}
+		options={{ right: label }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
