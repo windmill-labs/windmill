@@ -34,6 +34,7 @@ services:
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false
+      - REQUEST_SIZE_LIMIT=2097152 # 2MB (The size limit for any requests, including script/flow args inputs)
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
