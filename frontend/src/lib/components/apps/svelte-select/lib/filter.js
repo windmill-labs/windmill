@@ -2,7 +2,6 @@ export default function filter({
 	loadOptions,
 	filterText,
 	items,
-	multiple,
 	value,
 	itemId,
 	groupBy,
@@ -21,11 +20,6 @@ export default function filter({
 
 	let filterResults = items.filter((item) => {
 		let matchesFilter = itemFilter(item[label], filterText, item)
-		if (matchesFilter && multiple && value?.length) {
-			matchesFilter = !value.some((x) => {
-				return filterSelectedItems ? x[itemId] === item[itemId] : false
-			})
-		}
 
 		return matchesFilter
 	})

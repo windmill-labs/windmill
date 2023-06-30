@@ -1,6 +1,4 @@
 <script>
-	// @ts-nocheck
-
 	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
@@ -24,14 +22,12 @@
 	export let name = null
 	export let container = undefined
 	export let input = undefined
-	export let multiple = false
-	export let multiFullItemClearable = false
+
 	export let disabled = false
 	export let focused = false
 	export let value = undefined
 	export let filterText = ''
 	export let placeholder = 'Please select'
-	export let placeholderAlwaysShow = false
 	export let items = undefined
 	export let label = 'label'
 	export let itemFilter = (label, filterText, option) =>
@@ -85,7 +81,6 @@
 	let activeValue
 	let prev_value
 	let prev_filterText
-	let prev_multiple
 
 	function setValue() {
 		if (typeof value === 'string') {
@@ -94,8 +89,6 @@
 				[itemId]: value,
 				label: value
 			}
-		} else if (multiple && Array.isArray(value) && value.length > 0) {
-			value = value.map((item) => (typeof item === 'string' ? { value: item, label: item } : item))
 		}
 	}
 
@@ -168,44 +161,17 @@
 	}
 
 	function dispatchSelectedItem() {
-		if (multiple) {
-			if (JSON.stringify(value) !== JSON.stringify(prev_value)) {
-				if (checkValueForDuplicates()) {
-					dispatch('input', value)
-				}
-			}
-			return
-		}
-
 		if (!prev_value || JSON.stringify(value[itemId]) !== JSON.stringify(prev_value[itemId])) {
 			dispatch('input', value)
 		}
 	}
 
-	function setupMulti() {
-		if (value) {
-			if (Array.isArray(value)) {
-				value = [...value]
-			} else {
-				value = [value]
-			}
-		}
-	}
-
-	function setupSingle() {
-		if (value) value = null
-	}
-
 	$: if ((items, value)) setValue()
 	$: if (inputAttributes || !searchable) assignInputAttributes()
-	$: if (multiple) setupMulti()
-	$: if (prev_multiple && !multiple) setupSingle()
-	$: if (multiple && value && value.length > 1) checkValueForDuplicates()
 	$: if (value) dispatchSelectedItem()
-	$: if (!value && multiple && prev_value) dispatch('input', value)
 	$: if (!focused && input) closeList()
 	$: if (filterText !== prev_filterText) setupFilterText()
-	$: if (!multiple && listOpen && value && filteredItems) setValueIndexAsHoverIndex()
+	$: if (listOpen && value && filteredItems) setValueIndexAsHoverIndex()
 	$: dispatchHover(hoverItemIndex)
 
 	function setValueIndexAsHoverIndex() {
@@ -258,34 +224,22 @@
 			}, debounceWait)
 		} else {
 			listOpen = true
-
-			if (multiple) {
-				activeValue = undefined
-			}
 		}
 	}
 
-	$: hasValue = multiple ? value && value.length > 0 : value
+	$: hasValue = value
 	$: hideSelectedItem = hasValue && filterText.length > 0
 	$: showClear = hasValue && clearable && !disabled && !loading
-	$: placeholderText =
-		placeholderAlwaysShow && multiple
-			? placeholder
-			: multiple && value?.length === 0
-			? placeholder
-			: value
-			? ''
-			: placeholder
-	$: ariaSelection = value ? handleAriaSelection(multiple) : ''
+	$: placeholderText = value ? '' : placeholder
+	$: ariaSelection = value ? handleAriaSelection() : ''
 	$: ariaContext = handleAriaContent({ filteredItems, hoverItemIndex, focused, listOpen })
 	$: updateValueDisplay(items)
-	$: justValue = computeJustValue(multiple, value, itemId)
-	$: if (!multiple && prev_value && !value) dispatch('input', value)
+	$: justValue = computeJustValue(value, itemId)
+	$: if (prev_value && !value) dispatch('input', value)
 	$: filteredItems = filter({
 		loadOptions,
 		filterText,
 		items,
-		multiple,
 		value,
 		itemId,
 		groupBy,
@@ -295,7 +249,7 @@
 		convertStringItemsToObjects,
 		filterGroupedItems
 	})
-	$: if (listOpen && filteredItems && !multiple && !value) checkHoverSelectable()
+	$: if (listOpen && filteredItems && !value) checkHoverSelectable()
 	$: handleFilterEvent(filteredItems)
 
 	$: if (container && floatingConfig) floatingUpdate(Object.assign(_floatingConfig, floatingConfig))
@@ -303,7 +257,6 @@
 	$: listMounted(list, listOpen)
 	$: if (listOpen && container && list) setListWidth()
 	$: scrollToHoverItem = hoverItemIndex
-	$: if (listOpen && multiple) hoverItemIndex = 0
 	$: if (input && listOpen && !focused) handleFocus()
 	$: if (filterText) hoverItemIndex = 0
 
@@ -314,32 +267,10 @@
 	beforeUpdate(async () => {
 		prev_value = value
 		prev_filterText = filterText
-		prev_multiple = multiple
 	})
 
 	function computeJustValue() {
-		if (multiple) return value ? value.map((item) => item[itemId]) : null
 		return value ? value[itemId] : value
-	}
-
-	function checkValueForDuplicates() {
-		let noDuplicates = true
-		if (value) {
-			const ids = []
-			const uniqueValues = []
-
-			value.forEach((val) => {
-				if (!ids.includes(val[itemId])) {
-					ids.push(val[itemId])
-					uniqueValues.push(val)
-				} else {
-					noDuplicates = false
-				}
-			})
-
-			if (!noDuplicates) value = uniqueValues
-		}
-		return noDuplicates
 	}
 
 	function findItem(selection) {
@@ -349,11 +280,7 @@
 
 	function updateValueDisplay(items) {
 		if (!items || items.length === 0 || items.some((item) => typeof item !== 'object')) return
-		if (
-			!value ||
-			(multiple ? value.some((selection) => !selection || !selection[itemId]) : !value[itemId])
-		)
-			return
+		if (!value || !value[itemId]) return
 
 		if (Array.isArray(value)) {
 			value = value.map((selection) => findItem(selection) || selection)
@@ -391,7 +318,7 @@
 					if (filteredItems.length === 0) break
 					const hoverItem = filteredItems[hoverItemIndex]
 
-					if (value && !multiple && value[itemId] === hoverItem[itemId]) {
+					if (value && value[itemId] === hoverItem[itemId]) {
 						closeList()
 						break
 					} else {
@@ -437,17 +364,11 @@
 
 				break
 			case 'Backspace':
-				if (!multiple || filterText.length > 0) return
-
-				if (multiple && value && value.length > 0) {
-					handleMultiItemClear(activeValue !== undefined ? activeValue : value.length - 1)
-					if (activeValue === 0 || activeValue === undefined) break
-					activeValue = value.length > activeValue ? activeValue - 1 : undefined
-				}
+				if (filterText.length > 0) return
 
 				break
 			case 'ArrowLeft':
-				if (!value || !multiple || filterText.length > 0) return
+				if (!value || filterText.length > 0) return
 				if (activeValue === undefined) {
 					activeValue = value.length - 1
 				} else if (value.length > activeValue && activeValue !== 0) {
@@ -455,7 +376,7 @@
 				}
 				break
 			case 'ArrowRight':
-				if (!value || !multiple || filterText.length > 0 || activeValue === undefined) return
+				if (!value || filterText.length > 0 || activeValue === undefined) return
 				if (activeValue === value.length - 1) {
 					activeValue = undefined
 				} else if (activeValue < value.length - 1) {
@@ -506,7 +427,7 @@
 			const item = Object.assign({}, selection)
 
 			if (item.groupHeader && !item.selectable) return
-			value = multiple ? (value ? value.concat([item]) : [item]) : (value = item)
+			value = value = item
 
 			setTimeout(() => {
 				if (closeListOnChange) closeList()
@@ -534,14 +455,9 @@
 		return `Select is focused, type to refine list, press down to open the menu.`
 	}
 
-	function handleAriaSelection(_multiple) {
+	function handleAriaSelection() {
 		let selected = undefined
-
-		if (_multiple && value.length > 0) {
-			selected = value.map((v) => v[label]).join(', ')
-		} else {
-			selected = value[label]
-		}
+		selected = value[label]
 
 		return ariaValues(selected)
 	}
@@ -598,7 +514,7 @@
 	function handleItemClick(args) {
 		const { item, i } = args
 		if (item?.selectable === false) return
-		if (value && !multiple && value[itemId] === item[itemId]) return closeList()
+		if (value && value[itemId] === item[itemId]) return closeList()
 		if (isItemSelectable(item)) {
 			hoverItemIndex = i
 			handleSelect(item)
@@ -631,7 +547,6 @@
 	}
 
 	function isItemActive(item, value, itemId) {
-		if (multiple) return
 		return value && value[itemId] === item[itemId]
 	}
 
@@ -690,7 +605,6 @@
 
 <div
 	class="svelte-select {containerClasses}"
-	class:multi={multiple}
 	class:disabled
 	class:focused
 	class:list-open={listOpen}
@@ -767,40 +681,11 @@
 
 	<div class="value-container">
 		{#if hasValue}
-			{#if multiple}
-				{#each value as item, i}
-					<div
-						class="multi-item"
-						class:active={activeValue === i}
-						class:disabled
-						on:click|preventDefault={() => (multiFullItemClearable ? handleMultiItemClear(i) : {})}
-						on:keydown|preventDefault|stopPropagation
-					>
-						<span class="multi-item-text">
-							<slot name="selection" selection={item} index={i}>
-								{item[label]}
-							</slot>
-						</span>
-
-						{#if !disabled && !multiFullItemClearable && ClearIcon}
-							<div
-								class="multi-item-clear"
-								on:pointerup|preventDefault|stopPropagation={() => handleMultiItemClear(i)}
-							>
-								<slot name="multi-clear-icon">
-									<ClearIcon />
-								</slot>
-							</div>
-						{/if}
-					</div>
-				{/each}
-			{:else}
-				<div class="selected-item" class:hide-selected-item={hideSelectedItem}>
-					<slot name="selection" selection={value}>
-						{value[label]}
-					</slot>
-				</div>
-			{/if}
+			<div class="selected-item" class:hide-selected-item={hideSelectedItem}>
+				<slot name="selection" selection={value}>
+					{value[label]}
+				</slot>
+			</div>
 		{/if}
 
 		<input

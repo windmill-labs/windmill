@@ -4,7 +4,7 @@
 	import { faPen, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Select from 'svelte-select'
+	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnect.svelte'
 	import { Button } from './common'
@@ -91,6 +91,7 @@
 		placeholder="{resourceType ?? 'any'} resource"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 		containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		portal={false}
 	/>
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
