@@ -1,4 +1,5 @@
 <script>
+	// @ts-nocheck
 	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
