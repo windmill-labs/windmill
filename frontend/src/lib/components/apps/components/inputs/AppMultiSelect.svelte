@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	// import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -10,6 +9,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	// @ts-ignore
 	import MultiSelect from 'svelte-multiselect'
+	import Portal from 'svelte-portal'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -62,7 +62,22 @@
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 
 	$: outerDiv && css?.multiselect?.style && outerDiv.setAttribute('style', css?.multiselect?.style)
+
 	let outerDiv: HTMLDivElement | undefined = undefined
+	let portalRef: HTMLDivElement | undefined = undefined
+
+	function moveOptionsUlToPortal() {
+		if (!outerDiv || !portalRef) return
+
+		const { x, y, width, height } = outerDiv.getBoundingClientRect()
+
+		portalRef.setAttribute(
+			'style',
+			`position: absolute; top: ${y}px; left: ${x}px; width: ${width}px; height: ${height}px; z-index: 1000;`
+		)
+
+		portalRef.appendChild(outerDiv)
+	}
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -86,21 +101,27 @@
 		}}
 	>
 		{#if !value || Array.isArray(value)}
-			<MultiSelect
-				bind:outerDiv
-				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
-				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-				bind:selected={value}
-				on:change={() => {
-					outputs?.result.set([...(value ?? [])])
-				}}
-				options={Array.isArray(items) ? items : []}
-				placeholder={resolvedConfig.placeholder}
-				allowUserOptions={resolvedConfig.create}
-				on:open={() => {
-					$selectedComponent = [id]
-				}}
-			/>
+			<div>
+				<MultiSelect
+					bind:outerDiv
+					outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
+					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
+					bind:selected={value}
+					on:change={() => {
+						outputs?.result.set([...(value ?? [])])
+					}}
+					options={Array.isArray(items) ? items : []}
+					placeholder={resolvedConfig.placeholder}
+					allowUserOptions={resolvedConfig.create}
+					on:open={() => {
+						$selectedComponent = [id]
+						moveOptionsUlToPortal()
+					}}
+				/>
+				<Portal>
+					<div bind:this={portalRef} />
+				</Portal>
+			</div>
 		{:else}
 			Value {value} is not an array
 		{/if}
