@@ -58,70 +58,64 @@
 
 <InitializeComponent {id} />
 
-{#if render}
-	<RunnableWrapper
-		{outputs}
-		{render}
-		autoRefresh
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
-	>
-		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+<RunnableWrapper
+	render={true}
+	{outputs}
+	autoRefresh
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+>
+	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 
-		<div
-			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
-		>
-			{#if $app.subgrids?.[`${id}-0`]}
-				{#if Array.isArray(result) && result.length > 0}
-					{#each result ?? [] as value, index}
-						<div
-							style={`${
-								isCard
-									? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
-									: ''
-							} max-height: ${resolvedConfig.heightPx}px;`}
-							class="overflow-auto {!isCard ? 'w-full' : 'border'}"
+	<div
+		class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
+	>
+		{#if $app.subgrids?.[`${id}-0`]}
+			{#if Array.isArray(result) && result.length > 0}
+				{#each result ?? [] as value, index}
+					<div
+						style={`${
+							isCard
+								? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
+								: ''
+						} max-height: ${resolvedConfig.heightPx}px;`}
+						class="overflow-auto {!isCard ? 'w-full' : 'border'}"
+					>
+						<ListWrapper
+							on:inputsChange={() => {
+								outputs?.inputs.set(inputs, true)
+							}}
+							bind:inputs
+							{value}
+							{index}
 						>
-							<ListWrapper
-								on:inputsChange={() => {
-									outputs?.inputs.set(inputs, true)
+							<SubGridEditor
+								visible={render}
+								{id}
+								class={css?.container?.class}
+								style={css?.container?.style}
+								subGridId={`${id}-0`}
+								containerHeight={resolvedConfig.heightPx}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+									}
+									onFocus()
 								}}
-								bind:inputs
-								{value}
-								{index}
-							>
-								<SubGridEditor
-									visible={render}
-									{id}
-									class={css?.container?.class}
-									style={css?.container?.style}
-									subGridId={`${id}-0`}
-									containerHeight={resolvedConfig.heightPx}
-									on:focus={() => {
-										if (!$connectingInput.opened) {
-											$selectedComponent = [id]
-										}
-										onFocus()
-									}}
-								/>
-							</ListWrapper>
-						</div>
-					{/each}
-				{:else}
-					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-					</ListWrapper>
-					{#if !Array.isArray(result)}
-						<div class="text-center text-gray-500">Input data is not an array</div>
-					{/if}
+							/>
+						</ListWrapper>
+					</div>
+				{/each}
+			{:else}
+				<ListWrapper disabled value={undefined} index={0}>
+					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+				</ListWrapper>
+				{#if !Array.isArray(result)}
+					<div class="text-center text-gray-500">Input data is not an array</div>
 				{/if}
 			{/if}
-		</div>
-	</RunnableWrapper>
-{:else}
-	<ListWrapper disabled value={undefined} index={0}>
-		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-	</ListWrapper>
-{/if}
+		{/if}
+	</div>
+</RunnableWrapper>

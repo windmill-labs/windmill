@@ -386,6 +386,7 @@ it being synced automatically everyday.
 | SMTP_USERNAME                       | None                                       | username for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_PASSWORD                       | None                                       | password for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_TLS_IMPLICIT                   | false                                      | https://docs.rs/mail-send/latest/mail_send/struct.SmtpClientBuilder.html#method.implicit_tlsemails                                                                                                 | Server                |
+| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | false                                      | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
 
 ## Run a local dev setup
 
