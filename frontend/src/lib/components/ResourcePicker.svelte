@@ -91,7 +91,6 @@
 		placeholder="{resourceType ?? 'any'} resource"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 		containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
 	/>
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
