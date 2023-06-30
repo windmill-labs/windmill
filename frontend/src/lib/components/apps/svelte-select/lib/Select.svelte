@@ -11,7 +11,9 @@
 	import ChevronIcon from './ChevronIcon.svelte'
 	import ClearIcon from './ClearIcon.svelte'
 	import LoadingIcon from './LoadingIcon.svelte'
-	import Portal from 'svelte-portal'
+	import ConditionalPortal from './ConditionalPortal.svelte'
+
+	export let portal = true
 
 	export let justValue = null // read-only
 
@@ -287,20 +289,6 @@
 		} else {
 			value = findItem() || value
 		}
-	}
-
-	async function handleMultiItemClear(i) {
-		const itemToRemove = value[i]
-
-		if (value.length === 1) {
-			value = undefined
-		} else {
-			value = value.filter((item) => {
-				return item !== itemToRemove
-			})
-		}
-
-		dispatch('clear', itemToRemove)
 	}
 
 	function handleKeyDown(e) {
@@ -617,7 +605,7 @@
 	use:floatingRef
 >
 	{#if listOpen}
-		<Portal>
+		<ConditionalPortal condition={portal}>
 			<div
 				use:floatingContent
 				bind:this={list}
@@ -663,7 +651,7 @@
 				{/if}
 				{#if $$slots['list-append']}<slot name="list-append" />{/if}
 			</div>
-		</Portal>
+		</ConditionalPortal>
 	{/if}
 
 	<span aria-live="polite" aria-atomic="false" aria-relevant="additions text" class="a11y-text">
