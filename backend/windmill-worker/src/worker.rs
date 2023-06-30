@@ -248,6 +248,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
+
 }
 
 //only matter if CLOUD_HOSTED
