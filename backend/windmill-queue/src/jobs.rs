@@ -24,10 +24,13 @@ use windmill_common::{
         FlowStatus, FlowStatusModule, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
     flows::{FlowModule, FlowModuleValue, FlowValue},
-    jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, Metrics, QueuedJob, RawCode},
+    jobs::{
+        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, Metrics,
+        QueuedJob, RawCode,
+    },
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
-    users::username_to_permissioned_as,
+    users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
     METRICS_ENABLED,
 };
 
@@ -201,6 +204,10 @@ fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
         .collect::<Vec<_>>()
 }
 
+lazy_static::lazy_static! {
+    pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
@@ -242,7 +249,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .ok()
         .flatten()
         .flatten();
-    let mut tx: QueueTransaction<'_, R> = (rsmq, db.begin().await?).into();
+    let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id.clone();
     let _duration = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
@@ -329,7 +336,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
             success,
-            if success { None } else { Some(result) },
+            if success { None } else { Some(&result) },
         )
         .await?;
     }
@@ -356,10 +363,67 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
     }
 
+    if matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+        && queued_job.parent_job.is_none()
+        && !success
+    {
+        if let Err(e) = send_error_to_global_handler(rsmq, &queued_job, db, &result).await {
+            tracing::error!(
+                "Could not run global error handler for job {}: {}",
+                &queued_job.id,
+                e
+            );
+        }
+    }
+
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
 
+pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+) -> Result<(), Error> {
+    if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
+        let w_id = &queued_job.workspace_id;
+        let job_id = queued_job.id;
+        let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+        let (job_payload, tag) =
+            script_path_to_payload(&global_error_handler, tx.transaction_mut(), &w_id).await?;
+        let mut args = result.as_object().unwrap().clone();
+        args.insert("workspace_id".to_string(), json!(w_id));
+        args.insert("job_id".to_string(), json!(job_id));
+        args.insert("path".to_string(), json!(queued_job.script_path));
+        args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
+        args.insert("email".to_string(), json!(queued_job.email));
+
+        let (uuid, tx) = push(
+            tx,
+            w_id,
+            job_payload,
+            args,
+            "global",
+            "global",
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+            None,
+            None,
+            Some(job_id),
+            Some(job_id),
+            None,
+            false,
+            false,
+            None,
+            true,
+            tag,
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!("Sent error of job {job_id} to global error handler under uuid {uuid}");
+    }
+    Ok(())
+}
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
@@ -368,7 +432,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     script_path: &str,
     w_id: &str,
     success: bool,
-    result: Option<serde_json::Value>,
+    result: Option<&serde_json::Value>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
@@ -469,7 +533,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     script_path: &str,
     w_id: &str,
     on_failure_path: &str,
-    result: Option<serde_json::Value>,
+    result: Option<&serde_json::Value>,
     username: &str,
     email: &str,
     permissioned_as: String,
@@ -478,6 +542,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
 
     let mut args = result
+        .map(|x| x.clone())
         .unwrap_or_else(|| json!({}))
         .as_object()
         .unwrap()
