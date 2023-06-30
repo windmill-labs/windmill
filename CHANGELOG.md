@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.124.0](https://github.com/windmill-labs/windmill/compare/v1.123.1...v1.124.0) (2023-06-30)
+
+
+### Features
+
+* add configurable global error handler ([8c566a2](https://github.com/windmill-labs/windmill/commit/8c566a2e46e5136f6fb3783b6fbb65833b5f202c))
+
 ## [1.123.1](https://github.com/windmill-labs/windmill/compare/v1.123.0...v1.123.1) (2023-06-29)
 
 
