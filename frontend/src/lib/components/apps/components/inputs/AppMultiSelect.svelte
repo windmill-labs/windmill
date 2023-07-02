@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -10,11 +10,16 @@
 	// @ts-ignore
 	import MultiSelect from 'svelte-multiselect'
 	import Portal from 'svelte-portal'
+	import { createFloatingActions } from 'svelte-floating-ui'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
+
+	const [floatingRef, floatingContent] = createFloatingActions({
+		strategy: 'absolute'
+	})
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -66,18 +71,19 @@
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
 
-	function moveOptionsUlToPortal() {
-		if (!outerDiv || !portalRef) return
+	onMount(() => {
+		// Find ul element with class 'options' within the outerDiv
+		const ul = outerDiv?.querySelector('.options')
 
-		const { x, y, width, height } = outerDiv.getBoundingClientRect()
+		if (ul) {
+			// Move the ul element to the portal
+			portalRef?.appendChild(ul)
+		}
+	})
 
-		portalRef.setAttribute(
-			'style',
-			`position: absolute; top: ${y}px; left: ${x}px; width: ${width}px; height: ${height}px; z-index: 1000;`
-		)
-
-		portalRef.appendChild(outerDiv)
-	}
+	let w = 0
+	let h = 0
+	let open = false
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -99,13 +105,17 @@
 				e.stopPropagation()
 			}
 		}}
+		use:floatingRef
+		bind:clientWidth={w}
+		bind:clientHeight={h}
 	>
 		{#if !value || Array.isArray(value)}
-			<div>
+			<div style={`height:${h}px;`}>
 				<MultiSelect
 					bind:outerDiv
 					outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
 					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
+					ulOptionsClass={'p-2'}
 					bind:selected={value}
 					on:change={() => {
 						outputs?.result.set([...(value ?? [])])
@@ -115,11 +125,24 @@
 					allowUserOptions={resolvedConfig.create}
 					on:open={() => {
 						$selectedComponent = [id]
-						moveOptionsUlToPortal()
+						open = true
 					}}
-				/>
+					on:close={() => {
+						open = false
+					}}
+				>
+					<div slot="option" let:option class="hover:bg-gray-200 p-1 cursor-pointer z-50">
+						{option}
+					</div>
+				</MultiSelect>
 				<Portal>
-					<div bind:this={portalRef} />
+					<div use:floatingContent class="z1000" hidden={!open}>
+						<div
+							bind:this={portalRef}
+							class="bg-white w-full border shadow-md rounded-md"
+							style={`min-width: ${w}px; `}
+						/>
+					</div>
 				</Portal>
 			</div>
 		{:else}
@@ -133,7 +156,8 @@
 		padding: 0 !important;
 		overflow: auto;
 	}
-	.svelte-select-list {
+
+	.z1000 {
 		z-index: 1000 !important;
 	}
 </style>
