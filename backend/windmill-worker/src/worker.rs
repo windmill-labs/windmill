@@ -68,7 +68,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_ts_fetch},
 };
 
 
@@ -344,6 +344,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Deno),
         Some(ScriptLang::Go),
         Some(ScriptLang::Bash),
+        Some(ScriptLang::NativeTs),
         Some(ScriptLang::Postgresql)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
@@ -961,6 +962,17 @@ async fn do_postgresql(job: QueuedJob) -> windmill_common::error::Result<JobComp
     });
 }
 
+
+async fn do_native_ts(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
+    let result = eval_ts_fetch(job.raw_code.clone().unwrap_or_else(|| "".to_string())).await?;
+    return Ok(JobCompleted {
+        job: job,
+        result: result,
+        logs: "".to_string(),
+        success: true
+    });
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -1012,11 +1024,29 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     };
                     });
                     return Ok(());      
-            }
-            
-            if job.language == Some(ScriptLang::Postgresql) {
+            } else if job.language == Some(ScriptLang::Postgresql) {
                 tokio::task::spawn(async move {
                     let jc = do_postgresql(job.clone()).await;
+                    match jc {
+                        Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                        Err(e) => job_completed_tx.send(JobCompleted {
+                            job: job,
+                            result: extract_error_value(&e.to_string(), 1),
+                            logs: "".to_string(),
+                            success: false
+                        }).await.expect("send job completed"),
+                    };
+                });
+                return Ok(());     
+            }
+
+            tracing::info!("handle_queued_job {:?}", job);
+
+            if job.language == Some(ScriptLang::NativeTs) {
+                tokio::task::spawn(async move {
+                    tracing::info!("do_native_ts");
+                    let jc = do_native_ts(job.clone()).await;
+                    tracing::info!("do_native_ts done");
                     match jc {
                         Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
                         Err(e) => job_completed_tx.send(JobCompleted {
@@ -2008,6 +2038,8 @@ async fn capture_dependency_job(
         },
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
+        ScriptLang::NativeTs => transpile_ts(job_raw_code.to_string()).map_err(|e| Error::ExecutionErr(e.to_string())),
+
     }
 }
 

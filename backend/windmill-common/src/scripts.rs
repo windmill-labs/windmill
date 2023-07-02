@@ -25,6 +25,7 @@ use crate::utils::StripPath;
 )]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
+    NativeTs,
     Deno,
     Python3,
     Go,
@@ -35,6 +36,7 @@ pub enum ScriptLang {
 impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ScriptLang::NativeTs => "native_ts",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
             ScriptLang::Go => "go",

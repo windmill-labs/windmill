@@ -85,7 +85,8 @@
 	}
 
 	function runTest() {
-		testJobLoader.runPreview(path, code, lang, args, tag)
+		//@ts-ignore
+		testJobLoader.runPreview(path, code, 'nativets', args, tag)
 	}
 
 	async function loadPastTests(): Promise<void> {
