@@ -25,6 +25,8 @@ import "ext:deno_web/15_performance.js";
 globalThis.fetch = fetch.fetch;
 globalThis.Request = request.Request;
 globalThis.Blob = file.Blob;
+globalThis.URL = url.URL;
+globalThis.FileReader = fileReader.FileReader;
 
 // Object.assign(globalThis, {
 //   console: nonEnumerable(

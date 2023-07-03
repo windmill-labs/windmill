@@ -68,7 +68,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_ts_fetch},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout},
 };
 
 
@@ -964,7 +964,15 @@ async fn do_postgresql(job: QueuedJob) -> windmill_common::error::Result<JobComp
 
 
 async fn do_native_ts(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
-    let result = eval_ts_fetch(job.raw_code.clone().unwrap_or_else(|| "".to_string())).await?;
+    let code = job.raw_code.clone().unwrap_or_else(|| "".to_string());
+    let args = job.args
+        .as_ref()
+        .map(|x| x.clone())
+        .unwrap_or_else(|| json!({}))
+        .as_object()
+        .unwrap()
+        .clone();
+    let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, args).await?;
     return Ok(JobCompleted {
         job: job,
         result: result,
@@ -1039,8 +1047,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 });
                 return Ok(());     
             }
-
-            tracing::info!("handle_queued_job {:?}", job);
 
             if job.language == Some(ScriptLang::NativeTs) {
                 tokio::task::spawn(async move {

@@ -41,31 +41,31 @@ deno_core::extension!(
 );
 
 fn main() {
-    // println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
-    // println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
+    println!("cargo:rustc-env=TARGET={}", env::var("TARGET").unwrap());
+    println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
 
-    // let exts = vec![
-    //     deno_webidl::deno_webidl::init_ops_and_esm(),
-    //     deno_url::deno_url::init_ops_and_esm(),
-    //     deno_console::deno_console::init_ops_and_esm(),
-    //     deno_web::deno_web::init_ops_and_esm::<PermissionsContainer>(BlobStore::default(), None),
-    //     deno_fetch::deno_fetch::init_ops_and_esm::<PermissionsContainer>(Default::default()),
-    //     fetch::init_ops_and_esm(),
-    // ];
+    let exts = vec![
+        deno_webidl::deno_webidl::init_ops_and_esm(),
+        deno_url::deno_url::init_ops_and_esm(),
+        deno_console::deno_console::init_ops_and_esm(),
+        deno_web::deno_web::init_ops_and_esm::<PermissionsContainer>(BlobStore::default(), None),
+        deno_fetch::deno_fetch::init_ops_and_esm::<PermissionsContainer>(Default::default()),
+        fetch::init_ops_and_esm(),
+    ];
 
-    // // Build the file path to the snapshot.
-    // let o = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    // let snapshot_path = o.join("FETCH_SNAPSHOT.bin");
+    // Build the file path to the snapshot.
+    let o = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let snapshot_path = o.join("FETCH_SNAPSHOT.bin");
 
-    // // Create the snapshot.
-    // let _ = deno_core::snapshot_util::create_snapshot(
-    //     deno_core::snapshot_util::CreateSnapshotOptions {
-    //         cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-    //         snapshot_path: snapshot_path,
-    //         startup_snapshot: None,
-    //         extensions: exts,
-    //         compression_cb: None,
-    //         snapshot_module_load_cb: None,
-    //     },
-    // );
+    // Create the snapshot.
+    let _ = deno_core::snapshot_util::create_snapshot(
+        deno_core::snapshot_util::CreateSnapshotOptions {
+            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+            snapshot_path: snapshot_path,
+            startup_snapshot: None,
+            extensions: exts,
+            compression_cb: None,
+            snapshot_module_load_cb: None,
+        },
+    );
 }
