@@ -42,8 +42,8 @@
 	function setDefaultValue() {
 		if (resolvedConfig.defaultValue === undefined) {
 			selected = resolvedConfig.items[0].value
-		} else if (resolvedConfig.defaultValue?.value) {
-			selected = resolvedConfig.defaultValue?.value
+		} else if (resolvedConfig.defaultValue) {
+			selected = resolvedConfig.defaultValue
 		}
 	}
 

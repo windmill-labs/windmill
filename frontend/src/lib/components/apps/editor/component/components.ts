@@ -2269,7 +2269,7 @@ Hello \${ctx.username}
 
 				defaultValue: {
 					type: 'static',
-					value: undefined as { value: string; label: string } | undefined,
+					value: 'foo',
 					fieldType: 'object'
 				},
 				tabSize: {
