@@ -51,16 +51,6 @@
 		outputs?.result.set(value)
 	}
 
-	function onPointerDown(
-		e: PointerEvent & {
-			currentTarget: EventTarget & HTMLDivElement
-		}
-	) {
-		if (!e.shiftKey) {
-			e.stopPropagation()
-		}
-	}
-
 	$: selected && handleSelection(selected)
 	$: css = concatCustomCss($app.css?.selecttabcomponent, customCss)
 </script>
@@ -77,7 +67,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="w-full" on:pointerdown={onPointerDown}>
+	<div class="w-full">
 		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
 			{#each resolvedConfig?.items ?? [] as item}
 				<Tab
