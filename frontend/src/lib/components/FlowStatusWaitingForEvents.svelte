@@ -52,6 +52,7 @@
 				{#if job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
 						<SchemaForm
+							disablePortal
 							noVariablePicker
 							bind:args={payload}
 							schema={job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
