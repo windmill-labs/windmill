@@ -188,6 +188,7 @@
 				class="py-4 max-w-3xl"
 				schema={$flowStore.schema}
 				bind:args={$previewArgs}
+				disablePortal
 			/>
 		</div>
 		<div class="pt-4 grow">
