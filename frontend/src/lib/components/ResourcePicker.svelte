@@ -15,6 +15,7 @@
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
+	export let disablePortal = false
 
 	let valueSelect =
 		initialValue || value
@@ -77,6 +78,7 @@
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
+		portal={!disablePortal}
 		value={valueSelect}
 		on:change={(e) => {
 			value = e.detail.value
