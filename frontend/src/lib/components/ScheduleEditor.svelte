@@ -249,7 +249,13 @@
 
 				{#if runnable}
 					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-						<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />
+						<SchemaForm
+							disablePortal
+							disabled={!can_write}
+							schema={runnable.schema}
+							bind:isValid
+							bind:args
+						/>
 					{:else}
 						<div class="text-xs texg-gray-700">
 							This {is_flow ? 'flow' : 'script'} takes no argument

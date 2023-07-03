@@ -122,5 +122,5 @@ export async function main(args: any) {
 		>{:else}<div class="py-2" />{/if}
 	<SimpleEditor autoHeight lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
 {:else}
-	<SchemaForm noDelete {password} isValid {schema} bind:args />
+	<SchemaForm disablePortal noDelete {password} isValid {schema} bind:args />
 {/if}

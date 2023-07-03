@@ -23,7 +23,7 @@
 		<svelte:fragment slot="content">
 			<TabContent value="ui">
 				<div class="mt-4" />
-				<SchemaForm bind:schema editableSchema={true} />
+				<SchemaForm disablePortal bind:schema editableSchema={true} />
 			</TabContent>
 			<TabContent value="jsonschema">
 				<Highlight language={json} code={JSON.stringify(schema, null, 4)} />
