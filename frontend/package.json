@@ -50,7 +50,7 @@
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^12.0.0",
-		"svelte": "^3.59.1",
+		"svelte": "^3.59.2",
 		"svelte-awesome": "^3.2.0",
 		"svelte-awesome-color-picker": "^2.4.5",
 		"svelte-check": "^3.4.3",
@@ -106,7 +106,7 @@
 	},
 	"peerDependencies": {
 		"@sveltejs/kit": "^1.20.1",
-		"svelte": "^3.59.1"
+		"svelte": "^3.59.2"
 	},
 	"exports": {
 		"./package.json": "./package.json",
