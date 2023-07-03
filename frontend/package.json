@@ -97,7 +97,7 @@
 		"svelte-dnd-action": "^0.9.22",
 		"svelte-portal": "^2.2.0",
 		"svelte-timezone-picker": "^2.0.3",
-		"tailwind-merge": "^1.12.0",
+		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
 		"windmill-parser-wasm": "^1.120.0",
 		"y-monaco": "^0.1.4",
