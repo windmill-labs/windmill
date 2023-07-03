@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import Select from 'svelte-select'
+	import Select from '../../svelte-select/lib/index'
 
 	import type {
 		AppViewerContext,

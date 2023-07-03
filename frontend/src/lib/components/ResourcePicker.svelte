@@ -4,7 +4,7 @@
 	import { faPen, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Select from 'svelte-select'
+	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnect.svelte'
 	import { Button } from './common'

@@ -4,7 +4,7 @@
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 
-	import Select from 'svelte-select'
+	import Select from './apps/svelte-select/lib/index'
 
 	import { getScriptByPath } from '$lib/scripts'
 	import { Button, Drawer, DrawerContent } from './common'
@@ -97,6 +97,7 @@
 			placeholder="Pick a {itemKind}"
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+			portal={false}
 		/>
 	{/if}
 
