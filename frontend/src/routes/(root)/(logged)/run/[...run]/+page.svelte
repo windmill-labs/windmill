@@ -361,7 +361,7 @@
 								<Skeleton layout={[[5]]} />
 							{/if}
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
-							<DisplayResult result={job.result} />
+							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
 						{:else if job}
 							No output is available yet
 						{/if}

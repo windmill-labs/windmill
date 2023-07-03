@@ -590,7 +590,11 @@
 									</Pane>
 									<Pane size={50} minSize={10} class="text-sm text-gray-600">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult result={{ error: { name: 'Frontend execution error', message: jobResult.error } }} />
+											<DisplayResult
+												result={{
+													error: { name: 'Frontend execution error', message: jobResult.error }
+												}}
+											/>
 										</pre>
 									</Pane>
 								</Splitpanes>
@@ -604,7 +608,7 @@
 									</Pane>
 									<Pane size={50} minSize={10} class="text-sm text-gray-600">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult result={jobResult.result} />
+											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
 										</pre>
 									</Pane>
 								</Splitpanes>
@@ -637,7 +641,11 @@
 										<Pane size={50} minSize={10} class="text-sm text-gray-600">
 											{#if job != undefined && 'result' in job && job.result != undefined}
 												<pre class="overflow-x-auto break-words relative h-full px-2"
-													><DisplayResult result={job.result} /></pre
+													><DisplayResult
+														workspaceId={$workspaceStore}
+														jobId={selectedJobId}
+														result={job.result}
+													/></pre
 												>
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>

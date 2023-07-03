@@ -88,7 +88,11 @@
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2"
-								><DisplayResult result={previewJob.result} />
+								><DisplayResult
+									workspaceId={previewJob?.workspace_id}
+									jobId={previewJob?.id}
+									result={previewJob.result}
+								/>
 							</div>
 						{:else}
 							<div class="text-sm text-gray-600 p-2">
