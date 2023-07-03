@@ -115,6 +115,6 @@
 			<SchemaViewer schema={jsonSchema} />
 		</div>
 		<h3 class="mt-8">Test args</h3>
-		<SchemaForm disablePortal class="pt-4" schema={$flowStore.schema} args={$previewArgs} />
+		<SchemaForm class="pt-4" schema={$flowStore.schema} args={$previewArgs} />
 	</DrawerContent>
 </Drawer>

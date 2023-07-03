@@ -250,7 +250,6 @@
 				{#if runnable}
 					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 						<SchemaForm
-							disablePortal
 							disabled={!can_write}
 							schema={runnable.schema}
 							bind:isValid

@@ -136,7 +136,7 @@
 					</div>
 				</MultiSelect>
 				<Portal>
-					<div use:floatingContent class="z1000" hidden={!open}>
+					<div use:floatingContent class="z5000" hidden={!open}>
 						<div
 							bind:this={portalRef}
 							class="bg-white w-full border shadow-md rounded-md"
@@ -157,7 +157,7 @@
 		overflow: auto;
 	}
 
-	.z1000 {
-		z-index: 1000 !important;
+	.z5000 {
+		z-index: 5000 !important;
 	}
 </style>
