@@ -204,6 +204,6 @@
 		padding: 0 !important;
 	}
 	.svelte-select-list {
-		z-index: 1000 !important;
+		z-index: 5000 !important;
 	}
 </style>

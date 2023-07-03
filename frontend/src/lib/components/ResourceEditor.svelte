@@ -163,7 +163,6 @@
 						<Skeleton layout={[[4]]} />
 					{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 						<SchemaForm
-							disablePortal
 							noDelete
 							disabled={!can_write}
 							compact
