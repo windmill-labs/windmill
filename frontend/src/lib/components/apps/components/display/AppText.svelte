@@ -216,24 +216,25 @@
 							)}
 						>
 							{String(result)}
-							{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
-								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
-							{/if}
-							{#if resolvedConfig.copyButton && result}
-								<Popover notClickable>
-									<Button
-										variant="border"
-										size="xs"
-										color="dark"
-										btnClasses="!p-1"
-										on:click={() => copyToClipboard(result)}
-									>
-										<Clipboard size={14} strokeWidth={2} />
-									</Button>
-									<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
-								</Popover>
-							{/if}
 						</svelte:element>
+
+						{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
+							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
+						{/if}
+						{#if resolvedConfig.copyButton && result}
+							<div class="flex">
+								<Button
+									title="Copy to clipboard"
+									variant="border"
+									size="xs"
+									color="light"
+									btnClasses="!p-1"
+									on:click={() => copyToClipboard(result)}
+								>
+									<Clipboard size={14} strokeWidth={2} />
+								</Button>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</AlignWrapper>
