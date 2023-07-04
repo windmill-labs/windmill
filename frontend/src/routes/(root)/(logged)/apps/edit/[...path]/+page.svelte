@@ -32,7 +32,7 @@
 			const actions: ToastAction[] = []
 			if (stateLoadedFromUrl) {
 				actions.push({
-					label: 'Discard autosave and reload',
+					label: 'Discard URL stored autosave and reload',
 					callback: async () => {
 						stateLoadedFromUrl = undefined
 						await loadApp()
@@ -41,7 +41,7 @@
 				})
 			}
 
-			sendUserToast('App restored from ephemeral autosave', false, actions)
+			sendUserToast('App restored from browser storage', false, actions)
 			app_w_draft.value = stateLoadedFromUrl
 			app = app_w_draft
 		} else if (app_w_draft.draft) {
