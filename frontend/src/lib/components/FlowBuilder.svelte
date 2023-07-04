@@ -70,8 +70,10 @@
 		loadingDraft = true
 		try {
 			const flow = cleanInputs($flowStore)
+
 			$dirtyStore = false
 			localStorage.removeItem('flow')
+			localStorage.removeItem(`flow-${flow.path}`)
 
 			if (initialPath == '') {
 				await FlowService.createFlow({
@@ -120,6 +122,7 @@
 			$dirtyStore = false
 			if (initialPath === '') {
 				localStorage.removeItem('flow')
+				localStorage.removeItem(`flow-${flow.path}`)
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {

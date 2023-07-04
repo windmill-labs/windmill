@@ -199,6 +199,7 @@
 			$dirtyStore = false
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
+			localStorage.removeItem(`app-${path}`)
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -222,6 +223,7 @@
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
+			localStorage.removeItem(`app-${appPath}`)
 			await goto(`/apps/edit/${npath}?nodraft=true`)
 			window.location.reload()
 		}
@@ -297,15 +299,17 @@
 		try {
 			await computeTriggerables()
 			$dirtyStore = false
+			let path = $page.params.path
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: $page.params.path,
+					path: path,
 					typ: 'app',
 					value: $app!
 				}
 			})
 			sendUserToast('Draft saved')
+			localStorage.removeItem(`app-${path}`)
 			loading.saveDraft = false
 		} catch (e) {
 			loading.saveDraft = false
