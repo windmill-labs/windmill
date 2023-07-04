@@ -53,6 +53,7 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
+	let openAIKey: string | undefined = undefined
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -112,6 +113,23 @@
 		}
 	}
 
+	async function editOpenAIKey(): Promise<void> {
+		// in JS, an empty string is also falsy
+		if (openAIKey) {
+			await WorkspaceService.editOpenAIKey({
+				workspace: $workspaceStore!,
+				requestBody: { openai_key: openAIKey }
+			})
+			sendUserToast(`OpenAI key set to ${openAIKey}`)
+		} else {
+			await WorkspaceService.editOpenAIKey({
+				workspace: $workspaceStore!,
+				requestBody: { openai_key: undefined }
+			})
+			sendUserToast(`OpenAI key removed`)
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -123,6 +141,7 @@
 		initialPath = scriptPath
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+		openAIKey = settings.openai_key
 	}
 
 	async function listUsers(): Promise<void> {
@@ -237,6 +256,10 @@
 						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
 					</Tab>
 				{/if}
+
+				<Tab size="md" value="openai">
+					<div class="flex gap-2 items-center my-1">OpenAI Credentials</div>
+				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
@@ -774,6 +797,13 @@
 				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
 					>Set Webhook</Button
 				>
+			</div>
+		{:else if tab == 'openai'}
+			<PageHeader title="OpenAI Credentials" primary={false} />
+			<h3 class="mt-2 text-gray-700">Secret API key</h3>
+			<div class="flex gap-2">
+				<input type="text" placeholder="sk-..." bind:value={openAIKey} />
+				<Button size="md" on:click={editOpenAIKey}>Save</Button>
 			</div>
 		{/if}
 	{:else}
