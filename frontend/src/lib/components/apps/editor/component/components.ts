@@ -1148,6 +1148,14 @@ Hello \${ctx.username}
 					value: true,
 					onlyStatic: true,
 					tooltip: 'display a button to download the table as a csv file'
+				},
+				initialState: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)',
+					onlyStatic: true
 				}
 			},
 			componentInput: {
