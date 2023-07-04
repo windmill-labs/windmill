@@ -39,7 +39,7 @@
 			}
 			sendUserToast('Script loaded from latest autosave stored in the URL', false, [
 				{
-					label: 'Discard autosave and reload',
+					label: 'Discard browser stored autosave and reload',
 					callback: reloadAction
 				},
 				{
