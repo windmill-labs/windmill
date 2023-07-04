@@ -462,7 +462,7 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 overflow-hidden border-b shadow-sm">
+		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 border-b shadow-sm">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
 				<div class="min-w-64 w-full max-w-md">
 					<input
