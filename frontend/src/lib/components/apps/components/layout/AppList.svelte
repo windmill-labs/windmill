@@ -67,8 +67,6 @@
 	bind:initializing
 	bind:result
 >
-	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-
 	<div
 		class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 	>
