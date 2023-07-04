@@ -1,4 +1,4 @@
-use futures::{TryFutureExt, TryStreamExt};
+use futures::TryStreamExt;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use serde::Deserialize;
