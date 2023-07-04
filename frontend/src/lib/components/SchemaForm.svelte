@@ -25,6 +25,7 @@
 	export let flexWrap = false
 	export let noDelete = false
 	export let prettifyHeader = false
+	export let disablePortal = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -77,6 +78,7 @@
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
 							<ArgInput
+								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
@@ -104,6 +106,7 @@
 							/>
 						{:else}
 							<ArgInput
+								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}

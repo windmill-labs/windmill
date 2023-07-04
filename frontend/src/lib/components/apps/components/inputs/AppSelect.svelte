@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import Select from 'svelte-select'
+	import Select from '../../svelte-select/lib/index'
 
 	import type {
 		AppViewerContext,
@@ -204,6 +204,6 @@
 		padding: 0 !important;
 	}
 	.svelte-select-list {
-		z-index: 1000 !important;
+		z-index: 5000 !important;
 	}
 </style>

@@ -62,6 +62,7 @@
 	export let minW = true
 	export let prettifyHeader = false
 	export let resourceTypes: string[] | undefined
+	export let disablePortal = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -350,11 +351,12 @@
 					</div>
 				</div>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput {format} bind:value />
+				<ObjectResourceInput {disablePortal} {format} bind:value />
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
+							{disablePortal}
 							{disabled}
 							schema={{ properties, $schema: '', required: [], type: 'object' }}
 							bind:args={value}
@@ -400,6 +402,7 @@
 				/>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
+					{disablePortal}
 					bind:value
 					resourceType={format.split('-').length > 1
 						? format.substring('resource-'.length)
