@@ -181,6 +181,8 @@
 				await setResult(r, undefined)
 
 				$state = $state
+				const job = generateNextFrontendJobId()
+				$jobs = [{ job, component: id, result: r }, ...$jobs]
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 

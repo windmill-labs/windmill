@@ -26,6 +26,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
+		BellOff,
 		Bug,
 		Expand,
 		Laptop2,
@@ -545,7 +546,9 @@
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
-		on:close={() => ($jobsDrawerOpen = false)}
+		on:close={() => {
+			$jobsDrawerOpen = false
+		}}
 		tooltip="Look at latests runs to spot potential bugs."
 		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
 	>
@@ -602,7 +605,7 @@
 										</pre>
 									</Pane>
 								</Splitpanes>
-							{:else if jobResult?.result !== undefined}
+							{:else if jobResult !== undefined}
 								<Splitpanes horizontal class="grow border w-full">
 									<Pane size={50} minSize={10}>
 										<LogViewer
@@ -795,7 +798,18 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
-					<div> Debug runs </div>
+					<div> Debug runs</div>
+					<div class="text-2xs text-gray-500">({$jobs?.length ?? 0})</div>
+					{#if hasErrors}
+						<Button
+							size="xs"
+							btnClasses="-my-2 !px-1 !py-0"
+							color="light"
+							variant="border"
+							on:click={() => errorByComponent.set({})}
+							><BellOff size={12} />
+						</Button>
+					{/if}
 				</div>
 			</Button>
 		</div>
