@@ -152,6 +152,7 @@
 			...(resolvedConfig?.pagination?.selected != 'manual'
 				? {
 						initialState: {
+							...resolvedConfig.initialState,
 							pagination: {
 								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
 							}
