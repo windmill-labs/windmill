@@ -81,14 +81,14 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                 star_kwargs: false,
                 args: vec![
                     Arg {
-                        otyp: None,
+                        otyp: Some("text".to_string()),
                         name: "$1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
                     },
                     Arg {
-                        otyp: None,
+                        otyp: Some("bigint".to_string()),
                         name: "$2".to_string(),
                         typ: Typ::Int,
                         default: None,
