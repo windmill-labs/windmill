@@ -298,7 +298,10 @@
 				$worldStore.newOutput(id, 'raw', res)
 				res = await eval_like(
 					transformer.content,
-					computeGlobalContext($worldStore, { result: res }),
+					computeGlobalContext(
+						$worldStore,
+						iterContext ? { iter: $iterContext, result: res } : { result: res }
+					),
 					false,
 					$state,
 					$mode == 'dnd',
@@ -360,6 +363,8 @@
 		undefined
 
 	onMount(() => {
+		console.log('create', id)
+
 		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
