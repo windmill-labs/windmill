@@ -12,6 +12,7 @@
 
 <Menu placement="bottom-start" let:close>
 	<button
+		title="Workspace Menu"
 		slot="trigger"
 		type="button"
 		class={classNames(

@@ -22,6 +22,7 @@
 
 <Menu let:close placement="bottom-start">
 	<button
+		title="User Menu"
 		slot="trigger"
 		type="button"
 		class={classNames(
