@@ -24,7 +24,6 @@ pub enum JobKind {
     Identity,
     FlowDependencies,
     Http,
-    Graphql,
     Noop,
 }
 
@@ -160,7 +159,6 @@ pub enum JobPayload {
     RawFlow { value: FlowValue, path: Option<String> },
     Identity,
     Http,
-    Graphql,
     Noop,
 }
 

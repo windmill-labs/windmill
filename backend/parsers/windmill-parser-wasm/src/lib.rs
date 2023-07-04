@@ -29,3 +29,8 @@ pub fn parse_go(code: &str) -> String {
 pub fn parse_python(code: &str) -> String {
     wrap_sig(windmill_parser_py::parse_python_signature(code))
 }
+
+#[wasm_bindgen]
+pub fn parse_sql(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_sql_sig(code))
+}

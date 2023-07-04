@@ -292,7 +292,7 @@
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'nativets', 'bash', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Worker group: {job.tag}</Badge>
 							</div>

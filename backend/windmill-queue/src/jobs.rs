@@ -70,7 +70,7 @@ lazy_static::lazy_static! {
             "python3".to_string(),
             "go".to_string(),
             "bash".to_string(),
-            "native_ts".to_string(),
+            "nativets".to_string(),
             "postgresql".to_string(),
             "dependency".to_string(),
             "flow".to_string(),
@@ -1020,7 +1020,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 (None, Some(flow), None, JobKind::Flow, Some(value), None)
             }
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
-            JobPayload::Graphql => (None, None, None, JobKind::Graphql, None, None),
             JobPayload::Http => (None, None, None, JobKind::Http, None, None),
             JobPayload::Noop => (None, None, None, JobKind::Noop, None, None),
         };
@@ -1157,7 +1156,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Identity => "jobs.run.identity",
             JobKind::Http => "jobs.run.http",
             JobKind::Noop => "jobs.run.noop",
-            JobKind::Graphql => "jobs.run.graphql",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 

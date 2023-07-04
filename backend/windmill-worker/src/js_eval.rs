@@ -23,7 +23,7 @@ use regex::Regex;
 use serde_json::Value;
 use tokio::{
     sync::{mpsc, oneshot},
-    time::{timeout, Instant},
+    time::timeout,
 };
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
@@ -396,21 +396,24 @@ pub struct MainArgs {
     args: Vec<serde_json::Value>,
 }
 
+pub struct LogString {
+    pub s: String,
+}
+
 pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
     args: serde_json::Map<String, Value>,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<(serde_json::Value, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let ts_expr2 = ts_expr.clone();
     timeout(
         std::time::Duration::from_millis(100000),
         tokio::task::spawn_blocking(move || {
-            let ops = vec![op_get_args::decl()];
+            let ops = vec![op_get_static_args::decl(), op_log::decl()];
             let ext = Extension::builder("windmill").ops(ops).build();
 
-            let exts = vec![
-                // ext,
+            let exts: Vec<Extension> = vec![
                 deno_webidl::deno_webidl::init_ops(),
                 deno_url::deno_url::init_ops(),
                 deno_console::deno_console::init_ops(),
@@ -421,6 +424,7 @@ pub async fn eval_fetch_timeout(
                 deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
                     Default::default(),
                 ),
+                ext
             ];
 
             // Use our snapshot to provision our new runtime
@@ -444,7 +448,7 @@ pub async fn eval_fetch_timeout(
             // let instant = Instant::now();
 
 
-            let mut js_runtime = JsRuntime::new(options);
+            let mut js_runtime: JsRuntime = JsRuntime::new(options);
             // tracing::info!("ttc: {:?}", instant.elapsed());
 
             js_runtime.add_near_heap_limit_callback(move |x,y| {
@@ -458,14 +462,15 @@ pub async fn eval_fetch_timeout(
             });
 
             let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
-            // let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone()).unwrap_or(serde_json::Value::Null)).collect::<Vec<_>>();
+            let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone()).unwrap_or(serde_json::Value::Null)).collect::<Vec<_>>();
 
             {
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 op_state.put(PermissionsContainer{});
                 op_state.put(HTTP_CLIENT.clone());
-                // op_state.put(MainArgs { args: spread });
+                op_state.put(MainArgs { args: spread });
+                op_state.put(LogString { s: String::new() });
             }
 
 
@@ -485,7 +490,7 @@ pub async fn eval_fetch_timeout(
             let r = runtime.block_on(future)?;
             // tracing::info!("total: {:?}", instant.elapsed());
 
-            r as anyhow::Result<Value>
+            (r as anyhow::Result<Value>).map(|x| (x, js_runtime.op_state().borrow().borrow::<LogString>().s.clone()))
         }),
     )
     .await
@@ -518,8 +523,8 @@ main()
     let global = js_runtime.execute_script(
         "<anon>",
         r#"
-// Deno.core.opAsync("op_get_args").then((args) => import("file:///eval.ts").then(module => module.main(...args)))
-import("file:///eval.ts").then(module => module.main(...args))
+let args = Deno.core.ops.op_get_static_args()
+import("file:///eval.ts").then((module) => module.main(...args))
 "#
         .to_string()
         .into(),
@@ -534,8 +539,17 @@ import("file:///eval.ts").then(module => module.main(...args))
 }
 
 #[op]
-async fn op_get_args(op_state: Rc<RefCell<OpState>>) -> Vec<serde_json::Value> {
+fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<serde_json::Value> {
     return op_state.borrow().borrow::<MainArgs>().args.clone();
+}
+
+#[op]
+fn op_log(op_state: Rc<RefCell<OpState>>, args: Vec<String>) {
+    op_state
+        .borrow_mut()
+        .borrow_mut::<LogString>()
+        .s
+        .push_str(args.get(0).unwrap());
 }
 
 #[cfg(test)]
@@ -592,7 +606,7 @@ multiline template`";
 
         let res =
             eval_fetch_timeout(code.to_string(), code.to_string(), serde_json::Map::new()).await?;
-        assert_eq!(res, "".to_string());
+        assert_eq!(res.0, "".to_string());
         Ok(())
     }
 }

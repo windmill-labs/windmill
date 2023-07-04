@@ -139,13 +139,31 @@
 						}}
 					/>
 
+					<FlowScriptPicker
+						label="REST"
+						lang={Script.language.NATIVETS}
+						on:click={() => {
+							dispatch('new', {
+								language: RawScript.language.NATIVETS,
+								kind,
+								subkind: 'flow'
+							})
+						}}
+					/>
+
 					{#if !failureModule}
 						<FlowScriptPicker
-							label={`PostgreSQL`}
-							lang="pgsql"
-							on:click={() =>
-								dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
+							label="PostgreSQL"
+							lang={Script.language.POSTGRESQL}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.POSTGRESQL,
+									kind,
+									subkind: 'flow'
+								})
+							}}
 						/>
+
 						<FlowScriptPicker
 							label={`Docker`}
 							lang="docker"

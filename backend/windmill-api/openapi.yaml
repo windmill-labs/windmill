@@ -5550,7 +5550,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5605,7 +5605,7 @@ components:
             type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5749,7 +5749,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "graphql",
             ]
         schedule_path:
           type: string
@@ -5766,7 +5765,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets]
         email:
           type: string
         visible_to_owner:
@@ -5840,7 +5839,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "graphql",
               "postgresql",
             ]
         schedule_path:
@@ -5858,7 +5856,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets]
         is_skipped:
           type: boolean
         email:
@@ -6286,12 +6284,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets]
         tag:
           type: string
         kind:
           type: string
-          enum: [code, identity, graphql, http]
+          enum: [code, identity, http]
 
       required:
         - args

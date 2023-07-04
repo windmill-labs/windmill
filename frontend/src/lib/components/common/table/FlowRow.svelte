@@ -164,11 +164,6 @@
 				}
 				return [
 					{
-						displayName: 'View flow',
-						icon: faEye,
-						href: `/flows/get/${path}?workspace=${$workspaceStore}`
-					},
-					{
 						displayName: 'Edit',
 						icon: faEdit,
 						href: `/flows/edit/${path}?nodraft=true`,

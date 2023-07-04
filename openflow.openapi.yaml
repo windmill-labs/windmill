@@ -192,6 +192,8 @@ components:
             - python3
             - go
             - bash
+            - postgresql
+            - nativets
         path:
           type: string
         lock:

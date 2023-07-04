@@ -1242,7 +1242,6 @@ enum PreviewKind {
     Code,
     Identity,
     Http,
-    Graphql,
     Noop,
 }
 #[derive(Deserialize)]
@@ -1978,7 +1977,6 @@ async fn run_preview_job(
         match preview.kind {
             Some(PreviewKind::Identity) => JobPayload::Identity,
             Some(PreviewKind::Http) => JobPayload::Http,
-            Some(PreviewKind::Graphql) => JobPayload::Graphql,
             Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
                 content: preview.content.unwrap_or_default(),

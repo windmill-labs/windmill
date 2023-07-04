@@ -3099,6 +3099,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "postgres-native-tls"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d442770e2b1e244bb5eb03b31c79b65bb2568f413b899eaba850fa945a65954"
+dependencies = [
+ "futures",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "postgres-protocol"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6171,6 +6184,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-sql"
+version = "1.123.1"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "regex",
+ "serde_json",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-ts"
 version = "1.123.1"
 dependencies = [
@@ -6198,6 +6222,7 @@ dependencies = [
  "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-py",
+ "windmill-parser-sql",
  "windmill-parser-ts",
 ]
 
@@ -6251,7 +6276,9 @@ dependencies = [
  "git-version",
  "itertools 0.11.0",
  "lazy_static",
+ "native-tls",
  "once_cell",
+ "postgres-native-tls",
  "prometheus",
  "rand 0.8.5",
  "regex",
@@ -6271,6 +6298,7 @@ dependencies = [
  "windmill-parser-go",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
 ]

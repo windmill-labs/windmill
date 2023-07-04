@@ -84,8 +84,8 @@
 	{@const id = BG_PREFIX + hiddenInlineScript.index}
 	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
-	<div class="mb-8">
-		{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
+	{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
+		<div class="mb-8">
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
 					<InputsSpecsEditor
@@ -97,8 +97,8 @@
 					/>
 				{/key}
 			</PanelSection>
-		{/if}
-	</div>
+		</div>
+	{/if}
 	<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
 	<div class="grow shrink" />
 {/if}

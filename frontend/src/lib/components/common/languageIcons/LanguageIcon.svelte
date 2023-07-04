@@ -7,6 +7,7 @@
 	import JavaScript from './JavaScript.svelte'
 	import FetchIcon from './FetchIcon.svelte'
 	import DockerIcon from '$lib/components/icons/DockerIcon.svelte'
+	import RestIcon from '$lib/components/icons/RestIcon.svelte'
 
 	export let lang: SupportedLanguage | 'pgsql' | 'mysql' | 'javascript' | 'fetch' | 'docker'
 	export let width = 30
@@ -26,7 +27,8 @@
 		javascript: JavaScript,
 		fetch: FetchIcon,
 		docker: DockerIcon,
-		postgresql: PostgresIcon
+		postgresql: PostgresIcon,
+		nativets: RestIcon
 	}
 </script>
 

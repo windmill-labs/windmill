@@ -3,6 +3,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
+	import AnsiUp from 'ansi_up'
 
 	export let content: string | undefined
 	export let isLoading: boolean
@@ -10,6 +11,9 @@
 	export let mem: number | undefined = undefined
 	export let wrapperClass = ''
 	export let jobId: string | undefined = undefined
+
+	// @ts-ignore
+	const ansi_up = new AnsiUp()
 
 	let scroll = true
 	let div: HTMLElement | null = null
@@ -19,7 +23,7 @@
 	}
 
 	$: content && scrollToBottom()
-
+	$: html = ansi_up.ansi_to_html(content ?? '')
 	export function scrollToBottom() {
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
 	}
@@ -71,7 +75,8 @@
 			>
 		{/if}
 		<pre class="whitespace-pre-wrap break-words text-xs w-full p-2"
-			>{#if content}<span>{content}</span>{:else if !isLoading}<span>No logs are available yet</span
+			>{#if content}<span>{@html html}</span>{:else if !isLoading}<span
+					>No logs are available yet</span
 				>{/if}</pre
 		>
 	</div>

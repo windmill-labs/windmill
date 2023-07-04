@@ -187,12 +187,6 @@
 				}
 				return [
 					{
-						displayName: 'View script',
-						icon: faEye,
-						href: `/scripts/get/${hash}?workspace=${$workspaceStore}`
-					},
-
-					{
 						displayName: 'Edit',
 						icon: faEdit,
 						href: `/scripts/edit/${path}`,

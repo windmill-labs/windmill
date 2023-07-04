@@ -86,7 +86,7 @@
 
 	function runTest() {
 		//@ts-ignore
-		testJobLoader.runPreview(path, code, 'nativets', args, tag)
+		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -292,6 +292,7 @@
 						}}
 						class="flex flex-1 h-full !overflow-visible"
 						lang={scriptLangToEditorLang(lang)}
+						deno={lang == 'deno'}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 					/>

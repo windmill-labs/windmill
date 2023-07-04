@@ -27,7 +27,9 @@ globalThis.Request = request.Request;
 globalThis.Blob = file.Blob;
 globalThis.URL = url.URL;
 globalThis.FileReader = fileReader.FileReader;
-
+globalThis.console = new console.Console((msg, level) =>
+  globalThis.Deno.core.ops.op_log([msg])
+);
 // Object.assign(globalThis, {
 //   console: nonEnumerable(
 //     new console.Console((msg, level) => core.print(msg, level > 1))

@@ -29,6 +29,7 @@ windmill-parser-go.workspace = true
 windmill-parser-py.workspace = true
 windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
+windmill-parser-sql.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -58,6 +59,8 @@ deno_console.workspace = true
 deno_url.workspace = true
 deno_core.workspace = true
 deno_ast.workspace = true
+postgres-native-tls.workspace = true
+native-tls.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

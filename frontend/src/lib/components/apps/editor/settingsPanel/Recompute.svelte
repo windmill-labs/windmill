@@ -20,7 +20,7 @@
 </script>
 
 <PanelSection
-	title="Trigger Runnable"
+	title="Trigger runnables on success"
 	tooltip="Select components to recompute after running this runnable as a success"
 	documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#recompute-others"
 >
