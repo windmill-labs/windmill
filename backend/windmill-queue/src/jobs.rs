@@ -392,7 +392,7 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
         let job_id = queued_job.id;
         let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
         let (job_payload, tag) =
-            script_path_to_payload(&global_error_handler, tx.transaction_mut(), &w_id).await?;
+            script_path_to_payload(&global_error_handler, tx.transaction_mut(), "admins").await?;
         let mut args = result.as_object().unwrap().clone();
         args.insert("workspace_id".to_string(), json!(w_id));
         args.insert("job_id".to_string(), json!(job_id));
@@ -402,7 +402,7 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
 
         let (uuid, tx) = push(
             tx,
-            w_id,
+            "admins",
             job_payload,
             args,
             "global",
