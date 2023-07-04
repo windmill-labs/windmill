@@ -5839,7 +5839,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "postgresql",
             ]
         schedule_path:
           type: string
