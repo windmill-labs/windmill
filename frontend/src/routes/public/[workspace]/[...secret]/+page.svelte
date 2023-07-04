@@ -64,6 +64,7 @@
 				noBackend={false}
 				context={{
 					email: $userStore?.email,
+					groups: $userStore?.groups,
 					username: $userStore?.username,
 					query: Object.fromEntries($page.url.searchParams.entries()),
 					hash: $page.url.hash
