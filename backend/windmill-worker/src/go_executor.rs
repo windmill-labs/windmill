@@ -293,6 +293,7 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
+    let hash = format!("go-{}", hash);
 
     let mut skip_tidy = has_sum;
 
