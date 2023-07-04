@@ -19,12 +19,7 @@
 	import { Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
-	import {
-		SCRIPT_SHOW_BASH,
-		SCRIPT_SHOW_GO,
-		SCRIPT_SHOW_PSQL,
-		SCRIPT_CUSTOMISE_SHOW_KIND
-	} from '$lib/consts'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -72,6 +67,8 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
+	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
 		title: string
@@ -304,22 +301,6 @@
 						<span class="ml-2 py-2">{label}</span>
 					</Button>
 				{/each}
-				{#if SCRIPT_SHOW_PSQL}
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'pgsql' ? 'blue' : 'dark'}
-						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						disabled={lockedLanguage}
-						on:click={() => {
-							template = 'pgsql'
-							initContent(Script.language.DENO, script.kind, template)
-							script.language = Script.language.DENO
-						}}
-					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
-					</Button>
-				{/if}
 				<Button
 					size="sm"
 					variant="border"
@@ -349,6 +330,7 @@
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
 				</Button>
+
 				<!-- <Button
 					size="sm"
 					variant="border"

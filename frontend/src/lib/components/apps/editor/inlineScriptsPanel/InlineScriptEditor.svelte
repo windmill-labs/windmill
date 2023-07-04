@@ -203,6 +203,7 @@
 		<div class="border-y h-full">
 			{#if inlineScript.language != 'frontend' && !drawerIsOpen}
 				<Editor
+					deno={inlineScript.language == 'deno'}
 					path={inlineScript.path}
 					bind:this={editor}
 					class="flex flex-1 grow h-full"

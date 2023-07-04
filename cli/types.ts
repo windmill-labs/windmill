@@ -154,7 +154,8 @@ export function getTypeStrFromPath(
     parsed.ext == ".go" ||
     parsed.ext == ".ts" ||
     parsed.ext == ".sh" ||
-    parsed.ext == ".py"
+    parsed.ext == ".py" ||
+    parsed.ext == ".sql"
   ) {
     return "script";
   }
