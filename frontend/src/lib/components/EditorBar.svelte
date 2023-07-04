@@ -10,6 +10,7 @@
 		faCube,
 		faDollarSign,
 		faHistory,
+		faMagicWandSparkles,
 		faPlus,
 		faRotate,
 		faRotateLeft
@@ -37,6 +38,7 @@
 	import { capitalize } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
+	import { ScriptGenDrawer } from './codeGen'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -135,6 +137,8 @@
 	}
 
 	let historyBrowserDrawerOpen = false
+
+	let scriptGenDrawer: Drawer
 </script>
 
 {#if scriptPath}
@@ -329,6 +333,8 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
+<ScriptGenDrawer bind:drawer={scriptGenDrawer} {lang} {editor} />
+
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
 		<div
@@ -461,6 +467,18 @@
 					{/if}
 				</div>
 			{/if}
+
+			<Button
+				title="Generate code from prompt"
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				color="light"
+				spacingSize="md"
+				startIcon={{ icon: faMagicWandSparkles }}
+				on:click={scriptGenDrawer.openDrawer}
+			>
+				Ask AI
+			</Button>
 
 			<!-- <Popover
 				notClickable
