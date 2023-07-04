@@ -6,7 +6,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
-	import Popover from '../../../Popover.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
