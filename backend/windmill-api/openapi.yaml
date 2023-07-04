@@ -1122,6 +1122,33 @@ paths:
             text/plain:
               schema:
                 type: string
+  
+  /w/{workspace}/workspaces/edit_openai_key:
+    post:
+      summary: edit OpenAI key
+      operationId: editOpenAIKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceOpenAIKey
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                openai_key:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/users/list:
     get:

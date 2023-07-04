@@ -702,6 +702,11 @@
           "name": "deploy_to",
           "ordinal": 10,
           "type_info": "Varchar"
+        },
+        {
+          "name": "openai_key",
+          "ordinal": 11,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -710,6 +715,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2512,6 +2518,11 @@
           "name": "deploy_to",
           "ordinal": 10,
           "type_info": "Varchar"
+        },
+        {
+          "name": "openai_key",
+          "ordinal": 11,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -2520,6 +2531,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2597,6 +2609,18 @@
       }
     },
     "query": "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2"
+  },
+  "57ab0eabaaef495e12c4f04cb8e3073772f611283c0a424fd8c8f1368742d310": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET openai_key = NULL WHERE workspace_id = $1"
   },
   "5850e0c1f7dee98455027a4c0db6ccea0af2c58aee656ef43964b515de054888": {
     "describe": {
@@ -6136,6 +6160,19 @@
       }
     },
     "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
+  },
+  "d2fefff37e6e0d1c8061f3215cb740b9af6798bf1605e79be0786b1f08b55f02": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2"
   },
   "d4bf68b4c2bfd11db84787e41e92c13612fda7352e841f3cdef45ea762588f04": {
     "describe": {
