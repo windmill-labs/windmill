@@ -84,7 +84,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: 'deno' | 'go' | 'python3' | 'bash',
+		lang: 'deno' | 'go' | 'python3' | 'bash' | 'nativets',
 		args: Record<string, any>,
 		tag: string | undefined
 	): Promise<string> {

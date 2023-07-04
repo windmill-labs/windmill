@@ -71,7 +71,7 @@
 				content: `
 import { Client } from 'https://deno.land/x/postgres/mod.ts'
 export async function main(args: any) {
-	const client = new Client("postgres://" + args.user + ":" + args.password + "@" + args.host + ":" + args.port + "/" + args.dbname + "?sslmode=" + args.sslmode)
+	const client = new Client("postgres://" + args.user + ":" + args.password + "@" + args.host + ":" + (args.port ?? 5432) + "/" + args.dbname + "?sslmode=" + args.sslmode)
 	await client.connect()
 	return 'Connection successful'
 }

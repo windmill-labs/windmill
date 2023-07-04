@@ -209,7 +209,7 @@
 		{#if isListJob}
 			{#if render}
 				<div class="w-full h-full border border-gray-600 bg-white p-1">
-					<DisplayResult result={jobResults} />
+					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
 		{:else if render}
@@ -218,6 +218,7 @@
 				{#if `result` in job}
 					<div class="w-full h-full">
 						<FlowJobResult
+							workspaceId={job?.workspace_id}
 							jobId={job?.id}
 							loading={job['running'] == true}
 							result={job.result}
@@ -461,6 +462,7 @@
 							{@const node = localFlowModuleStates[selectedNode]}
 							{#if selectedNode == 'end'}
 								<FlowJobResult
+									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									filename={job.id}
 									loading={job['running']}
@@ -500,6 +502,7 @@
 								</div>
 
 								<FlowJobResult
+									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									loading={job['running'] == true}
 									noBorder

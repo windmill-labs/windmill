@@ -181,12 +181,16 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.json", ".py"),
         filePath.replace(".script.json", ".go"),
         filePath.replace(".script.json", ".sh"),
+        filePath.replace(".script.json", ".sql"),
+        filePath.replace(".script.json", ".fetch.ts"),
       ]
     : [
         filePath.replace(".script.yaml", ".ts"),
         filePath.replace(".script.yaml", ".py"),
         filePath.replace(".script.yaml", ".go"),
         filePath.replace(".script.yaml", ".sh"),
+        filePath.replace(".script.yaml", ".sql"),
+        filePath.replace(".script.yaml", ".fetch.ts"),
       ];
   const validCandidates = (
     await Promise.all(
