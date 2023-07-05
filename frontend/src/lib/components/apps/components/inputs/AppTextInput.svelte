@@ -77,6 +77,7 @@
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+			on:keydown|stopPropagation
 			bind:value
 			{placeholder}
 		/>
@@ -91,6 +92,7 @@
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					on:keydown|stopPropagation
 					type="password"
 					bind:value
 					{placeholder}
@@ -104,6 +106,7 @@
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					on:keydown|stopPropagation
 					type="text"
 					bind:value
 					{placeholder}
@@ -117,6 +120,7 @@
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
 						!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+					on:keydown|stopPropagation
 					type="email"
 					bind:value
 					{placeholder}

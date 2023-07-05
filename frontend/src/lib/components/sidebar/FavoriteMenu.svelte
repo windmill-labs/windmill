@@ -16,6 +16,7 @@
 
 <Menu placement="bottom-start" let:close>
 	<button
+		title="Favorites"
 		slot="trigger"
 		type="button"
 		class={classNames(

@@ -16,6 +16,10 @@
 				return python
 			case 'deno':
 				return typescript
+			case 'nativets':
+				return typescript
+			case 'bun':
+				return typescript
 			case 'go':
 				return go
 			case 'bash':

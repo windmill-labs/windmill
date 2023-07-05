@@ -13,6 +13,16 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
+export const NATIVETS_INIT_CODE = `// Fetch only script, no imports allowed but benefits from a dedicated highly efficient runtime
+
+export async function main() {
+  const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
 export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // import { toWords } from "npm:number-to-words@1"
@@ -28,6 +38,24 @@ export async function main(
   d = "inferred type string from default arg",
   e = { nested: "object" },
   //e: wmill.Base64
+) {
+  // let x = await wmill.getVariable('u/user/foo')
+  return { foo: a };
+}
+`
+
+export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
+// import { VariableService } from "windmill-client"
+
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
+
+export async function main(
+  a: number,
+  b: "my" | "enum",
+  //c: Postgresql,
+  d = "inferred type string from default arg",
+  e = { nested: "object" },
 ) {
   // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
@@ -89,44 +117,7 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `import {
-  pgSql,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
-
-// fill the type, or use the +Resource type to get a type-safe reference to a resource
-type Postgresql = object
-
-//PG parameterized statement. No SQL injection is possible.
-export async function main(
-  db: Postgresql,
-  key: number,
-  value: string,
-) {
-  const query = await pgSql(
-    db,
-  )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
-  return query.rows;
-
-}
-	/**
-	// The following code accepts raw queries. The code above is recommended because it uses SQL prepared statement.
-	import { pgClient, type Resource, type Sql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
-	// fill the type, or use the +Resource type to get a type-safe reference to a resource
-
-	type Postgresql = object
-
-	export async function main(
-		db: Postgresql,
-		query: Sql = "SELECT * FROM demo;",
-	) {
-		if(!query) {
-			throw Error('Query must not be empty.')
-		}
-		const { rows } = await pgClient(db).queryObject(query);
-		return rows;
-	}
-   */
-	
+export const POSTGRES_INIT_CODE = `INSERT INTO demo VALUES (\$1::TEXT, \$2::INT) RETURNING *
 `
 
 export const MYSQL_INIT_CODE = `import {
@@ -320,6 +311,12 @@ export function initialCode(
 		} else {
 			return BASH_INIT_CODE
 		}
+	} else if (language == 'nativets') {
+		return NATIVETS_INIT_CODE
+	} else if (language == 'postgresql') {
+		return POSTGRES_INIT_CODE
+	} else if (language == 'bun') {
+		return BUN_INIT_CODE
 	} else {
 		if (kind === 'failure') {
 			return GO_FAILURE_MODULE_CODE

@@ -19,17 +19,12 @@
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-
-	languages.typescript.typescriptDefaults.setModeConfiguration({
-		completionItems: false,
-		definitions: false,
-		hovers: false
-	})
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -65,7 +60,8 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'postgresql'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql'
+	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -84,6 +80,14 @@
 	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
 	export let folding = false
+
+	$: {
+		languages.typescript.typescriptDefaults.setModeConfiguration({
+			completionItems: !deno,
+			definitions: !deno,
+			hovers: !deno
+		})
+	}
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -363,7 +367,7 @@
 		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
-		if (lang == 'typescript') {
+		if (lang == 'typescript' && deno) {
 			if (filePath && filePath.split('/').length > 2) {
 				let expiration = new Date()
 				expiration.setHours(expiration.getHours() + 2)

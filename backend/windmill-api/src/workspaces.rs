@@ -1384,7 +1384,9 @@ async fn tarball_workspace(
                 ScriptLang::Deno => "ts",
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
-                ScriptLang::Postgresql => "psql",
+                ScriptLang::Postgresql => "pg.sql",
+                ScriptLang::Nativets => "fetch.ts",
+                ScriptLang::Bun => "bun.ts",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))

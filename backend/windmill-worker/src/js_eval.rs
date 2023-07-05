@@ -8,16 +8,26 @@
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use deno_ast::{ParseParams, SourceTextInfo};
 use deno_core::{
-    op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, OpState, RuntimeOptions,
+    op, serde_v8,
+    v8::IsolateHandle,
+    v8::{self},
+    Extension, JsRuntime, OpState, RuntimeOptions, Snapshot,
 };
+use deno_fetch::FetchPermissions;
+use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::Value;
-use tokio::{sync::oneshot, time::timeout};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::timeout,
+};
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
+use windmill_queue::HTTP_CLIENT;
 
 use crate::AuthedClient;
 
@@ -28,6 +38,35 @@ pub struct IdContext {
     pub previous_id: String,
 }
 
+pub struct PermissionsContainer;
+
+impl FetchPermissions for PermissionsContainer {
+    fn check_net_url(
+        &mut self,
+        _url: &deno_core::url::Url,
+        _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+        Ok(())
+    }
+
+    fn check_read(
+        &mut self,
+        _p: &std::path::Path,
+        _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+        Ok(())
+    }
+}
+
+impl TimersPermission for PermissionsContainer {
+    fn allow_hrtime(&mut self) -> bool {
+        true
+    }
+
+    fn check_unstable(&self, _state: &OpState, _api_name: &'static str) {
+        ()
+    }
+}
 pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
@@ -60,9 +99,10 @@ pub async fn eval_timeout(
             }
 
             let ext = Extension::builder("js_eval").ops(ops).build();
+            let exts = vec![ext];
             // Use our snapshot to provision our new runtime
             let options = RuntimeOptions {
-                extensions: vec![ext],
+                extensions: exts,
                 //                startup_snapshot: Some(Snapshot::Static(buffer)),
                 ..Default::default()
             };
@@ -167,7 +207,7 @@ async function result_by_id(node_id) {{
         }}
     }} else {{
         let flow_job_id = "{}";
-        return await Deno.core.opAsync("op_get_id", [ flow_job_id, node_id]);
+        return await Deno.core.opAsync("op_get_id", [flow_job_id, node_id]);
     }}
 }}
 
@@ -338,6 +378,180 @@ async fn op_resource(
     }
 }
 
+pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
+    let parsed = deno_ast::parse_module(ParseParams {
+        specifier: "eval.ts".to_string(),
+        text_info: SourceTextInfo::from_string(expr),
+        capture_tokens: false,
+        scope_analysis: false,
+        media_type: deno_ast::MediaType::TypeScript,
+        maybe_syntax: None,
+    })?;
+    Ok(parsed.transpile(&Default::default())?.text)
+}
+
+static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
+
+pub struct MainArgs {
+    args: Vec<serde_json::Value>,
+}
+
+pub struct LogString {
+    pub s: String,
+}
+
+pub async fn eval_fetch_timeout(
+    ts_expr: String,
+    js_expr: String,
+    args: serde_json::Map<String, Value>,
+) -> anyhow::Result<(serde_json::Value, String)> {
+    let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+    let ts_expr2 = ts_expr.clone();
+    timeout(
+        std::time::Duration::from_millis(100000),
+        tokio::task::spawn_blocking(move || {
+            let ops = vec![op_get_static_args::decl(), op_log::decl()];
+            let ext = Extension::builder("windmill").ops(ops).build();
+
+            let exts: Vec<Extension> = vec![
+                deno_webidl::deno_webidl::init_ops(),
+                deno_url::deno_url::init_ops(),
+                deno_console::deno_console::init_ops(),
+                deno_web::deno_web::init_ops::<PermissionsContainer>(
+                    BlobStore::default(),
+                    None,
+                ),
+                deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(
+                    Default::default(),
+                ),
+                ext
+            ];
+
+            // Use our snapshot to provision our new runtime
+            let options = RuntimeOptions {
+                is_main: true,
+                extensions: exts,
+                create_params: Some(deno_core::v8::CreateParams::default().heap_limits(
+                    0 as usize,
+                    1024*1024*128 as usize,
+                )),
+                startup_snapshot: Some(Snapshot::Static(RUNTIME_SNAPSHOT)),
+                module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+                //                startup_snapshot: Some(Snapshot::Static(buffer)),
+                ..Default::default()
+            };
+
+
+            let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+
+            // tracing::info!("starting isolate");
+            // let instant = Instant::now();
+
+
+            let mut js_runtime: JsRuntime = JsRuntime::new(options);
+            // tracing::info!("ttc: {:?}", instant.elapsed());
+
+            js_runtime.add_near_heap_limit_callback(move |x,y| {
+                tracing::error!("heap limit reached: {x} {y}");
+
+                if memory_limit_tx.send(()).is_err() {
+                    tracing::error!("failed to send memory limit reached notification - isolate may already be terminating");
+                };
+                //to give a bit of time to kill the worker without v8 crashing
+                return y*2;
+            });
+
+            let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
+            let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone()).unwrap_or(serde_json::Value::Null)).collect::<Vec<_>>();
+
+            {
+                let op_state = js_runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                op_state.put(PermissionsContainer{});
+                op_state.put(HTTP_CLIENT.clone());
+                op_state.put(MainArgs { args: spread });
+                op_state.put(LogString { s: String::new() });
+            }
+
+
+            sender
+                .send(js_runtime.v8_isolate().thread_safe_handle())
+                .map_err(|_| Error::ExecutionErr("impossible to send v8 isolate".to_string()))?;
+
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+
+
+            let future = async { tokio::select! {
+                r = eval_fetch(&mut js_runtime, &js_expr) => Ok(r),
+                _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
+            }};
+            let r = runtime.block_on(future)?;
+            // tracing::info!("total: {:?}", instant.elapsed());
+
+            (r as anyhow::Result<Value>).map(|x| (x, js_runtime.op_state().borrow().borrow::<LogString>().s.clone()))
+        }),
+    )
+    .await
+    .map_err(|_| {
+        if let Ok(isolate) = receiver.try_recv() {
+            isolate.terminate_execution();
+        };
+        Error::ExecutionErr(format!(
+            "The expression of evaluation `{ts_expr2}` took too long to execute (>10000ms)"
+        ))
+    })??
+}
+
+async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<serde_json::Value> {
+    let code = format!(
+        r#"
+{expr}
+main()
+        "#
+    );
+
+    let mod_id = js_runtime
+        .load_main_module(
+            &deno_core::resolve_url("file:///eval.ts")?,
+            Some(code.into()),
+        )
+        .await?;
+    let _ = js_runtime.mod_evaluate(mod_id);
+
+    let global = js_runtime.execute_script(
+        "<anon>",
+        r#"
+let args = Deno.core.ops.op_get_static_args()
+import("file:///eval.ts").then((module) => module.main(...args))
+"#
+        .to_string()
+        .into(),
+    )?;
+    let global = js_runtime.resolve_value(global).await?;
+
+    let scope = &mut js_runtime.handle_scope();
+    let local = v8::Local::new(scope, global);
+    // Deserialize a `v8` object into a Rust type using `serde_v8`,
+    // in this case deserialize to a JSON `Value`.
+    Ok(serde_v8::from_v8::<serde_json::Value>(scope, local)?)
+}
+
+#[op]
+fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<serde_json::Value> {
+    return op_state.borrow().borrow::<MainArgs>().args.clone();
+}
+
+#[op]
+fn op_log(op_state: Rc<RefCell<OpState>>, args: Vec<String>) {
+    op_state
+        .borrow_mut()
+        .borrow_mut::<LogString>()
+        .s
+        .push_str(args.get(0).unwrap());
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -383,6 +597,16 @@ multiline template`";
 
         let res = eval_timeout(code.to_string(), env, None, None).await?;
         assert_eq!(res, json!(2));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_fetch_timeout() -> anyhow::Result<()> {
+        let code = r#"export async function main() { return "" }"#;
+
+        let res =
+            eval_fetch_timeout(code.to_string(), code.to_string(), serde_json::Map::new()).await?;
+        assert_eq!(res.0, "".to_string());
         Ok(())
     }
 }

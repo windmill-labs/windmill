@@ -112,7 +112,7 @@
 			<Pane size={50} minSize={10} class="text-sm text-gray-600">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
-						<DisplayResult result={testJob.result} />
+						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result} />
 					</pre>
 				{:else}
 					<div class="p-2">

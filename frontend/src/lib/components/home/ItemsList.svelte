@@ -285,7 +285,7 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
+	<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 		<div class="flex justify-start">
 			<ToggleButtonGroup
 				bind:selected={itemKind}
@@ -429,7 +429,6 @@
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
 				>
 			{/if}
-			<div class="pb-80" />
 		{/if}
 	</div>
 </CenteredPage>

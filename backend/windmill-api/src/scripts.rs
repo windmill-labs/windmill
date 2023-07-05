@@ -347,7 +347,7 @@ async fn create_script(
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
 
-    let lock = if ns.language == ScriptLang::Bash || ns.language == ScriptLang::Deno {
+    let lock = if !(ns.language == ScriptLang::Python3 || ns.language == ScriptLang::Go) {
         Some(String::new())
     } else {
         ns.lock

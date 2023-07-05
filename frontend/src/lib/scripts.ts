@@ -8,6 +8,12 @@ import { emptySchema } from './utils'
 export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
 		return 'typescript'
+	} else if (lang == 'bun') {
+		return 'typescript'
+	} else if (lang == 'nativets') {
+		return 'typescript'
+	} else if (lang == 'postgresql') {
+		return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {

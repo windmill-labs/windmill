@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.124.0"
+version = "1.125.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.124.0"
+version = "1.125.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -83,6 +83,8 @@ windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
+windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
+
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"
 hyper = { version = "^0", features = ["full"] }
@@ -114,7 +116,7 @@ magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = "0.2.0"
 cron = "^0"
-mail-send = "0.4.0"
+mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
@@ -127,11 +129,17 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_core = "0.188.0"
+deno_fetch = "^0"
+deno_console = "^0"
+deno_url = "^0"
+deno_webidl = "^0"
+deno_web = "0.140.0"
+deno_core = "0.191.0"
+deno_ast = { version = "0.27.2", features = ["transpiling"] }
 async-recursion = "^1"
-swc_common = "0.31.14"
-swc_ecma_parser = "0.136.5"
-swc_ecma_ast = "0.106.4"
+swc_common = "0.31.12"
+swc_ecma_parser = "0.136.2"
+swc_ecma_ast = "0.106.2"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
@@ -171,3 +179,5 @@ wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1"]}
+postgres-native-tls = "^0"
+native-tls = "^0"

@@ -95,7 +95,7 @@ pub async fn pip_compile(
     } else {
         requirements.to_string()
     };
-    let req_hash = calculate_hash(&requirements);
+    let req_hash = format!("go-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
         req_hash
@@ -103,7 +103,7 @@ pub async fn pip_compile(
     .fetch_optional(db)
     .await?
     {
-        logs.push_str(&format!("\nfound cached resolution"));
+        logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
         return Ok(cached);
     }
     let file = "requirements.in";

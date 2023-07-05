@@ -292,7 +292,7 @@
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'nativets', 'bash', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Worker group: {job.tag}</Badge>
 							</div>
@@ -333,7 +333,7 @@
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
 					{#if job?.job_kind == 'dependencies'}
-						<Tab value="code">Dependencies</Tab>
+						<Tab value="code">Code</Tab>
 					{:else if job?.job_kind == 'preview'}
 						<Tab value="code">Code</Tab>
 					{/if}
@@ -354,14 +354,16 @@
 							</div>
 						{:else if viewTab == 'code'}
 							{#if job && 'raw_code' in job && job.raw_code}
-								<HighlightCode lines language={job.language} code={job.raw_code} />
+								<div class="text-xs">
+									<HighlightCode lines language={job.language} code={job.raw_code} />
+								</div>
 							{:else if job}
 								No code is available
 							{:else}
 								<Skeleton layout={[[5]]} />
 							{/if}
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
-							<DisplayResult result={job.result} />
+							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
 						{:else if job}
 							No output is available yet
 						{/if}

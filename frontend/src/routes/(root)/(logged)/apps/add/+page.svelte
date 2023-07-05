@@ -84,7 +84,7 @@
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('App restored from draft', false, [
+			sendUserToast('App restored from browser stored autosave', false, [
 				{
 					label: 'Start from blank',
 					callback: () => {

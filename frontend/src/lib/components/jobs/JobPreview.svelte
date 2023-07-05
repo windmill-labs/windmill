@@ -120,7 +120,7 @@
 					</div>
 				{/if}
 				{#if job?.type === Job.type.COMPLETED_JOB}
-					<DisplayResult {result} disableExpand />
+					<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
 				{:else if job && `running` in job ? job.running : false}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
 					<LogViewer

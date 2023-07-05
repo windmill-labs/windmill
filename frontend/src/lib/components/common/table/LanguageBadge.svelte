@@ -12,21 +12,27 @@
 		[Script.language.PYTHON3]: 'Python',
 		[Script.language.DENO]: 'TypeScript',
 		[Script.language.GO]: 'Go',
-		[Script.language.BASH]: 'Bash'
+		[Script.language.BASH]: 'Bash',
+		[Script.language.NATIVETS]: 'HTTP',
+		[Script.language.POSTGRESQL]: 'Postgresql'
 	}[language]
 
 	const baseClassByLanguage = {
 		[Script.language.PYTHON3]: 'border border-[#ffe082] !bg-white',
 		[Script.language.DENO]: 'border border-blue-200 !bg-white',
+		[Script.language.NATIVETS]: 'border border-blue-200 !bg-white',
 		[Script.language.GO]: 'border border-[#80cbc4] !bg-white',
-		[Script.language.BASH]: 'border border-gray-400 !bg-white'
+		[Script.language.BASH]: 'border border-gray-400 !bg-white',
+		[Script.language.POSTGRESQL]: 'border border-gray-400 !bg-white'
 	}[language]
 
 	const colorByLanguage = {
 		[Script.language.PYTHON3]: 'gray',
 		[Script.language.DENO]: 'gray',
+		[Script.language.NATIVETS]: 'gray',
 		[Script.language.GO]: 'gray',
-		[Script.language.BASH]: 'gray'
+		[Script.language.BASH]: 'gray',
+		[Script.language.POSTGRESQL]: 'gray'
 	}[language] as BadgeColor
 </script>
 

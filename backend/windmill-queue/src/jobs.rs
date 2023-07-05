@@ -70,6 +70,8 @@ lazy_static::lazy_static! {
             "python3".to_string(),
             "go".to_string(),
             "bash".to_string(),
+            "nativets".to_string(),
+            "bun".to_string(),
             "postgresql".to_string(),
             "dependency".to_string(),
             "flow".to_string(),
@@ -391,7 +393,7 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
         let job_id = queued_job.id;
         let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
         let (job_payload, tag) =
-            script_path_to_payload(&global_error_handler, tx.transaction_mut(), &w_id).await?;
+            script_path_to_payload(&global_error_handler, tx.transaction_mut(), "admins").await?;
         let mut args = result.as_object().unwrap().clone();
         args.insert("workspace_id".to_string(), json!(w_id));
         args.insert("job_id".to_string(), json!(job_id));
@@ -401,11 +403,11 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
 
         let (uuid, tx) = push(
             tx,
-            w_id,
+            "admins",
             job_payload,
             args,
             "global",
-            "global",
+            SUPERADMIN_SECRET_EMAIL,
             SUPERADMIN_SECRET_EMAIL.to_string(),
             None,
             None,
@@ -1019,7 +1021,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 (None, Some(flow), None, JobKind::Flow, Some(value), None)
             }
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
-            JobPayload::Graphql => (None, None, None, JobKind::Graphql, None, None),
             JobPayload::Http => (None, None, None, JobKind::Http, None, None),
             JobPayload::Noop => (None, None, None, JobKind::Noop, None, None),
         };
@@ -1156,7 +1157,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Identity => "jobs.run.identity",
             JobKind::Http => "jobs.run.http",
             JobKind::Noop => "jobs.run.noop",
-            JobKind::Graphql => "jobs.run.graphql",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 
