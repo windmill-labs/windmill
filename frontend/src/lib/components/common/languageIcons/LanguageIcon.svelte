@@ -21,6 +21,7 @@
 		go: GoIcon,
 		python3: PythonIcon,
 		deno: TypeScriptIcon,
+		bun: TypeScriptIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
