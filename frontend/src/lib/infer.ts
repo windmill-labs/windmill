@@ -36,6 +36,8 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'nativets') {
 			inferedSchema = JSON.parse(parse_deno(code))
+		} else if (language == 'bun') {
+			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))
 			inferedSchema.args = [

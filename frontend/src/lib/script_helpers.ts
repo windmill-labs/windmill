@@ -44,6 +44,24 @@ export async function main(
 }
 `
 
+export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
+// import { VariableService } from "windmill-client"
+
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
+
+export async function main(
+  a: number,
+  b: "my" | "enum",
+  //c: Postgresql,
+  d = "inferred type string from default arg",
+  e = { nested: "object" },
+) {
+  // let x = await wmill.getVariable('u/user/foo')
+  return { foo: a };
+}
+`
+
 export const GO_INIT_CODE = `package inner
 
 import (
@@ -297,6 +315,8 @@ export function initialCode(
 		return NATIVETS_INIT_CODE
 	} else if (language == 'postgresql') {
 		return POSTGRES_INIT_CODE
+	} else if (language == 'bun') {
+		return BUN_INIT_CODE
 	} else {
 		if (kind === 'failure') {
 			return GO_FAILURE_MODULE_CODE

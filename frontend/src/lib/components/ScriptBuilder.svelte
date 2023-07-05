@@ -58,7 +58,7 @@
 	}
 
 	const langs: [string, SupportedLanguage][] = [
-		['Typescript', Script.language.DENO],
+		['Typescript (Deno)', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
 	if (SCRIPT_SHOW_GO) {
@@ -67,6 +67,7 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
+	// langs.push(['Typescript (Bun experimental)', Script.language.BUN])
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
