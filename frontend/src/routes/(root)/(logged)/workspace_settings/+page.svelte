@@ -53,6 +53,9 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
+	let errorHandlerInitialPath: string
+	let errorHandlerScriptPath: string
+	let errorHandlerItemKind: 'script' = 'script'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -60,7 +63,8 @@
 			| 'premium'
 			| 'export_delete'
 			| 'webhook'
-			| 'deploy_to') ?? 'users'
+			| 'deploy_to'
+			| 'error_handler') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -123,6 +127,7 @@
 		initialPath = scriptPath
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+		errorHandlerInitialPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 	}
 
 	async function listUsers(): Promise<void> {
@@ -171,6 +176,22 @@
 					})
 				)
 		)
+	}
+
+	async function editErrorHandler() {
+		if (errorHandlerScriptPath) {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}` }
+			})
+			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+		} else {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: undefined }
+			})
+			sendUserToast(`workspace error handler removed`)
+		}
 	}
 
 	const plans = {
@@ -237,6 +258,9 @@
 						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
 					</Tab>
 				{/if}
+				<Tab size="md" value="error_handler">
+					<div class="flex gap-2 items-center my-1">Error Handler</div>
+				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
@@ -775,6 +799,32 @@
 					>Set Webhook</Button
 				>
 			</div>
+		{:else if tab == 'error_handler'}
+			<PageHeader title="Workspace error handler" primary={false} />
+
+			{#if $superadmin}
+				<h3 class="mt-2 text-gray-700"
+					>Script to run as error handler <Tooltip>
+						The script to be triggered as error handler. The script chosen is passed the parameters
+						<pre
+							>path: string, email: string, error: object,
+						<br />job_id: string, is_flow: boolean,
+						<br />workspace_id: string</pre
+						></Tooltip
+					>
+				</h3>
+				<ScriptPicker
+					kind={Script.kind.SCRIPT}
+					bind:itemKind={errorHandlerItemKind}
+					bind:scriptPath={errorHandlerScriptPath}
+					initialPath={errorHandlerInitialPath}
+					on:select={editErrorHandler}
+				/>
+			{:else}
+				<Alert type="error" title="Not authorized"
+					>You must be a superadmin to access this section</Alert
+				>
+			{/if}
 		{/if}
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">

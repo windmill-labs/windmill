@@ -702,6 +702,11 @@
           "name": "deploy_to",
           "ordinal": 10,
           "type_info": "Varchar"
+        },
+        {
+          "name": "error_handler",
+          "ordinal": 11,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -710,6 +715,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -1222,7 +1228,9 @@
                   "deno",
                   "go",
                   "bash",
-                  "postgresql"
+                  "postgresql",
+                  "nativets",
+                  "bun"
                 ]
               },
               "name": "script_lang"
@@ -2106,7 +2114,9 @@
                   "deno",
                   "go",
                   "bash",
-                  "postgresql"
+                  "postgresql",
+                  "nativets",
+                  "bun"
                 ]
               },
               "name": "script_lang"
@@ -2512,6 +2522,11 @@
           "name": "deploy_to",
           "ordinal": 10,
           "type_info": "Varchar"
+        },
+        {
+          "name": "error_handler",
+          "ordinal": 11,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -2520,6 +2535,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2774,7 +2790,9 @@
                   "deno",
                   "go",
                   "bash",
-                  "postgresql"
+                  "postgresql",
+                  "nativets",
+                  "bun"
                 ]
               },
               "name": "script_lang"
@@ -3882,7 +3900,9 @@
                   "deno",
                   "go",
                   "bash",
-                  "postgresql"
+                  "postgresql",
+                  "nativets",
+                  "bun"
                 ]
               },
               "name": "script_lang"
@@ -5624,6 +5644,18 @@
     },
     "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
   },
+  "c0635f65d561c1a6b183b8fea45320482375d0bb5e617a9dd236a631a7b9ff05": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1"
+  },
   "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
     "describe": {
       "columns": [
@@ -6673,6 +6705,19 @@
     },
     "query": "DELETE FROM password WHERE email = $1"
   },
+  "e844b9ee75a1b5438ffe743185fc78f649db89c78b2b8cd7e778bf18a6b41e67": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2"
+  },
   "e9c0e331c16312bf086b17c91466c5389d41454fd3f18d73c2e9554845ee9a72": {
     "describe": {
       "columns": [],
@@ -7222,6 +7267,26 @@
       }
     },
     "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1"
+  },
+  "f8b34e09453d51d3df5be20652938a890ee353fec64ee73c312a3352da7f7515": {
+    "describe": {
+      "columns": [
+        {
+          "name": "error_handler",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1"
   },
   "fa258894bd90ea6586669e5810c5c6bcb42d5e1e68fab27fb185d06962b6454a": {
     "describe": {

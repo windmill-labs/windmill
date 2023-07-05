@@ -64,7 +64,8 @@ pub fn workspaced_service() -> Router {
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
-        .route("/premium_info", get(premium_info));
+        .route("/premium_info", get(premium_info))
+        .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
     tracing::info!("stripe enabled");
@@ -111,6 +112,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
+    pub error_handler: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -200,6 +202,11 @@ pub struct NewWorkspaceUser {
     pub username: String,
     pub is_admin: bool,
     pub operator: bool,
+}
+
+#[derive(Deserialize)]
+pub struct EditErrorHandler {
+    pub error_handler: Option<String>,
 }
 
 async fn list_pending_invites(
@@ -642,6 +649,50 @@ async fn edit_webhook(
     tx.commit().await?;
 
     Ok(format!("Edit webhook for workspace {}", &w_id))
+}
+
+
+async fn edit_error_handler(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { username, .. }: Authed,
+    Json(ee): Json<EditErrorHandler>,
+) -> Result<String> {
+
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &username).await?; // require super admin
+
+    if let Some(error_handler) = &ee.error_handler {
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
+            error_handler,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_error_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit error_handler for workspace {}", &w_id))
+
 }
 
 async fn list_workspaces_as_super_admin(

@@ -971,6 +971,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
+                  error_handler:
+                    type: string
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -1113,6 +1115,33 @@ paths:
               type: object
               properties:
                 webhook:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_error_handler:
+    post:
+      summary: edit error handler
+      operationId: editErrorHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceErrorHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                error_handler:
                   type: string
 
       responses:
