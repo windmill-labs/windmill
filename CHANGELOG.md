@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.125.1](https://github.com/windmill-labs/windmill/compare/v1.125.0...v1.125.1) (2023-07-05)
+
+
+### Bug Fixes
+
+* fix go and py resolution cache overlap ([5b7c796](https://github.com/windmill-labs/windmill/commit/5b7c7965e5d43e3a0f9d7ad481eb520123a799e0))
+* **frontend:** Fix Quill component ([#1797](https://github.com/windmill-labs/windmill/issues/1797)) ([8ece51c](https://github.com/windmill-labs/windmill/commit/8ece51c6888b16019e589d451ac77ea5adce5b82))
+
 ## [1.125.0](https://github.com/windmill-labs/windmill/compare/v1.124.0...v1.125.0) (2023-07-04)
 
 
