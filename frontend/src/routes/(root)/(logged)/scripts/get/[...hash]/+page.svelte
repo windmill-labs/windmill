@@ -17,14 +17,9 @@
 		faList,
 		faTrash,
 		faCalendar,
-		faShare,
-		faGlobe,
 		faCodeFork,
 		faClipboard,
-		faArrowLeft,
-		faChevronUp,
-		faChevronDown,
-		faFileExport
+		faArrowLeft
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -41,8 +36,7 @@
 	import { goto } from '$app/navigation'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
-	import { Loader2 } from 'lucide-svelte'
-	import { slide } from 'svelte/transition'
+	import { FolderOpen, Globe2, Loader2, Server, Share } from 'lucide-svelte'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import {
 		DEFAULT_WEBHOOK_TYPE,
@@ -63,6 +57,8 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import Menu from '$lib/components/details/Menu.svelte'
+	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -192,8 +188,6 @@
 	}
 	let scheduleEditor: ScheduleEditor
 
-	let viewWebhookCommand = false
-
 	let args = undefined
 	function curlCommand(async: boolean) {
 		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
@@ -223,26 +217,27 @@
 			<div class="border-b p-2 shadow-md">
 				<Skeleton {loading} layout={[[{ h: 1.5, w: 40 }], 1, [{ h: 1, w: 30 }]]} />
 
-				<div class="prose-sm mx-auto mt-4">
+				<div class="prose-sm mx-auto">
 					<div
-						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4"
+						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4 h-8"
 					>
 						<div class="flex flex-row-reverse gap-2 h-full">
 							<Button
 								href={`/scripts/run/${script.hash}`}
 								color="blue"
-								size="md"
+								size="xs"
 								startIcon={{ icon: faPlay }}
 							>
 								Run
 							</Button>
+
 							{#if !$userStore?.operator}
 								<Button
 									href={`/scripts/edit/${script.path}?args=${encodeState(args)}${
 										topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 									}`}
 									color="blue"
-									size="md"
+									size="xs"
 									startIcon={{ icon: faEdit }}
 									disabled={!can_write}
 								>
@@ -252,114 +247,122 @@
 									<Button
 										href={`/scripts/add?template=${script.path}`}
 										variant="border"
-										size="md"
+										size="xs"
+										color="light"
 										startIcon={{ icon: faCodeFork }}
 									>
 										Fork
 									</Button>
 								{/if}
 							{/if}
+							{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
+								<Button
+									color="dark"
+									variant="contained"
+									size="xs"
+									startIcon={{ icon: faArrowLeft }}
+									href="/scripts/get/{script.parent_hashes[0]}?workspace={$workspaceStore}"
+									dropdownItems={script.parent_hashes.map((hash) => ({
+										href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
+										label: hash
+									}))}
+								>
+									Previous version ({script.parent_hashes.length})
+								</Button>
+							{/if}
+							<Menu>
+								<svelte:fragment slot="items">
+									<MenuItem
+										on:click={() => {
+											moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')
+										}}
+									>
+										<div class="text-xs flex items-center gap-2 flex-row-2">
+											<FolderOpen class="h-4" />
+											Move/Rename
+										</div>
+									</MenuItem>
+
+									<MenuItem
+										on:click={() => {
+											shareModal.openDrawer(script?.path ?? '', 'script')
+										}}
+									>
+										<div class="text-xs flex items-center gap-2 flex-row-2">
+											<Share class="h-4" />
+											Share
+										</div>
+									</MenuItem>
+									<MenuItem
+										on:click={() => {
+											deploymentDrawer.openDrawer(script?.path ?? '', 'script')
+										}}
+									>
+										<div class="text-xs flex items-center gap-2 flex-row-2">
+											<Server class="h-4" />
+											Deploy to staging/prod
+										</div>
+									</MenuItem>
+
+									{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB && script}
+										<MenuItem
+											on:click={() => {
+												if (!script) return
+
+												goto(
+													scriptToHubUrl(
+														script.content,
+														script.summary,
+														script.description ?? '',
+														script.kind,
+														script.language,
+														script.schema,
+														script.language == 'deno' ? '' : script.lock
+													).toString()
+												)
+											}}
+										>
+											<div class="text-xs flex items-center gap-2 flex-row-2">
+												<Globe2 class="h-4" />
+												Publish to Hub
+											</div>
+										</MenuItem>
+									{/if}
+								</svelte:fragment>
+							</Menu>
 						</div>
-						<div class="grow truncate">
-							<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
+						<div class="grow truncate flex flex-row items-center gap-2">
+							<div class="font-bold truncate text-lg">
+								{defaultIfEmptyString(script.summary, script.path)}
+							</div>
+							{#if !emptyString(script.summary)}
+								<span class="text-xs text-gray-800">({script.path})</span>
+							{/if}
+							<div class="flex flex-row gap-2 flex-wrap items-center">
+								<span class="text-xs text-gray-600">
+									Edited {displayDaysAgo(script.created_at || '')} by {script.created_by ||
+										'unknown'}
+								</span>
+								<Badge color="gray">
+									{truncateHash(script?.hash ?? '')}
+								</Badge>
+								{#if script?.is_template}
+									<Badge color="blue">Template</Badge>
+								{/if}
+								{#if script && script.kind !== 'script'}
+									<Badge color="blue">
+										{script?.kind}
+									</Badge>
+								{/if}
+								{#if deploymentInProgress}
+									<Badge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+									</Badge>
+								{/if}
+								<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+							</div>
 						</div>
-					</div>
-
-					{#if !emptyString(script.summary)}
-						<span class="text-lg font-semibold">{script.path}</span>
-					{/if}
-
-					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
-						<span class="text-sm text-gray-600">
-							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
-						</span>
-						<Badge color="dark-gray">
-							{truncateHash(script?.hash ?? '')}
-						</Badge>
-						{#if script?.is_template}
-							<Badge color="blue">Template</Badge>
-						{/if}
-						{#if script && script.kind !== 'script'}
-							<Badge color="blue">
-								{script?.kind}
-							</Badge>
-						{/if}
-						{#if deploymentInProgress}
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-							</Badge>
-						{/if}
-						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-					</div>
-
-					<div class="flex gap-2 flex-wrap mt-4 border-t pt-2">
-						{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB}
-							<Button
-								disabled={deploymentInProgress}
-								target="_blank"
-								href={scriptToHubUrl(
-									script.content,
-									script.summary,
-									script.description ?? '',
-									script.kind,
-									script.language,
-									script.schema,
-									script.language == 'deno' ? '' : script.lock
-								).toString()}
-								variant="border"
-								color="light"
-								size="xs"
-								startIcon={{ icon: faGlobe }}
-							>
-								Publish to Hub
-							</Button>
-						{/if}
-						<Button
-							on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
-							variant="border"
-							color="light"
-							size="xs"
-							startIcon={{ icon: faShare }}
-							disabled={!can_write}
-						>
-							Share
-						</Button>
-
-						<Button
-							on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
-							variant="border"
-							color="light"
-							size="xs"
-							startIcon={{ icon: faEdit }}
-						>
-							Move/Rename
-						</Button>
-						<Button
-							on:click={() => deploymentDrawer.openDrawer(script?.path ?? '', 'script')}
-							variant="border"
-							color="light"
-							size="xs"
-							startIcon={{ icon: faFileExport }}
-						>
-							Deploy to staging/prod
-						</Button>
-
-						{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
-							<Button
-								color="dark"
-								variant="contained"
-								size="xs"
-								startIcon={{ icon: faArrowLeft }}
-								href="/scripts/get/{script.parent_hashes[0]}?workspace={$workspaceStore}"
-								dropdownItems={script.parent_hashes.map((hash) => ({
-									href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
-									label: hash
-								}))}
-							>
-								Previous version ({script.parent_hashes.length})
-							</Button>
-						{/if}
 					</div>
 				</div>
 			</div>
@@ -367,7 +370,7 @@
 				<Splitpanes>
 					<Pane size={60} minSize={20} maxSize={70}>
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-							<div class="flex flex-col gap-2 my-2">
+							<div class="flex flex-col gap-2 my-2 px-8">
 								{#if script.lock_error_logs}
 									<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
 										<p class="font-bold">Error deploying this script</p>
@@ -428,9 +431,9 @@
 					<Pane size={40} minSize={20}>
 						<Splitpanes horizontal class="h-full">
 							<Pane size={100}>
-								<Tabs selected="metadata">
+								<Tabs selected="details">
 									<Tab value="saved_inputs">Saved inputs</Tab>
-									<Tab value="metadata">Metadata</Tab>
+									<Tab value="details">Code & Triggers</Tab>
 
 									<svelte:fragment slot="content">
 										<div class="overflow-hidden" style="height:calc(100% - 32px);">
@@ -445,223 +448,207 @@
 													}}
 												/>
 											</TabContent>
-											<TabContent value="metadata" class="flex flex-col flex-1 h-full">
-												<Pane size={50} minSize={20}>
-													<div>
-														<Skeleton {loading} layout={[[20]]} />
+											<TabContent value="details" class="flex flex-col flex-1 h-full">
+												<Splitpanes horizontal class="h-full">
+													<Pane size={50} minSize={20}>
+														<div>
+															<Skeleton {loading} layout={[[20]]} />
 
-														<Tabs selected="code">
-															<Tab value="code">Code</Tab>
-															<Tab value="dependencies">Dependencies lock file</Tab>
-															<Tab value="arguments">
-																<span class="inline-flex items-center gap-1">
-																	Arguments JSON Schema
-																	<Tooltip>
-																		The jsonschema defines the constraints that the payload must
-																		respect to be compatible with the input parameters of this
-																		script. The UI form is generated automatically from the script
-																		jsonschema. See
-																		<a href="https://json-schema.org/" class="text-blue-500">
-																			jsonschema documentation
-																		</a>
-																	</Tooltip>
-																</span>
-															</Tab>
-															<svelte:fragment slot="content">
-																<TabContent value="code">
-																	<div class="p-2">
-																		<HighlightCode
-																			language={script.language}
-																			code={script.content}
-																		/>
-																	</div>
-																</TabContent>
-																<TabContent value="dependencies">
-																	<div class="">
-																		{#if script?.lock}
-																			<pre class="bg-gray-50 text-sm p-2">{script.lock}</pre>
-																		{:else}
-																			<p class="bg-gray-50 text-sm p-2">
-																				There is no lock file for this script</p
-																			>
-																		{/if}
-																	</div>
-																</TabContent>
-																<TabContent value="arguments">
-																	<div class="p-2">
-																		<SchemaViewer schema={script.schema} />
-																	</div>
-																</TabContent>
-															</svelte:fragment>
-														</Tabs>
-													</div>
-
-													{#if script.envs && script.envs.length > 0}
-														<h3>Static Env Variables</h3>
-														<ul>
-															{#each script.envs as e}
-																<li>{e}</li>
-															{/each}
-														</ul>
-													{/if}
-												</Pane>
-												<Pane size={50} minSize={20}>
-													<Tabs selected="webhooks">
-														<Tab value="last_runs">Last runs</Tab>
-														<Tab value="webhooks">
-															Webhooks
-															<Tooltip>
-																{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
-																<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500">
-																	See docs
-																</a>
-															</Tooltip>
-														</Tab>
-														{#if SCRIPT_VIEW_SHOW_SCHEDULE}
-															<Tab value="schedule">Schedule</Tab>
-														{/if}
-														<Tab value="CLI">CLI</Tab>
-														{#if can_write}
-															<Tab value="dangerzone">Danger Zone</Tab>
-														{/if}
-														<svelte:fragment slot="content">
-															<TabContent value="last_runs">
-																<div class="p-2 flex flex-col">
-																	<Button
-																		href={`/runs/${script.path}`}
-																		size="sm"
-																		startIcon={{ icon: faList }}
-																		color="light"
-																		variant="border"
-																	>
-																		View Runs
-																	</Button>
-																</div>
-															</TabContent>
-															<TabContent value="webhooks">
-																<div class="p-2 flex flex-col">
-																	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-																		<div class="flex flex-row-reverse mt-2">
-																			<Button
-																				size="xs"
-																				color="light"
-																				variant="border"
-																				on:click={userSettings.openDrawer}
-																			>
-																				Create a Webhook-specific Token
-																				<Tooltip light>
-																					The token will have a scope such that it can only be used
-																					to trigger this script. It is safe to share as it cannot
-																					be used to impersonate you.
-																				</Tooltip>
-																			</Button>
+															<Tabs selected="code">
+																<Tab value="code">Code</Tab>
+																<Tab value="dependencies">Dependencies lock file</Tab>
+																<Tab value="arguments">
+																	<span class="inline-flex items-center gap-1">
+																		Arguments JSON Schema
+																		<Tooltip>
+																			The jsonschema defines the constraints that the payload must
+																			respect to be compatible with the input parameters of this
+																			script. The UI form is generated automatically from the script
+																			jsonschema. See
+																			<a href="https://json-schema.org/" class="text-blue-500">
+																				jsonschema documentation
+																			</a>
+																		</Tooltip>
+																	</span>
+																</Tab>
+																<svelte:fragment slot="content">
+																	<TabContent value="code">
+																		<div class="p-2">
+																			<HighlightCode
+																				language={script.language}
+																				code={script.content}
+																				class="whitespace-pre"
+																			/>
 																		</div>
-																	{/if}
+																	</TabContent>
+																	<TabContent value="dependencies">
+																		<div class="">
+																			{#if script?.lock}
+																				<pre class="bg-gray-50 text-sm p-2">{script.lock}</pre>
+																			{:else}
+																				<p class="bg-gray-50 text-sm p-2">
+																					There is no lock file for this script</p
+																				>
+																			{/if}
+																		</div>
+																	</TabContent>
+																	<TabContent value="arguments">
+																		<div class="p-2">
+																			<SchemaViewer schema={script.schema} />
+																		</div>
+																	</TabContent>
+																</svelte:fragment>
+															</Tabs>
+														</div>
 
-																	<Skeleton {loading} layout={[[8.5]]} />
-																	<!-- svelte-ignore a11y-click-events-have-key-events -->
-																	<Tabs selected={DEFAULT_WEBHOOK_TYPE}>
-																		<Tab value="async">
-																			Async
-																			<Tooltip
-																				light
-																				documentationLink="https://www.windmill.dev/docs/core_concepts/webhooks#asynchronous"
-																			>
-																				Jobs can be triggered in asynchronous mode, meaning that the
-																				webhook is triggered, and the returning value is the uuid of
-																				the job assigned to execute the underlying code.
-																			</Tooltip>
-																		</Tab>
-																		<Tab value="sync">
-																			Sync
+														{#if script.envs && script.envs.length > 0}
+															<h3>Static Env Variables</h3>
+															<ul>
+																{#each script.envs as e}
+																	<li>{e}</li>
+																{/each}
+															</ul>
+														{/if}
+													</Pane>
+													<Pane size={50} minSize={20}>
+														<Tabs selected="webhooks">
+															<Tab value="webhooks">
+																Webhooks
+																<Tooltip>
+																	{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
+																	<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500">
+																		See docs
+																	</a>
+																</Tooltip>
+															</Tab>
+															{#if SCRIPT_VIEW_SHOW_SCHEDULE}
+																<Tab value="schedule">Schedule</Tab>
+															{/if}
+															<Tab value="CLI">CLI</Tab>
 
-																			<Tooltip
-																				light
-																				documentationLink="https://www.windmill.dev/docs/core_concepts/webhooks#asynchronous"
-																			>
-																				The second type of autogenerated endpoint is the synchronous
-																				webhook. This webhook triggers the execution, automatically
-																				extracts the underlying code's return value and returns it
-																				as the response.
-																			</Tooltip>
-																		</Tab>
-																		<svelte:fragment slot="content">
-																			{#each Object.keys(webhooks) as key}
-																				<TabContent value={key}>
-																					<div class="flex flex-col">
-																						{#each Object.keys(webhooks[key]) as type}
-																							{@const url = webhooks[key][type]}
-																							{@const href = $page.url.protocol + '//' + url}
+															<svelte:fragment slot="content">
+																<TabContent value="last_runs">
+																	<div class="p-2 flex flex-col">
+																		<Button
+																			href={`/runs/${script.path}`}
+																			size="sm"
+																			startIcon={{ icon: faList }}
+																			color="light"
+																			variant="border"
+																		>
+																			View Runs
+																		</Button>
+																	</div>
+																</TabContent>
+																<TabContent value="webhooks">
+																	<div class="p-2 flex flex-col">
+																		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
+																			<div class="flex flex-row-reverse mt-2">
+																				<Button
+																					size="xs"
+																					color="light"
+																					variant="border"
+																					on:click={userSettings.openDrawer}
+																				>
+																					Create a Webhook-specific Token
+																					<Tooltip light>
+																						The token will have a scope such that it can only be
+																						used to trigger this script. It is safe to share as it
+																						cannot be used to impersonate you.
+																					</Tooltip>
+																				</Button>
+																			</div>
+																		{/if}
 
-																							<div class="flex justify-between items-center my-2">
-																								<div class="pr-4 py-2 whitespace-nowrap">
-																									{#if type == 'get_path'}
-																										<Badge color="green">GET</Badge>
-																										<Tooltip>
-																											This webhook unlike the others which are all
-																											POST takes in a GET request. The payload must
-																											be passed as the query arg `payload` and
-																											encoded in JSON first, then in an URL safe
-																											base64. e.g:
-																											`encodeURIComponent(btoa(JSON.stringify({'{a: 2}'})))`
-																										</Tooltip>
-																									{:else}
-																										<Badge color="yellow">POST</Badge>
-																										<Badge color="gray">
-																											{`by ${capitalize(type)}`}
-																										</Badge>
-																									{/if}
-																								</div>
+																		<Skeleton {loading} layout={[[8.5]]} />
+																		<!-- svelte-ignore a11y-click-events-have-key-events -->
+																		<Tabs selected={DEFAULT_WEBHOOK_TYPE}>
+																			<Tab value="async">
+																				Async
+																				<Tooltip
+																					light
+																					documentationLink="https://www.windmill.dev/docs/core_concepts/webhooks#asynchronous"
+																				>
+																					Jobs can be triggered in asynchronous mode, meaning that
+																					the webhook is triggered, and the returning value is the
+																					uuid of the job assigned to execute the underlying code.
+																				</Tooltip>
+																			</Tab>
+																			<Tab value="sync">
+																				Sync
 
-																								<div
-																									class="px-4 py-2 flex items-center cursor-pointer hover:bg-gray-100 text-blue-600 hover:text-blue-800 overflow-hidden"
-																									on:click={(e) => {
-																										e.preventDefault()
-																										copyToClipboard(href)
-																									}}
-																								>
-																									<div
-																										class="text-sm whitespace-nowrap overflow-ellipsis"
-																									>
-																										{includeToken ? `${url}?token=your_token` : url}
+																				<Tooltip
+																					light
+																					documentationLink="https://www.windmill.dev/docs/core_concepts/webhooks#asynchronous"
+																				>
+																					The second type of autogenerated endpoint is the
+																					synchronous webhook. This webhook triggers the execution,
+																					automatically extracts the underlying code's return value
+																					and returns it as the response.
+																				</Tooltip>
+																			</Tab>
+																			<svelte:fragment slot="content">
+																				{#each Object.keys(webhooks) as key}
+																					<TabContent value={key}>
+																						<div class="flex flex-col">
+																							{#each Object.keys(webhooks[key]) as type}
+																								{@const url = webhooks[key][type]}
+																								{@const href = $page.url.protocol + '//' + url}
+
+																								<div class="flex justify-between items-center my-2">
+																									<div class="pr-4 py-2 whitespace-nowrap">
+																										{#if type == 'get_path'}
+																											<Badge color="green">GET</Badge>
+																											<Tooltip>
+																												This webhook unlike the others which are all
+																												POST takes in a GET request. The payload
+																												must be passed as the query arg `payload`
+																												and encoded in JSON first, then in an URL
+																												safe base64. e.g:
+																												`encodeURIComponent(btoa(JSON.stringify({'{a: 2}'})))`
+																											</Tooltip>
+																										{:else}
+																											<Badge color="yellow">POST</Badge>
+																											<Badge color="gray">
+																												{`by ${capitalize(type)}`}
+																											</Badge>
+																										{/if}
 																									</div>
-																									<Clipboard size={14} />
+
+																									<div
+																										class="px-4 py-2 flex items-center cursor-pointer hover:bg-gray-100 text-blue-600 hover:text-blue-800 overflow-hidden"
+																										on:click={(e) => {
+																											e.preventDefault()
+																											copyToClipboard(href)
+																										}}
+																									>
+																										<div
+																											class="text-sm whitespace-nowrap overflow-ellipsis"
+																										>
+																											{includeToken
+																												? `${url}?token=your_token`
+																												: url}
+																										</div>
+																										<Clipboard size={14} />
+																									</div>
 																								</div>
-																							</div>
-																						{/each}
-																					</div>
-
-																					<div class="pr-4 py-3">
-																						<Toggle
-																							bind:checked={includeToken}
-																							options={{ right: 'Include token' }}
-																							size="xs"
-																						/>
-																					</div>
-
-																					{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-																						<div class="flex">
-																							<Button
-																								color="light"
-																								size="lg"
-																								endIcon={{
-																									icon: viewWebhookCommand
-																										? faChevronUp
-																										: faChevronDown
-																								}}
-																								on:click={() =>
-																									(viewWebhookCommand = !viewWebhookCommand)}
-																							>
-																								CURL
-																							</Button>
+																							{/each}
 																						</div>
-																					{/if}
-																					{#if viewWebhookCommand}
-																						{@const command = curlCommand(key == 'async')}
-																						<div transition:slide|local class="px-4">
+
+																						<div class="pr-4 py-3">
+																							<Toggle
+																								bind:checked={includeToken}
+																								options={{ right: 'Include token' }}
+																								size="xs"
+																							/>
+																						</div>
+
+																						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+																							{@const command = curlCommand(key == 'async')}
+																							<div class="font-semibold text-md">Curl</div>
 																							<!-- svelte-ignore a11y-click-events-have-key-events -->
 																							<pre
-																								class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
+																								class="rounded-md bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
 																								>{command} <span
 																									on:click={() => copyToClipboard(command)}
 																									class="cursor-pointer ml-2"
@@ -672,77 +659,80 @@
 																										.url.protocol}//{$page.url
 																										.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID{/if}</pre
 																							>
-																						</div>
-																					{/if}
-																				</TabContent>
-																			{/each}
-																		</svelte:fragment>
-																	</Tabs>
-																</div>
-															</TabContent>
-															<TabContent value="schedule">
-																<div class="p-2 flex flex-col">
-																	<Button
-																		on:click={() =>
-																			scheduleEditor?.openNew(false, script?.path ?? '')}
-																		variant="border"
-																		color="light"
-																		size="xs"
-																		startIcon={{ icon: faCalendar }}
-																	>
-																		New Schedule
-																	</Button>
-																</div>
-															</TabContent>
-															<TabContent value="dangerzone">
-																<div class="flex flex-col p-2">
-																	<div class="flex gap-2">
-																		<Popover>
-																			<Button
-																				size="xs"
-																				on:click={() => {
-																					script?.hash && deleteScript(script.hash)
-																				}}
-																				color="red"
-																				variant="contained"
-																				startIcon={{ icon: faTrash }}
-																				disabled={!($superadmin || ($userStore?.is_admin ?? false))}
-																			>
-																				Delete
-																			</Button>
-																			<span slot="text">require to be admin</span>
-																		</Popover>
-																		{#if script.archived}
-																			<Button
-																				size="xs"
-																				on:click={() => {
-																					script?.hash && unarchiveScript(script.hash)
-																				}}
-																				color="red"
-																				variant="border"
-																				startIcon={{ icon: faArchive }}
-																			>
-																				Unarchive
-																			</Button>
-																		{:else}
-																			<Button
-																				size="xs"
-																				on:click={() => {
-																					script?.hash && archiveScript(script.hash)
-																				}}
-																				color="red"
-																				variant="border"
-																				startIcon={{ icon: faArchive }}
-																			>
-																				Archive
-																			</Button>
-																		{/if}
+																						{/if}
+																					</TabContent>
+																				{/each}
+																			</svelte:fragment>
+																		</Tabs>
 																	</div>
-																</div>
-															</TabContent>
-														</svelte:fragment>
-													</Tabs>
-												</Pane>
+																</TabContent>
+																<TabContent value="schedule">
+																	<div class="p-2 flex flex-col">
+																		<Button
+																			on:click={() =>
+																				scheduleEditor?.openNew(false, script?.path ?? '')}
+																			variant="border"
+																			color="light"
+																			size="xs"
+																			startIcon={{ icon: faCalendar }}
+																		>
+																			New Schedule
+																		</Button>
+																	</div>
+																</TabContent>
+																<TabContent value="dangerzone">
+																	<div class="flex flex-col p-2">
+																		<div class="flex gap-2">
+																			<Popover>
+																				<Button
+																					size="xs"
+																					on:click={() => {
+																						script?.hash && deleteScript(script.hash)
+																					}}
+																					color="red"
+																					variant="contained"
+																					startIcon={{ icon: faTrash }}
+																					disabled={!(
+																						$superadmin ||
+																						($userStore?.is_admin ?? false)
+																					)}
+																				>
+																					Delete
+																				</Button>
+																				<span slot="text">require to be admin</span>
+																			</Popover>
+																			{#if script.archived}
+																				<Button
+																					size="xs"
+																					on:click={() => {
+																						script?.hash && unarchiveScript(script.hash)
+																					}}
+																					color="red"
+																					variant="border"
+																					startIcon={{ icon: faArchive }}
+																				>
+																					Unarchive
+																				</Button>
+																			{:else}
+																				<Button
+																					size="xs"
+																					on:click={() => {
+																						script?.hash && archiveScript(script.hash)
+																					}}
+																					color="red"
+																					variant="border"
+																					startIcon={{ icon: faArchive }}
+																				>
+																					Archive
+																				</Button>
+																			{/if}
+																		</div>
+																	</div>
+																</TabContent>
+															</svelte:fragment>
+														</Tabs>
+													</Pane>
+												</Splitpanes>
 											</TabContent>
 										</div>
 									</svelte:fragment>

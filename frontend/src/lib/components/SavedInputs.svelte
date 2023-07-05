@@ -257,7 +257,7 @@
 
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-extrabold">Previous Inputs</span>
+				<span class="text-sm font-extrabold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
