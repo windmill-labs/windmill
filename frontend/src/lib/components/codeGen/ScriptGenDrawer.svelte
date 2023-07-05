@@ -24,9 +24,8 @@
 
 			editor?.setCode(generatedCode)
 			drawer.closeDrawer()
-			funcDesc = ''
 		} catch (err) {
-			sendUserToast('Failed to generate code')
+			sendUserToast('Failed to generate code', true)
 			console.error(err)
 		} finally {
 			genLoading = false
@@ -34,7 +33,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer}>
+<Drawer bind:this={drawer} on:close={() => (funcDesc = '')}>
 	<DrawerContent title="Generate code" on:close={drawer.closeDrawer}
 		><div class="flex gap-2 flex-col"
 			><input

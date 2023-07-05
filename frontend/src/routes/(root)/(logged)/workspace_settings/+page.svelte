@@ -120,7 +120,7 @@
 				workspace: $workspaceStore!,
 				requestBody: { openai_key: openAIKey }
 			})
-			sendUserToast(`OpenAI key set to ${openAIKey}`)
+			sendUserToast('OpenAI key set')
 		} else {
 			await WorkspaceService.editOpenAIKey({
 				workspace: $workspaceStore!,

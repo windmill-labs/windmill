@@ -65,7 +65,8 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
-        .route("/edit_openai_key", post(edit_openai_key));
+        .route("/edit_openai_key", post(edit_openai_key))
+        .route("/openai_key_exists", get(openai_key_exists) );
 
     #[cfg(feature = "enterprise")]
     tracing::info!("stripe enabled");
@@ -656,13 +657,13 @@ async fn edit_openai_key(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Authed { is_admin, username, .. }: Authed,
-    Json(ew): Json<EditOpenAIKey>,
+    Json(eo): Json<EditOpenAIKey>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_key) = &ew.openai_key {
+    if let Some(openai_key) = &eo.openai_key {
         sqlx::query!(
             "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2",
             openai_key,
@@ -685,12 +686,46 @@ async fn edit_openai_key(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("openai_key", &format!("{:?}", ew.openai_key)[..])].into()),
+        Some([("openai_key", &format!("{:?}", eo.openai_key)[..])].into()),
     )
     .await?;
     tx.commit().await?;
 
     Ok(format!("Edit openai_key for workspace {}", &w_id))
+}
+
+
+struct OpenAIKey {
+    openai_key: Option<String>,
+}
+# [derive (Serialize)]
+struct OpenAIKeyExists {
+    exists: bool,
+}
+async fn openai_key_exists(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+) -> JsonResult<OpenAIKeyExists> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+    let settings = sqlx::query_as!(
+        OpenAIKey,
+        "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
+    tx.commit().await?;
+
+    let exists = match settings.openai_key {
+        Some(_) => true,
+        None => false,
+    };
+
+    Ok(Json(OpenAIKeyExists { exists }))
 }
 
 async fn list_workspaces_as_super_admin(

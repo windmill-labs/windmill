@@ -39,6 +39,7 @@
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import { ScriptGenDrawer } from './codeGen'
+	import { checkIfOpenAIAvailable } from './codeGen/lib'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -139,6 +140,10 @@
 	let historyBrowserDrawerOpen = false
 
 	let scriptGenDrawer: Drawer
+
+	let openAIAvailable: boolean | undefined = undefined
+
+	$: checkIfOpenAIAvailable({ language: lang }).then((res) => (openAIAvailable = res))
 </script>
 
 {#if scriptPath}
@@ -468,17 +473,20 @@
 				</div>
 			{/if}
 
-			<Button
-				title="Generate code from prompt"
-				btnClasses="!font-medium text-gray-600"
-				size="xs"
-				color="light"
-				spacingSize="md"
-				startIcon={{ icon: faMagicWandSparkles }}
-				on:click={scriptGenDrawer.openDrawer}
-			>
-				Ask AI
-			</Button>
+			{#if openAIAvailable}
+				<Button
+					title="Generate code from prompt"
+					btnClasses="!font-medium text-gray-600"
+					size="xs"
+					color="light"
+					spacingSize="md"
+					startIcon={{ icon: faMagicWandSparkles }}
+					on:click={scriptGenDrawer.openDrawer}
+					{iconOnly}
+				>
+					Ask AI
+				</Button>
+			{/if}
 
 			<!-- <Popover
 				notClickable

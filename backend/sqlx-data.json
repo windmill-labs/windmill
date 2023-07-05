@@ -3845,6 +3845,26 @@
     },
     "query": "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path"
   },
+  "87874d29c44f03ff4d7d9cb9dc92900fb5eb6ce38408fe7f8e0f3455c77c3590": {
+    "describe": {
+      "columns": [
+        {
+          "name": "openai_key",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1"
+  },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
       "columns": [],

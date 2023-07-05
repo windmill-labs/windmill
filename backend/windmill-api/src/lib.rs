@@ -46,6 +46,7 @@ mod groups;
 mod inputs;
 pub mod jobs;
 mod oauth2;
+mod openai;
 mod raw_apps;
 mod resources;
 mod schedule;
@@ -198,7 +199,8 @@ pub async fn run_server(
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
-                        .nest("/workspaces", workspaces::workspaced_service()),
+                        .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/openai", openai::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
