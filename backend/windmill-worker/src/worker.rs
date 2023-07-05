@@ -352,7 +352,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Go),
         Some(ScriptLang::Bash),
         Some(ScriptLang::Nativets),
-        Some(ScriptLang::Postgresql)];
+        Some(ScriptLang::Postgresql),
+        Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
@@ -1521,6 +1522,20 @@ mount {{
             )
             .await
         }
+        Some(ScriptLang::Bun) => {
+            handle_bun_job(
+                logs,
+                job,
+                db,
+                client,
+                job_dir,
+                &inner_content,
+                base_internal_url,
+                worker_name,
+                envs
+            )
+            .await
+        }
         Some(ScriptLang::Go) => {
             handle_go_job(
                 logs,
@@ -1675,6 +1690,175 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    client: &AuthedClientBackgroundTask,
+    job_dir: &str,
+    inner_content: &String,
+    base_internal_url: &str,
+    worker_name: &str,
+    envs: HashMap<String, String>,
+) -> error::Result<serde_json::Value> {
+
+    // let mut start = Instant::now();
+    logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
+
+    let logs_to_set = logs.clone();
+    let id = job.id.clone();
+    let db2 = db.clone();
+
+    let set_logs_f = async {
+        set_logs(&logs_to_set, &id, &db2).await;
+        Ok(()) as error::Result<()>
+    };
+    
+    let write_main_f = write_file(job_dir, "main.ts", inner_content);
+
+    let write_wrapper_f = async {
+        // let mut start = Instant::now();
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
+            Some(i) 
+        } else {
+            None
+        }).map(|x| {
+            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
+        }).join("\n");
+
+        let spread = args.into_iter().map(|x| x.name).join(",");
+        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        let wrapper_content: String = format!(
+            r#"
+import {{ main }} from "./main.ts";
+
+const args = await Deno.readTextFile("args.json")
+    .then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+{dates}
+async function run() {{
+    let res: any = await main(...args);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await Deno.writeTextFile("result.json", res_json);
+    Deno.exit(0);
+}}
+run().catch(async (e) => {{
+    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    Deno.exit(1);
+}});
+    "#,
+        );
+        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let write_import_map_f = async {
+        let w_id = job.workspace_id.clone();
+        let script_path_split = job.script_path().split("/");
+        let script_path_parts_len = script_path_split.clone().count();
+        let mut relative_mounts = "".to_string();
+        for c in 0..script_path_parts_len {
+            relative_mounts += ",\n          ";
+            relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+                (0..c).map(|_| "../").join(""),
+                &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+                if c == script_path_parts_len - 1 { "" } else { "/" },
+            );
+        }
+        let import_map = format!(
+            r#"{{
+            "imports": {{
+              "{base_internal_url}/api/w/{w_id}/scripts/raw/p/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "./wrapper.ts": "./wrapper.ts",
+              "./main.ts": "./main.ts"{relative_mounts}
+            }}
+          }}"#,
+        );
+        write_file(job_dir, "import_map.json", &import_map).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let reserved_variables_args_out_f = async {
+        let client = client.get_authed().await;
+        let args_and_out_f = async {
+            create_args_and_out_file(&client, job, job_dir).await?;
+            Ok(()) as Result<()>
+        };
+        let reserved_variables_f = async {
+            let mut vars = get_reserved_variables(job, &client.token, db).await?;
+            vars.insert("RUST_LOG".to_string(), "info".to_string());
+            Ok(vars) as Result<HashMap<String, String>>
+        };
+        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
+        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
+    };
+
+    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
+        set_logs_f,
+        reserved_variables_args_out_f,
+        write_main_f,
+        write_wrapper_f,
+        write_import_map_f)?;
+
+    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
+
+    //do not cache local dependencies
+    let reload = format!("--reload={base_internal_url}");
+    let child = async {
+            let script_path = format!("{job_dir}/wrapper.ts");
+            let import_map_path = format!("{job_dir}/import_map.json");
+            let mut args = Vec::with_capacity(12);
+            args.push("run");
+            args.push("--no-check");
+            args.push("--import-map");
+            args.push(&import_map_path);
+            args.push(&reload);
+            args.push("--unstable");
+            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
+                for flag in deno_flags {
+                    args.push(flag);
+                }
+            } else if !*DISABLE_NSJAIL {
+                args.push("--allow-net");
+                args.push("--allow-read=./");
+                args.push("--allow-write=./");
+                args.push("--allow-env");
+            } else {
+                args.push("-A");
+            }
+            args.push(&script_path);
+            Command::new(DENO_PATH.as_str())
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(common_deno_proc_envs)
+                .env("DENO_DIR", DENO_CACHE_DIR)
+                .args(args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+    }
+    .await?;
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
+    // start = Instant::now();
+    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run").await?;
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
+        tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
+    }
+    read_result(job_dir).await
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_bun_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2073,6 +2257,9 @@ async fn capture_dependency_job(
         ScriptLang::Deno => {
             Ok(String::new())
             // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
+        },
+        ScriptLang::Bun => {
+            Ok(String::new())
         },
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),

@@ -108,7 +108,7 @@
 				'm-24 max-h-[80%] bg-white overflow-y-auto rounded-lg relative',
 				css?.popup?.class
 			)}
-			use:clickOutside
+			use:clickOutside={false}
 			on:click_outside={() => {
 				if ($mode !== 'dnd') {
 					closeDrawer()

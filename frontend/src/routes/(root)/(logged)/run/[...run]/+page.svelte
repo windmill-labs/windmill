@@ -333,7 +333,7 @@
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
 					{#if job?.job_kind == 'dependencies'}
-						<Tab value="code">Dependencies</Tab>
+						<Tab value="code">Code</Tab>
 					{:else if job?.job_kind == 'preview'}
 						<Tab value="code">Code</Tab>
 					{/if}
@@ -354,7 +354,9 @@
 							</div>
 						{:else if viewTab == 'code'}
 							{#if job && 'raw_code' in job && job.raw_code}
-								<HighlightCode lines language={job.language} code={job.raw_code} />
+								<div class="text-xs">
+									<HighlightCode lines language={job.language} code={job.raw_code} />
+								</div>
 							{:else if job}
 								No code is available
 							{:else}
