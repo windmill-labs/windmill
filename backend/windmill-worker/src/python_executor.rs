@@ -103,7 +103,7 @@ pub async fn pip_compile(
     .fetch_optional(db)
     .await?
     {
-        logs.push_str(&format!("\nfound cached resolution:\n{cached}"));
+        logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
         return Ok(cached);
     }
     let file = "requirements.in";

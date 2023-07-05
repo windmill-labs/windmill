@@ -31,11 +31,13 @@ pub enum ScriptLang {
     Go,
     Bash,
     Postgresql,
+    Bun,
 }
 
 impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ScriptLang::Bun => "bun",
             ScriptLang::Nativets => "nativets",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
