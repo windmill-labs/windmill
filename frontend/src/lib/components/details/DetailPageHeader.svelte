@@ -1,0 +1,80 @@
+<script lang="ts">
+	import { Button, Badge, Alert } from '$lib/components/common'
+
+	import Menu from '$lib/components/details/Menu.svelte'
+	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
+	import { defaultIfEmptyString, displayDaysAgo, emptyString } from '$lib/utils'
+	import type { Schedule } from '$lib/gen'
+
+	type MainButton = {
+		label: string
+		href: string
+		buttonProps: ButtonProps
+	}
+
+	type ButtonProps = any
+	type MenuItemButton = {
+		label: string
+		Icon: any
+		onClick: () => void
+	}
+
+	export let mainButtons: MainButton[] = []
+	export let menuItems: MenuItemButton[] = []
+	export let summary: string = ''
+	export let path: string = ''
+	export let edited_at: string = ''
+	export let edited_by: string = ''
+	export let schedule: Schedule | undefined = undefined
+	export let archived: boolean = false
+</script>
+
+<div class="border-b p-2 shadow-md">
+	<div class="prose-sm mx-auto">
+		<div class="flex w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4 h-8">
+			<div class="flex flex-row items-end gap-2">
+				<div class="font-bold truncate text-lg">
+					{defaultIfEmptyString(summary, path)}
+				</div>
+				{#if !emptyString(summary)}
+					<span class="text-xs text-gray-800">({path})</span>
+				{/if}
+				<div>
+					<span class="text-sm text-gray-600">
+						Edited {displayDaysAgo(edited_at ?? '')} by {edited_by}
+
+						{#if schedule}
+							<a href="#primary-schedule" class="ml-2">
+								<Badge color="dark-blue">Primary schedule</Badge>
+							</a>
+						{/if}
+					</span>
+
+					{#if archived}
+						<div class="mt-2" />
+						<Alert type="error" title="Archived">This flow was archived</Alert>
+					{/if}
+				</div>
+			</div>
+			<div class="flex gap-2">
+				<Menu>
+					<svelte:fragment slot="items">
+						{#each menuItems as { label, Icon, onClick } (label)}
+							<MenuItem on:click={onClick}>
+								<div class="text-xs flex items-center gap-2 flex-row-2">
+									<Icon class="h-4" />
+									{label}
+								</div>
+							</MenuItem>
+						{/each}
+					</svelte:fragment>
+				</Menu>
+				{#each mainButtons as btn}
+					<Button {...btn.buttonProps} startIcon={{ icon: btn.buttonProps.startIcon }}>
+						{btn.label}
+					</Button>
+				{/each}
+			</div>
+		</div>
+	</div>
+</div>

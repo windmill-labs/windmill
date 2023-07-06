@@ -11,6 +11,7 @@
 		canWrite
 	} from '$lib/utils'
 	import {
+		faPlay,
 		faEdit,
 		faArchive,
 		faList,
@@ -18,7 +19,7 @@
 		faCalendar,
 		faCodeFork,
 		faClipboard,
-		faHistory
+		faArrowLeft
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -58,6 +59,7 @@
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
+	import { unarchiveScript } from './utils'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -99,16 +101,8 @@
 		loadScript(hash)
 	}
 
-	async function unarchiveScript(hash: string): Promise<void> {
-		const r = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
-		const ns = await ScriptService.createScript({
-			workspace: $workspaceStore!,
-			requestBody: {
-				...r,
-				parent_hash: hash,
-				lock: r.lock?.split('\n')
-			}
-		})
+	async function togglUnarchive(hash: string): Promise<void> {
+		const ns = await unarchiveScript(hash, $workspaceStore!)
 		sendUserToast(`Unarchived script`)
 		loadScript(ns)
 		goto(`/scripts/get/${ns}`)
@@ -198,59 +192,6 @@
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let includeToken: boolean = false
-
-	function getMainButtons(script: Script | undefined) {
-		if (!script) return []
-
-		const buttons: any = []
-
-		if (!$userStore?.operator) {
-			buttons.push({
-				href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
-					topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
-				}`,
-				label: 'Edit',
-				buttonProps: {
-					disabled: !can_write,
-					size: 'xs',
-					startIcon: faEdit,
-					color: 'dark',
-					variant: 'contained'
-				}
-			})
-
-			if (!topHash) {
-				buttons.push({
-					href: `/scripts/add?template=${script.path}`,
-					label: 'Fork',
-					buttonProps: {
-						variant: 'border',
-						size: 'xs',
-						color: 'light',
-						startIcon: faCodeFork
-					}
-				})
-			}
-		}
-
-		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
-			buttons.push({
-				label: `(${script.parent_hashes.length})`,
-				href: `/scripts/get/${script.parent_hashes[0]}?workspace=${$workspaceStore}`,
-				buttonProps: {
-					size: 'xs',
-					color: 'dark',
-					startIcon: faHistory,
-					dropdownItems: script.parent_hashes.map((hash) => ({
-						href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
-						label: hash
-					}))
-				}
-			})
-		}
-
-		return buttons
-	}
 </script>
 
 <MoveDrawer
@@ -260,11 +201,8 @@
 		loadScript($page.params.hash)
 	}}
 />
-
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor bind:this={scheduleEditor} />
-<UserSettings bind:this={userSettings} scopes={[`run:script/${script?.path}`]} />
-<ShareModal bind:this={shareModal} />
 
 {#if script}
 	<main class="h-screen w-full">
@@ -277,20 +215,54 @@
 						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4 h-8"
 					>
 						<div class="flex flex-row-reverse gap-2 h-full">
-							{#each getMainButtons(script) as btn}
-								<Button
-									href={btn.href}
-									color={btn.buttonProps.color}
-									size={btn.buttonProps.size}
-									startIcon={{ icon: btn.buttonProps.startIcon }}
-									variant={btn.buttonProps.variant}
-									disabled={btn.buttonProps.disabled}
-									dropdownItems={btn.buttonProps.dropdownItems}
-								>
-									{btn.label}
-								</Button>
-							{/each}
+							<Button
+								href={`/scripts/run/${script.hash}`}
+								color="blue"
+								size="xs"
+								startIcon={{ icon: faPlay }}
+							>
+								Run
+							</Button>
 
+							{#if !$userStore?.operator}
+								<Button
+									href={`/scripts/edit/${script.path}?args=${encodeState(args)}${
+										topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
+									}`}
+									color="blue"
+									size="xs"
+									startIcon={{ icon: faEdit }}
+									disabled={!can_write}
+								>
+									Edit
+								</Button>
+								{#if !topHash}
+									<Button
+										href={`/scripts/add?template=${script.path}`}
+										variant="border"
+										size="xs"
+										color="light"
+										startIcon={{ icon: faCodeFork }}
+									>
+										Fork
+									</Button>
+								{/if}
+							{/if}
+							{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
+								<Button
+									color="dark"
+									variant="contained"
+									size="xs"
+									startIcon={{ icon: faArrowLeft }}
+									href="/scripts/get/{script.parent_hashes[0]}?workspace={$workspaceStore}"
+									dropdownItems={script.parent_hashes.map((hash) => ({
+										href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
+										label: hash
+									}))}
+								>
+									Previous version ({script.parent_hashes.length})
+								</Button>
+							{/if}
 							<Menu>
 								<svelte:fragment slot="items">
 									<MenuItem
@@ -726,7 +698,7 @@
 																				<Button
 																					size="xs"
 																					on:click={() => {
-																						script?.hash && unarchiveScript(script.hash)
+																						script?.hash && togglUnarchive(script.hash)
 																					}}
 																					color="red"
 																					variant="border"
@@ -766,3 +738,7 @@
 		</div>
 	</main>
 {/if}
+
+<UserSettings bind:this={userSettings} scopes={[`run:script/${script?.path}`]} />
+
+<ShareModal bind:this={shareModal} />
