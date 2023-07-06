@@ -116,13 +116,13 @@
 	async function editOpenAIKey(): Promise<void> {
 		// in JS, an empty string is also falsy
 		if (openAIKey) {
-			await WorkspaceService.editOpenAIKey({
+			await WorkspaceService.editOpenaiKey({
 				workspace: $workspaceStore!,
 				requestBody: { openai_key: openAIKey }
 			})
 			sendUserToast('OpenAI key set')
 		} else {
-			await WorkspaceService.editOpenAIKey({
+			await WorkspaceService.editOpenaiKey({
 				workspace: $workspaceStore!,
 				requestBody: { openai_key: undefined }
 			})

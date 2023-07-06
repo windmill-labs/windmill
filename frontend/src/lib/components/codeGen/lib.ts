@@ -45,7 +45,7 @@ async function checkIfOpenAIAvailable({ language }: { language: SupportedLanguag
 	if (workspace === undefined) {
 		return false
 	}
-	const resp = await WorkspaceService.openAIKeyExists({ workspace })
+	const resp = await WorkspaceService.openaiKeyExists({ workspace })
 	return resp.exists && SUPPORTED_LANGUAGES.has(language)
 }
 
