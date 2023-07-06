@@ -1917,12 +1917,14 @@ async fn handle_bun_job(
 
         let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let wrapper_content: String = format!(
             r#"
 import {{ main }} from "./main.ts";
 
+const fs = require('fs/promises');
 
-const args = await Bun.file("args.json").json()
+const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
     .then(({{ {spread} }}) => [ {spread} ])
 
 BigInt.prototype.toJSON = function () {{
@@ -1933,11 +1935,11 @@ BigInt.prototype.toJSON = function () {{
 async function run() {{
     let res: any = await main(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await Bun.write("result.json", res_json);
+    await fs.writeFile("result.json", res_json);
     process.exit(0);
 }}
 run().catch(async (e) => {{
-    await Bun.write("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
     process.exit(1);
 }});
     "#,
@@ -1998,7 +2000,7 @@ let child = if !*DISABLE_NSJAIL {
         .spawn()?
     } else {
             let script_path = format!("{job_dir}/wrapper.ts");
-            let mut args = vec!["run", &script_path, "--prefer-offline"];
+            let args = vec!["run", &script_path, "--prefer-offline"];
             Command::new(&*BUN_PATH)
                 .current_dir(job_dir)
                 .env_clear()
