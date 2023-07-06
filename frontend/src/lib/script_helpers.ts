@@ -45,7 +45,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import { setClient, getVariable } from "windmill-client@0.3.14"
+import { setClient, getVariable } from "windmill-client@0.3.15"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object

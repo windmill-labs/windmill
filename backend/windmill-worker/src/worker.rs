@@ -1999,7 +1999,6 @@ let child = if !*DISABLE_NSJAIL {
     } else {
             let script_path = format!("{job_dir}/wrapper.ts");
             let mut args = vec!["run", &script_path, "--prefer-offline"];
-            args.push(&script_path);
             Command::new(&*BUN_PATH)
                 .current_dir(job_dir)
                 .env_clear()
@@ -2255,6 +2254,7 @@ async fn capture_dependency_job(
             Ok(String::new())
         },
         ScriptLang::Postgresql => Ok("".to_owned()),
+        ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
 
