@@ -130,6 +130,8 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 COPY --from=denoland/deno:1.35.0 /usr/bin/deno /usr/bin/deno
+COPY --from=oven/bun:0.6.13 /usr/bin/bun /usr/bin/bun
+
 
 # docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
 COPY --from=lukechannings/deno:v1.35.0 /usr/bin/deno /usr/bin/deno-arm

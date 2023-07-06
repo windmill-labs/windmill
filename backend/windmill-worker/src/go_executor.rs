@@ -197,6 +197,7 @@ func Run(req Req) (interface{{}}, error){{
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

@@ -1,12 +1,14 @@
-name: "bash run script"
+name: "bun run script"
 
 mode: ONCE
-hostname: "bash"
+hostname: "bun"
 log_level: ERROR
 
 disable_rl: true
 
-cwd: "/tmp"
+mount_proc: true
+
+cwd: "/tmp/bun"
 
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
@@ -51,14 +53,37 @@ mount {
 	dst: "/tmp"
 	fstype: "tmpfs"
 	rw: true
-    options: "size=800000000"
+    options: "size=500000000"
+}
+
+
+mount {
+    src: "{JOB_DIR}/wrapper.ts"
+    dst: "/tmp/bun/wrapper.ts"
+    is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "{JOB_DIR}/main.ts"
+    dst: "/tmp/bun/main.ts"
+    is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "{JOB_DIR}/args.json"
+    dst: "/tmp/bun/args.json"
+    is_bind: true
 }
 
 mount {
-    src: "{JOB_DIR}/main.sh"
-    dst: "/tmp/main.sh"
+    src: "{JOB_DIR}/result.json"
+    dst: "/tmp/bun/result.json"
+    rw: true
     is_bind: true
-    mandatory: false
 }
 
 mount {
@@ -81,6 +106,16 @@ mount {
 
 iface_no_lo: true
 
+mount {
+    src: "{CACHE_DIR}"
+    dst: "/tmp/windmill/cache/bun"
+    is_bind: true
+    rw: true
+    mandatory: false
+}
+
 {SHARED_MOUNT}
 
-envar: "HOME=/tmp"
+envar: "HOME=/tmp/bun"
+
+
