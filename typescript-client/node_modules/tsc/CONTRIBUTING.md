@@ -1,3 +1,0 @@
-# Release
-
-`npm publish`
