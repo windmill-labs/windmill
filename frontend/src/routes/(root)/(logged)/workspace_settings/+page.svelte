@@ -699,8 +699,7 @@
 				kind={Script.kind.SCRIPT}
 				allowFlow
 				bind:itemKind
-				bind:scriptPath
-				initialPath={scriptPath}
+				bind:initialPath={scriptPath}
 				on:select={editSlackCommand}
 			/>
 		{:else if tab == 'export_delete'}
