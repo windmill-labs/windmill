@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { Button, Badge, Alert } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { defaultIfEmptyString, displayDaysAgo, emptyString } from '$lib/utils'
-	import type { Schedule } from '$lib/gen'
 
 	type MainButton = {
 		label: string
@@ -16,7 +15,7 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onClick: () => void
+		onclick: () => void
 	}
 
 	export let mainButtons: MainButton[] = []
@@ -25,8 +24,6 @@
 	export let path: string = ''
 	export let edited_at: string = ''
 	export let edited_by: string = ''
-	export let schedule: Schedule | undefined = undefined
-	export let archived: boolean = false
 </script>
 
 <div class="border-b p-2 shadow-md">
@@ -40,27 +37,16 @@
 					<span class="text-xs text-gray-800">({path})</span>
 				{/if}
 				<div>
-					<span class="text-sm text-gray-600">
-						Edited {displayDaysAgo(edited_at ?? '')} by {edited_by}
-
-						{#if schedule}
-							<a href="#primary-schedule" class="ml-2">
-								<Badge color="dark-blue">Primary schedule</Badge>
-							</a>
-						{/if}
+					<span class="text-xs text-gray-600">
+						Edited {displayDaysAgo(edited_at || '')} by {edited_by || 'unknown'}
 					</span>
-
-					{#if archived}
-						<div class="mt-2" />
-						<Alert type="error" title="Archived">This flow was archived</Alert>
-					{/if}
 				</div>
 			</div>
 			<div class="flex gap-2">
 				<Menu>
 					<svelte:fragment slot="items">
-						{#each menuItems as { label, Icon, onClick } (label)}
-							<MenuItem on:click={onClick}>
+						{#each menuItems as { label, Icon, onclick } (label)}
+							<MenuItem on:click={onclick}>
 								<div class="text-xs flex items-center gap-2 flex-row-2">
 									<Icon class="h-4" />
 									{label}

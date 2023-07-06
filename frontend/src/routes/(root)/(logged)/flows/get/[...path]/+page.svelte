@@ -1,25 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
-	import {
-		canWrite,
-		copyToClipboard,
-		defaultIfEmptyString,
-		emptyString,
-		encodeState
-	} from '$lib/utils'
-	import {
-		faChevronDown,
-		faChevronUp,
-		faClipboard,
-		faCodeFork,
-		faEdit
-	} from '@fortawesome/free-solid-svg-icons'
+	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
+	import { faCalendar, faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Badge, Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import CronInput from '$lib/components/CronInput.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -27,26 +14,36 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import Icon from 'svelte-awesome'
-	import { slide } from 'svelte/transition'
 	import { sendUserToast } from '$lib/toast'
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Globe2, Archive, Trash, Server, Share } from 'lucide-svelte'
+	import {
+		FolderOpen,
+		Globe2,
+		Archive,
+		Trash,
+		Server,
+		Share,
+		PenBox,
+		ListOrdered
+	} from 'lucide-svelte'
 
 	import { flowToHubUrl } from '$lib/hub'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
+	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
+	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 
-	let userSettings: UserSettings
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
+
+	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	$: {
 		if ($workspaceStore && $userStore) {
@@ -130,10 +127,9 @@
 	}
 	let scheduleEditor: ScheduleEditor
 
-	let viewWebhookCommand = false
-
 	let args = undefined
 
+	/**
 	function curlCommand(async: boolean) {
 		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
 			args
@@ -141,6 +137,8 @@
 			async ? '' : '_wait_result'
 		}/f/${flow?.path}`
 	}
+
+	*/
 
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
@@ -230,7 +228,6 @@
 />
 
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
-<UserSettings bind:this={userSettings} scopes={[`run:flow/${flow?.path}`]} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ShareModal bind:this={shareModal} />
 <MoveDrawer
@@ -252,8 +249,6 @@
 				path={flow.path}
 				edited_at={flow.edited_at}
 				edited_by={flow.edited_by}
-				{schedule}
-				archived={flow.archived}
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
@@ -272,7 +267,6 @@
 					runnable={flow}
 					runAction={runFlow}
 					bind:args
-					viewCliRun
 					isFlow
 					bind:this={runForm}
 				/>
@@ -292,118 +286,90 @@
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
-			<div class="box max-w-5xl">
-				<div class="flex w-full flex-justify-between mb-1">
-					<a
-						on:click={(e) => {
-							e.preventDefault()
-							copyToClipboard($page.url.protocol + '//' + urlAsync)
-						}}
-						href={$page.url.protocol + '//' + urlAsync}
-						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
-					>
-						{urlAsync}
-						<span class="text-gray-700 ml-2">
-							<Icon data={faClipboard} />
-						</span>
-					</a>
-					<Badge>UUID/Async</Badge>
-				</div>
-				<div class="mb-2 w-full flex flex-justify-between">
-					<a
-						on:click={(e) => {
-							e.preventDefault()
-							copyToClipboard($page.url.protocol + '//' + urlSync)
-						}}
-						href={$page.url.protocol + '//' + urlSync}
-						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
-					>
-						{urlSync}
-						<span class="text-gray-700 ml-2">
-							<Icon data={faClipboard} />
-						</span>
-					</a>
-					<Badge>Result/Sync</Badge>
-				</div>
-				<div class="flex flex-row-reverse">
-					<Button size="xs" on:click={userSettings.openDrawer}>
-						Create a Webhook-specific Token
-						<Tooltip>
-							The token will have a scope such that it can only be used to trigger this flow. It is
-							safe to share as it cannot be used to impersonate you.
-						</Tooltip>
-					</Button>
-				</div>
-				<div class="flex flex-col gap-2 mt-2">
-					<div class="flex">
-						<Button
-							color="light"
-							size="lg"
-							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-						>
-							CURL
-						</Button>
-					</div>
-					{#if viewWebhookCommand}
-						<div transition:slide|local class="px-4">
-							<Tabs selected="async">
-								<Tab value="async">UUID/Async</Tab>
-								<Tab value="sync">Result/Sync</Tab>
-								<svelte:fragment slot="content">
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
-										><TabContent value="async"
-											>{curlCommand(true)} <span
-												on:click={() => copyToClipboard(curlCommand(true))}
-												class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-											><br /><br />//^ returns an UUID. Fetch result until completed == true<br
-											/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
-												.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID</TabContent
-										><TabContent value="sync"
-											>{curlCommand(false)} <span
-												on:click={() => copyToClipboard(curlCommand(false))}
-												class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-											></TabContent
-										></pre
-									>
-								</svelte:fragment>
-							</Tabs>
-						</div>
-					{/if}
-				</div>
-			</div>
+			<WebhooksPanel
+				scopes={[`run:flow/${flow?.path}`]}
+				webhooks={{
+					async: {
+						path: urlAsync
+					},
+					sync: {
+						path: urlSync
+					}
+				}}
+				path={flow?.path}
+				isFlow={true}
+				{args}
+			/>
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
+			<div class="flex flex-row justify-end p-2">
+				<Button
+					on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faCalendar }}
+				>
+					New Schedule
+				</Button>
+			</div>
 			{#if schedule}
-				<div class="mt-10">
-					<h2
-						id="primary-schedule"
-						class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
-						><div>Primary Schedule </div>
-						<Badge color="gray">{schedule.schedule}</Badge>
-						<Toggle
-							checked={schedule.enabled}
-							on:change={(e) => {
-								if (can_write) {
-									setScheduleEnabled(path, e.detail)
-								} else {
-									sendUserToast('not enough permission', true)
-								}
-							}}
-						/>
-						<Button size="xs" on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
-							>Edit schedule</Button
-						>
-					</h2>
-					<div class="max-w-lg">
-						<JobArgs args={schedule.args ?? {}} />
+				<div class="p-2 flex flex-col gap-2">
+					<div class="flex flex-row justify-between h-8">
+						<div class="flex flex-row gap-2">
+							<input
+								class="inline-block !w-32"
+								type="text"
+								id="cron-schedule"
+								name="cron-schedule"
+								placeholder="*/30 * * * *"
+								value={schedule.schedule}
+								disabled={true}
+							/>
+							<Badge color="indigo" small>Primary schedule</Badge>
+						</div>
+						<div class="flex flex-row gap-1">
+							<Toggle
+								checked={schedule.enabled}
+								on:change={(e) => {
+									if (can_write) {
+										setScheduleEnabled(path, e.detail)
+									} else {
+										sendUserToast('not enough permission', true)
+									}
+								}}
+								options={{
+									right: 'Enabled'
+								}}
+								size="xs"
+							/>
+							<Button size="xs" color="light" href={`/runs/${flow?.path}`}>
+								<ListOrdered size={14} />
+							</Button>
+							<Button
+								size="xs"
+								color="light"
+								on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
+							>
+								<PenBox size={14} />
+							</Button>
+						</div>
 					</div>
-					<div class="box max-w-5xl mt-2">
-						<CronInput disabled={true} schedule={schedule.schedule} timezone={schedule.timezone} />
-					</div>
+					{#if Object.keys(schedule?.args ?? {}).length > 0}
+						<div class="">
+							<JobArgs args={schedule.args ?? {}} />
+						</div>
+					{:else}
+						<div class="text-xs texg-gray-700"> This flow takes no argument </div>
+					{/if}
 				</div>
 			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="cli">
+			<div class="p-2">
+				<InlineCodeCopy content={cliCommand} />
+				<CliHelpBox />
+			</div>
 		</svelte:fragment>
 	</DetailPageLayout>
 {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import { CalendarCheck2, Terminal, Webhook } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 </script>
 
@@ -26,13 +27,28 @@
 										<TabContent value="details" class="flex flex-col flex-1 h-full">
 											<Splitpanes horizontal class="h-full">
 												<Pane size={50} minSize={20}>
-													<slot name="detail" />
+													<slot name="details" />
 												</Pane>
 												<Pane size={50} minSize={20}>
 													<Tabs selected="webhooks">
-														<Tab value="webhooks">Webhooks</Tab>
-														<Tab value="schedule">Schedule</Tab>
-														<Tab value="CLI">CLI</Tab>
+														<Tab value="webhooks">
+															<span class="flex flex-row gap-2 items-center">
+																<Webhook size={14} />
+																Webhooks
+															</span>
+														</Tab>
+														<Tab value="schedule">
+															<span class="flex flex-row gap-2 items-center">
+																<CalendarCheck2 size={14} />
+																Schedule
+															</span>
+														</Tab>
+														<Tab value="cli">
+															<span class="flex flex-row gap-2 items-center">
+																<Terminal size={14} />
+																CLI
+															</span>
+														</Tab>
 
 														<svelte:fragment slot="content">
 															<TabContent value="webhooks">
