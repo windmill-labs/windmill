@@ -53,7 +53,6 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerInitialPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'script' = 'script'
 	let tab =
@@ -127,7 +126,7 @@
 		initialPath = scriptPath
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		errorHandlerInitialPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 	}
 
 	async function listUsers(): Promise<void> {
@@ -805,7 +804,7 @@
 				kind={Script.kind.SCRIPT}
 				bind:itemKind={errorHandlerItemKind}
 				bind:scriptPath={errorHandlerScriptPath}
-				initialPath={errorHandlerInitialPath}
+				initialPath={errorHandlerScriptPath}
 				on:select={editErrorHandler}
 				canRefresh
 			/>
