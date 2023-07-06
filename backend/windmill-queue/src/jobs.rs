@@ -370,9 +370,19 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         && queued_job.parent_job.is_none()
         && !success
     {
-        if let Err(e) = send_error_to_global_handler(rsmq, &queued_job, db, &result).await {
+        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, &result).await {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
+                &queued_job.id,
+                e
+            );
+        }
+
+        if let Err(e) =
+            send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, &result).await
+        {
+            tracing::error!(
+                "Could not run workspace error handler for job {}: {}",
                 &queued_job.id,
                 e
             );
@@ -448,6 +458,19 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
     db: &Pool<Postgres>,
     result: &serde_json::Value,
 ) -> Result<(), Error> {
+    if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
+        run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
+    }
+
+    Ok(())
+}
+
+pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let mut tx = db.begin().await?;
     let error_handler = sqlx::query_scalar!(
@@ -461,26 +484,14 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
 
     if let Some(error_handler) = error_handler {
         run_error_handler(
-            rsmq.clone(),
+            rsmq,
             queued_job,
             db,
             result,
             &error_handler.strip_prefix("script/").unwrap(),
             false,
         )
-        .await?;
-    }
-
-    if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
-        run_error_handler(
-            rsmq.clone(),
-            queued_job,
-            db,
-            result,
-            global_error_handler,
-            true,
-        )
-        .await?;
+        .await?
     }
 
     Ok(())
