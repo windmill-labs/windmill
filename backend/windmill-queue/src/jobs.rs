@@ -8,6 +8,7 @@
 
 use std::{collections::HashMap, vec};
 
+use anyhow::Context;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use reqwest::Client;
@@ -369,9 +370,19 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         && queued_job.parent_job.is_none()
         && !success
     {
-        if let Err(e) = send_error_to_global_handler(rsmq, &queued_job, db, &result).await {
+        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, &result).await {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
+                &queued_job.id,
+                e
+            );
+        }
+
+        if let Err(e) =
+            send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, &result).await
+        {
+            tracing::error!(
+                "Could not run workspace error handler for job {}: {}",
                 &queued_job.id,
                 e
             );
@@ -382,6 +393,65 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     Ok(queued_job.id)
 }
 
+pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+    error_handler_path: &str,
+    is_global: bool,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+    let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
+    let job_id = queued_job.id;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+    let (job_payload, tag) =
+        script_path_to_payload(&error_handler_path, tx.transaction_mut(), script_w_id).await?;
+    let mut args = result.as_object().unwrap().clone();
+    args.insert("workspace_id".to_string(), json!(w_id));
+    args.insert("job_id".to_string(), json!(job_id));
+    args.insert("path".to_string(), json!(queued_job.script_path));
+    args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
+    args.insert("email".to_string(), json!(queued_job.email));
+
+    let (uuid, tx) = push(
+        tx,
+        script_w_id,
+        job_payload,
+        args,
+        if is_global { "global" } else { "error_handler" },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL
+        } else {
+            "error_handler@windmill.dev"
+        },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL.to_string()
+        } else {
+            "g/error_handler".to_string()
+        },
+        None,
+        None,
+        Some(job_id),
+        Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+    )
+    .await?;
+    tx.commit().await?;
+
+    let error_handler_type = if is_global { "global" } else { "workspace" };
+    tracing::info!(
+        "Sent error of job {job_id} to {error_handler_type} error handler under uuid {uuid}"
+    );
+
+    Ok(())
+}
+
 pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     rsmq: Option<R>,
     queued_job: &QueuedJob,
@@ -389,43 +459,44 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
     result: &serde_json::Value,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
-        let w_id = &queued_job.workspace_id;
-        let job_id = queued_job.id;
-        let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
-        let (job_payload, tag) =
-            script_path_to_payload(&global_error_handler, tx.transaction_mut(), "admins").await?;
-        let mut args = result.as_object().unwrap().clone();
-        args.insert("workspace_id".to_string(), json!(w_id));
-        args.insert("job_id".to_string(), json!(job_id));
-        args.insert("path".to_string(), json!(queued_job.script_path));
-        args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
-        args.insert("email".to_string(), json!(queued_job.email));
-
-        let (uuid, tx) = push(
-            tx,
-            "admins",
-            job_payload,
-            args,
-            "global",
-            SUPERADMIN_SECRET_EMAIL,
-            SUPERADMIN_SECRET_EMAIL.to_string(),
-            None,
-            None,
-            Some(job_id),
-            Some(job_id),
-            None,
-            false,
-            false,
-            None,
-            true,
-            tag,
-        )
-        .await?;
-        tx.commit().await?;
-        tracing::info!("Sent error of job {job_id} to global error handler under uuid {uuid}");
+        run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
     }
+
     Ok(())
 }
+
+pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+    let mut tx = db.begin().await?;
+    let error_handler = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut tx)
+    .await
+    .context("sending error to global handler")?
+    .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
+
+    if let Some(error_handler) = error_handler {
+        run_error_handler(
+            rsmq,
+            queued_job,
+            db,
+            result,
+            &error_handler.strip_prefix("script/").unwrap(),
+            false,
+        )
+        .await?
+    }
+
+    Ok(())
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
