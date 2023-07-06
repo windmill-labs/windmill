@@ -91,12 +91,10 @@
 			value={items.find((x) => x.value == initialPath)}
 			class="grow"
 			on:change={() => {
-				initialPath = scriptPath
 				dispatch('select', { path: scriptPath })
 			}}
 			on:input={(ev) => {
 				if (!ev.detail) {
-					initialPath = undefined
 					dispatch('select', { path: undefined })
 				}
 			}}

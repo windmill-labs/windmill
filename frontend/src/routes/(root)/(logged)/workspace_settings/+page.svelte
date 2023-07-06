@@ -41,6 +41,7 @@
 	let invites: WorkspaceInvite[] = []
 	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
+	let initialPath: string
 	let scriptPath: string
 	let team_name: string | undefined
 	let auto_invite_domain: string | undefined
@@ -87,6 +88,7 @@
 	// }
 
 	async function editSlackCommand(): Promise<void> {
+		initialPath = scriptPath
 		if (scriptPath) {
 			await WorkspaceService.editSlackCommand({
 				workspace: $workspaceStore!,
@@ -128,6 +130,7 @@
 			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
 		}
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
@@ -699,7 +702,8 @@
 				kind={Script.kind.SCRIPT}
 				allowFlow
 				bind:itemKind
-				bind:initialPath={scriptPath}
+				bind:scriptPath
+				{initialPath}
 				on:select={editSlackCommand}
 			/>
 		{:else if tab == 'export_delete'}
