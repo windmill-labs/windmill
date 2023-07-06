@@ -389,9 +389,10 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     result: &serde_json::Value,
     error_handler_path: &str,
-    script_w_id: &str,
+    is_global: bool,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
+    let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
     let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
     let (job_payload, tag) =
@@ -408,9 +409,17 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
         script_w_id,
         job_payload,
         args,
-        "global",
-        SUPERADMIN_SECRET_EMAIL,
-        SUPERADMIN_SECRET_EMAIL.to_string(),
+        if is_global { "global" } else { "error_handler" },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL
+        } else {
+            "error_handler@windmill.dev"
+        },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL.to_string()
+        } else {
+            "g/error_handler".to_string()
+        },
         None,
         None,
         Some(job_id),
@@ -424,11 +433,8 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     )
     .await?;
     tx.commit().await?;
-    let error_handler_type = if script_w_id == "admins" {
-        "global"
-    } else {
-        "workspace"
-    };
+
+    let error_handler_type = if is_global { "global" } else { "workspace" };
     tracing::info!(
         "Sent error of job {job_id} to {error_handler_type} error handler under uuid {uuid}"
     );
@@ -460,7 +466,7 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
             db,
             result,
             &error_handler.strip_prefix("script/").unwrap(),
-            w_id,
+            false,
         )
         .await?;
     }
@@ -472,13 +478,14 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
             db,
             result,
             global_error_handler,
-            "admins",
+            true,
         )
         .await?;
     }
 
     Ok(())
 }
+
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,

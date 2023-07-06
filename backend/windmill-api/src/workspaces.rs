@@ -34,6 +34,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -656,14 +657,26 @@ async fn edit_error_handler(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, .. }: Authed,
+    Authed { is_admin, username, .. }: Authed,
     Json(ee): Json<EditErrorHandler>,
 ) -> Result<String> {
+    require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &username).await?; // require super admin
+    
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "error_handler",
+        "The group the error handler acts on belhalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut tx)
+    .await?;
 
     if let Some(error_handler) = &ee.error_handler {
+
         sqlx::query!(
             "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
             error_handler,

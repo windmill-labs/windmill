@@ -800,31 +800,40 @@
 				>
 			</div>
 		{:else if tab == 'error_handler'}
-			<PageHeader title="Workspace error handler" primary={false} />
-
-			{#if $superadmin}
-				<h3 class="mt-2 text-gray-700"
-					>Script to run as error handler <Tooltip>
-						The script to be triggered as error handler. The script chosen is passed the parameters
-						<pre
-							>path: string, email: string, error: object,
-						<br />job_id: string, is_flow: boolean,
-						<br />workspace_id: string</pre
-						></Tooltip
-					>
-				</h3>
-				<ScriptPicker
-					kind={Script.kind.SCRIPT}
-					bind:itemKind={errorHandlerItemKind}
-					bind:scriptPath={errorHandlerScriptPath}
-					initialPath={errorHandlerInitialPath}
-					on:select={editErrorHandler}
-				/>
-			{:else}
-				<Alert type="error" title="Not authorized"
-					>You must be a superadmin to access this section</Alert
+			<PageHeader title="Script to run as error handler" primary={false} />
+			<ScriptPicker
+				kind={Script.kind.SCRIPT}
+				bind:itemKind={errorHandlerItemKind}
+				bind:scriptPath={errorHandlerScriptPath}
+				initialPath={errorHandlerInitialPath}
+				on:select={editErrorHandler}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="w-2/3">
+					<div class="text-gray-600 italic text-sm"
+						>The following args will be passed to the error handler:
+						<ul class="mt-1 ml-2">
+							<li><b>path</b>: The path of the script or flow that errored</li>
+							<li><b>email</b>: The email of the user who ran the script or flow that errored</li>
+							<li><b>error</b>: The error details</li>
+							<li><b>job_id</b>: The job id</li>
+							<li><b>is_flow</b>: Whether the error comes from a flow</li>
+							<li><b>workspace_id</b>: The workspace id of the failed script or flow</li>
+						</ul>
+						<br />
+						The error handler will be executed by the automatically created group g/error_handler. If
+						your error handler requires variables or resources, you need to add them to the group.
+					</div>
+				</div>
+				<div class="w-1/3 flex items-start">
+					<Button
+						wrapperClasses="mt-6"
+						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+						target="_blank">Use template</Button
+					></div
 				>
-			{/if}
+			</div>
 		{/if}
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">

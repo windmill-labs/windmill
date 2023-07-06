@@ -15,6 +15,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code2, Globe } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
+	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -23,6 +25,7 @@
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
 	export let kind: Script.kind = Script.kind.SCRIPT
 	export let disabled = false
+	export let canRefresh = false
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -99,6 +102,12 @@
 			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			portal={false}
 		/>
+	{/if}
+
+	{#if canRefresh}
+		<Button variant="border" color="light" wrapperClasses="self-stretch" on:click={loadItems}
+			><Icon scale={0.8} data={faRotateRight} /></Button
+		>
 	{/if}
 
 	{#if scriptPath !== undefined && scriptPath !== ''}
