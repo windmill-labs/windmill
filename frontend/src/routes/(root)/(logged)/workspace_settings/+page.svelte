@@ -249,7 +249,7 @@
 				}}
 			>
 				<Tab size="md" value="users">
-					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
+					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
 				<Tab size="md" value="deploy_to">
 					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
@@ -265,11 +265,11 @@
 					</Tab>
 				{/if}
 				<Tab size="md" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab size="md" value="webhook">
-						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
+						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
 				<Tab size="md" value="error_handler">
