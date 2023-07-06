@@ -532,6 +532,8 @@
 				},
 				undefined
 			)
+		} else {
+			closeWebsockets()
 		}
 
 		websocketInterval && clearInterval(websocketInterval)
