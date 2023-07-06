@@ -67,7 +67,7 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
-	// langs.push(['Typescript (Bun experimental)', Script.language.BUN])
+	langs.push(['Typescript (Bun experimental)', Script.language.BUN])
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
