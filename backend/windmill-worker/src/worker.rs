@@ -1698,7 +1698,7 @@ fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> 
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
         (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
-        (String::from("BUN_INSTALL_CACHE_DIR"), BUN_TMP_CACHE_DIR.to_string()),
+        (String::from("BUN_INSTALL_CACHE_DIR"), BUN_CACHE_DIR.to_string()),
 
     ]);
 

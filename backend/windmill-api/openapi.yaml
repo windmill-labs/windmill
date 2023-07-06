@@ -5109,7 +5109,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5131,7 +5131,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5153,7 +5153,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
       requestBody:
         description: Input
         required: true
@@ -5491,7 +5491,7 @@ components:
       in: query
       schema:
         type: string
-    RunnableType:
+    RunnableTypeQuery:
       name: runnable_type
       in: query
       schema:

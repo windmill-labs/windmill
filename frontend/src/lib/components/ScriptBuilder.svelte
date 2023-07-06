@@ -67,7 +67,6 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
-	langs.push(['Typescript (Bun experimental)', Script.language.BUN])
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
@@ -330,6 +329,19 @@
 					}}
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
+				</Button>
+				<Button
+					size="xs"
+					variant="border"
+					color={script.language == 'bun' ? 'blue' : 'dark'}
+					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						initContent(Script.language.BUN, script.kind, template)
+						script.language = Script.language.BUN
+					}}
+				>
+					<LanguageIcon lang="bun" /><span class="ml-2 py-2">Typescript (Bun, experimental)</span>
 				</Button>
 
 				<!-- <Button
