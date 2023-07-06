@@ -66,15 +66,17 @@
 		<ToggleButton position="left" value="operator" size="sm"
 			>Operator <Tooltip
 				>An operator can only execute and view scripts/flows/apps from your workspace, and only
-				those that he has visibility on</Tooltip
+				those that he has visibility on.</Tooltip
 			></ToggleButton
 		>
 		<ToggleButton position="center" value="author" size="sm"
 			>Author <Tooltip
-				>An Author can execute and view scripts/flows/apps, but he can also create new ones</Tooltip
+				>An Author can execute and view scripts/flows/apps, but he can also create new ones.</Tooltip
 			></ToggleButton
 		>
-		<ToggleButton position="right" value="admin" size="sm">Admin</ToggleButton>
+		<ToggleButton position="right" value="admin" size="sm">Admin<Tooltip
+			>An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace.</Tooltip
+		></ToggleButton>
 	</ToggleButtonGroup>
 	<Button
 		variant="contained"

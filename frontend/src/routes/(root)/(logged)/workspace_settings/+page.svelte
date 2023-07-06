@@ -240,7 +240,11 @@
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
-			<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
+			<PageHeader
+				title="Members ({users?.length ?? ''})"
+				primary={false}
+				tooltip="Manage users manually or enable SSO authentication."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"/>
 
 			<AddUser on:new={listUsers} />
 
@@ -307,16 +311,19 @@
 												<ToggleButton position="left" value="operator" size="xs"
 													>Operator <Tooltip
 														>An operator can only execute and view scripts/flows/apps from your
-														workspace, and only those that he has visibility on</Tooltip
+														workspace, and only those that he has visibility on.</Tooltip
 													></ToggleButton
 												>
 												<ToggleButton position="center" value="author" size="xs"
 													>Author <Tooltip
 														>An Author can execute and view scripts/flows/apps, but he can also
-														create new ones</Tooltip
+														create new ones.</Tooltip
 													></ToggleButton
 												>
-												<ToggleButton position="right" value="admin" size="xs">Admin</ToggleButton>
+												<ToggleButton position="right" value="admin" size="xs">Admin<Tooltip
+														>An admin has full control over a specific Windmill workspace, including the ability to manage users, edit
+														entities, and control permissions within the workspace.</Tooltip
+													></ToggleButton>
 											</ToggleButtonGroup>
 										</div>
 									</td>
@@ -372,7 +379,7 @@
 					</tbody>
 				</TableCustom>
 			</div>
-			<PageHeader title="Pending Invites ({invites.length ?? ''})" primary={false}>
+			<PageHeader title="Invites ({invites.length ?? ''})" primary={false} tooltip="Manage invites on your workspace." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace">
 				<InviteUser on:new={listInvites} />
 			</PageHeader>
 
@@ -413,7 +420,7 @@
 			</div>
 
 			<div class="mt-10" />
-			<PageHeader title="Auto Invite" primary={false} />
+			<PageHeader title="Auto Invite" tooltip="Auto invite to the workspace users from your domain." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite" primary={false} />
 			<div class="flex gap-2">
 				{#if auto_invite_domain != domain}
 					<div>
