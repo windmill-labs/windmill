@@ -41,6 +41,7 @@ services:
       db:
         condition: service_healthy
     # volumes:
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
     # - ./oauth.json/:/usr/src/app/oauth.json
 
   windmill_worker:
@@ -64,9 +65,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # volumes:
-    # - ./oauth.json/:/usr/src/app/oauth.json
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+    # mount the docker socket to allow to run docker containers from within the workers
+    - /var/run/docker.sock:/var/run/docker.sock
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
+    # - ./oauth.json/:/usr/src/app/oauth.json
 
   ## This worker is specialized for "native" jobs. Jobs that are lightweight and run "in-process" and can thus be parallelized to more than 1 at a time on a given worker
   windmill_worker_native:
@@ -91,12 +95,9 @@ services:
       db:
         condition: service_healthy
     # volumes:
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
     # - ./oauth.json/:/usr/src/app/oauth.json
-    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
-    volumes:
-      - worker_dependency_cache:/tmp/windmill/cache
-      # mount the docker socket to allow to run docker containers from within the workers
-      # - /var/run/docker.sock:/var/run/docker.sock
+
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest

@@ -10,8 +10,6 @@
 	export let configuration: RichConfigurations
 	export let render: boolean
 
-	import { onMount } from 'svelte'
-
 	let editor
 	let quill: any
 	export let toolbarOptions = [
@@ -32,7 +30,15 @@
 		result: ''
 	})
 
-	onMount(async () => {
+	$: if (!render) {
+		quill = undefined
+	}
+
+	$: if (!quill && render) {
+		loadQuill()
+	}
+
+	async function loadQuill() {
 		const { default: Quill } = await import('quill')
 
 		quill = new Quill(editor, {
@@ -42,13 +48,15 @@
 			theme: 'snow',
 			placeholder: placeholder
 		})
+
 		if (defaultValue) {
 			quill.root.innerHTML = defaultValue
 		}
+
 		quill.on('text-change', function (delta, oldDelta, source) {
 			setOutput()
 		})
-	})
+	}
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -64,6 +72,7 @@
 			outputs?.result.set(quill.root.innerHTML)
 		}
 	}
+
 	$: handleDefault(defaultValue)
 
 	function handleDefault(defaultValue: string | undefined) {

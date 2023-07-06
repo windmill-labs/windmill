@@ -41,8 +41,8 @@
 	let invites: WorkspaceInvite[] = []
 	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
-	let scriptPath: string
 	let initialPath: string
+	let scriptPath: string
 	let team_name: string | undefined
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
@@ -88,11 +88,20 @@
 	// }
 
 	async function editSlackCommand(): Promise<void> {
-		await WorkspaceService.editSlackCommand({
-			workspace: $workspaceStore!,
-			requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
-		})
-		sendUserToast(`slack command script set to ${scriptPath}`)
+		initialPath = scriptPath
+		if (scriptPath) {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
+			})
+			sendUserToast(`slack command script set to ${scriptPath}`)
+		} else {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: undefined }
+			})
+			sendUserToast(`slack command script removed`)
+		}
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -117,10 +126,13 @@
 		team_name = settings.slack_name
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
+		if (settings.slack_command_script) {
+			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
+		}
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		initialPath = scriptPath
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 	}
