@@ -53,6 +53,9 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
+	let errorHandlerInitialPath: string
+	let errorHandlerScriptPath: string
+	let errorHandlerItemKind: 'script' = 'script'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -60,7 +63,8 @@
 			| 'premium'
 			| 'export_delete'
 			| 'webhook'
-			| 'deploy_to') ?? 'users'
+			| 'deploy_to'
+			| 'error_handler') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -135,6 +139,8 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
 	async function listUsers(): Promise<void> {
@@ -183,6 +189,23 @@
 					})
 				)
 		)
+	}
+
+	async function editErrorHandler() {
+		errorHandlerInitialPath = errorHandlerScriptPath
+		if (errorHandlerScriptPath) {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}` }
+			})
+			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+		} else {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: undefined }
+			})
+			sendUserToast(`workspace error handler removed`)
+		}
 	}
 
 	const plans = {
@@ -249,6 +272,9 @@
 						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
 					</Tab>
 				{/if}
+				<Tab size="md" value="error_handler">
+					<div class="flex gap-2 items-center my-1">Error Handler</div>
+				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
@@ -785,6 +811,41 @@
 				<input class="justify-start" type="text" bind:value={webhook} />
 				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
 					>Set Webhook</Button
+				>
+			</div>
+		{:else if tab == 'error_handler'}
+			<PageHeader title="Script to run as error handler" primary={false} />
+			<ScriptPicker
+				kind={Script.kind.SCRIPT}
+				bind:itemKind={errorHandlerItemKind}
+				bind:scriptPath={errorHandlerScriptPath}
+				initialPath={errorHandlerInitialPath}
+				on:select={editErrorHandler}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="w-2/3">
+					<div class="text-gray-600 italic text-sm"
+						>The following args will be passed to the error handler:
+						<ul class="mt-1 ml-2">
+							<li><b>path</b>: The path of the script or flow that errored</li>
+							<li><b>email</b>: The email of the user who ran the script or flow that errored</li>
+							<li><b>error</b>: The error details</li>
+							<li><b>job_id</b>: The job id</li>
+							<li><b>is_flow</b>: Whether the error comes from a flow</li>
+							<li><b>workspace_id</b>: The workspace id of the failed script or flow</li>
+						</ul>
+						<br />
+						The error handler will be executed by the automatically created group g/error_handler. If
+						your error handler requires variables or resources, you need to add them to the group.
+					</div>
+				</div>
+				<div class="w-1/3 flex items-start">
+					<Button
+						wrapperClasses="mt-6"
+						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+						target="_blank">Use template</Button
+					></div
 				>
 			</div>
 		{/if}
