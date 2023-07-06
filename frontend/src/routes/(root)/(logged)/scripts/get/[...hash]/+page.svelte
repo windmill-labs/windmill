@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
-	import { defaultIfEmptyString, emptyString, encodeState, canWrite } from '$lib/utils'
+	import {
+		defaultIfEmptyString,
+		emptyString,
+		encodeState,
+		canWrite,
+		displayDaysAgo,
+		truncateHash
+	} from '$lib/utils'
 	import { faEdit, faCalendar, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -9,9 +16,8 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
+	import { Tabs, Tab, TabContent, Button, Badge } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -27,11 +33,20 @@
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
-	import { Archive, ArchiveRestore, FolderOpen, Globe2, Server, Share, Trash } from 'lucide-svelte'
+	import {
+		Archive,
+		ArchiveRestore,
+		FolderOpen,
+		Globe2,
+		Loader2,
+		Server,
+		Share,
+		Trash
+	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 
-	let userSettings: UserSettings
 	let script: Script | undefined
 	let topHash: string | undefined
 	let can_write = false
@@ -170,35 +185,6 @@
 
 		const buttons: any = []
 
-		if (!$userStore?.operator) {
-			buttons.push({
-				href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
-					topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
-				}`,
-				label: 'Edit',
-				buttonProps: {
-					disabled: !can_write,
-					size: 'xs',
-					startIcon: faEdit,
-					color: 'dark',
-					variant: 'contained'
-				}
-			})
-
-			if (!topHash) {
-				buttons.push({
-					href: `/scripts/add?template=${script.path}`,
-					label: 'Fork',
-					buttonProps: {
-						variant: 'border',
-						size: 'xs',
-						color: 'light',
-						startIcon: faCodeFork
-					}
-				})
-			}
-		}
-
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `(${script.parent_hashes.length})`,
@@ -211,6 +197,35 @@
 						href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
 						label: hash
 					}))
+				}
+			})
+		}
+
+		if (!$userStore?.operator) {
+			if (!topHash) {
+				buttons.push({
+					href: `/scripts/add?template=${script.path}`,
+					label: 'Fork',
+					buttonProps: {
+						variant: 'border',
+						size: 'xs',
+						color: 'light',
+						startIcon: faCodeFork
+					}
+				})
+			}
+
+			buttons.push({
+				href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+					topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
+				}`,
+				label: 'Edit',
+				buttonProps: {
+					disabled: !can_write,
+					size: 'xs',
+					startIcon: faEdit,
+					color: 'dark',
+					variant: 'contained'
 				}
 			})
 		}
@@ -309,23 +324,47 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor bind:this={scheduleEditor} />
-<UserSettings bind:this={userSettings} scopes={[`run:script/${script?.path}`]} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}
-	<DetailPageLayout>
+	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
-			<DetailPageHeader
-				mainButtons={getMainButtons(script)}
-				menuItems={getMenuItems(script)}
-				summary={script.summary}
-				path={script.path}
-				edited_at={script.created_at}
-				edited_by={script.created_by}
-			/>
+			<DetailPageHeader mainButtons={getMainButtons(script)} menuItems={getMenuItems(script)} />
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
+				<div class="grow truncate">
+					<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
+				</div>
+
+				{#if !emptyString(script.summary)}
+					<span class="text-lg font-semibold">{script.path}</span>
+				{/if}
+
+				<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
+					<span class="text-sm text-gray-600">
+						Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
+					</span>
+					<Badge color="dark-gray">
+						{truncateHash(script?.hash ?? '')}
+					</Badge>
+					{#if script?.is_template}
+						<Badge color="blue">Template</Badge>
+					{/if}
+					{#if script && script.kind !== 'script'}
+						<Badge color="blue">
+							{script?.kind}
+						</Badge>
+					{/if}
+					{#if deploymentInProgress}
+						<Badge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</Badge>
+					{/if}
+					<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+				</div>
+
 				{#if !emptyString(script.description)}
 					<div class="border p-2">
 						<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
@@ -361,12 +400,7 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
-			<WebhooksPanel
-				scopes={[`run:script/${script?.path}`]}
-				{webhooks}
-				path={script?.path}
-				{args}
-			/>
+			<WebhooksPanel scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
 			<div class="p-2 flex flex-col">
@@ -386,9 +420,9 @@
 				<Skeleton {loading} layout={[[20]]} />
 
 				<Tabs selected="code">
-					<Tab value="code">Code</Tab>
-					<Tab value="dependencies">Dependencies lock file</Tab>
-					<Tab value="arguments">
+					<Tab value="code" size="xs">Code</Tab>
+					<Tab value="dependencies" size="xs">Dependencies lock file</Tab>
+					<Tab value="arguments" size="xs">
 						<span class="inline-flex items-center gap-1">
 							Arguments JSON Schema
 							<Tooltip>

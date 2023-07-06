@@ -3,6 +3,10 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { CalendarCheck2, Terminal, Webhook } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+
+	export let isOperator: boolean = false
 </script>
 
 <main class="h-screen w-full">
@@ -10,15 +14,17 @@
 		<slot name="header" />
 		<SplitPanesWrapper>
 			<Splitpanes>
-				<Pane size={70} minSize={20} maxSize={70}>
+				<Pane size={60} minSize={20} maxSize={70}>
 					<slot name="form" />
 				</Pane>
-				<Pane size={30} minSize={20}>
+				<Pane size={40} minSize={20}>
 					<Splitpanes horizontal class="h-full">
 						<Pane size={100}>
 							<Tabs selected="details">
 								<Tab value="saved_inputs">Saved inputs</Tab>
-								<Tab value="details">Code & Triggers</Tab>
+								{#if !isOperator}
+									<Tab value="details">Code & Triggers</Tab>
+								{/if}
 								<svelte:fragment slot="content">
 									<div class="overflow-hidden" style="height:calc(100% - 32px);">
 										<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
@@ -30,7 +36,7 @@
 													<slot name="details" />
 												</Pane>
 												<Pane size={50} minSize={20}>
-													<Tabs selected="webhooks">
+													<Tabs bind:selected={triggerSelected}>
 														<Tab value="webhooks">
 															<span class="flex flex-row gap-2 items-center">
 																<Webhook size={14} />
@@ -49,19 +55,19 @@
 																CLI
 															</span>
 														</Tab>
-
-														<svelte:fragment slot="content">
-															<TabContent value="webhooks">
-																<slot name="webhooks" />
-															</TabContent>
-															<TabContent value="schedule">
-																<slot name="schedule" />
-															</TabContent>
-															<TabContent value="cli">
-																<slot name="cli" />
-															</TabContent>
-														</svelte:fragment>
 													</Tabs>
+
+													<div class="h-[calc(100%-32px)]">
+														<div class="h-full overflow-auto">
+															{#if triggerSelected === 'webhooks'}
+																<slot name="webhooks" />
+															{:else if triggerSelected === 'schedule'}
+																<slot name="schedule" />
+															{:else if triggerSelected === 'cli'}
+																<slot name="cli" />
+															{/if}
+														</div>
+													</div>
 												</Pane>
 											</Splitpanes>
 										</TabContent>

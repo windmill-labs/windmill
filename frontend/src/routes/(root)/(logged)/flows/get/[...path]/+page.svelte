@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
+	import {
+		canWrite,
+		defaultIfEmptyString,
+		displayDaysAgo,
+		emptyString,
+		encodeState
+	} from '$lib/utils'
 	import { faCalendar, faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -129,17 +135,6 @@
 
 	let args = undefined
 
-	/**
-	function curlCommand(async: boolean) {
-		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
-			args
-		)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run${
-			async ? '' : '_wait_result'
-		}/f/${flow?.path}`
-	}
-
-	*/
-
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let runForm: RunForm
@@ -150,18 +145,6 @@
 		const buttons: any = []
 		if (!$userStore?.operator) {
 			buttons.push({
-				label: 'Edit',
-				buttonProps: {
-					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
-					variant: 'contained',
-					size: 'sm',
-					color: 'dark',
-					disabled: !can_write,
-					startIcon: faEdit
-				}
-			})
-
-			buttons.push({
 				label: 'Fork',
 				buttonProps: {
 					href: `/flows/add?template=${flow.path}`,
@@ -170,6 +153,18 @@
 					size: 'xs',
 					disabled: !can_write,
 					startIcon: faCodeFork
+				}
+			})
+
+			buttons.push({
+				label: 'Edit',
+				buttonProps: {
+					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					variant: 'contained',
+					size: 'sm',
+					color: 'dark',
+					disabled: !can_write,
+					startIcon: faEdit
 				}
 			})
 		}
@@ -240,19 +235,33 @@
 />
 
 {#if flow}
-	<DetailPageLayout>
+	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
-			<DetailPageHeader
-				mainButtons={getMainButtons(flow)}
-				menuItems={getMenuItems(flow)}
-				summary={flow.summary}
-				path={flow.path}
-				edited_at={flow.edited_at}
-				edited_by={flow.edited_by}
-			/>
+			<DetailPageHeader mainButtons={getMainButtons(flow)} menuItems={getMenuItems(flow)} />
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
+				<h1 class="mb-1 truncate grow">
+					{defaultIfEmptyString(flow.summary, flow.path)}
+				</h1>
+
+				{#if !emptyString(flow.summary)}
+					<span class="text-lg font-semibold">{flow.path}</span>
+				{/if}
+				<span class="text-sm text-gray-600">
+					Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+
+					{#if schedule}
+						<a href="#primary-schedule" class="ml-2">
+							<Badge color="dark-blue">Primary schedule</Badge>
+						</a>{/if}</span
+				>
+
+				{#if flow.archived}
+					<div class="mt-2" />
+					<Alert type="error" title="Archived">This flow was archived</Alert>
+				{/if}
+
 				{#if !emptyString(flow.description)}
 					<div class="box overflow-auto break-words whitespace-pre-wrap">
 						<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
@@ -296,7 +305,6 @@
 						path: urlSync
 					}
 				}}
-				path={flow?.path}
 				isFlow={true}
 				{args}
 			/>
