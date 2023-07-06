@@ -1,0 +1,22 @@
+{
+  "name": "tsc",
+  "version": "2.0.4",
+  "description": "A deprecated release of the TypeScript compiler",
+  "main": "./bin/tsc.js",
+  "bin": {
+    "tsc": "./bin/tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/basarat/tsc.git"
+  },
+  "keywords": [
+    "typescript"
+  ],
+  "author": "basaratali@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/basarat/tsc/issues"
+  },
+  "homepage": "https://github.com/basarat/tsc#readme"
+}
