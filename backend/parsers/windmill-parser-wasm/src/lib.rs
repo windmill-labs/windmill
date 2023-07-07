@@ -32,5 +32,5 @@ pub fn parse_python(code: &str) -> String {
 
 #[wasm_bindgen]
 pub fn parse_sql(code: &str) -> String {
-    wrap_sig(windmill_parser_sql::parse_sql_sig(code))
+    wrap_sig(windmill_parser_sql::parse_pgsql_sig(code))
 }

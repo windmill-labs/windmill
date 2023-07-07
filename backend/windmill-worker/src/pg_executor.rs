@@ -8,7 +8,7 @@ use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
-use windmill_parser_sql::parse_sql_sig;
+use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::{
     common::postgres_row_to_json_value, get_content, transform_json_value, AuthedClient,
@@ -100,9 +100,9 @@ pub async fn do_postgresql(
         statement_values.push(args.get(&format!("${}", i)).unwrap().to_owned());
         i += 1;
     }
-    let query = get_content(&job, db).await?;
+    let query: String = get_content(&job, db).await?;
 
-    let sig = parse_sql_sig(&query)
+    let sig = parse_pgsql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 

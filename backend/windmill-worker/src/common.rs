@@ -1,5 +1,5 @@
 use anyhow::{Context, Error};
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
 use serde_json::Map;
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};

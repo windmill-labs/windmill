@@ -1081,6 +1081,29 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         };
                     });
                     return Ok(());     
+                } else if job.language == Some(ScriptLang::Mysql) {
+                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                    let client = client.get_authed().await;
+                    let db: Pool<Postgres> = db.clone();
+
+                    tokio::task::spawn(async move {
+                        let jc = do_postgresql(job.clone(), &client, &db).await;
+                        parallel_count.fetch_sub(1, Ordering::SeqCst);
+
+                        match jc {
+                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                            Err(e) => job_completed_tx.send(JobCompleted {
+                                job: job,
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
+                                logs: "".to_string(),
+                                success: false
+                            }).await.expect("send job completed"),
+                        };
+                    });
+                    return Ok(());     
                 } else if job.language == Some(ScriptLang::Nativets) {
                     wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
                     logs.push_str("\n--- FETCH TS EXECUTION ---\n");
