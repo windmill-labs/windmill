@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.125.0
+  version: 1.125.1
   title: Windmill API
 
   contact:
@@ -973,6 +973,8 @@ paths:
                     type: string
                   openai_key:
                     type: string
+                  error_handler:
+                    type: string
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -1143,7 +1145,6 @@ paths:
               properties:
                 openai_key:
                   type: string
-
       responses:
         "200":
           description: status
@@ -1171,6 +1172,33 @@ paths:
                 properties:
                   exists:
                     type: boolean
+
+  /w/{workspace}/workspaces/edit_error_handler:
+    post:
+      summary: edit error handler
+      operationId: editErrorHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceErrorHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                error_handler:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/users/list:
     get:
@@ -5158,7 +5186,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5180,7 +5208,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5202,7 +5230,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
       requestBody:
         description: Input
         required: true
@@ -5540,7 +5568,7 @@ components:
       in: query
       schema:
         type: string
-    RunnableType:
+    RunnableTypeQuery:
       name: runnable_type
       in: query
       schema:

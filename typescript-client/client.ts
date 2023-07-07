@@ -1,9 +1,5 @@
-import {
-  JobService,
-  ResourceService,
-  VariableService,
-} from "./windmill-api/index.ts";
-import { OpenAPI } from "./windmill-api/index.ts";
+import { JobService, ResourceService, VariableService } from "./index";
+import { OpenAPI } from "./index";
 
 export {
   AdminService,
@@ -19,7 +15,7 @@ export {
   SettingsService,
   UserService,
   WorkspaceService,
-} from "./windmill-api/index.ts";
+} from "./index";
 
 export type Sql = string;
 export type Email = string;
@@ -28,25 +24,36 @@ export type Resource<S extends string> = any;
 
 export const SHARED_FOLDER = "/shared";
 
-export function setClient(token: string, baseUrl: string) {
+export function setClient(token?: string, baseUrl?: string) {
+  if (baseUrl === undefined) {
+    baseUrl =
+      getEnv("BASE_INTERNAL_URL") ??
+      getEnv("BASE_URL") ??
+      "http://localhost:8000";
+  }
+  if (token === undefined) {
+    token = getEnv("WM_TOKEN") ?? "no_token";
+  }
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
 
-setClient(
-  Deno.env.get("WM_TOKEN") ?? "no_token",
-  Deno.env.get("BASE_INTERNAL_URL") ??
-    Deno.env.get("BASE_URL") ??
-    "http://localhost:8000"
-);
+const getEnv = (key: string) => {
+  if (typeof window === "undefined") {
+    // node
+    return process.env[key];
+  }
+  // browser
+  return window.process.env[key];
+};
 
 /**
  * Create a client configuration from env variables
  * @returns client configuration
  */
 export function getWorkspace(): string {
-  return Deno.env.get("WM_WORKSPACE") ?? "no_workspace";
+  return getEnv("WM_WORKSPACE") ?? "no_workspace";
 }
 
 /**
@@ -112,7 +119,7 @@ export async function getFullResource(
 }
 
 export function getStatePath(): string {
-  const state_path = Deno.env.get("WM_STATE_PATH");
+  const state_path = getEnv("WM_STATE_PATH");
   if (state_path === undefined) {
     throw Error("State path not set");
   }
@@ -167,24 +174,24 @@ export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
 }
 
-/**
- * Set the shared state
- * @param state state to set
- */
-export async function setSharedState(
-  state: any,
-  path = "state.json"
-): Promise<void> {
-  await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
-}
+// /**
+//  * Set the shared state
+//  * @param state state to set
+//  */
+// export async function setSharedState(
+//   state: any,
+//   path = "state.json"
+// ): Promise<void> {
+//   await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
+// }
 
-/**
- * Get the shared state
- * @param state state to set
- */
-export async function getSharedState(path = "state.json"): Promise<any> {
-  return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
-}
+// /**
+//  * Get the shared state
+//  * @param state state to set
+//  */
+// export async function getSharedState(path = "state.json"): Promise<any> {
+//   return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
+// }
 
 /**
  * Get the internal state
@@ -279,36 +286,25 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
-/**
- * Get URLs needed for resuming a flow after this step
- * @param approver approver name
- * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
- */
-export async function getResumeUrls(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}> {
-  const nonce = Math.floor(Math.random() * 4294967295);
-  const workspace = getWorkspace();
-  return await JobService.getResumeUrls({
-    workspace,
-    resumeId: nonce,
-    approver,
-    id: Deno.env.get("WM_JOB_ID") ?? "NO_JOB_ID",
-  });
-}
-
-/**
- * @deprecated use getResumeUrls instead
- */
-export function getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}> {
-  return getResumeUrls(approver);
-}
+// /**
+//  * Get URLs needed for resuming a flow after this step
+//  * @param approver approver name
+//  * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
+//  */
+// export async function getResumeUrls(approver?: string): Promise<{
+//   approvalPage: string;
+//   resume: string;
+//   cancel: string;
+// }> {
+//   const nonce = Math.floor(Math.random() * 4294967295);
+//   const workspace = getWorkspace();
+//   return await JobService.getResumeUrls({
+//     workspace,
+//     resumeId: nonce,
+//     approver,
+//     id: process.env.get("WM_JOB_ID") ?? "NO_JOB_ID",
+//   });
+// }
 
 export function base64ToUint8Array(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));

@@ -41,8 +41,8 @@
 	let invites: WorkspaceInvite[] = []
 	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
-	let scriptPath: string
 	let initialPath: string
+	let scriptPath: string
 	let team_name: string | undefined
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
@@ -54,6 +54,9 @@
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
 	let openAIKey: string | undefined = undefined
+	let errorHandlerInitialPath: string
+	let errorHandlerScriptPath: string
+	let errorHandlerItemKind: 'script' = 'script'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -61,7 +64,8 @@
 			| 'premium'
 			| 'export_delete'
 			| 'webhook'
-			| 'deploy_to') ?? 'users'
+			| 'deploy_to'
+			| 'error_handler') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -89,11 +93,20 @@
 	// }
 
 	async function editSlackCommand(): Promise<void> {
-		await WorkspaceService.editSlackCommand({
-			workspace: $workspaceStore!,
-			requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
-		})
-		sendUserToast(`slack command script set to ${scriptPath}`)
+		initialPath = scriptPath
+		if (scriptPath) {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
+			})
+			sendUserToast(`slack command script set to ${scriptPath}`)
+		} else {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: undefined }
+			})
+			sendUserToast(`slack command script removed`)
+		}
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -135,13 +148,18 @@
 		team_name = settings.slack_name
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
+		if (settings.slack_command_script) {
+			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
+		}
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		initialPath = scriptPath
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 		openAIKey = settings.openai_key
+		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
 	async function listUsers(): Promise<void> {
@@ -192,6 +210,23 @@
 		)
 	}
 
+	async function editErrorHandler() {
+		errorHandlerInitialPath = errorHandlerScriptPath
+		if (errorHandlerScriptPath) {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}` }
+			})
+			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+		} else {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: undefined }
+			})
+			sendUserToast(`workspace error handler removed`)
+		}
+	}
+
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
@@ -233,7 +268,7 @@
 				}}
 			>
 				<Tab size="md" value="users">
-					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
+					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
 				<Tab size="md" value="deploy_to">
 					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
@@ -249,13 +284,16 @@
 					</Tab>
 				{/if}
 				<Tab size="md" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab size="md" value="webhook">
-						<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
+						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
+				<Tab size="md" value="error_handler">
+					<div class="flex gap-2 items-center my-1">Error Handler</div>
+				</Tab>
 
 				<Tab size="md" value="openai">
 					<div class="flex gap-2 items-center my-1">OpenAI Credentials</div>
@@ -796,6 +834,41 @@
 				<input class="justify-start" type="text" bind:value={webhook} />
 				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
 					>Set Webhook</Button
+				>
+			</div>
+		{:else if tab == 'error_handler'}
+			<PageHeader title="Script to run as error handler" primary={false} />
+			<ScriptPicker
+				kind={Script.kind.SCRIPT}
+				bind:itemKind={errorHandlerItemKind}
+				bind:scriptPath={errorHandlerScriptPath}
+				initialPath={errorHandlerInitialPath}
+				on:select={editErrorHandler}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="w-2/3">
+					<div class="text-gray-600 italic text-sm"
+						>The following args will be passed to the error handler:
+						<ul class="mt-1 ml-2">
+							<li><b>path</b>: The path of the script or flow that errored</li>
+							<li><b>email</b>: The email of the user who ran the script or flow that errored</li>
+							<li><b>error</b>: The error details</li>
+							<li><b>job_id</b>: The job id</li>
+							<li><b>is_flow</b>: Whether the error comes from a flow</li>
+							<li><b>workspace_id</b>: The workspace id of the failed script or flow</li>
+						</ul>
+						<br />
+						The error handler will be executed by the automatically created group g/error_handler. If
+						your error handler requires variables or resources, you need to add them to the group.
+					</div>
+				</div>
+				<div class="w-1/3 flex items-start">
+					<Button
+						wrapperClasses="mt-6"
+						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+						target="_blank">Use template</Button
+					></div
 				>
 			</div>
 		{:else if tab == 'openai'}

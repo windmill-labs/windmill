@@ -34,6 +34,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -67,6 +68,7 @@ pub fn workspaced_service() -> Router {
         .route("/premium_info", get(premium_info))
         .route("/edit_openai_key", post(edit_openai_key))
         .route("/openai_key_exists", get(openai_key_exists) );
+        .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
     tracing::info!("stripe enabled");
@@ -114,6 +116,7 @@ pub struct WorkspaceSettings {
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
     pub openai_key: Option<String>,
+    pub error_handler: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -208,6 +211,11 @@ pub struct NewWorkspaceUser {
     pub username: String,
     pub is_admin: bool,
     pub operator: bool,
+}
+
+#[derive(Deserialize)]
+pub struct EditErrorHandler {
+    pub error_handler: Option<String>,
 }
 
 async fn list_pending_invites(
@@ -726,6 +734,62 @@ async fn openai_key_exists(
     };
 
     Ok(Json(OpenAIKeyExists { exists }))
+}
+
+
+async fn edit_error_handler(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(ee): Json<EditErrorHandler>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+    
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "error_handler",
+        "The group the error handler acts on belhalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut tx)
+    .await?;
+
+    if let Some(error_handler) = &ee.error_handler {
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
+            error_handler,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_error_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit error_handler for workspace {}", &w_id))
+
 }
 
 async fn list_workspaces_as_super_admin(
@@ -1420,6 +1484,7 @@ async fn tarball_workspace(
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
                 ScriptLang::Postgresql => "pg.sql",
+                ScriptLang::Mysql => "my.sql",
                 ScriptLang::Nativets => "fetch.ts",
                 ScriptLang::Bun => "bun.ts",
             };
