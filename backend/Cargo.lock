@@ -3142,6 +3142,7 @@ checksum = "f028f05971fe20f512bcc679e2c10227e57809a3af86a7606304435bc8896cd6"
 dependencies = [
  "array-init",
  "bytes",
+ "chrono",
  "fallible-iterator",
  "postgres-protocol",
  "serde",

@@ -11,7 +11,6 @@
 	import { determineD3Instance } from '../..//d3/controllers/d3'
 	import { findStore } from '../../store/controllers/storeApi'
 
-	import { onDestroy } from 'svelte'
 	import { Expand, Minus, Plus } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -102,10 +101,6 @@
 				console.log('error', e)
 			}
 		})
-	})
-
-	onDestroy(() => {
-		d3.select('svg').remove()
 	})
 
 	function handleZoom(e) {

@@ -1048,7 +1048,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
                             Err(e) => job_completed_tx.send(JobCompleted {
                                 job: job,
-                                result: extract_error_value(&e.to_string(), 1),
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
                                 logs: "".to_string(),
                                 success: false
                             }).await.expect("send job completed"),
@@ -1068,7 +1071,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
                             Err(e) => job_completed_tx.send(JobCompleted {
                                 job: job,
-                                result: extract_error_value(&e.to_string(), 1),
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
                                 logs: "".to_string(),
                                 success: false
                             }).await.expect("send job completed"),
@@ -1090,7 +1096,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
                             Err(e) => job_completed_tx.send(JobCompleted {
                                 job: job,
-                                result: extract_error_value(&e.to_string(), 1),
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
                                 logs: "".to_string(),
                                 success: false
                             }).await.expect("send job completed"),

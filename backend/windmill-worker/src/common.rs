@@ -1,4 +1,5 @@
 use anyhow::{Context, Error};
+use chrono::{NaiveDateTime, Utc};
 use serde_json::Map;
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
@@ -93,6 +94,15 @@ pub fn pg_cell_to_json_value(
         Type::TEXT | Type::VARCHAR => {
             get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?
         }
+        Type::TIMESTAMP => get_basic(row, column, column_i, |a: chrono::NaiveDateTime| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        // Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
+        //     Ok(JSONValue::String(a.to_string()))
+        // })?,
         Type::JSON | Type::JSONB => get_basic(row, column, column_i, |a: JSONValue| Ok(a))?,
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
@@ -141,9 +151,12 @@ fn get_basic<'a, T: FromSql<'a>>(
     column_i: usize,
     val_to_json_val: impl Fn(T) -> Result<JSONValue, Error>,
 ) -> Result<JSONValue, Error> {
-    let raw_val = row
-        .try_get::<_, Option<T>>(column_i)
-        .with_context(|| format!("column_name:{}", column.name()))?;
+    let raw_val = row.try_get::<_, Option<T>>(column_i).with_context(|| {
+        format!(
+            "conversion issue for value at column_name:{}",
+            column.name()
+        )
+    })?;
     raw_val.map_or(Ok(JSONValue::Null), val_to_json_val)
 }
 fn get_array<'a, T: FromSql<'a>>(
@@ -154,7 +167,12 @@ fn get_array<'a, T: FromSql<'a>>(
 ) -> Result<JSONValue, Error> {
     let raw_val_array = row
         .try_get::<_, Option<Vec<T>>>(column_i)
-        .with_context(|| format!("column_name:{}", column.name()))?;
+        .with_context(|| {
+            format!(
+                "conversion issue for array at column_name:{}",
+                column.name()
+            )
+        })?;
     Ok(match raw_val_array {
         Some(val_array) => {
             let mut result = vec![];
