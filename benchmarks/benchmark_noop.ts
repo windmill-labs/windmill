@@ -106,13 +106,16 @@ await new Command()
       const enc = (s: string) => new TextEncoder().encode(s);
 
       console.log("Disabling workers before loading jobs")
-      fetch(
-        config.server + "/api/workers/toggle",
+      const disable_workers = await fetch(
+        config.server + "/api/workers/toggle?disable=true",
         {
           method: "GET",
           headers: { ["Authorization"]: "Bearer " + config.token },
         }
       )
+      if (!disable_workers.ok) {
+        console.error("Unable to disable workers. Is the Windmill server running in benchmark mode?")
+      }
 
       const jobsSent = jobs;
       const batch_num = batches;
@@ -162,13 +165,16 @@ await new Command()
       }, 100);
 
       console.log("Enabling workers to start processing jobs")
-      fetch(
-        config.server + "/api/workers/toggle",
+      const enable_workers = await fetch(
+        config.server + "/api/workers/toggle?disable=false",
         {
           method: "GET",
           headers: { ["Authorization"]: "Bearer " + config.token },
         }
       )
+      if (!enable_workers.ok) {
+        console.error("Unable to disable workers. Is the Windmill server running in benchmark mode?")
+      }
 
       while (queue_length > 0) {
         await sleep(0.1);
