@@ -131,7 +131,7 @@
 	{#if runnable?.schema}
 		<div class="my-2" />
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm p-4">No arguments</div>
+			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
 			{#key reloadArgs}
 				<SchemaForm

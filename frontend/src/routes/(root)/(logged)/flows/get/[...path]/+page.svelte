@@ -9,11 +9,11 @@
 		encodeState
 	} from '$lib/utils'
 	import { faCalendar, faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
 	import { Alert, Button, Skeleton } from '$lib/components/common'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -25,23 +25,16 @@
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import {
-		FolderOpen,
-		Globe2,
-		Archive,
-		Trash,
-		Server,
-		Share,
-		PenBox,
-		ListOrdered
-	} from 'lucide-svelte'
+	import { FolderOpen, Archive, Trash, Server, Share, PenBox, ListOrdered } from 'lucide-svelte'
 
-	import { flowToHubUrl } from '$lib/hub'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
+	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
+	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -98,6 +91,8 @@
 				requestBody: { enabled }
 			})
 			loadSchedule()
+
+			sendUserToast(`Schedule ${enabled ? 'enabled' : 'disabled'}`)
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'disable' : 'enable') + ` schedule: ${err}`, true)
 			loadSchedule()
@@ -175,11 +170,6 @@
 		if (!flow) return []
 
 		const menuItems: any = []
-		menuItems.push({
-			label: 'Publish to Hub',
-			href: flowToHubUrl(flow).toString(),
-			Icon: Globe2
-		})
 
 		menuItems.push({
 			label: 'Share',
@@ -204,12 +194,14 @@
 			menuItems.push({
 				label: flow.archived ? 'Unarchive' : 'Archive',
 				onclick: () => flow?.path && archiveFlow(),
-				Icon: Archive
+				Icon: Archive,
+				color: 'red'
 			})
 			menuItems.push({
 				label: 'Delete',
 				onclick: () => flow?.path && deleteFlow(),
-				Icon: Trash
+				Icon: Trash,
+				color: 'red'
 			})
 		}
 		return menuItems
@@ -240,49 +232,55 @@
 			<DetailPageHeader mainButtons={getMainButtons(flow)} menuItems={getMenuItems(flow)} />
 		</svelte:fragment>
 		<svelte:fragment slot="form">
-			<div class="p-8 w-full max-w-3xl mx-auto">
-				<h1 class="mb-1 truncate grow">
-					{defaultIfEmptyString(flow.summary, flow.path)}
-				</h1>
+			<SplitPanesWrapper>
+				<Splitpanes horizontal>
+					<Pane size={55} minSize={20}>
+						<div class="p-8 w-full max-w-3xl mx-auto">
+							<h1 class="mb-1 truncate grow">
+								{defaultIfEmptyString(flow.summary, flow.path)}
+							</h1>
 
-				{#if !emptyString(flow.summary)}
-					<span class="text-lg font-semibold">{flow.path}</span>
-				{/if}
-				<span class="text-sm text-gray-600">
-					Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+							{#if !emptyString(flow.summary)}
+								<span class="text-lg font-semibold">{flow.path}</span>
+							{/if}
+							<span class="text-sm text-gray-600">
+								Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
 
-					{#if schedule}
-						<a href="#primary-schedule" class="ml-2">
-							<Badge color="dark-blue">Primary schedule</Badge>
-						</a>{/if}</span
-				>
+								{#if schedule}
+									<a href="#primary-schedule" class="ml-2">
+										<Badge color="dark-blue">Primary schedule</Badge>
+									</a>{/if}</span
+							>
 
-				{#if flow.archived}
-					<div class="mt-2" />
-					<Alert type="error" title="Archived">This flow was archived</Alert>
-				{/if}
+							{#if flow.archived}
+								<div class="mt-2" />
+								<Alert type="error" title="Archived">This flow was archived</Alert>
+							{/if}
 
-				{#if !emptyString(flow.description)}
-					<div class="box overflow-auto break-words whitespace-pre-wrap">
-						<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
-					</div>
-				{/if}
+							{#if !emptyString(flow.description)}
+								<div class="py-2 break-words whitespace-pre-wrap text-sm">
+									<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
+								</div>
+							{/if}
 
-				<RunForm
-					{loading}
-					autofocus
-					detailed={false}
-					bind:isValid
-					runnable={flow}
-					runAction={runFlow}
-					bind:args
-					isFlow
-					bind:this={runForm}
-				/>
-			</div>
-			<div class="p-4 mx-auto">
-				<FlowViewer {flow} noSummary={true} />
-			</div>
+							<RunForm
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={flow}
+								runAction={runFlow}
+								bind:args
+								isFlow
+								bind:this={runForm}
+							/>
+						</div>
+					</Pane>
+					<Pane size={45} minSize={20}>
+						<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+					</Pane>
+				</Splitpanes>
+			</SplitPanesWrapper>
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
 			<SavedInputs
@@ -293,6 +291,9 @@
 					runForm?.setArgs(JSON.parse(JSON.stringify(e.detail)))
 				}}
 			/>
+		</svelte:fragment>
+		<svelte:fragment slot="details">
+			<FlowViewer {flow} noGraph />
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
 			<WebhooksPanel
@@ -336,7 +337,7 @@
 							/>
 							<Badge color="indigo" small>Primary schedule</Badge>
 						</div>
-						<div class="flex flex-row gap-1">
+						<div class="flex flex-row gap-2">
 							<Toggle
 								checked={schedule.enabled}
 								on:change={(e) => {
@@ -351,12 +352,15 @@
 								}}
 								size="xs"
 							/>
-							<Button size="xs" color="light" href={`/runs/${flow?.path}`}>
-								<ListOrdered size={14} />
+							<Button size="xs" variant="border" color="light" href={`/runs/${flow?.path}`}>
+								<div class="flex flex-row gap-2">
+									<ListOrdered size={14} />
+									Runs
+								</div>
 							</Button>
 							<Button
 								size="xs"
-								color="light"
+								color="dark"
 								on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
 							>
 								<PenBox size={14} />

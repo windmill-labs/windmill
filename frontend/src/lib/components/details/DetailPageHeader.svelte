@@ -3,6 +3,7 @@
 
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
+	import { classNames } from '$lib/utils'
 
 	type MainButton = {
 		label: string
@@ -15,6 +16,7 @@
 		label: string
 		Icon: any
 		onclick: () => void
+		color?: 'red'
 	}
 
 	export let mainButtons: MainButton[] = []
@@ -27,9 +29,21 @@
 			<div class="flex gap-2">
 				<Menu>
 					<svelte:fragment slot="items">
-						{#each menuItems as { label, Icon, onclick } (label)}
-							<MenuItem on:click={onclick}>
-								<div class="text-xs flex items-center gap-2 flex-row-2">
+						{#each menuItems as { label, Icon, onclick, color } (label)}
+							<MenuItem
+								on:click={() => {
+									const div = document.querySelector('[id^="headlessui-menu-items"]')
+									div?.parentElement?.remove()
+
+									onclick()
+								}}
+							>
+								<div
+									class={classNames(
+										'text-xs flex items-center gap-2 flex-row-2',
+										color === 'red' ? 'text-red-500' : ''
+									)}
+								>
 									<Icon class="h-4" />
 									{label}
 								</div>

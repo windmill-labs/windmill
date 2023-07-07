@@ -23,7 +23,7 @@
 							<Tabs selected="details">
 								<Tab value="saved_inputs">Saved inputs</Tab>
 								{#if !isOperator}
-									<Tab value="details">Code & Triggers</Tab>
+									<Tab value="details">Details & Triggers</Tab>
 								{/if}
 								<svelte:fragment slot="content">
 									<div class="overflow-hidden" style="height:calc(100% - 32px);">

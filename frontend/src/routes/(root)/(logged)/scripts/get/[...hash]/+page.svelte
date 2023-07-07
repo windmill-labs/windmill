@@ -16,7 +16,7 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Tabs, Tab, TabContent, Button, Badge } from '$lib/components/common'
+	import { Tabs, Tab, TabContent, Button, Badge, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
@@ -188,8 +188,9 @@
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `(${script.parent_hashes.length})`,
-				href: `/scripts/get/${script.parent_hashes[0]}?workspace=${$workspaceStore}`,
 				buttonProps: {
+					href: `/scripts/get/${script.parent_hashes[0]}?workspace=${$workspaceStore}`,
+
 					size: 'xs',
 					color: 'dark',
 					startIcon: faHistory,
@@ -204,9 +205,10 @@
 		if (!$userStore?.operator) {
 			if (!topHash) {
 				buttons.push({
-					href: `/scripts/add?template=${script.path}`,
 					label: 'Fork',
 					buttonProps: {
+						href: `/scripts/add?template=${script.path}`,
+
 						variant: 'border',
 						size: 'xs',
 						color: 'light',
@@ -216,11 +218,11 @@
 			}
 
 			buttons.push({
-				href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
-					topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
-				}`,
 				label: 'Edit',
 				buttonProps: {
+					href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
+					}`,
 					disabled: !can_write,
 					size: 'xs',
 					startIcon: faEdit,
@@ -333,6 +335,38 @@
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
+				{#if script.lock_error_logs || topHash || script.archived || script.deleted}
+					<div class="flex flex-col gap-2 my-2">
+						{#if script.lock_error_logs}
+							<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+								<p class="font-bold">Error deploying this script</p>
+								<p>
+									This script has not been deployed successfully because of the following errors:
+								</p>
+								<pre class="w-full text-xs mt-2 whitespace-pre-wrap">{script.lock_error_logs}</pre>
+							</div>
+						{/if}
+						{#if topHash}
+							<div class="mt-2" />
+							<Alert type="warning" title="Not HEAD">
+								This hash is not HEAD (latest non-archived version at this path) :
+								<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
+									>Go to the HEAD of this path</a
+								>
+							</Alert>
+						{/if}
+						{#if script.archived && !topHash}
+							<Alert type="error" title="Archived">This path was archived</Alert>
+						{/if}
+						{#if script.deleted}
+							<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
+								<p class="font-bold">Deleted</p>
+								<p>The content of this script was deleted (by an admin, no less)</p>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<div class="grow truncate">
 					<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
 				</div>
