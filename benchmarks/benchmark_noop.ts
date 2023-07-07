@@ -68,7 +68,7 @@ await new Command()
       jobs,
       batches,
     }) => {
-      windmill.setClient("", host);      
+      windmill.setClient("", host);
 
       console.log(
         "Started benchmark with NOOP jobs with options",
@@ -104,6 +104,15 @@ await new Command()
       config.token = final_token;
       windmill.setClient(final_token, host);
       const enc = (s: string) => new TextEncoder().encode(s);
+
+      console.log("Disabling workers before loading jobs")
+      fetch(
+        config.server + "/api/workers/toggle",
+        {
+          method: "GET",
+          headers: { ["Authorization"]: "Bearer " + config.token },
+        }
+      )
 
       const jobsSent = jobs;
       const batch_num = batches;
@@ -151,6 +160,15 @@ await new Command()
           )
         );
       }, 100);
+
+      console.log("Enabling workers to start processing jobs")
+      fetch(
+        config.server + "/api/workers/toggle",
+        {
+          method: "GET",
+          headers: { ["Authorization"]: "Bearer " + config.token },
+        }
+      )
 
       while (queue_length > 0) {
         await sleep(0.1);

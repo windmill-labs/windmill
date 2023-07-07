@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [features]
 enterprise = ["windmill-queue/enterprise", "async-stripe", "windmill-audit/enterprise"]
+benchmark = []
 
 [dependencies]
 windmill-queue.workspace = true
