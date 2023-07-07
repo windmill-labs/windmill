@@ -33,8 +33,8 @@
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -245,12 +245,7 @@
 							{/if}
 							<span class="text-sm text-gray-600">
 								Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
-
-								{#if schedule}
-									<a href="#primary-schedule" class="ml-2">
-										<Badge color="dark-blue">Primary schedule</Badge>
-									</a>{/if}</span
-							>
+							</span>
 
 							{#if flow.archived}
 								<div class="mt-2" />
@@ -293,7 +288,7 @@
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="details">
-			<FlowViewer {flow} noGraph />
+			<SchemaViewer schema={flow.schema} />
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
 			<WebhooksPanel
@@ -348,7 +343,7 @@
 									}
 								}}
 								options={{
-									right: 'Enabled'
+									right: 'On'
 								}}
 								size="xs"
 							/>

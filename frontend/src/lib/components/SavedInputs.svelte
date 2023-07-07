@@ -154,7 +154,7 @@
 						disabled={!isValid}
 						loading={savingInputs}
 						startIcon={{ icon: faSave }}
-						color="blue"
+						color="light"
 						size="xs"
 					>
 						<span>Save Current Input</span>

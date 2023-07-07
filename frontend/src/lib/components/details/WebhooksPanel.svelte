@@ -35,7 +35,7 @@
 	export let isFlow: boolean = false
 
 	let webhookType: 'async' | 'sync' = DEFAULT_WEBHOOK_TYPE
-	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'hash'
+	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
 	let tokenType: 'query' | 'headers' = 'headers'
 
 	$: if (webhookType === 'async' && requestType === 'get_path') {
@@ -85,19 +85,20 @@
 				<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
 				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
 					<ToggleButton
-						label="Post by hash"
-						value="hash"
-						icon={ArrowUpRight}
-						selectedColor="#fb923c"
-					/>
-					<ToggleButton
-						label="Post by path"
+						label="POST by path"
 						value="path"
 						icon={ArrowUpRight}
 						selectedColor="#fb923c"
 					/>
 					<ToggleButton
-						label="Get by path"
+						label="POST by hash"
+						value="hash"
+						icon={ArrowUpRight}
+						selectedColor="#fb923c"
+					/>
+
+					<ToggleButton
+						label="GET by path"
 						value="get_path"
 						icon={ArrowDownRight}
 						disabled={webhookType !== 'sync'}
@@ -109,8 +110,8 @@
 		<div class="flex flex-row justify-between">
 			<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
-				<ToggleButton label="Token in Query" value="query" />
 				<ToggleButton label="Token in Headers" value="headers" />
+				<ToggleButton label="Token in Query" value="query" />
 			</ToggleButtonGroup>
 		</div>
 	</div>

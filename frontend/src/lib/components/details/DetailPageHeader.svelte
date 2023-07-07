@@ -56,7 +56,11 @@
 					</svelte:fragment>
 				</Menu>
 				{#each mainButtons as btn}
-					<Button {...btn.buttonProps} startIcon={{ icon: btn.buttonProps.startIcon }}>
+					<Button
+						{...btn.buttonProps}
+						startIcon={{ icon: btn.buttonProps.startIcon }}
+						on:click={btn.buttonProps.onClick}
+					>
 						{btn.label}
 					</Button>
 				{/each}

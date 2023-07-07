@@ -16,7 +16,16 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Tabs, Tab, TabContent, Button, Badge, Alert } from '$lib/components/common'
+	import {
+		Tabs,
+		Tab,
+		TabContent,
+		Button,
+		Badge,
+		Alert,
+		DrawerContent,
+		Drawer
+	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
@@ -46,6 +55,7 @@
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DeploymentHistory from '$lib/components/apps/editor/DeploymentHistory.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -187,17 +197,15 @@
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
-				label: `(${script.parent_hashes.length})`,
+				label: `History`,
 				buttonProps: {
-					href: `/scripts/get/${script.parent_hashes[0]}?workspace=${$workspaceStore}`,
+					onClick: () => {
+						historyBrowserDrawerOpen = !historyBrowserDrawerOpen
+					},
 
 					size: 'xs',
-					color: 'dark',
-					startIcon: faHistory,
-					dropdownItems: script.parent_hashes.map((hash) => ({
-						href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
-						label: hash
-					}))
+					color: 'light',
+					startIcon: faHistory
 				}
 			})
 		}
@@ -209,7 +217,6 @@
 					buttonProps: {
 						href: `/scripts/add?template=${script.path}`,
 
-						variant: 'border',
 						size: 'xs',
 						color: 'light',
 						startIcon: faCodeFork
@@ -317,6 +324,8 @@
 
 		return menuItems
 	}
+
+	let historyBrowserDrawerOpen = false
 </script>
 
 <MoveDrawer
@@ -330,6 +339,13 @@
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
+
+<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
+	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
+		{script?.parent_hashes}
+		<DeploymentHistory on:restore versions={script?.parent_hashes?.map((h) => Number(h)) ?? []} />
+	</DrawerContent>
+</Drawer>
 
 {#if script}
 	<DetailPageLayout isOperator={$userStore?.operator}>
@@ -416,7 +432,7 @@
 					runnable={script}
 					runAction={runScript}
 					bind:args
-					schedulable={false}
+					schedulable={true}
 					isFlow={false}
 					bind:this={runForm}
 				/>
@@ -457,10 +473,10 @@
 
 				<Tabs selected="code">
 					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Dependencies lock file</Tab>
+					<Tab value="dependencies" size="xs">Lock file</Tab>
 					<Tab value="arguments" size="xs">
 						<span class="inline-flex items-center gap-1">
-							Arguments JSON Schema
+							Inputs
 							<Tooltip>
 								The jsonschema defines the constraints that the payload must respect to be
 								compatible with the input parameters of this script. The UI form is generated
