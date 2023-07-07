@@ -15,6 +15,9 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code2, Globe } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
+	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
+	import FlowIcon from './home/FlowIcon.svelte'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -23,6 +26,7 @@
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
 	export let kind: Script.kind = Script.kind.SCRIPT
 	export let disabled = false
+	export let canRefresh = false
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -30,9 +34,9 @@
 	let code: string = ''
 	let lang: SupportedLanguage | undefined
 
-	let options: [[string, any, any]] = [['Script', 'script', Code2]]
-	allowHub && options.unshift(['Hub', 'hub', Globe])
-	allowFlow && options.push(['Flow', 'flow', undefined])
+	let options: [[string, any, any, string | undefined]] = [['Script', 'script', Code2, undefined]]
+	allowHub && options.unshift(['Hub', 'hub', Globe, undefined])
+	allowFlow && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
 	const dispatch = createEventDispatcher()
 
 	async function loadItems(): Promise<void> {
@@ -76,8 +80,8 @@
 	{#if options.length > 1}
 		<div>
 			<ToggleButtonGroup bind:selected={itemKind}>
-				{#each options as [label, value, icon]}
-					<ToggleButton {icon} {disabled} {value} {label} />
+				{#each options as [label, value, icon, selectedColor]}
+					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} />
 				{/each}
 			</ToggleButtonGroup>
 		</div>
@@ -92,6 +96,11 @@
 			on:change={() => {
 				dispatch('select', { path: scriptPath })
 			}}
+			on:input={(ev) => {
+				if (!ev.detail) {
+					dispatch('select', { path: undefined })
+				}
+			}}
 			bind:justValue={scriptPath}
 			{items}
 			placeholder="Pick a {itemKind}"
@@ -99,6 +108,12 @@
 			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			portal={false}
 		/>
+	{/if}
+
+	{#if canRefresh}
+		<Button variant="border" color="light" wrapperClasses="self-stretch" on:click={loadItems}
+			><Icon scale={0.8} data={faRotateRight} /></Button
+		>
 	{/if}
 
 	{#if scriptPath !== undefined && scriptPath !== ''}

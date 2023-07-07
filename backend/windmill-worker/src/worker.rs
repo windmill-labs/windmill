@@ -12,13 +12,12 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
-use tokio_postgres::NoTls;
 use windmill_api_client::{Client};
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration},
-    sync::{Arc, atomic::Ordering},
+    sync::{Arc, atomic::{Ordering, AtomicUsize}},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
 };
@@ -68,7 +67,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, postgres_row_to_json_value}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql,
 };
 
 
@@ -137,10 +136,12 @@ pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
 pub const TAR_PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "tar/pip");
 pub const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
+pub const BUN_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "bun");
 pub const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 pub const HUB_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "hub");
 
@@ -149,10 +150,14 @@ const NUM_SECS_PING: u64 = 5;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
+const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 
 pub const DEFAULT_TIMEOUT: u64 = 900;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
+
+// only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
+pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 lazy_static::lazy_static! {
 
@@ -160,6 +165,11 @@ lazy_static::lazy_static! {
     .ok()
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or(DEFAULT_SLEEP_QUEUE);
+
+    static ref PARALLEL_NATIVE_JOBS: usize = std::env::var("PARALLEL_NATIVE_JOBS")
+    .ok()
+    .and_then(|x| x.parse::<usize>().ok())
+    .unwrap_or(DEFAULT_NATIVE_JOBS);
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
     .ok()
@@ -180,6 +190,7 @@ lazy_static::lazy_static! {
     pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
     pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
@@ -344,7 +355,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Deno),
         Some(ScriptLang::Go),
         Some(ScriptLang::Bash),
-        Some(ScriptLang::Postgresql)];
+        Some(ScriptLang::Nativets),
+        Some(ScriptLang::Postgresql),
+        Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
@@ -472,6 +485,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
+    let current_native_jobs = Arc::new(AtomicUsize::new(0));
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
@@ -696,6 +710,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url,
                         rsmq.clone(),
                         job_completed_tx.clone(),
+                        current_native_jobs.clone(),
                     )
                     .await
                     .err()
@@ -714,6 +729,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         )
                         .await;
                     };
+
 
                     let duration = _timer.stop_and_record();
                     worker_execution_duration_counter
@@ -885,11 +901,11 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
 }
 
 #[derive(Debug, Clone)]
-struct JobCompleted {
-    job: QueuedJob,
-    result: serde_json::Value,
-    logs: String,
-    success: bool
+pub struct JobCompleted {
+    pub job: QueuedJob,
+    pub result: serde_json::Value,
+    pub logs: String,
+    pub success: bool
 }
 
 fn hash_args(v: &serde_json::Value) -> i64 {
@@ -922,43 +938,55 @@ async fn do_http_req(job: QueuedJob) -> windmill_common::error::Result<JobComple
     });
 }
 
-#[derive(Deserialize)]
-struct PostgresqlArgs {
-    database_url: String,
-    query: String,
-    args: Option<Vec<String>>,
+
+
+pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String, Error> {
+    let query = match job.job_kind {
+        JobKind::Preview => job.raw_code.clone().ok_or_else(|| Error::ExecutionErr("Missing code".to_string()))?,
+        JobKind::Script => sqlx::query_scalar(
+            "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
+        )
+        .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
+        .bind(&job.workspace_id)
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(|| Error::InternalErr(format!("expected content")))?,
+        _ => unreachable!()
+    };
+    Ok(query)
 }
-async fn do_postgresql(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
-    let pg_args: PostgresqlArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
-    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let (client, connection) =
-    tokio_postgres::connect(&pg_args.database_url, NoTls).await.map_err(to_anyhow)?;
 
 
-    // The connection object performs the actual communication with the database,
-    // so spawn it off to run on its own.
-    let handle = tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
-        }
-    });
+async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &sqlx::Pool<sqlx::Postgres>,) -> windmill_common::error::Result<JobCompleted> {
+    let args = if let Some(args) = &job.args {
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+    } else {
+        None
+    };
+    let code = get_content(&job, db).await?;
 
-    use tokio_postgres::types::ToSql;
-    // Now we can execute a simple statement that just returns its parameter.
-    let rows = client
-    .query(&pg_args.query, &pg_args.args
-        .iter()
-        .map(|x| x as &(dyn ToSql + Sync))
-        .collect::<Vec<&(dyn ToSql + Sync)>>())
-    .await.map_err(to_anyhow)?;
-    handle.abort();
-    // And then check that we got back the same string we sent over.
+    let args = args
+        .as_ref()
+        .map(|x| x.clone())
+        .unwrap_or_else(|| json!({}))
+        .as_object()
+        .unwrap()
+        .clone();
+    let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, args).await?;
     return Ok(JobCompleted {
         job: job,
-        result: json!(rows.into_iter().map(postgres_row_to_json_value).collect::<Result<Vec<_>, _>>()?),
-        logs: "".to_string(),
+        result: result.0,
+        logs: [logs, result.1].join("\n\n"),
         success: true
     });
+}
+
+async fn wait_available_worker_for_native_job(parallel_count: Arc<AtomicUsize>, job: &QueuedJob) {
+    while parallel_count.load(Ordering::SeqCst) >= *PARALLEL_NATIVE_JOBS {
+        tracing::info!("Waiting for an available worker of a native job for {}", job.id);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    parallel_count.fetch_add(1, Ordering::SeqCst);
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -974,6 +1002,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<JobCompleted>,
+    parallel_count: Arc<AtomicUsize>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -998,44 +1027,88 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .await?;
         }
         _ => {
-            if matches!(job.job_kind, JobKind::Http) {
-                tokio::task::spawn(async move {
-                    let jc = do_http_req(job.clone()).await;
-                    match jc {
-                        Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                        Err(e) => job_completed_tx.send(JobCompleted {
-                            job: job,
-                            result: extract_error_value(&e.to_string(), 1),
-                            logs: "".to_string(),
-                            success: false
-                        }).await.expect("send job completed"),
-                    };
-                    });
-                    return Ok(());      
-            }
-            
-            if job.language == Some(ScriptLang::Postgresql) {
-                tokio::task::spawn(async move {
-                    let jc = do_postgresql(job.clone()).await;
-                    match jc {
-                        Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                        Err(e) => job_completed_tx.send(JobCompleted {
-                            job: job,
-                            result: extract_error_value(&e.to_string(), 1),
-                            logs: "".to_string(),
-                            success: false
-                        }).await.expect("send job completed"),
-                    };
-                });
-                return Ok(());     
-            }
-
-
             let mut logs = "".to_string();
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
             }
+
+            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
+
+            set_logs(&logs, &job.id, db).await;
+
+            if !job.is_flow_step {
+                if matches!(job.job_kind, JobKind::Http) {
+                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                    tokio::task::spawn(async move {
+                        let jc = do_http_req(job.clone()).await;
+                        parallel_count.fetch_sub(1, Ordering::SeqCst);
+
+                        match jc {
+                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                            Err(e) => job_completed_tx.send(JobCompleted {
+                                job: job,
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
+                                logs: "".to_string(),
+                                success: false
+                            }).await.expect("send job completed"),
+                        };
+                        });
+                        return Ok(());      
+                } else if job.language == Some(ScriptLang::Postgresql) {
+                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                    let client = client.get_authed().await;
+                    let db: Pool<Postgres> = db.clone();
+
+                    tokio::task::spawn(async move {
+                        let jc = do_postgresql(job.clone(), &client, &db).await;
+                        parallel_count.fetch_sub(1, Ordering::SeqCst);
+
+                        match jc {
+                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                            Err(e) => job_completed_tx.send(JobCompleted {
+                                job: job,
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
+                                logs: "".to_string(),
+                                success: false
+                            }).await.expect("send job completed"),
+                        };
+                    });
+                    return Ok(());     
+                } else if job.language == Some(ScriptLang::Nativets) {
+                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                    logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+
+                    let client = client.get_authed().await;
+                    let db: Pool<Postgres> = db.clone();
+
+                    tokio::task::spawn(async move {
+
+                        let jc = do_nativets(job.clone(), logs, &client, &db).await;
+                        parallel_count.fetch_sub(1, Ordering::SeqCst);
+                        match jc {
+                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                            Err(e) => job_completed_tx.send(JobCompleted {
+                                job: job,
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
+                                logs: "".to_string(),
+                                success: false
+                            }).await.expect("send job completed"),
+                        };
+                    });
+                    return Ok(());     
+                }
+            };
+
 
             let (cache_ttl, step) = if job.is_flow_step {
                 update_flow_status_in_progress(
@@ -1097,7 +1170,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 None
             };
 
-            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
             let result = if let Some(cached_res) = cached_res {
                 Ok(cached_res)
             } else {
@@ -1121,19 +1193,30 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     JobKind::Http => {
                         panic!("should not be here")
                     },
-                    JobKind::Graphql => todo!(),
                     _ => {
-                        handle_code_execution_job(
-                            &job,
-                            db,
-                            client,
-                            job_dir,
-                            worker_dir,
-                            &mut logs,
-                            base_internal_url,
-                            worker_name
-                        )
-                        .await
+                        if matches!(job.job_kind, JobKind::Http) {
+                            unreachable!()     
+                        } else if job.language == Some(ScriptLang::Postgresql) {
+                            let jc = do_postgresql(job.clone(), &client.get_authed().await, &db).await?;
+                            Ok(jc.result)
+                        } else if job.language == Some(ScriptLang::Nativets) {
+                            logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+                            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db).await?; 
+                            logs = jc.logs;
+                            Ok(jc.result)
+                        } else {
+                            handle_code_execution_job(
+                                &job,
+                                db,
+                                client,
+                                job_dir,
+                                worker_dir,
+                                &mut logs,
+                                base_internal_url,
+                                worker_name
+                            )
+                            .await
+                        }
                     }
                 }
             };
@@ -1258,7 +1341,7 @@ pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<F
 }
 
 #[async_recursion]
-async fn transform_json_value(
+pub async fn transform_json_value(
     name: &str,
     client: &AuthedClient,
     workspace: &str,
@@ -1452,6 +1535,21 @@ mount {{
             )
             .await
         }
+        Some(ScriptLang::Bun) => {
+            handle_bun_job(
+                logs,
+                job,
+                db,
+                client,
+                job_dir,
+                &inner_content,
+                base_internal_url,
+                worker_name,
+                envs,
+                &shared_mount
+            )
+            .await
+        }
         Some(ScriptLang::Go) => {
             handle_go_job(
                 logs,
@@ -1596,7 +1694,21 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
         (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
-        (String::from("NO_COLOR"), String::from("true")),
+    ]);
+
+    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    }
+    return deno_envs;
+}
+
+fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
+    let mut deno_envs: HashMap<String, String> = HashMap::from([
+        (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("DO_NOT_TRACK"), "1".to_string()),
+        (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
+        (String::from("BUN_INSTALL_CACHE_DIR"), BUN_CACHE_DIR.to_string()),
+
     ]);
 
     if let Some(ref s) = *NPM_CONFIG_REGISTRY {
@@ -1728,7 +1840,7 @@ run().catch(async (e) => {{
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
-    let child = async {
+    let child = {
             let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
             let mut args = Vec::with_capacity(12);
@@ -1761,9 +1873,8 @@ run().catch(async (e) => {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .spawn()
-    }
-    .await?;
+                .spawn()?
+    };
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run").await?;
@@ -1771,6 +1882,150 @@ run().catch(async (e) => {{
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }
+    read_result(job_dir).await
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_bun_job(
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    client: &AuthedClientBackgroundTask,
+    job_dir: &str,
+    inner_content: &String,
+    base_internal_url: &str,
+    worker_name: &str,
+    envs: HashMap<String, String>,
+    shared_mount: &str,
+) -> error::Result<serde_json::Value> {
+
+    // let mut start = Instant::now();
+    logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
+
+    let logs_to_set = logs.clone();
+    let id = job.id.clone();
+    let db2 = db.clone();
+
+    let set_logs_f = async {
+        set_logs(&logs_to_set, &id, &db2).await;
+        Ok(()) as error::Result<()>
+    };
+    
+    let write_main_f = write_file(job_dir, "main.ts", inner_content);
+
+    let write_wrapper_f = async {
+        // let mut start = Instant::now();
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
+            Some(i) 
+        } else {
+            None
+        }).map(|x| {
+            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
+        }).join("\n");
+
+        let spread = args.into_iter().map(|x| x.name).join(",");
+        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
+        let wrapper_content: String = format!(
+            r#"
+import {{ main }} from "./main.ts";
+
+const fs = require('fs/promises');
+
+const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+{dates}
+async function run() {{
+    let res: any = await main(...args);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    await fs.writeFile("result.json", res_json);
+    process.exit(0);
+}}
+run().catch(async (e) => {{
+    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    process.exit(1);
+}});
+    "#,
+        );
+        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        Ok(()) as error::Result<()>
+    };
+
+
+    let reserved_variables_args_out_f = async {
+        let client = client.get_authed().await;
+        let args_and_out_f = async {
+            create_args_and_out_file(&client, job, job_dir).await?;
+            Ok(()) as Result<()>
+        };
+        let reserved_variables_f = async {
+            let vars = get_reserved_variables(job, &client.token, db).await?;
+            Ok(vars) as Result<HashMap<String, String>>
+        };
+        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
+        Ok(reserved_variables) as error::Result<HashMap<String, String>>
+    };
+
+
+    let (_, reserved_variables, _, _) = tokio::try_join!(
+        set_logs_f,
+        reserved_variables_args_out_f,
+        write_main_f,
+        write_wrapper_f)?;
+
+    let common_bun_proc_envs = get_common_bun_proc_envs(&base_internal_url);
+
+
+    //do not cache local dependencies
+let child = if !*DISABLE_NSJAIL {
+    let _ = write_file(
+        job_dir,
+        "run.config.proto",
+        &NSJAIL_CONFIG_RUN_BUN_CONTENT
+            .replace("{JOB_DIR}", job_dir)
+            .replace("{CACHE_DIR}", BUN_CACHE_DIR)
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+            .replace("{SHARED_MOUNT}", shared_mount),
+    )
+    .await?;
+
+    Command::new(NSJAIL_PATH.as_str())
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(envs)
+        .envs(reserved_variables)
+        .envs(common_bun_proc_envs)
+        .env("PATH", PATH_ENV.as_str())
+        .env("BASE_INTERNAL_URL", base_internal_url)
+        .args(vec!["--config", "run.config.proto", "--", &BUN_PATH, "run", "/tmp/bun/wrapper.ts", "--prefer-offline"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?
+    } else {
+            let script_path = format!("{job_dir}/wrapper.ts");
+            let args = vec!["run", &script_path, "--prefer-offline"];
+            Command::new(&*BUN_PATH)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(common_bun_proc_envs)
+                .args(args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+    };
+
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
+    // start = Instant::now();
+    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "bun run").await?;
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     read_result(job_dir).await
 }
 
@@ -2006,8 +2261,14 @@ async fn capture_dependency_job(
             Ok(String::new())
             // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
         },
+        ScriptLang::Bun => {
+            Ok(String::new())
+        },
         ScriptLang::Postgresql => Ok("".to_owned()),
+        ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
+        ScriptLang::Nativets => Ok("".to_owned()),
+
     }
 }
 

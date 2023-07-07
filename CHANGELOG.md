@@ -1,6 +1,33 @@
 # Changelog
 
 
+## [1.125.1](https://github.com/windmill-labs/windmill/compare/v1.125.0...v1.125.1) (2023-07-05)
+
+
+### Bug Fixes
+
+* fix go and py resolution cache overlap ([5b7c796](https://github.com/windmill-labs/windmill/commit/5b7c7965e5d43e3a0f9d7ad481eb520123a799e0))
+* **frontend:** Fix Quill component ([#1797](https://github.com/windmill-labs/windmill/issues/1797)) ([8ece51c](https://github.com/windmill-labs/windmill/commit/8ece51c6888b16019e589d451ac77ea5adce5b82))
+
+## [1.125.0](https://github.com/windmill-labs/windmill/compare/v1.124.0...v1.125.0) (2023-07-04)
+
+
+### Features
+
+* add groups to app ctx ([499dd5b](https://github.com/windmill-labs/windmill/commit/499dd5b8ea2a7bf0484e2ee472b7f07af9a19b9e))
+* improve debug runs wrt to frontend scripts ([dda9920](https://github.com/windmill-labs/windmill/commit/dda99206fa3d9ab31357e5766e2ff56635221759))
+* native fetch + native postgresql jobs ([#1796](https://github.com/windmill-labs/windmill/issues/1796)) ([c669e99](https://github.com/windmill-labs/windmill/commit/c669e9940bddb74163bc049e0951b91b7e31c8ed))
+
+
+### Bug Fixes
+
+* fix global error handler ([f98c199](https://github.com/windmill-labs/windmill/commit/f98c199b63b4428532c2710a0d19215cccd4abbf))
+* fix go and python cache resolution conflict ([54c6aed](https://github.com/windmill-labs/windmill/commit/54c6aed31cc1f344a345f19f9aa583cb55c1b944))
+* **frontend:** Allow AppSelectTab ([#1787](https://github.com/windmill-labs/windmill/issues/1787)) ([080e244](https://github.com/windmill-labs/windmill/commit/080e2443ab49a101bea819d08b48090a1d988b98))
+* **frontend:** Fix script builder ([#1795](https://github.com/windmill-labs/windmill/issues/1795)) ([c6d520b](https://github.com/windmill-labs/windmill/commit/c6d520bb59f7ba204fb448ea95bca1c04311c97d))
+* **frontend:** Forked svelte-select to fix overflow issues using a po… ([#1778](https://github.com/windmill-labs/windmill/issues/1778)) ([bd481ad](https://github.com/windmill-labs/windmill/commit/bd481adbfc5dedce0db9ee5ac7bb2097048a767a))
+* tooltip and copy button in text ([30b041e](https://github.com/windmill-labs/windmill/commit/30b041e2205ed9e3fbbcd4e7be58e10d84e67d2e))
+
 ## [1.124.0](https://github.com/windmill-labs/windmill/compare/v1.123.1...v1.124.0) (2023-06-30)
 
 

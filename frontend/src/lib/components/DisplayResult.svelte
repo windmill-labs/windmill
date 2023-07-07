@@ -12,6 +12,8 @@
 	export let requireHtmlApproval = false
 	export let filename: string | undefined = undefined
 	export let disableExpand = false
+	export let jobId: string | undefined = undefined
+	export let workspaceId: string | undefined = undefined
 
 	let resultKind:
 		| 'json'
@@ -242,7 +244,9 @@
 				<div class="text-sm mb-2 text-gray-600">
 					<a
 						download="{filename ?? 'result'}.json"
-						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}>Download</a
 					>
 					JSON is too large to be displayed in full.
 				</div>
@@ -264,7 +268,9 @@
 					<a
 						class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
 						download="{filename ?? 'result'}.json"
-						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}"
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
 						>Download <Download size={14} /></a
 					>
 					<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">

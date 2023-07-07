@@ -58,7 +58,7 @@
 				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash'}
+		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash' || drawerContent?.mode === 'nativets'}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
@@ -88,7 +88,11 @@
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2"
-								><DisplayResult result={previewJob.result} />
+								><DisplayResult
+									workspaceId={previewJob?.workspace_id}
+									jobId={previewJob?.id}
+									result={previewJob.result}
+								/>
 							</div>
 						{:else}
 							<div class="text-sm text-gray-600 p-2">

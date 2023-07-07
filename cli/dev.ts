@@ -30,7 +30,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
         path.endsWith(".go") ||
         path.endsWith(".ts") ||
         path.endsWith(".py") ||
-        path.endsWith(".sh")
+        path.endsWith(".sh") ||
+        path.endsWith(".sql")
     );
     if (paths.length == 0) {
       return;
@@ -46,10 +47,18 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
         ext == "py"
           ? "python3"
           : ext == "ts"
-          ? "deno"
+          ? splitted.length > 2 && splitted[splitted.length - 2] == "fetch"
+            ? "nativets"
+            : "deno"
           : ext == "go"
           ? "go"
-          : "bash";
+          : ext == "sh"
+          ? "bash"
+          : ext == "sql"
+          ? splitted.length > 2 && splitted[splitted.length - 2] == "pg"
+            ? "postgresql"
+            : "postgresql"
+          : "unknown";
       currentLastEdit = {
         content,
         path: wmPath,

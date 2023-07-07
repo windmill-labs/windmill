@@ -197,6 +197,7 @@ func Run(req Req) (interface{{}}, error){{
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -293,6 +294,7 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
+    let hash = format!("go-{}", hash);
 
     let mut skip_tidy = has_sum;
 
@@ -304,7 +306,7 @@ pub async fn install_go_dependencies(
         .fetch_optional(db)
         .await?
         {
-            logs.push_str(&format!("\nfound cached resolution"));
+            logs.push_str(&format!("\nfound cached resolution: {}", hash));
             gen_go_mod(code, job_dir, &cached).await?;
             skip_tidy = true;
             new_lockfile = false;
@@ -332,7 +334,7 @@ pub async fn install_go_dependencies(
         &format!("go {mod_command}"),
     )
     .await
-    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    .map_err(|e| Error::ExecutionErr(format!("Lockfile generation failed: {e:?}")))?;
 
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());

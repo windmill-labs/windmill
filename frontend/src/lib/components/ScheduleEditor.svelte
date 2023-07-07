@@ -249,12 +249,7 @@
 
 				{#if runnable}
 					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-						<SchemaForm
-							disabled={!can_write}
-							schema={runnable.schema}
-							bind:isValid
-							bind:args
-						/>
+						<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />
 					{:else}
 						<div class="text-xs texg-gray-700">
 							This {is_flow ? 'flow' : 'script'} takes no argument
@@ -267,6 +262,7 @@
 				{/if}
 			</div>
 			<h2 class="border-b pb-1 mt-8 mb-2">Error Handler</h2>
+
 			<ScriptPicker
 				disabled={initialScriptPath != '' || !can_write}
 				initialPath={errorHandlerPath}
@@ -274,14 +270,22 @@
 				allowFlow={true}
 				bind:scriptPath={errorHandlerPath}
 				bind:itemKind={errorHandleritemKind}
+				canRefresh
 			/>
-			<div class="text-gray-600 italic text-sm mt-2"
-				>The following args will be passed to the error handler:
-				<ul class="mt-1 ml-2">
-					<li><b>path</b>: The path of the script or flow that errored</li>
-					<li><b>schedule_path</b>: The path of the schedule</li>
-					<li><b>error</b>: The error details</li>
-				</ul>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="text-gray-600 italic text-sm"
+					>The following args will be passed to the error handler:
+					<ul class="mt-1 ml-2">
+						<li><b>path</b>: The path of the script or flow that errored</li>
+						<li><b>schedule_path</b>: The path of the schedule</li>
+						<li><b>error</b>: The error details</li>
+					</ul>
+				</div>
+				<Button
+					wrapperClasses="mt-6"
+					href="/scripts/add?hub=hub%2F1087%2Fwindmill%2Fschedule_error_handler_template"
+					target="_blank">Use template</Button
+				>
 			</div>
 		</div>
 	</DrawerContent>

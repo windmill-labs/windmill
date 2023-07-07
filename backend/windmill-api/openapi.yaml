@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.124.0
+  version: 1.125.1
   title: Windmill API
 
   contact:
@@ -971,6 +971,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
+                  error_handler:
+                    type: string
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -1113,6 +1115,33 @@ paths:
               type: object
               properties:
                 webhook:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_error_handler:
+    post:
+      summary: edit error handler
+      operationId: editErrorHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceErrorHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                error_handler:
                   type: string
 
       responses:
@@ -5109,7 +5138,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5131,7 +5160,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5153,7 +5182,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableId"
-        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/RunnableTypeQuery"
       requestBody:
         description: Input
         required: true
@@ -5491,7 +5520,7 @@ components:
       in: query
       schema:
         type: string
-    RunnableType:
+    RunnableTypeQuery:
       name: runnable_type
       in: query
       schema:
@@ -5550,7 +5579,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5605,7 +5634,7 @@ components:
             type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5749,7 +5778,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "graphql",
             ]
         schedule_path:
           type: string
@@ -5766,7 +5794,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets, bun]
         email:
           type: string
         visible_to_owner:
@@ -5840,8 +5868,6 @@ components:
               "script_hub",
               "identity",
               "http",
-              "graphql",
-              "postgresql",
             ]
         schedule_path:
           type: string
@@ -5858,7 +5884,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets, bun]
         is_skipped:
           type: boolean
         email:
@@ -6286,12 +6312,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql]
+          enum: [python3, deno, go, bash, postgresql, nativets, bun]
         tag:
           type: string
         kind:
           type: string
-          enum: [code, identity, graphql, http]
+          enum: [code, identity, http]
 
       required:
         - args

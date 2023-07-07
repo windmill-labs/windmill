@@ -41,6 +41,7 @@ services:
       db:
         condition: service_healthy
     # volumes:
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
     # - ./oauth.json/:/usr/src/app/oauth.json
 
   windmill_worker:
@@ -54,24 +55,49 @@ services:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
-      # DO NOT INCREASE NUM_WORKERS > 1 UNLESS YOU KNOW WHAT YOU ARE DOING
-      # Increase the number of replicas instead.
-      - NUM_WORKERS=1
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
+      # To handle all tags, remove the env variable altogether. If you do so, you can remove the windmill_worker_native containers.
+      - WORKER_TAGS=deno,python3,go,bash,dependency,flow,hub,other,bun
+      # LICENSE_KEY is only needed for the enterprise edition
+      # - LICENSE_KEY=${WM_LICENSE_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+    # mount the docker socket to allow to run docker containers from within the workers
+    - /var/run/docker.sock:/var/run/docker.sock
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
+    # - ./oauth.json/:/usr/src/app/oauth.json
+
+  ## This worker is specialized for "native" jobs. Jobs that are lightweight and run "in-process" and can thus be parallelized to more than 1 at a time on a given worker
+  windmill_worker_native:
+    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
+    image: ghcr.io/windmill-labs/windmill:main
+    pull_policy: always
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - BASE_URL=${WM_BASE_URL}
+      - RUST_LOG=info
+      - DISABLE_SERVER=true
+      - KEEP_JOB_DIR=false
+      - METRICS_ADDR=false
+      - PARALLEL_NATIVE_JOBS=12
+      - WORKER_TAGS=nativets,postgresql
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
     # volumes:
+    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
     # - ./oauth.json/:/usr/src/app/oauth.json
-    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
-    volumes:
-      - worker_dependency_cache:/tmp/windmill/cache
-      # mount the docker socket to allow to run docker containers from within the workers
-      # - /var/run/docker.sock:/var/run/docker.sock
+
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest

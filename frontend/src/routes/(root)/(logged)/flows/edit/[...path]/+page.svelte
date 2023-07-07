@@ -43,9 +43,9 @@
 		loading = true
 		let flow: Flow
 		if (stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == $page.params.path) {
-			sendUserToast('Flow restored from ephemeral autosave', false, [
+			sendUserToast('Flow loaded from browser storage', false, [
 				{
-					label: 'Discard autosave and reload',
+					label: 'Discard browser stored autosave and reload',
 					callback: () => {
 						stateLoadedFromUrl = undefined
 						goto(`/flows/edit/${flow!.path}`)

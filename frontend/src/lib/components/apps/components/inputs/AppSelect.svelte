@@ -192,9 +192,9 @@
 				}
 			}}
 		>
-			<div slot="item" let:item
+			<svelte:fragment slot="item" let:item
 				>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
-			</div>
+			</svelte:fragment>
 		</Select>
 	</div>
 </AlignWrapper>

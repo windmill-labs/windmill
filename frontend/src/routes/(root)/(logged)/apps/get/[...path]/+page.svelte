@@ -36,6 +36,7 @@
 				context={{
 					email: $userStore?.email,
 					username: $userStore?.username,
+					groups: $userStore?.groups,
 					query: Object.fromEntries($page.url.searchParams.entries()),
 					hash: $page.url.hash
 				}}

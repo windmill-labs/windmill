@@ -132,6 +132,8 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "deno") ext = "ts";
       else if (language == "go") ext = "go";
       else if (language == "bash") ext = "sh";
+      else if (language == "postgresql") ext = "sql";
+
       return `${name}.inline_script.${ext}`;
     }
 
@@ -295,7 +297,7 @@ async function elementsToMap(
     if (json && entry.path.endsWith(".yaml")) continue;
     if (!json && entry.path.endsWith(".json")) continue;
     if (
-      !["json", "yaml", "go", "sh", "ts", "py"].includes(
+      !["json", "yaml", "go", "sh", "ts", "py", "sql"].includes(
         entry.path.split(".").pop() ?? ""
       )
     )

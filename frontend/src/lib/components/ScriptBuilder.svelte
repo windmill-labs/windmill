@@ -19,12 +19,7 @@
 	import { Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
-	import {
-		SCRIPT_SHOW_BASH,
-		SCRIPT_SHOW_GO,
-		SCRIPT_SHOW_PSQL,
-		SCRIPT_CUSTOMISE_SHOW_KIND
-	} from '$lib/consts'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -63,7 +58,7 @@
 	}
 
 	const langs: [string, SupportedLanguage][] = [
-		['Typescript', Script.language.DENO],
+		['Typescript (Deno)', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
 	if (SCRIPT_SHOW_GO) {
@@ -72,6 +67,8 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
+	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
 		title: string
@@ -304,22 +301,6 @@
 						<span class="ml-2 py-2">{label}</span>
 					</Button>
 				{/each}
-				{#if SCRIPT_SHOW_PSQL}
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'pgsql' ? 'blue' : 'dark'}
-						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						disabled={lockedLanguage}
-						on:click={() => {
-							template = 'pgsql'
-							initContent(Script.language.DENO, script.kind, template)
-							script.language = Script.language.DENO
-						}}
-					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
-					</Button>
-				{/if}
 				<Button
 					size="sm"
 					variant="border"
@@ -349,6 +330,20 @@
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
 				</Button>
+				<Button
+					size="xs"
+					variant="border"
+					color={script.language == 'bun' ? 'blue' : 'dark'}
+					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						initContent(Script.language.BUN, script.kind, template)
+						script.language = Script.language.BUN
+					}}
+				>
+					<LanguageIcon lang="bun" /><span class="ml-2 py-2">Typescript (Bun, experimental)</span>
+				</Button>
+
 				<!-- <Button
 					size="sm"
 					variant="border"
@@ -462,7 +457,7 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 overflow-hidden border-b shadow-sm">
+		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 border-b shadow-sm">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
 				<div class="min-w-64 w-full max-w-md">
 					<input

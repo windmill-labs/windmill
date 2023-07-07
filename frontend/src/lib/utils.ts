@@ -112,18 +112,18 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-export function clickOutside(node: Node): { destroy(): void } {
+export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
 	const handleClick = (event: MouseEvent) => {
 		if (node && !node.contains(<HTMLElement>event.target) && !event.defaultPrevented) {
 			node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 		}
 	}
 
-	document.addEventListener('click', handleClick, true)
+	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {
 		destroy() {
-			document.removeEventListener('click', handleClick, true)
+			document.removeEventListener('click', handleClick, capture ?? true)
 		}
 	}
 }
