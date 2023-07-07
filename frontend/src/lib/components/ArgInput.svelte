@@ -138,7 +138,7 @@
 		}
 	}
 
-	function validateInput(pattern: string | undefined, v: any): void {
+	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
 			valid = false
@@ -175,7 +175,7 @@
 
 	let customValue = false
 
-	$: validateInput(pattern, value)
+	$: validateInput(pattern, value, required)
 </script>
 
 <!-- svelte-ignore a11y-autofocus -->
