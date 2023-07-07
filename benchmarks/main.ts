@@ -340,6 +340,7 @@ await new Command()
       }
       sum = jobsSent.reduce((a, b) => a + b, 0);
 
+      console.log("Finished. Time is: ", Date.now())
       const tts = (Date.now() - shutdown_start) / 1000;
       const time = seconds + tts;
       console.log("\ntime to shutdown:", tts);
