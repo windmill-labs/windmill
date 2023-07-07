@@ -69,6 +69,12 @@
 
 	$: script_path != '' && loadScript(script_path)
 
+	// set isValid to true when a script/flow without any properties is selected
+	$: runnable?.schema &&
+		runnable.schema.properties &&
+		Object.keys(runnable.schema.properties).length === 0 &&
+		(isValid = true)
+
 	const dispatch = createEventDispatcher()
 
 	async function loadScript(p: string | undefined): Promise<void> {

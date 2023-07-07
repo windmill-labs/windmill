@@ -159,18 +159,15 @@ pub async fn do_postgresql(
         .await
         .map_err(to_anyhow)?;
 
+    let result = json!(rows
+        .try_collect::<Vec<Row>>()
+        .await
+        .map_err(to_anyhow)?
+        .into_iter()
+        .map(postgres_row_to_json_value)
+        .collect::<Result<Vec<_>, _>>()?);
+
     handle.abort();
     // And then check that we got back the same string we sent over.
-    return Ok(JobCompleted {
-        job: job,
-        result: json!(rows
-            .try_collect::<Vec<Row>>()
-            .await
-            .map_err(to_anyhow)?
-            .into_iter()
-            .map(postgres_row_to_json_value)
-            .collect::<Result<Vec<_>, _>>()?),
-        logs: "".to_string(),
-        success: true,
-    });
+    return Ok(JobCompleted { job: job, result, logs: "".to_string(), success: true });
 }
