@@ -607,52 +607,51 @@
 >
 	{#if listOpen}
 		<ConditionalPortal condition={portal}>
-			<div style={containerStyles}>
-				<div
-					use:floatingContent
-					bind:this={list}
-					class="svelte-select-list"
-					class:prefloat
-					on:scroll={handleListScroll}
-					on:pointerup|preventDefault|stopPropagation
-					on:pointerdown|preventDefault|stopPropagation
-				>
-					{#if $$slots['list-prepend']}<slot name="list-prepend" />{/if}
-					{#if $$slots.list}<slot name="list" {filteredItems} />
-					{:else if filteredItems.length > 0}
-						{#each filteredItems as item, i}
+			<div
+				style={containerStyles}
+				use:floatingContent
+				bind:this={list}
+				class="svelte-select-list"
+				class:prefloat
+				on:scroll={handleListScroll}
+				on:pointerup|preventDefault|stopPropagation
+				on:pointerdown|preventDefault|stopPropagation
+			>
+				{#if $$slots['list-prepend']}<slot name="list-prepend" />{/if}
+				{#if $$slots.list}<slot name="list" {filteredItems} />
+				{:else if filteredItems.length > 0}
+					{#each filteredItems as item, i}
+						<div
+							on:mouseover={() => handleHover(i)}
+							on:focus={() => handleHover(i)}
+							on:click|stopPropagation={() => handleItemClick({ item, i })}
+							on:keydown|preventDefault|stopPropagation
+							class="list-item"
+							tabindex="-1"
+						>
 							<div
-								on:mouseover={() => handleHover(i)}
-								on:focus={() => handleHover(i)}
-								on:click|stopPropagation={() => handleItemClick({ item, i })}
-								on:keydown|preventDefault|stopPropagation
-								class="list-item"
-								tabindex="-1"
+								use:activeScroll={{ scroll: isItemActive(item, value, itemId), listDom }}
+								use:hoverScroll={{ scroll: scrollToHoverItem === i, listDom }}
+								class="item"
+								class:list-group-title={item.groupHeader}
+								class:active={isItemActive(item, value, itemId)}
+								class:first={isItemFirst(i)}
+								class:hover={hoverItemIndex === i}
+								class:group-item={item.groupItem}
+								class:not-selectable={item?.selectable === false}
 							>
-								<div
-									use:activeScroll={{ scroll: isItemActive(item, value, itemId), listDom }}
-									use:hoverScroll={{ scroll: scrollToHoverItem === i, listDom }}
-									class="item"
-									class:list-group-title={item.groupHeader}
-									class:active={isItemActive(item, value, itemId)}
-									class:first={isItemFirst(i)}
-									class:hover={hoverItemIndex === i}
-									class:group-item={item.groupItem}
-									class:not-selectable={item?.selectable === false}
-								>
-									<slot name="item" {item} index={i}>
-										{item?.[label]}
-									</slot>
-								</div>
+								<slot name="item" {item} index={i}>
+									{item?.[label]}
+								</slot>
 							</div>
-						{/each}
-					{:else if !hideEmptyState}
-						<slot name="empty">
-							<div class="empty">No options</div>
-						</slot>
-					{/if}
-					{#if $$slots['list-append']}<slot name="list-append" />{/if}
-				</div>
+						</div>
+					{/each}
+				{:else if !hideEmptyState}
+					<slot name="empty">
+						<div class="empty">No options</div>
+					</slot>
+				{/if}
+				{#if $$slots['list-append']}<slot name="list-append" />{/if}
 			</div>
 		</ConditionalPortal>
 	{/if}
