@@ -608,6 +608,7 @@
 	{#if listOpen}
 		<ConditionalPortal condition={portal}>
 			<div
+				style={containerStyles}
 				use:floatingContent
 				bind:this={list}
 				class="svelte-select-list"
