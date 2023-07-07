@@ -21,12 +21,16 @@
 
 	export let mainButtons: MainButton[] = []
 	export let menuItems: MenuItemButton[] = []
+	export let title: string
 </script>
 
 <div class="border-b p-2 shadow-md">
-	<div class="prose-sm mx-auto">
-		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8">
-			<div class="flex gap-2">
+	<div class="mx-auto">
+		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8 items-center">
+			<div class="grow text-lg font-bold">
+				{title}
+			</div>
+			<div class="flex gap-2 items-center">
 				<Menu>
 					<svelte:fragment slot="items">
 						{#each menuItems as { label, Icon, onclick, color } (label)}

@@ -229,17 +229,17 @@
 {#if flow}
 	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
-			<DetailPageHeader mainButtons={getMainButtons(flow)} menuItems={getMenuItems(flow)} />
+			<DetailPageHeader
+				mainButtons={getMainButtons(flow)}
+				menuItems={getMenuItems(flow)}
+				title={defaultIfEmptyString(flow.summary, flow.path)}
+			/>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
-					<Pane size={55} minSize={20}>
+					<Pane size={60} minSize={20}>
 						<div class="p-8 w-full max-w-3xl mx-auto">
-							<h1 class="mb-1 truncate grow">
-								{defaultIfEmptyString(flow.summary, flow.path)}
-							</h1>
-
 							{#if !emptyString(flow.summary)}
 								<span class="text-lg font-semibold">{flow.path}</span>
 							{/if}
@@ -276,7 +276,7 @@
 							/>
 						</div>
 					</Pane>
-					<Pane size={45} minSize={20}>
+					<Pane size={40} minSize={20}>
 						<FlowGraphViewer download {flow} overflowAuto noSide={true} />
 					</Pane>
 				</Splitpanes>

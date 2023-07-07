@@ -12,7 +12,6 @@
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
-		faEye,
 		faFileExport,
 		faList,
 		faPlay,
@@ -68,7 +67,7 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 <Row
-	href={`/flows/run/${path}`}
+	href="/flows/get/{path}?workspace={$workspaceStore}"
 	kind="flow"
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -119,16 +118,6 @@
 			{#if !draft_only}
 				<Button
 					href="/flows/get/{path}?workspace={$workspaceStore}"
-					color="light"
-					variant="border"
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faEye }}
-				>
-					Detail
-				</Button>
-				<Button
-					href="/flows/run/{path}"
 					color="dark"
 					size="xs"
 					spacingSize="md"

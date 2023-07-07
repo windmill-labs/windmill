@@ -20,7 +20,7 @@
 				<Pane size={40} minSize={20}>
 					<Splitpanes horizontal class="h-full">
 						<Pane size={100}>
-							<Tabs selected="details">
+							<Tabs selected="saved_inputs">
 								<Tab value="saved_inputs">Saved inputs</Tab>
 								{#if !isOperator}
 									<Tab value="details">Details & Triggers</Tab>

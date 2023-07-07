@@ -334,7 +334,11 @@
 {#if script}
 	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
-			<DetailPageHeader mainButtons={getMainButtons(script)} menuItems={getMenuItems(script)} />
+			<DetailPageHeader
+				mainButtons={getMainButtons(script)}
+				menuItems={getMenuItems(script)}
+				title={defaultIfEmptyString(script.summary, script.path)}
+			/>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
@@ -369,10 +373,6 @@
 						{/if}
 					</div>
 				{/if}
-
-				<div class="grow truncate">
-					<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
-				</div>
 
 				{#if !emptyString(script.summary)}
 					<span class="text-lg font-semibold">{script.path}</span>
@@ -416,7 +416,6 @@
 					runnable={script}
 					runAction={runScript}
 					bind:args
-					viewCliRun={false}
 					schedulable={false}
 					isFlow={false}
 					bind:this={runForm}
