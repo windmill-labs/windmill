@@ -191,7 +191,7 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 
 	function getMainButtons(script: Script | undefined) {
-		if (!script) return []
+		if (!script || $userStore?.operator) return []
 
 		const buttons: any = []
 
@@ -243,7 +243,7 @@
 	}
 
 	function getMenuItems(script: Script | undefined) {
-		if (!script) return []
+		if (!script || $userStore?.operator) return []
 
 		const menuItems: any = []
 

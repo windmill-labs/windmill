@@ -135,7 +135,7 @@
 	let runForm: RunForm
 
 	function getMainButtons(flow: Flow | undefined) {
-		if (!flow) return []
+		if (!flow || $userStore?.operator) return []
 
 		const buttons: any = []
 		if (!$userStore?.operator) {
@@ -167,7 +167,7 @@
 	}
 
 	function getMenuItems(flow: Flow | undefined) {
-		if (!flow) return []
+		if (!flow || $userStore?.operator) return []
 
 		const menuItems: any = []
 
