@@ -291,16 +291,18 @@
 				label: 'Unarchive',
 				Icon: ArchiveRestore,
 				onclick: async () => {
-					unarchiveScript(script.path)
-				}
+					unarchiveScript(script.hash)
+				},
+				color: 'red'
 			})
 		} else {
 			menuItems.push({
 				label: 'Archive',
 				Icon: Archive,
 				onclick: async () => {
-					archiveScript(script.path)
-				}
+					archiveScript(script.hash)
+				},
+				color: 'red'
 			})
 		}
 
@@ -309,7 +311,8 @@
 			Icon: Trash,
 			onclick: async () => {
 				deleteScript(script.path)
-			}
+			},
+			color: 'red'
 		})
 
 		return menuItems
