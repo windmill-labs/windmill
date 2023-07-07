@@ -22,21 +22,27 @@
 </script>
 
 <div
-	class="hover:bg-gray-50 w-full inline-flex items-center px-4 py-4 gap-4 first-of-type:!border-t-0
+	class="hover:bg-gray-50 w-full inline-flex items-center gap-4 first-of-type:!border-t-0
 first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 >
-	<RowIcon {href} {kind} />
-
-	<a {href} class="min-w-0 grow hover:underline decoration-gray-400">
-		<div class="text-gray-900 flex-wrap text-left text-sm font-semibold mb-1 truncate">
-			{#if marked}
-				{@html marked}
-			{:else}
-				{!summary || summary.length == 0 ? path : summary}
-			{/if}
+	<a
+		{href}
+		class="min-w-0 grow hover:underline decoration-gray-400 px-4 py-4 flex flex-row items-center gap-4"
+	>
+		<div>
+			<RowIcon {href} {kind} />
 		</div>
-		<div class="text-gray-600 text-2xs truncate text-left font-light">
-			{path}
+		<div>
+			<div class="text-gray-900 flex-wrap text-left text-sm font-semibold mb-1 truncate">
+				{#if marked}
+					{@html marked}
+				{:else}
+					{!summary || summary.length == 0 ? path : summary}
+				{/if}
+			</div>
+			<div class="text-gray-600 text-2xs truncate text-left font-light">
+				{path}
+			</div>
 		</div>
 	</a>
 	{#if $$slots.badges}

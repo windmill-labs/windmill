@@ -4,13 +4,14 @@
 	import Icon from 'svelte-awesome'
 	import { Button } from './common'
 	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	export let open = false
 	export let text: string
 	export let small = false
 </script>
 
-<div class="flex">
+<div class={twMerge('flex', $$props.class)}>
 	<Button
 		variant="border"
 		color="light"

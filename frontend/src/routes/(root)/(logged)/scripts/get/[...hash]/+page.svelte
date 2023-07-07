@@ -55,7 +55,7 @@
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import DeploymentHistory from '$lib/components/apps/editor/DeploymentHistory.svelte'
+	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -200,7 +200,7 @@
 				label: `History`,
 				buttonProps: {
 					onClick: () => {
-						historyBrowserDrawerOpen = !historyBrowserDrawerOpen
+						versionsDrawerOpen = !versionsDrawerOpen
 					},
 
 					size: 'xs',
@@ -325,7 +325,7 @@
 		return menuItems
 	}
 
-	let historyBrowserDrawerOpen = false
+	let versionsDrawerOpen = false
 </script>
 
 <MoveDrawer
@@ -340,14 +340,21 @@
 <ScheduleEditor bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
 
-<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		{script?.parent_hashes}
-		<DeploymentHistory on:restore versions={script?.parent_hashes?.map((h) => Number(h)) ?? []} />
-	</DrawerContent>
-</Drawer>
-
 {#if script}
+	<Drawer bind:open={versionsDrawerOpen} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)}>
+			<ScriptVersionHistory
+				scriptPath={script.path}
+				openDetails
+				on:openDetails={(e) => {
+					if (script) {
+						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
+					}
+					versionsDrawerOpen = false
+				}}
+			/>
+		</DrawerContent>
+	</Drawer>
 	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
