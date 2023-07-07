@@ -3147,6 +3147,7 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
+ "uuid 1.4.0",
 ]
 
 [[package]]
