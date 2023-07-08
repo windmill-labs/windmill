@@ -43,6 +43,16 @@
 		requestType = 'hash'
 	}
 
+	function getProtocol(url: string) {
+		if (url.startsWith('localhost')) {
+			return 'http://'
+		} else if (url.startsWith('http://') || url.startsWith('https://')) {
+			return ''
+		} else {
+			return 'https://'
+		}
+	}
+
 	$: url = webhooks[webhookType][requestType]
 
 	let token = 'YOUR_TOKEN'
@@ -129,7 +139,9 @@
 				<div class="flex flex-col gap-2">
 					<ClipboardPanel
 						title="Url"
-						content={tokenType === 'query' ? `${url}?token=${token}` : url}
+						content={tokenType === 'query'
+							? `${getProtocol(url)}${url}?token=${token}`
+							: `${getProtocol(url)}${url}`}
 					/>
 
 					{#if requestType !== 'get_path'}

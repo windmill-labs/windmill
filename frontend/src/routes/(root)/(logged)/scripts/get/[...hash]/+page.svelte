@@ -365,71 +365,74 @@
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">
-				{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-					<div class="flex flex-col gap-2 my-2">
-						{#if script.lock_error_logs}
-							<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
-								<p class="font-bold">Error deploying this script</p>
-								<p>
-									This script has not been deployed successfully because of the following errors:
-								</p>
-								<pre class="w-full text-xs mt-2 whitespace-pre-wrap">{script.lock_error_logs}</pre>
-							</div>
+				<div class="flex flex-col gap-0.5 mb-8">
+					{#if script.lock_error_logs || topHash || script.archived || script.deleted}
+						<div class="flex flex-col gap-2 my-2">
+							{#if script.lock_error_logs}
+								<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+									<p class="font-bold">Error deploying this script</p>
+									<p>
+										This script has not been deployed successfully because of the following errors:
+									</p>
+									<pre class="w-full text-xs mt-2 whitespace-pre-wrap">{script.lock_error_logs}</pre
+									>
+								</div>
+							{/if}
+							{#if topHash}
+								<div class="mt-2" />
+								<Alert type="warning" title="Not HEAD">
+									This hash is not HEAD (latest non-archived version at this path) :
+									<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
+										>Go to the HEAD of this path</a
+									>
+								</Alert>
+							{/if}
+							{#if script.archived && !topHash}
+								<Alert type="error" title="Archived">This path was archived</Alert>
+							{/if}
+							{#if script.deleted}
+								<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
+									<p class="font-bold">Deleted</p>
+									<p>The content of this script was deleted (by an admin, no less)</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					{#if !emptyString(script.summary)}
+						<span class="text-lg font-semibold">{script.path}</span>
+					{/if}
+
+					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
+						<span class="text-sm text-gray-600">
+							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
+						</span>
+						<Badge color="dark-gray">
+							{truncateHash(script?.hash ?? '')}
+						</Badge>
+						{#if script?.is_template}
+							<Badge color="blue">Template</Badge>
 						{/if}
-						{#if topHash}
-							<div class="mt-2" />
-							<Alert type="warning" title="Not HEAD">
-								This hash is not HEAD (latest non-archived version at this path) :
-								<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
-									>Go to the HEAD of this path</a
-								>
-							</Alert>
+						{#if script && script.kind !== 'script'}
+							<Badge color="blue">
+								{script?.kind}
+							</Badge>
 						{/if}
-						{#if script.archived && !topHash}
-							<Alert type="error" title="Archived">This path was archived</Alert>
+						{#if deploymentInProgress}
+							<Badge color="yellow">
+								<Loader2 size={12} class="inline animate-spin mr-1" />
+								Deployment in progress
+							</Badge>
 						{/if}
-						{#if script.deleted}
-							<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
-								<p class="font-bold">Deleted</p>
-								<p>The content of this script was deleted (by an admin, no less)</p>
-							</div>
-						{/if}
+						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 					</div>
-				{/if}
 
-				{#if !emptyString(script.summary)}
-					<span class="text-lg font-semibold">{script.path}</span>
-				{/if}
-
-				<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
-					<span class="text-sm text-gray-600">
-						Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
-					</span>
-					<Badge color="dark-gray">
-						{truncateHash(script?.hash ?? '')}
-					</Badge>
-					{#if script?.is_template}
-						<Badge color="blue">Template</Badge>
+					{#if !emptyString(script.description)}
+						<div class="border p-2">
+							<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
+						</div>
 					{/if}
-					{#if script && script.kind !== 'script'}
-						<Badge color="blue">
-							{script?.kind}
-						</Badge>
-					{/if}
-					{#if deploymentInProgress}
-						<Badge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-						</Badge>
-					{/if}
-					<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 				</div>
-
-				{#if !emptyString(script.description)}
-					<div class="border p-2">
-						<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
-					</div>
-				{/if}
 
 				<RunForm
 					loading={runLoading}

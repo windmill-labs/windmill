@@ -15,7 +15,6 @@
 		faEdit,
 		faFileExport,
 		faList,
-		faPlay,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -137,18 +136,6 @@
 						</Button>
 					</div>
 				{/if}
-			{/if}
-
-			{#if !draft_only}
-				<Button
-					href="/scripts/get/{hash}?workspace={$workspaceStore}"
-					color="dark"
-					size="xs"
-					spacingSize="md"
-					endIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
 			{/if}
 		</span>
 		<Dropdown

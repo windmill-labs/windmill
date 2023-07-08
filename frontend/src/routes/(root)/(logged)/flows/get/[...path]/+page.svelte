@@ -239,24 +239,26 @@
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60} minSize={20}>
-						<div class="p-8 w-full max-w-3xl mx-auto">
-							{#if !emptyString(flow.summary)}
-								<span class="text-lg font-semibold">{flow.path}</span>
-							{/if}
-							<span class="text-sm text-gray-600">
-								Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
-							</span>
+						<div class="p-8 w-full max-w-3xl mx-auto gap-2">
+							<div class="flex flex-col gap-0.5">
+								{#if !emptyString(flow.summary)}
+									<span class="text-lg font-semibold">{flow.path}</span>
+								{/if}
+								<span class="text-sm text-gray-600">
+									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+								</span>
 
-							{#if flow.archived}
-								<div class="mt-2" />
-								<Alert type="error" title="Archived">This flow was archived</Alert>
-							{/if}
+								{#if flow.archived}
+									<div class="" />
+									<Alert type="error" title="Archived">This flow was archived</Alert>
+								{/if}
 
-							{#if !emptyString(flow.description)}
-								<div class="py-2 break-words whitespace-pre-wrap text-sm">
-									<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
-								</div>
-							{/if}
+								{#if !emptyString(flow.description)}
+									<div class=" break-words whitespace-pre-wrap text-sm">
+										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
+									</div>
+								{/if}
+							</div>
 
 							<RunForm
 								{loading}
@@ -288,7 +290,9 @@
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="details">
-			<SchemaViewer schema={flow.schema} />
+			<div class="p-1">
+				<SchemaViewer schema={flow.schema} />
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
 			<WebhooksPanel
