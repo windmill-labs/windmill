@@ -100,16 +100,6 @@
 					</div>
 				{/if}
 			{/if}
-
-			<Button
-				href="/apps/get/{path}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				View
-			</Button>
 		</span>
 		<Dropdown
 			placement="bottom-end"
