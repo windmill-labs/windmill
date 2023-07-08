@@ -10,6 +10,7 @@ use std::{collections::HashMap, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
+use chrono::{Duration};
 use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
@@ -89,6 +90,10 @@ const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 
 const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
+
+// TODO(gbouv): Discuss decent default values with Ruben
+const DEFAULT_JOB_CONCURRENCY_LIMIT: i64 = 5;
+const JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS: i64 = 10;
 
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
@@ -650,7 +655,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     return Ok(tx);
 }
 
-pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
+pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
     whitelist_workspaces: Option<Vec<String>>,
     blacklist_workspaces: Option<Vec<String>>,
@@ -684,9 +689,92 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         }
     }
 
+    let final_workspaces_filter = workspaces_filter.as_str();
+
     // let rs = rd_string(2);
     // let instant = Instant::now();
 
+    let mut script_path_blocklist: Vec<String> = Vec::new();
+    loop {
+        let cloned_sript_path_blocklist = script_path_blocklist.clone();
+        let mut script_path_filter = String::new();
+        if !cloned_sript_path_blocklist.is_empty() {
+            script_path_filter.push_str(&format!(
+                " AND script_path NOT IN ({})",
+                cloned_sript_path_blocklist
+                    .into_iter()
+                    .map(|x| format!("'{x}'"))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ));
+        }
+        let job = pull_single_job_and_mark_as_running_no_concurrency_limit(db, final_workspaces_filter, script_path_filter.as_str(), rsmq.clone()).await?;
+
+        if job.is_none() {
+            return Ok(None);
+        }
+
+        // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
+        let pulled_job = job.unwrap();
+        if !pulled_job.script_path.is_none() {
+            let job_script_path = pulled_job.script_path.clone().unwrap();
+            script_path_blocklist.push(job_script_path.clone());
+            let jobs_running_for_this_script = sqlx::query_scalar!(
+                "SELECT COUNT(*)
+                FROM queue
+                WHERE running = true AND script_path = $1",
+                job_script_path)
+            .fetch_one(db)
+            .await?
+            .unwrap_or(0);
+            
+            if jobs_running_for_this_script > DEFAULT_JOB_CONCURRENCY_LIMIT {
+                tracing::info!("Job '{}' reached concurrency limit of {}. Will be paused for now until total number of job running is below this number", job_script_path, DEFAULT_JOB_CONCURRENCY_LIMIT);
+
+                let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+
+                // re-schedule this job for in 10 seconds. It will be picked by the queue again and those checks will be re-run
+                let next_scheduled_for = pulled_job.scheduled_for + Duration::seconds(JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS);
+                let job_uuid = pulled_job.id;
+                let _updated_job_uuid = sqlx::query_scalar!(
+                    "UPDATE queue
+                    SET running = false
+                    , started_at = null
+                    , suspend_until = null
+                    , scheduled_for = $1
+                    WHERE id = $2
+                    RETURNING id",
+                    next_scheduled_for,
+                    job_uuid,
+                )
+                .fetch_optional(&mut tx)
+                .await
+                // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
+                .map_err(|e| Error::InternalErr(format!("Could not update job {job_uuid} status. The job will be marked as running but it is not running. This is problematic: {e}")))?;
+
+                // re-push the value to redis if using redis because pulled values disappear from redis
+                // TODO(gbouv): would need to check if we can trust the custom "transaction" implemented
+                // for redis. Would be bad if a value is upaded in PG but not re-inserted in redis
+                if let Some(ref mut rsmq) = tx.rsmq {
+                    rsmq.send_message(job_uuid.to_bytes_le().to_vec(), Option::Some(next_scheduled_for));
+                }
+                tx.commit().await?;
+            } else {
+                if *METRICS_ENABLED {
+                    QUEUE_PULL_COUNT.inc();
+                }
+                return Ok(Option::Some(pulled_job));
+            }
+        }
+    }
+}
+
+async fn pull_single_job_and_mark_as_running_no_concurrency_limit<R: rsmq_async::RsmqConnection + Clone>(
+    db: &Pool<Postgres>,
+    workspaces_filter: &str,
+    script_path_filter: &str,
+    rsmq: Option<R>,
+) -> windmill_common::error::Result<Option<QueuedJob>> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
         let msg = rsmq
@@ -741,6 +829,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
                        AND (   suspend <= 0
                             OR suspend_until <= now()))) 
                     {workspaces_filter}
+                    {script_path_filter}
                     {accepted_tags_filter}
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
@@ -751,12 +840,6 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         .fetch_optional(db)
         .await?
     };
-    // println!("3.2: {:?} {rs}", instant.elapsed());
-
-    if job.is_some() && *METRICS_ENABLED {
-        QUEUE_PULL_COUNT.inc();
-    }
-
     Ok(job)
 }
 
