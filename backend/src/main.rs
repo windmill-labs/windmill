@@ -299,7 +299,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     ee::verify_license_key(LICENSE_KEY.clone())?;
 
     #[cfg(not(feature = "enterprise"))]
-    if LICENSE_KEY.is_some() {
+    if LICENSE_KEY.as_ref().is_some_and(|x| !x.is_empty()) {
         panic!("License key is required ONLY for the enterprise edition");
     }
 
