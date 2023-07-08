@@ -13,10 +13,8 @@
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
-		faEye,
 		faFileExport,
 		faList,
-		faPlay,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -86,7 +84,7 @@
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <Row
-	href={`/scripts/run/${hash}`}
+	href="/scripts/get/{hash}?workspace={$workspaceStore}"
 	kind="script"
 	{marked}
 	{path}
@@ -138,28 +136,6 @@
 						</Button>
 					</div>
 				{/if}
-			{/if}
-
-			{#if !draft_only}
-				<Button
-					href="/scripts/get/{hash}?workspace={$workspaceStore}"
-					color="light"
-					variant="border"
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faEye }}
-				>
-					Detail
-				</Button>
-				<Button
-					href="/scripts/run/{hash}"
-					color="dark"
-					size="xs"
-					spacingSize="md"
-					endIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
 			{/if}
 		</span>
 		<Dropdown

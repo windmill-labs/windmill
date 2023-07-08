@@ -12,10 +12,8 @@
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
-		faEye,
 		faFileExport,
 		faList,
-		faPlay,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -68,7 +66,7 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 <Row
-	href={`/flows/run/${path}`}
+	href="/flows/get/{path}?workspace={$workspaceStore}"
 	kind="flow"
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -114,28 +112,6 @@
 						</Button>
 					</div>
 				{/if}
-			{/if}
-
-			{#if !draft_only}
-				<Button
-					href="/flows/get/{path}?workspace={$workspaceStore}"
-					color="light"
-					variant="border"
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faEye }}
-				>
-					Detail
-				</Button>
-				<Button
-					href="/flows/run/{path}"
-					color="dark"
-					size="xs"
-					spacingSize="md"
-					endIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
 			{/if}
 		</span>
 
