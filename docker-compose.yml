@@ -97,7 +97,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
+    # volumes:
       # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
       # - ./oauth.json:/usr/src/app/oauth.json
 
