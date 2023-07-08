@@ -66,7 +66,7 @@
 
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 
-	function setOuterDiv(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
+	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
 		// find ul in portalRef and set style
 		const ul = portalRef.querySelector('ul')
@@ -76,7 +76,7 @@
 	$: outerDiv &&
 		portalRef &&
 		css?.multiselect?.style &&
-		setOuterDiv(outerDiv, portalRef, css?.multiselect?.style)
+		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
 
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
