@@ -27,7 +27,7 @@
 <div class="border-b p-2 shadow-md">
 	<div class="mx-auto">
 		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8 items-center">
-			<div class="grow text-lg font-bold">
+			<div class="grow text-lg font-bold truncate">
 				{title}
 			</div>
 			<div class="flex gap-2 items-center">

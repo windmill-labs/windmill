@@ -47,6 +47,10 @@
 			<Star size={18} fill="currentcolor" />
 		{/if}
 	{:else}
-		<Star size={18} fill={buttonHover ? 'currentcolor' : 'none'} />
+		<Star
+			class={!buttonHover ? 'opacity-60' : ''}
+			size={18}
+			fill={buttonHover ? 'currentcolor' : 'none'}
+		/>
 	{/if}
 </button>

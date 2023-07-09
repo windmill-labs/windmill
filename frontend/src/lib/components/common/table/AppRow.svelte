@@ -9,9 +9,7 @@
 		faCodeFork,
 		faEdit,
 		faExternalLink,
-		faEye,
 		faFileExport,
-		faPen,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -60,7 +58,6 @@
 	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
-		<DraftBadge {has_draft} {draft_only} />
 		{#if execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
@@ -70,6 +67,8 @@
 			>
 		{/if}
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
+		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -126,17 +125,6 @@
 					]
 				}
 				return [
-					{
-						displayName: 'View',
-						icon: faEye,
-						href: `/apps/get/${path}`
-					},
-					{
-						displayName: 'Edit',
-						icon: faPen,
-						href: `/apps/edit/${path}?nodraft=true`,
-						disabled: !canWrite
-					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,
