@@ -424,7 +424,7 @@
 						<span class="text-sm text-gray-600">
 							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
 						</span>
-						<Badge color="dark-gray">
+						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}
 						</Badge>
 						{#if script?.is_template}

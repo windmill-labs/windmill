@@ -17,7 +17,7 @@
 
 	let scheduleEditor: ScheduleEditor
 
-	let schedule: Schedule | undefined = undefined
+	let schedule: Schedule | false | undefined = undefined
 	let schedules: Schedule[] | undefined = undefined
 
 	$: path && loadSchedule()
@@ -34,6 +34,8 @@
 					workspace: $workspaceStore ?? '',
 					path
 				})
+			} else {
+				schedule = false
 			}
 		} catch (e) {
 			console.log('no primary schedule')
@@ -149,8 +151,8 @@
 			<div class="text-xs texg-gray-700"> No arguments </div>
 		{/if}
 	</div>
-{:else}
-	<Skeleton layout={[[8, 2]]} />
+{:else if schedule == undefined}
+	<Skeleton layout={[[6]]} />
 {/if}
 
 <h3 class="px-2 pt-4">Other schedules</h3>
@@ -170,5 +172,5 @@
 		</div>
 	{/if}
 {:else}
-	<Skeleton layout={[[8, 2]]} />
+	<Skeleton layout={[[8]]} />
 {/if}

@@ -14,10 +14,10 @@
 		<slot name="header" />
 		<SplitPanesWrapper>
 			<Splitpanes>
-				<Pane size={60} minSize={20} maxSize={70}>
+				<Pane size={65} minSize={50}>
 					<slot name="form" />
 				</Pane>
-				<Pane size={40} minSize={20}>
+				<Pane size={35} minSize={15}>
 					<Splitpanes horizontal class="h-full">
 						<Pane size={100}>
 							<Tabs selected="saved_inputs">
