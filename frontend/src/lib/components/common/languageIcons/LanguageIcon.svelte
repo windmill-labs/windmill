@@ -21,7 +21,7 @@
 		[Script.language.GO]: 'Go',
 		[Script.language.BASH]: 'Bash',
 		[Script.language.NATIVETS]: 'HTTP',
-		[Script.language.GRAPHQL]: 'HTTP',
+		// [Script.language.GRAPHQL]: 'HTTP',
 		[Script.language.POSTGRESQL]: 'Postgresql'
 	}
 
@@ -32,7 +32,7 @@
 		go: GoIcon,
 		python3: PythonIcon,
 		deno: TypeScriptIcon,
-		graphql: TypeScriptIcon,
+		// graphql: TypeScriptIcon,
 		bun: TypeScriptIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,

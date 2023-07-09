@@ -5,13 +5,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faEdit,
-		faEye,
-		faFileExport,
-		faShare,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'

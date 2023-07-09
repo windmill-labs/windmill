@@ -166,7 +166,6 @@
 		<svelte:fragment slot="right">
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const route = isScript ? job?.script_hash : job?.script_path}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if job?.type != 'CompletedJob' && !job?.schedule_path}
 				{#if !forceCancel}
@@ -204,7 +203,7 @@
 				<Button
 					on:click|once={() => {
 						$runFormStore = job?.args
-						goto(`${stem}/run/${route}`)
+						goto(viewHref)
 					}}
 					color="blue"
 					size="md"
