@@ -28,7 +28,6 @@
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
@@ -184,7 +183,6 @@
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		}
 	}
-	let scheduleEditor: ScheduleEditor
 
 	let args = undefined
 	let moveDrawer: MoveDrawer
@@ -354,7 +352,6 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ScheduleEditor bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}
