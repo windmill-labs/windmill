@@ -77,12 +77,12 @@
 	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
-
 		{#if archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
+		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
+		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -139,12 +139,6 @@
 					]
 				}
 				return [
-					{
-						displayName: 'Edit',
-						icon: faEdit,
-						href: `/flows/edit/${path}?nodraft=true`,
-						disabled: !canWrite || archived
-					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,

@@ -270,7 +270,7 @@
 			<h2 class="border-b pb-1 mt-8 mb-2">Error Handler</h2>
 
 			<ScriptPicker
-				disabled={initialScriptPath != '' || !can_write}
+				disabled={!can_write}
 				initialPath={errorHandlerPath}
 				kind={Script.kind.SCRIPT}
 				allowFlow={true}

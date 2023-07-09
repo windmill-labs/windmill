@@ -337,7 +337,7 @@
 />
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ScheduleEditor bind:this={scheduleEditor} />
+<ScheduleEditor  bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}

@@ -25,11 +25,11 @@
 <a {href} class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
 	{#if kind === 'flow'}
 		<span class="ml-1 mb-0.5 -mt-0.5">
-			<Icon data={faBarsStaggered} scale={1.1} class="mr-0.5 text-[#14b8a6]" />
+			<Icon data={faBarsStaggered} scale={1} class="mr-0.5 text-[#14b8a6]" />
 		</span>
 	{:else if kind === 'app' || kind === 'raw_app'}
-		<LayoutDashboard size={24} color={iconColor} />
+		<LayoutDashboard size={20} color={iconColor} />
 	{:else if kind === 'script'}
-		<Code2 size={24} color={iconColor} />
+		<Code2 size={20} color={iconColor} />
 	{/if}
 </a>
