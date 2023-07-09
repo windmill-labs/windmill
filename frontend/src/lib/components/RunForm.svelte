@@ -3,6 +3,7 @@
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
+		getModifierKey,
 		getToday,
 		truncateHash
 	} from '$lib/utils'
@@ -10,7 +11,7 @@
 	import type { Schema } from '$lib/common'
 	import { runFormStore, userStore } from '$lib/stores'
 	import CliHelpBox from './CliHelpBox.svelte'
-	import { Badge, Button } from './common'
+	import { Badge, Button, Kbd } from './common'
 	import InlineCodeCopy from './InlineCodeCopy.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
@@ -48,6 +49,7 @@
 	export let noVariablePicker = false
 	export let viewCliRun = false
 	export let isFlow: boolean
+	export let viewKeybinding = false
 
 	export let args: Record<string, any> = {}
 
@@ -150,15 +152,21 @@
 	{#if schedulable}
 		<div class="mt-10" />
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
-			<div class="flex-row-reverse flex w-full gap-2">
+			<div class="flex-row-reverse flex w-full gap-4">
 				<Button
 					{loading}
 					color="dark"
-					btnClasses="!px-6 !py-1 !h-8"
+					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
 				>
-					{scheduledForStr ? 'Schedule to run later' : buttonText}
+					{#if viewKeybinding}
+						<div class="inline-flex gap-0 items-center">
+							<Kbd small>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd>
+						</div>{/if}
+					<div>
+						{scheduledForStr ? 'Schedule to run later' : buttonText}
+					</div>
 				</Button>
 				<div>
 					<CollapseLink small text="Advanced" class="justify-end">
@@ -220,6 +228,10 @@
 			disabled={!isValid}
 			on:click={() => runAction(undefined, args, invisible_to_owner)}
 		>
+			{#if viewKeybinding}
+				<div>
+					<Kbd small>{getModifierKey()}</Kbd>+<Kbd small>Enter</Kbd>
+				</div>{/if}
 			{buttonText}
 		</Button>
 	{/if}

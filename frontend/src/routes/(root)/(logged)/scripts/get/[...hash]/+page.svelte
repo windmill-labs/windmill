@@ -326,6 +326,21 @@
 	}
 
 	let versionsDrawerOpen = false
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Enter':
+				if (event.ctrlKey || event.metaKey) {
+					if (isValid) {
+						event.preventDefault()
+						runForm?.run()
+					} else {
+						sendUserToast('Please fix errors before running', true)
+					}
+				}
+				break
+		}
+	}
 </script>
 
 <MoveDrawer
@@ -336,8 +351,9 @@
 	}}
 />
 
+<svelte:window on:keydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ScheduleEditor  bind:this={scheduleEditor} />
+<ScheduleEditor bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
 
 {#if script}
@@ -435,6 +451,7 @@
 				</div>
 
 				<RunForm
+					viewKeybinding
 					loading={runLoading}
 					autofocus
 					detailed={false}

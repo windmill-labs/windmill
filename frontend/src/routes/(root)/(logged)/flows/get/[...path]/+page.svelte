@@ -206,6 +206,21 @@
 		}
 		return menuItems
 	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Enter':
+				if (event.ctrlKey || event.metaKey) {
+					if (isValid) {
+						event.preventDefault()
+						runForm?.run()
+					} else {
+						sendUserToast('Please fix errors before running', true)
+					}
+				}
+				break
+		}
+	}
 </script>
 
 <Skeleton
@@ -213,7 +228,7 @@
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
-
+<svelte:window on:keydown={onKeyDown} />
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ShareModal bind:this={shareModal} />
@@ -261,6 +276,7 @@
 							</div>
 
 							<RunForm
+								viewKeybinding
 								{loading}
 								autofocus
 								detailed={false}

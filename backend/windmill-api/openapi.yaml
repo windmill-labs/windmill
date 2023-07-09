@@ -5685,6 +5685,8 @@ components:
           format: date-time
         is_public:
           type: boolean
+        success:
+          type: boolean
       required:
         - id
         - name
