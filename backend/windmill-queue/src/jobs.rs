@@ -92,7 +92,8 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
 
 // TODO(gbouv): Discuss decent default values with Ruben
-const DEFAULT_JOB_CONCURRENCY_LIMIT: i64 = 5;
+const DEFAULT_JOB_CONCURRENT_LIMIT: i32 = 10;
+const DEFAULT_JOB_CONCURRENCY_TIME_WINDOW_SECS: i32 = 5;
 const JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS: i64 = 10;
 
 #[async_recursion]
@@ -723,18 +724,34 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         if !pulled_job.script_path.is_none() {
             let job_script_path = pulled_job.script_path.clone().unwrap();
             script_path_blocklist.push(job_script_path.clone());
-            let jobs_running_for_this_script = sqlx::query_scalar!(
-                "SELECT COUNT(*)
-                FROM queue
-                WHERE running = true AND script_path = $1",
-                job_script_path)
+
+            let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap_or(DEFAULT_JOB_CONCURRENT_LIMIT);
+            let job_custom_concurrency_time_window_s = pulled_job.concurrency_time_window_s.unwrap_or(DEFAULT_JOB_CONCURRENCY_TIME_WINDOW_SECS);
+            
+            let concurrent_jobs_for_this_script = sqlx::query_scalar!(
+                "SELECT COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count
+                FROM
+                    (SELECT script_path, COUNT(*) as completed_count
+                    FROM completed_job
+                    WHERE script_path = $1 AND started_at > (now() - INTERVAL '1 second' * $2)
+                    GROUP BY script_path) as j
+                FULL OUTER JOIN
+                    (SELECT script_path, COUNT(*) as running_count
+                    FROM queue
+                    WHERE script_path = $1 AND running = true
+                    GROUP BY script_path) as q
+                ON q.script_path = j.script_path",
+                job_script_path,
+                f64::from(job_custom_concurrency_time_window_s),
+            )
             .fetch_one(db)
             .await?
             .unwrap_or(0);
-            
-            if jobs_running_for_this_script > DEFAULT_JOB_CONCURRENCY_LIMIT {
-                tracing::info!("Job '{}' reached concurrency limit of {}. The scheduled instance of this job will be skipped for now until running jobs have finished", 
-                    job_script_path, DEFAULT_JOB_CONCURRENCY_LIMIT);
+
+            if concurrent_jobs_for_this_script > i64::from(job_custom_concurrent_limit) {
+                // TODO(gbouv): we could optimize the requeue duration based on the time window here
+                tracing::info!("Job '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution in {} seconds", 
+                    job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS);
 
                 let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
@@ -1086,9 +1103,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     }
 
-    let (script_hash, script_path, raw_code_tuple, job_kind, mut raw_flow, language) =
+    let (script_hash, script_path, raw_code_tuple, job_kind, mut raw_flow, language, concurrent_limit, concurrency_time_window_s) =
         match job_payload {
-            JobPayload::ScriptHash { hash, path } => {
+            JobPayload::ScriptHash { hash, path , concurrent_limit, concurrency_time_window_s} => {
                 let language = sqlx::query_scalar!(
                     "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
                     hash.0,
@@ -1108,6 +1125,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     JobKind::Script,
                     None,
                     Some(language),
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 )
             }
             JobPayload::ScriptHub { path } => {
@@ -1119,15 +1138,19 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     JobKind::Script_Hub,
                     None,
                     None,
+                    None,
+                    None,
                 )
             }
-            JobPayload::Code(RawCode { content, path, language, lock }) => (
+            JobPayload::Code(RawCode { content, path, language, lock , concurrent_limit, concurrency_time_window_s}) => (
                 None,
                 path,
                 Some((content, lock)),
                 JobKind::Preview,
                 None,
                 Some(language),
+                concurrent_limit,
+                concurrency_time_window_s,
             ),
             JobPayload::Dependencies { hash, dependencies, language } => (
                 Some(hash.0),
@@ -1136,6 +1159,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 JobKind::Dependencies,
                 None,
                 Some(language),
+                None,
+                None,
             ),
             JobPayload::FlowDependencies { path } => {
                 let value_json = sqlx::query_scalar!(
@@ -1158,10 +1183,12 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     JobKind::FlowDependencies,
                     Some(value),
                     None,
+                    None,
+                    None,
                 )
             }
             JobPayload::RawFlow { value, path } => {
-                (None, path, None, JobKind::FlowPreview, Some(value), None)
+                (None, path, None, JobKind::FlowPreview, Some(value), None, None, None)
             }
             JobPayload::Flow(flow) => {
                 let value_json = sqlx::query_scalar!(
@@ -1177,11 +1204,11 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                         "could not convert json to flow for {flow}: {err:?}"
                     ))
                 })?;
-                (None, Some(flow), None, JobKind::Flow, Some(value), None)
+                (None, Some(flow), None, JobKind::Flow, Some(value), None, None, None)
             }
-            JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
-            JobPayload::Http => (None, None, None, JobKind::Http, None, None),
-            JobPayload::Noop => (None, None, None, JobKind::Noop, None, None),
+            JobPayload::Identity => (None, None, None, JobKind::Identity, None, None, None, None),
+            JobPayload::Http => (None, None, None, JobKind::Http, None, None, None, None),
+            JobPayload::Noop => (None, None, None, JobKind::Noop, None, None, None, None),
         };
 
     let is_running = same_worker;
@@ -1260,8 +1287,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -1286,7 +1313,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         email,
         visible_to_owner,
         root_job,
-        tag
+        tag,
+        concurrent_limit,
+        concurrency_time_window_s,
     )
     .fetch_one(&mut tx)
     .await

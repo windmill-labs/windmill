@@ -1564,6 +1564,8 @@ func main(derp string) (string, error) {
         path: None,
         lock: None,
         language: ScriptLang::Go,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, port)
@@ -1591,6 +1593,8 @@ echo "hello $msg"
         path: None,
         lock: None,
         language: ScriptLang::Bash,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
@@ -1616,6 +1620,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1646,6 +1652,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1675,6 +1683,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
