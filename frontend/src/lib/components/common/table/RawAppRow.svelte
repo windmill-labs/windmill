@@ -87,25 +87,11 @@
 					</div>
 				{/if}
 			{/if}
-			<Button
-				href="/apps/get_raw/{version}/{path}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				View
-			</Button>
 		</span>
 		<Dropdown
 			placement="bottom-end"
 			dropdownItems={() => {
 				return [
-					{
-						displayName: 'View',
-						icon: faEye,
-						href: `/apps/get/${path}`
-					},
 					{
 						displayName: 'Move/Rename',
 						icon: faFileExport,
