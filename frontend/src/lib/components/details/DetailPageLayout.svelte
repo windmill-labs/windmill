@@ -46,7 +46,7 @@
 														<Tab value="schedule">
 															<span class="flex flex-row gap-2 items-center">
 																<CalendarCheck2 size={14} />
-																Schedule
+																Schedules
 															</span>
 														</Tab>
 														<Tab value="cli">

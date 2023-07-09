@@ -152,7 +152,7 @@
 	{#if schedulable}
 		<div class="mt-10" />
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
-			<div class="flex-row-reverse flex w-full gap-4">
+			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
 					{loading}
 					color="dark"

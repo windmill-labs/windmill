@@ -9,7 +9,7 @@
 		displayDaysAgo,
 		truncateHash
 	} from '$lib/utils'
-	import { faEdit, faCalendar, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -20,7 +20,6 @@
 		Tabs,
 		Tab,
 		TabContent,
-		Button,
 		Badge,
 		Alert,
 		DrawerContent,
@@ -56,6 +55,7 @@
 	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
+	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -352,6 +352,7 @@
 />
 
 <svelte:window on:keydown={onKeyDown} />
+
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor bind:this={scheduleEditor} />
 <ShareModal bind:this={shareModal} />
@@ -482,17 +483,7 @@
 			<WebhooksPanel scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
-			<div class="p-2 flex flex-col">
-				<Button
-					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
-					variant="border"
-					color="light"
-					size="xs"
-					startIcon={{ icon: faCalendar }}
-				>
-					New Schedule
-				</Button>
-			</div>
+			<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />
 		</svelte:fragment>
 		<svelte:fragment slot="details">
 			<div>
