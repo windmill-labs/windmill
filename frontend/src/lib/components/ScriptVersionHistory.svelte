@@ -8,6 +8,7 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
+	import { ExternalLink } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -48,11 +49,12 @@
 											on:click={() => {
 												dispatch('openDetails', { version })
 											}}
-											size="xs2"
+											class="ml-2 inline-flex gap-1 text-xs items-center"
+											size="xs"
 											color="light"
 											variant="border"
 										>
-											Open details
+											Run page<ExternalLink size={14} />
 										</Button>
 									{/if}
 								</div>
