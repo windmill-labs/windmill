@@ -273,9 +273,9 @@
 </Drawer>
 
 <div>
-	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<div class="flex gap-4 shrink">
+			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
 					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
