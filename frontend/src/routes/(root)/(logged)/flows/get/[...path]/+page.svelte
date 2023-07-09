@@ -104,8 +104,8 @@
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	$: urlAsync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
-	$: urlSync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
+	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
+	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
 	let isValid = true
 	let loading = false

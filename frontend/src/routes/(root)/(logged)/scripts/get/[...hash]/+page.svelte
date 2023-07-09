@@ -73,13 +73,13 @@
 	}
 	$: webhooks = {
 		async: {
-			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
+			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
+			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
 		},
 		sync: {
-			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
-			get_path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
+			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
+			get_path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
 		}
 	}
 
