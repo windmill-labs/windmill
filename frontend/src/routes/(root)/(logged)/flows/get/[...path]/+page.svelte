@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
+	import { FlowService, JobService, type Flow } from '$lib/gen'
 	import {
 		canWrite,
 		defaultIfEmptyString,
@@ -8,36 +8,32 @@
 		emptyString,
 		encodeState
 	} from '$lib/utils'
-	import { faCalendar, faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
-	import JobArgs from '$lib/components/JobArgs.svelte'
+	import { Alert, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Archive, Trash, Server, Share, PenBox, ListOrdered } from 'lucide-svelte'
+	import { FolderOpen, Archive, Trash, Server, Share } from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 
 	let flow: Flow | undefined
-	let schedule: Schedule | undefined
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
@@ -47,24 +43,6 @@
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFlow()
-			loadSchedule()
-		}
-	}
-
-	async function loadSchedule() {
-		try {
-			let exists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path
-			})
-			if (exists) {
-				schedule = await ScheduleService.getSchedule({
-					workspace: $workspaceStore ?? '',
-					path
-				})
-			}
-		} catch (e) {
-			console.log('no primary schedule')
 		}
 	}
 
@@ -81,22 +59,6 @@
 		await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
 		sendUserToast('Flow deleted')
 		goto('/')
-	}
-
-	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
-		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
-			loadSchedule()
-
-			sendUserToast(`Schedule ${enabled ? 'enabled' : 'disabled'}`)
-		} catch (err) {
-			sendUserToast(`Cannot ` + (enabled ? 'disable' : 'enable') + ` schedule: ${err}`, true)
-			loadSchedule()
-		}
 	}
 
 	async function loadFlow(): Promise<void> {
@@ -126,7 +88,6 @@
 		})
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
-	let scheduleEditor: ScheduleEditor
 
 	let args = undefined
 
@@ -229,7 +190,6 @@
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
 <svelte:window on:keydown={onKeyDown} />
-<ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ShareModal bind:this={shareModal} />
 <MoveDrawer
@@ -237,7 +197,6 @@
 	on:update={async (e) => {
 		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadFlow()
-		loadSchedule()
 	}}
 />
 
@@ -326,71 +285,7 @@
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
-			<div class="flex flex-row justify-end p-2">
-				<Button
-					on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
-					variant="border"
-					color="light"
-					size="xs"
-					startIcon={{ icon: faCalendar }}
-				>
-					New Schedule
-				</Button>
-			</div>
-			{#if schedule}
-				<div class="p-2 flex flex-col gap-2">
-					<div class="flex flex-row justify-between h-8">
-						<div class="flex flex-row gap-2">
-							<input
-								class="inline-block !w-32"
-								type="text"
-								id="cron-schedule"
-								name="cron-schedule"
-								placeholder="*/30 * * * *"
-								value={schedule.schedule}
-								disabled={true}
-							/>
-							<Badge color="indigo" small>Primary schedule</Badge>
-						</div>
-						<div class="flex flex-row gap-2">
-							<Toggle
-								checked={schedule.enabled}
-								on:change={(e) => {
-									if (can_write) {
-										setScheduleEnabled(path, e.detail)
-									} else {
-										sendUserToast('not enough permission', true)
-									}
-								}}
-								options={{
-									right: 'On'
-								}}
-								size="xs"
-							/>
-							<Button size="xs" variant="border" color="light" href={`/runs/${flow?.path}`}>
-								<div class="flex flex-row gap-2">
-									<ListOrdered size={14} />
-									Runs
-								</div>
-							</Button>
-							<Button
-								size="xs"
-								color="dark"
-								on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
-							>
-								<PenBox size={14} />
-							</Button>
-						</div>
-					</div>
-					{#if Object.keys(schedule?.args ?? {}).length > 0}
-						<div class="">
-							<JobArgs args={schedule.args ?? {}} />
-						</div>
-					{:else}
-						<div class="text-xs texg-gray-700"> This flow takes no argument </div>
-					{/if}
-				</div>
-			{/if}
+			<RunPageSchedules isFlow={true} path={flow.path ?? ''} {can_write} />
 		</svelte:fragment>
 		<svelte:fragment slot="cli">
 			<div class="p-2">

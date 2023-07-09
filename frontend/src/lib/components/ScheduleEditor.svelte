@@ -251,8 +251,6 @@
 				/>
 			{/if}
 			<div class="mt-6">
-				<span class="font-semibold text-gray-700">Arguments</span>
-
 				{#if runnable}
 					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 						<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />

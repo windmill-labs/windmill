@@ -210,6 +210,7 @@
 	function initPath() {
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path)
+			onMetaChange()
 			return
 		}
 		if (initialPath == undefined || initialPath == '') {
@@ -287,7 +288,6 @@
 							const kind = e.detail
 							if (meta) {
 								if (kind === 'folder') {
-									console.log($userStore?.folders)
 									meta.owner = folders?.[0]?.name ?? ''
 								} else if (kind === 'group') {
 									meta.owner = 'all'
