@@ -20,7 +20,7 @@ const commentTypes = {
 
 const prompts = {
 	[Script.language.PYTHON3]:
-		'Write a function in python called "main". The function should {description}. Do not call the main function.',
+		'Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.',
 	[Script.language.DENO]:
 		'Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import cowsay from "npm:cowsay@1.5.0";". Export the "main" function like this: "export function main(...)". Do not call the main function.',
 	[Script.language.GO]:
@@ -85,7 +85,7 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([^]+)```/)
+	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')

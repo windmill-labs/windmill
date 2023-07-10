@@ -97,19 +97,6 @@
 				title="Generate code from prompt"
 				btnClasses="!font-medium"
 				size="xs"
-				color="green"
-				spacingSize="xs2"
-				on:click={acceptDiff}
-				startIcon={{ icon: faCheck }}
-				{iconOnly}
-			>
-				Accept
-			</Button>
-
-			<Button
-				title="Generate code from prompt"
-				btnClasses="!font-medium"
-				size="xs"
 				color="red"
 				spacingSize="xs2"
 				on:click={rejectDiff}
@@ -118,8 +105,19 @@
 				{iconOnly}
 			>
 				Discard
-			</Button></div
-		>
+			</Button><Button
+				title="Generate code from prompt"
+				btnClasses="!font-medium"
+				size="xs"
+				color="green"
+				spacingSize="xs2"
+				on:click={acceptDiff}
+				startIcon={{ icon: faCheck }}
+				{iconOnly}
+			>
+				Accept
+			</Button>
+		</div>
 	{:else}
 		<Button
 			title="Generate code from prompt"
@@ -153,7 +151,9 @@
 						bind:value={funcDesc}
 						class="!w-auto grow"
 						on:keypress={({ key }) => {
-							if (key === 'Enter') onGenerate()
+							if (key === 'Enter') {
+								onGenerate()
+							}
 						}}
 					/>
 					<Button

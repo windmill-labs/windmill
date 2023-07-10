@@ -296,7 +296,11 @@
 				</Tab>
 
 				<Tab size="md" value="openai">
-					<div class="flex gap-2 items-center my-1">OpenAI Credentials</div>
+					<div class="flex gap-2 items-center my-1"
+						>OpenAI Credentials <span class="text-white px-2 py-1 rounded-full text-xs bg-red-500"
+							>Beta</span
+						></div
+					>
 				</Tab>
 			</Tabs>
 		</div>
@@ -873,7 +877,12 @@
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="OpenAI Credentials" primary={false} />
-			<div class="flex gap-2">
+			<div class="mt-2"
+				><Alert type="info" title="Experimental feature"
+					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
+				></div
+			>
+			<div class="flex gap-2 mt-5">
 				<input type="text" placeholder="Secret API key" bind:value={openAIKey} />
 				<Button size="md" on:click={editOpenAIKey}>Save</Button>
 			</div>
