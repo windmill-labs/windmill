@@ -13,8 +13,8 @@ use tokio_postgres::{
 };
 use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_parser_sql::parse_mysql_sig;
 use windmill_parser_sql::parse_pgsql_sig;
-use windmill_parser_sql::parse_sql_sig;
 
 use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
 
