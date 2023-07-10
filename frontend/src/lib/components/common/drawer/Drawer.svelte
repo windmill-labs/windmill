@@ -106,7 +106,7 @@
 	.drawer.open {
 		height: 100%;
 		width: 100%;
-		z-index: 1002;
+		z-index: var(--zIndex, 1002);
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}
