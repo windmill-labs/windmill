@@ -1,5 +1,4 @@
 env:
-  LOCAL_REGISTRY: registry.wimill.xyz
   REGISTRY: ghcr.io
   ECR_REGISTRY: 976079455550.dkr.ecr.us-east-1.amazonaws.com
   IMAGE_NAME: ${{ github.repository }}
@@ -108,24 +107,6 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Push image to ECR
-        run: |
-          git_hash=$(git rev-parse --short "$GITHUB_SHA")
-          docker buildx imagetools create \
-            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:$git_hash \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-
   # disabled until we make it 100% reliable and add more meaningful tests
   # playwright:
   #   runs-on: [self-hosted, new]
@@ -181,3 +162,26 @@ jobs:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
           bucket-region: us-east-1
+
+  publish_ecr:
+    needs: [build_ee]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to ECR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.ECR_REGISTRY }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Push image to ECR
+        if: github.event_name != 'pull_request'
+        run: |
+          git_hash=$(git rev-parse --short "$GITHUB_SHA")
+          docker buildx imagetools create \
+            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:$git_hash \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
