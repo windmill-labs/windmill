@@ -704,13 +704,13 @@
           "type_info": "Varchar"
         },
         {
-          "name": "openai_key",
+          "name": "error_handler",
           "ordinal": 11,
           "type_info": "Varchar"
         },
         {
-          "name": "error_handler",
-          "ordinal": 11,
+          "name": "openai_key",
+          "ordinal": 12,
           "type_info": "Varchar"
         }
       ],
@@ -720,6 +720,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -1235,7 +1236,6 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "Nativets",
                   "bun"
                 ]
               },
@@ -2122,7 +2122,6 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "Nativets",
                   "bun"
                 ]
               },
@@ -2537,7 +2536,7 @@
         },
         {
           "name": "openai_key",
-          "ordinal": 11,
+          "ordinal": 12,
           "type_info": "Varchar"
         }
       ],
@@ -2547,6 +2546,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2816,7 +2816,6 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "Nativets",
                   "bun"
                 ]
               },
@@ -3947,7 +3946,6 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "Nativets",
                   "bun"
                 ]
               },
