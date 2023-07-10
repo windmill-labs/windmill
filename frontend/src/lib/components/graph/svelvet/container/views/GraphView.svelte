@@ -75,7 +75,7 @@
 	onMount(() => {
 		// actualizes the d3 instance
 
-		const nodes = d3.select(`.zoomable-${canvasId}`).call(d3Zoom).on('dblclick.zoom', null)
+		const nodes = d3.select(`#zoomable-${canvasId}`).call(d3Zoom).on('dblclick.zoom', null)
 
 		if (!scroll) {
 			;[nodes].forEach((d3Instance) => {
@@ -123,7 +123,7 @@
 	}
 </script>
 
-<div class={`zoomable zoomable-${canvasId}`}>
+<div class="zoomable" id={`zoomable-${canvasId}`}>
 	<!-- This is the container that holds GraphView and we have disabled right click functionality to prevent a sticking behavior -->
 	<div id="graphview-container">
 		<div class={`Nodes Nodes-${canvasId}`} on:contextmenu|preventDefault>
