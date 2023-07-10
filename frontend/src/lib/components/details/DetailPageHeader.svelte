@@ -27,10 +27,10 @@
 <div class="border-b p-2 shadow-md">
 	<div class="mx-auto">
 		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8 items-center">
-			<div class="grow text-lg font-bold truncate px-2">
+			<div class="grow text-lg font-bold truncate px-2 w-24 sm:w-full">
 				{title}
 			</div>
-			<div class="flex gap-2 items-center">
+			<div class="flex gap-1 md:gap-2 items-center">
 				<Menu>
 					<svelte:fragment slot="items">
 						{#each menuItems as { label, Icon, onclick, color } (label)}
@@ -60,6 +60,16 @@
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
 						on:click={btn.buttonProps.onClick}
+						btnClasses="hidden md:block"
+					>
+						{btn.label}
+					</Button>
+					<Button
+						{...btn.buttonProps}
+						startIcon={{ icon: btn.buttonProps.startIcon }}
+						on:click={btn.buttonProps.onClick}
+						iconOnly
+						btnClasses="block md:hidden"
 					>
 						{btn.label}
 					</Button>
