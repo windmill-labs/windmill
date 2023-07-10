@@ -3,11 +3,11 @@ use crate::{db::DB, users::Authed, HTTP_CLIENT};
 use axum::{
     body::{Bytes, StreamBody},
     extract::{Extension, Path},
+    http::HeaderMap,
     response::IntoResponse,
     routing::post,
     Router,
 };
-
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error};
 
@@ -20,6 +20,7 @@ pub fn workspaced_service() -> Router {
 struct OpenAIKey {
     openai_key: Option<String>,
 }
+
 async fn proxy(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -70,7 +71,12 @@ async fn proxy(
     .await?;
     tx.commit().await?;
 
+    let mut headers = HeaderMap::new();
+    for (k, v) in resp.headers().iter() {
+        headers.insert(k, v.clone());
+    }
+
     let stream = resp.bytes_stream();
 
-    Ok(StreamBody::new(stream))
+    Ok((headers, StreamBody::new(stream)))
 }

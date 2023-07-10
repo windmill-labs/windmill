@@ -145,6 +145,23 @@
 		}
 	}
 
+	export function getSelectedCode(): string | undefined {
+		if (editor) {
+			const selection = editor.getSelection()
+			if (selection) {
+				return editor.getModel()?.getValueInRange(selection)
+			}
+		}
+	}
+
+	export function show(): void {
+		divEl?.classList.remove('hidden')
+	}
+
+	export function hide(): void {
+		divEl?.classList.add('hidden')
+	}
+
 	export function setCode(ncode: string, noHistory: boolean = false): void {
 		code = ncode
 		if (noHistory) {

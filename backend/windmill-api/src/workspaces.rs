@@ -67,7 +67,7 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
         .route("/edit_openai_key", post(edit_openai_key))
-        .route("/openai_key_exists", get(openai_key_exists) );
+        .route("/openai_key_exists", get(openai_key_exists) )
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]

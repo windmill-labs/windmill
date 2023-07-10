@@ -10,7 +10,6 @@
 		faCube,
 		faDollarSign,
 		faHistory,
-		faMagicWandSparkles,
 		faPlus,
 		faRotate,
 		faRotateLeft
@@ -38,8 +37,8 @@
 	import { capitalize } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import { ScriptGenDrawer } from './codeGen'
-	import { checkIfOpenAIAvailable } from './codeGen/lib'
+	import { ScriptGen } from './codeGen'
+	import type DiffEditor from './DiffEditor.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -58,6 +57,7 @@
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
+	export let diffEditor: DiffEditor | undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -138,12 +138,6 @@
 	}
 
 	let historyBrowserDrawerOpen = false
-
-	let scriptGenDrawer: Drawer
-
-	let openAIAvailable: boolean | undefined = undefined
-
-	$: checkIfOpenAIAvailable({ language: lang }).then((res) => (openAIAvailable = res))
 </script>
 
 {#if scriptPath}
@@ -338,8 +332,6 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<ScriptGenDrawer bind:drawer={scriptGenDrawer} {lang} {editor} />
-
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
 		<div
@@ -473,20 +465,7 @@
 				</div>
 			{/if}
 
-			{#if openAIAvailable}
-				<Button
-					title="Generate code from prompt"
-					btnClasses="!font-medium text-gray-600"
-					size="xs"
-					color="light"
-					spacingSize="md"
-					startIcon={{ icon: faMagicWandSparkles }}
-					on:click={scriptGenDrawer.openDrawer}
-					{iconOnly}
-				>
-					Ask AI
-				</Button>
-			{/if}
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} />
 
 			<!-- <Popover
 				notClickable

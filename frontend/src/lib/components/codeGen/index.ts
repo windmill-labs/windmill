@@ -1,1 +1,1 @@
-export { default as ScriptGenDrawer } from './ScriptGenDrawer.svelte'
+export { default as ScriptGen } from './ScriptGen.svelte'

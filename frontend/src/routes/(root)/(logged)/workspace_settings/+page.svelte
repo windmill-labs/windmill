@@ -873,9 +873,8 @@
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="OpenAI Credentials" primary={false} />
-			<h3 class="mt-2 text-gray-700">Secret API key</h3>
 			<div class="flex gap-2">
-				<input type="text" placeholder="sk-..." bind:value={openAIKey} />
+				<input type="text" placeholder="Secret API key" bind:value={openAIKey} />
 				<Button size="md" on:click={editOpenAIKey}>Save</Button>
 			</div>
 		{/if}
