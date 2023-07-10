@@ -1,79 +1,48 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
+	import { FlowService, JobService, type Flow } from '$lib/gen'
 	import {
 		canWrite,
-		copyToClipboard,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
 		encodeState
 	} from '$lib/utils'
-	import {
-		faArchive,
-		faCalendar,
-		faChevronDown,
-		faChevronUp,
-		faClipboard,
-		faCodeFork,
-		faEdit,
-		faFileExport,
-		faList,
-		faPlay,
-		faShare,
-		faTrash
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
+	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import CronInput from '$lib/components/CronInput.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import JobArgs from '$lib/components/JobArgs.svelte'
+	import { Alert, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import Icon from 'svelte-awesome'
-	import { slide } from 'svelte/transition'
 	import { sendUserToast } from '$lib/toast'
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import { FolderOpen, Archive, Trash, Server, Share } from 'lucide-svelte'
 
-	let userSettings: UserSettings
+	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
+	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
+	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
+	import InlineCodeCopy from '$lib/components/InlineCodeCopy.svelte'
+	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 
 	let flow: Flow | undefined
-	let schedule: Schedule | undefined
 	let can_write = false
-
 	let path = $page.params.path
 	let shareModal: ShareModal
+
+	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFlow()
-			loadSchedule()
-		}
-	}
-
-	async function loadSchedule() {
-		try {
-			let exists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path
-			})
-			if (exists) {
-				schedule = await ScheduleService.getSchedule({
-					workspace: $workspaceStore ?? '',
-					path
-				})
-			}
-		} catch (e) {
-			console.log('no primary schedule')
 		}
 	}
 
@@ -92,27 +61,13 @@
 		goto('/')
 	}
 
-	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
-		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
-			loadSchedule()
-		} catch (err) {
-			sendUserToast(`Cannot ` + (enabled ? 'disable' : 'enable') + ` schedule: ${err}`, true)
-			loadSchedule()
-		}
-	}
-
 	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	$: urlAsync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
-	$: urlSync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
+	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
+	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
 	let isValid = true
 	let loading = false
@@ -133,355 +88,210 @@
 		})
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
-	let scheduleEditor: ScheduleEditor
-
-	let viewWebhookCommand = false
 
 	let args = undefined
 
-	function curlCommand(async: boolean) {
-		return `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
-			args
-		)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run${
-			async ? '' : '_wait_result'
-		}/f/${flow?.path}`
-	}
-
-	let webhook: HTMLHeadElement
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
+	let runForm: RunForm
+
+	function getMainButtons(flow: Flow | undefined) {
+		if (!flow || $userStore?.operator) return []
+
+		const buttons: any = []
+		if (!$userStore?.operator) {
+			buttons.push({
+				label: 'Fork',
+				buttonProps: {
+					href: `/flows/add?template=${flow.path}`,
+					variant: 'border',
+					color: 'light',
+					size: 'xs',
+					disabled: !can_write,
+					startIcon: faCodeFork
+				}
+			})
+
+			buttons.push({
+				label: 'Edit',
+				buttonProps: {
+					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					variant: 'contained',
+					size: 'sm',
+					color: 'dark',
+					disabled: !can_write,
+					startIcon: faEdit
+				}
+			})
+		}
+		return buttons
+	}
+
+	function getMenuItems(flow: Flow | undefined) {
+		if (!flow || $userStore?.operator) return []
+
+		const menuItems: any = []
+
+		menuItems.push({
+			label: 'Share',
+			onclick: () => shareModal.openDrawer(flow?.path ?? '', 'flow'),
+			Icon: Share,
+			disabled: !can_write
+		})
+
+		menuItems.push({
+			label: 'Move/Rename',
+			onclick: () => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
+			Icon: FolderOpen
+		})
+
+		menuItems.push({
+			label: 'Deploy to staging/prod',
+			onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
+			Icon: Server
+		})
+
+		if (can_write) {
+			menuItems.push({
+				label: flow.archived ? 'Unarchive' : 'Archive',
+				onclick: () => flow?.path && archiveFlow(),
+				Icon: Archive,
+				color: 'red'
+			})
+			menuItems.push({
+				label: 'Delete',
+				onclick: () => flow?.path && deleteFlow(),
+				Icon: Trash,
+				color: 'red'
+			})
+		}
+		return menuItems
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Enter':
+				if (event.ctrlKey || event.metaKey) {
+					if (isValid) {
+						event.preventDefault()
+						runForm?.run()
+					} else {
+						sendUserToast('Please fix errors before running', true)
+					}
+				}
+				break
+		}
+	}
 </script>
-
-<ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
-
-<UserSettings bind:this={userSettings} scopes={[`run:flow/${flow?.path}`]} />
 
 <Skeleton
 	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
-
+<svelte:window on:keydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-
+<ShareModal bind:this={shareModal} />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
 		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadFlow()
-		loadSchedule()
 	}}
 />
 
-<CenteredPage>
-	{#if flow}
-		<div class="prose-sm mx-auto mt-6">
-			<div
-				class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4"
-			>
-				<div class="flex flex-row-reverse gap-2 h-full">
-					<Button
-						href="/flows/run/{path}"
-						variant="contained"
-						color="blue"
-						size="md"
-						startIcon={{ icon: faPlay }}
-					>
-						Run
-					</Button>
-					{#if !$userStore?.operator}
-						<Button
-							href="/flows/edit/{path}?nodraft=true&args={encodeState(args)}"
-							variant="contained"
-							color="blue"
-							size="md"
-							startIcon={{ icon: faEdit }}
-							disabled={!can_write}
-						>
-							Edit
-						</Button>
-						<Button
-							href="/flows/add?template={flow.path}"
-							variant="border"
-							color="blue"
-							size="md"
-							startIcon={{ icon: faCodeFork }}
-						>
-							Fork
-						</Button>
-					{/if}
-					<Button
-						href="/runs/{flow.path}"
-						variant="border"
-						color="blue"
-						size="md"
-						startIcon={{ icon: faList }}
-					>
-						View runs
-					</Button>
-				</div>
-				<h1 class="mb-1 truncate grow">
-					{defaultIfEmptyString(flow.summary, flow.path)}
-				</h1>
-			</div>
-			{#if !emptyString(flow.summary)}
-				<span class="text-lg font-semibold">{flow.path}</span>
-			{/if}
-		</div>
-	{/if}
-	<ShareModal bind:this={shareModal} />
+{#if flow}
+	<DetailPageLayout isOperator={$userStore?.operator}>
+		<svelte:fragment slot="header">
+			<DetailPageHeader
+				mainButtons={getMainButtons(flow)}
+				menuItems={getMenuItems(flow)}
+				title={defaultIfEmptyString(flow.summary, flow.path)}
+			/>
+		</svelte:fragment>
+		<svelte:fragment slot="form">
+			<SplitPanesWrapper>
+				<Splitpanes horizontal>
+					<Pane size={60} minSize={20}>
+						<div class="p-8 w-full max-w-3xl mx-auto gap-2">
+							<div class="flex flex-col gap-0.5">
+								{#if !emptyString(flow.summary)}
+									<span class="text-lg font-semibold">{flow.path}</span>
+								{/if}
+								<span class="text-sm text-gray-600">
+									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+								</span>
 
-	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
-		<Skeleton
-			loading={!flow}
-			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
-		/>
-		{#if flow}
-			<div>
-				<span class="text-sm text-gray-600">
-					Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+								{#if flow.archived}
+									<div class="" />
+									<Alert type="error" title="Archived">This flow was archived</Alert>
+								{/if}
 
-					{#if schedule}
-						<a href="#primary-schedule" class="ml-2">
-							<Badge color="dark-blue">Primary schedule</Badge>
-						</a>{/if}</span
-				>
-
-				{#if flow.archived}
-					<div class="mt-2" />
-					<Alert type="error" title="Archived">This flow was archived</Alert>
-				{/if}
-
-				<div class="flex gap-2 flex-wrap mt-2">
-					<!-- <Button
-						target="_blank"
-						href={flowToHubUrl(flow).toString()}
-						variant="border"
-						color="light"
-						size="xs"
-						startIcon={{ icon: faGlobe }}
-					>
-						Publish to Hub
-					</Button> -->
-					<Button
-						on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
-						variant="border"
-						color="light"
-						size="xs"
-						startIcon={{ icon: faShare }}
-						disabled={!can_write}
-					>
-						Share
-					</Button>
-					<Button
-						on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
-						variant="border"
-						color="light"
-						size="xs"
-						startIcon={{ icon: faCalendar }}
-					>
-						New Schedule
-					</Button>
-					<Button
-						on:click={() => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow')}
-						variant="border"
-						color="light"
-						size="xs"
-						startIcon={{ icon: faEdit }}
-					>
-						Move/Rename
-					</Button>
-					<Button
-						on:click={() => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow')}
-						variant="border"
-						color="light"
-						size="xs"
-						startIcon={{ icon: faFileExport }}
-					>
-						Deploy to staging/prod
-					</Button>
-					<Button
-						btnClasses="ml-2"
-						variant="border"
-						size="xs"
-						on:click={() => webhook.scrollIntoView()}>Webhook</Button
-					>
-				</div>
-			</div>
-			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
-				<div class="col-span-2 box">
-					<RunForm
-						{loading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={flow}
-						runAction={runFlow}
-						bind:args
-						viewCliRun
-						isFlow
-					/>
-				</div>
-				{#if !emptyString(flow.description)}
-					<div class="box overflow-auto break-words whitespace-pre-wrap">
-						<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
-					</div>
-				{/if}
-			</div>
-			<div class="mt-4">
-				<FlowViewer {flow} noSummary={true} />
-
-				<h2 bind:this={webhook} class="mt-10 text-gray-700 pb-1 mb-3 border-b"
-					>Webhooks<Tooltip>
-						Pass the input as a json payload, the token as a Bearer token or as query arg
-						`?token=XXX` and pass as header: 'Content-Type: application/json'. The webhook also
-						support 'x-www-form-urlencoded' encoded payloads <a
-							href="https://www.windmill.dev/docs/core_concepts/webhooks">See docs</a
-						></Tooltip
-					></h2
-				>
-				<div class="box max-w-5xl">
-					<div class="flex w-full flex-justify-between mb-1">
-						<a
-							on:click={(e) => {
-								e.preventDefault()
-								copyToClipboard($page.url.protocol + '//' + urlAsync)
-							}}
-							href={$page.url.protocol + '//' + urlAsync}
-							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
-						>
-							{urlAsync}
-							<span class="text-gray-700 ml-2">
-								<Icon data={faClipboard} />
-							</span>
-						</a>
-						<Badge>UUID/Async</Badge>
-					</div>
-					<div class="mb-2 w-full flex flex-justify-between">
-						<a
-							on:click={(e) => {
-								e.preventDefault()
-								copyToClipboard($page.url.protocol + '//' + urlSync)
-							}}
-							href={$page.url.protocol + '//' + urlSync}
-							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
-						>
-							{urlSync}
-							<span class="text-gray-700 ml-2">
-								<Icon data={faClipboard} />
-							</span>
-						</a>
-						<Badge>Result/Sync</Badge>
-					</div>
-					<div class="flex flex-row-reverse">
-						<Button size="xs" on:click={userSettings.openDrawer}
-							>Create a Webhook-specific Token <Tooltip
-								>The token will have a scope such that it can only be used to trigger this flow. It
-								is safe to share as it cannot be used to impersonate you.</Tooltip
-							></Button
-						>
-					</div>
-					<div class="flex flex-col gap-2 mt-2">
-						<div class="flex">
-							<Button
-								color="light"
-								size="lg"
-								endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-								on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-							>
-								CURL
-							</Button>
-						</div>
-						{#if viewWebhookCommand}
-							<div transition:slide|local class="px-4">
-								<Tabs selected="async">
-									<Tab value="async">UUID/Async</Tab>
-									<Tab value="sync">Result/Sync</Tab>
-									<svelte:fragment slot="content">
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
-											><TabContent value="async"
-												>{curlCommand(true)} <span
-													on:click={() => copyToClipboard(curlCommand(true))}
-													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-												><br /><br />//^ returns an UUID. Fetch result until completed == true<br
-												/>curl -H "Authorization: Bearer $TOKEN" {$page.url.protocol}//{$page.url
-													.hostname}/api/w/{$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID</TabContent
-											><TabContent value="sync"
-												>{curlCommand(false)} <span
-													on:click={() => copyToClipboard(curlCommand(false))}
-													class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
-												></TabContent
-											></pre
-										>
-									</svelte:fragment>
-								</Tabs>
+								{#if !emptyString(flow.description)}
+									<div class=" break-words whitespace-pre-wrap text-sm">
+										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
+									</div>
+								{/if}
 							</div>
-						{/if}
-					</div>
-				</div>
 
-				{#if schedule}
-					<div class="mt-10">
-						<h2
-							id="primary-schedule"
-							class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
-							><div>Primary Schedule </div>
-							<Badge color="gray">{schedule.schedule}</Badge>
-							<Toggle
-								checked={schedule.enabled}
-								on:change={(e) => {
-									if (can_write) {
-										setScheduleEnabled(path, e.detail)
-									} else {
-										sendUserToast('not enough permission', true)
-									}
-								}}
-							/>
-							<Button size="xs" on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
-								>Edit schedule</Button
-							>
-						</h2>
-						<div class="max-w-lg">
-							<JobArgs args={schedule.args ?? {}} />
-						</div>
-						<div class="box max-w-5xl mt-2">
-							<CronInput
-								disabled={true}
-								schedule={schedule.schedule}
-								timezone={schedule.timezone}
+							<RunForm
+								viewKeybinding
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={flow}
+								runAction={runFlow}
+								bind:args
+								isFlow
+								bind:this={runForm}
 							/>
 						</div>
-					</div>
-				{/if}
+					</Pane>
+					<Pane size={40} minSize={20}>
+						<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+					</Pane>
+				</Splitpanes>
+			</SplitPanesWrapper>
+		</svelte:fragment>
+		<svelte:fragment slot="save_inputs">
+			<SavedInputs
+				flowPath={flow?.path}
+				{isValid}
+				args={args ?? {}}
+				on:selected_args={(e) => {
+					runForm?.setArgs(JSON.parse(JSON.stringify(e.detail)))
+				}}
+			/>
+		</svelte:fragment>
+		<svelte:fragment slot="details">
+			<div class="p-1">
+				<SchemaViewer schema={flow.schema} />
 			</div>
-			<div>
-				{#if can_write}
-					<h2 class="mt-4">Danger zone</h2>
-					<div class="flex gap-2 mt-6">
-						<Button
-							on:click={() => flow?.path && archiveFlow()}
-							variant="border"
-							color="red"
-							size="md"
-							startIcon={{ icon: faArchive }}
-							disabled={!can_write}
-						>
-							{flow.archived ? 'Unarchive' : 'Archive'}
-						</Button>
-						<Button
-							on:click={() => flow?.path && deleteFlow()}
-							variant="border"
-							color="red"
-							size="md"
-							startIcon={{ icon: faTrash }}
-							disabled={!can_write}
-						>
-							Delete
-						</Button>
-					</div>
-				{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="webhooks">
+			<WebhooksPanel
+				scopes={[`run:flow/${flow?.path}`]}
+				webhooks={{
+					async: {
+						path: urlAsync
+					},
+					sync: {
+						path: urlSync
+					}
+				}}
+				isFlow={true}
+				{args}
+			/>
+		</svelte:fragment>
+		<svelte:fragment slot="schedule">
+			<RunPageSchedules isFlow={true} path={flow.path ?? ''} {can_write} />
+		</svelte:fragment>
+		<svelte:fragment slot="cli">
+			<div class="p-2">
+				<InlineCodeCopy content={cliCommand} />
+				<CliHelpBox />
 			</div>
-		{/if}
-	</div>
-</CenteredPage>
+		</svelte:fragment>
+	</DetailPageLayout>
+{/if}

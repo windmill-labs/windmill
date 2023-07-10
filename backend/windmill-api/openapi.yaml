@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.125.1
+  version: 1.126.0
   title: Windmill API
 
   contact:
@@ -4439,6 +4439,15 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: schedule list
@@ -5684,6 +5693,8 @@ components:
           type: string
           format: date-time
         is_public:
+          type: boolean
+        success:
           type: boolean
       required:
         - id

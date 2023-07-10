@@ -342,7 +342,9 @@
 						script.language = Script.language.BUN
 					}}
 				>
-					<LanguageIcon lang="bun" /><span class="ml-2 py-2">Typescript (Bun, experimental)</span>
+					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2">
+						Typescript (Bun, experimental)
+					</span>
 				</Button>
 
 				<!-- <Button

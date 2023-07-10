@@ -34,3 +34,9 @@ pub fn parse_python(code: &str) -> String {
 pub fn parse_sql(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_pgsql_sig(code))
 }
+
+
+#[wasm_bindgen]
+pub fn parse_mysql(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_mysql_sig(code))
+}

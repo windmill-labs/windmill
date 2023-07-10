@@ -20,7 +20,7 @@
 				workspace: $workspaceStore,
 				path: $page.params.path
 			})
-			const url = new URL($page.url.origin + '/scripts/run/' + script.hash)
+			const url = new URL($page.url.origin + '/scripts/get/' + script.hash)
 			$page.url.searchParams.forEach((v, k) => url.searchParams.append(k, v))
 			await goto(url)
 		} else {

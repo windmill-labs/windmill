@@ -66,7 +66,17 @@
 
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 
-	$: outerDiv && css?.multiselect?.style && outerDiv.setAttribute('style', css?.multiselect?.style)
+	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
+		outerDiv.setAttribute('style', style)
+		// find ul in portalRef and set style
+		const ul = portalRef.querySelector('ul')
+		ul?.setAttribute('style', style)
+	}
+
+	$: outerDiv &&
+		portalRef &&
+		css?.multiselect?.style &&
+		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
 
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
@@ -131,17 +141,13 @@
 						open = false
 					}}
 				>
-					<div slot="option" let:option class="hover:bg-gray-200 p-1 cursor-pointer z-50">
+					<div slot="option" let:option>
 						{option}
 					</div>
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
-						<div
-							bind:this={portalRef}
-							class="bg-white w-full border shadow-md rounded-md"
-							style={`min-width: ${w}px; `}
-						/>
+						<div bind:this={portalRef} class="multiselect" style={`min-width: ${w}px;`} />
 					</div>
 				</Portal>
 			</div>
