@@ -98,13 +98,9 @@ RUN apt-get update \
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
-    tar -zxvf helm-v3.10.1-linux-amd64.tar.gz  && \
-    mv linux-amd64/helm /usr/local/bin/helm &&\
+    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
+    mv linux-$arch/helm /usr/local/bin/helm &&\
     chmod +x /usr/local/bin/helm
-
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
@@ -123,7 +119,10 @@ RUN set -eux; \
     esac; \
     apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
-    ./aws/install && rm $zip
+    ./aws/install && rm awscliv2.zip
+
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&\
+    apt-get install -y nodejs
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
