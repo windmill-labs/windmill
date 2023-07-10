@@ -189,5 +189,5 @@ jobs:
         run: |
           git_hash=$(git rev-parse --short "$GITHUB_SHA")
           docker buildx imagetools create \
-            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:$git_hash \
+            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
