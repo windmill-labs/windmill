@@ -32,7 +32,7 @@
 		go: GoIcon,
 		python3: PythonIcon,
 		deno: TypeScriptIcon,
-		// graphql: TypeScriptIcon,
+		graphql: TypeScriptIcon,
 		bun: TypeScriptIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
