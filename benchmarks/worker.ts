@@ -46,283 +46,260 @@ let total_spawned = 0;
 let start_time: number;
 let complete_timeout = Infinity;
 
-if (config.scriptPattern == "noop") {
-  const n = 10000;
-  const res = await fetch(
-    config.server +
-      "/api/w/" +
-      config.workspace_id +
-      `/jobs/add_noop_jobs/${n}`,
-    {
-      method: "POST",
-      headers: { ["Authorization"]: "Bearer " + config.token },
-    }
-  );
-  const uuids = await res.json();
-  outstanding.push(...uuids);
-  total_spawned += n;
-  self.postMessage({ type: "jobs_sent", jobs_sent: total_spawned });
+start_time = Date.now();
+
+self.onmessage = (evt) => {
   cont = false;
-  self.onmessage = (evt) => {
-    cont = false;
-    complete_timeout = evt.data;
-    start_time = Date.now();
-  };
-} else {
-  start_time = Date.now();
+  complete_timeout = evt.data;
+};
 
-  self.onmessage = (evt) => {
-    cont = false;
-    complete_timeout = evt.data;
-  };
+const updateStatusInterval = setInterval(() => {
+  self.postMessage({ type: "jobs_sent", jobs_sent: total_spawned });
+}, 100);
 
-  const updateStatusInterval = setInterval(() => {
-    self.postMessage({ type: "jobs_sent", jobs_sent: total_spawned });
-  }, 100);
+while (cont) {
+  const queue_length = (
+    await (
+      await fetch(
+        config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+        { headers: { ["Authorization"]: "Bearer " + config.token } }
+      )
+    ).json()
+  ).database_length;
+  if (queue_length > 2500) {
+    console.log(
+      `queue length: ${queue_length} > 2500. waiting...                                                            `
+    );
+    await sleep(0.5);
+    continue;
+  }
 
-  while (cont) {
-    const queue_length = (
-      await (
-        await fetch(
-          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } }
-        )
-      ).json()
-    ).database_length;
-    if (queue_length > 2500) {
-      console.log(
-        `queue length: ${queue_length} > 2500. waiting...                                                            `
-      );
-      await sleep(0.5);
-      continue;
-    }
-
-    if (
-      (total_spawned * 1000) / (Date.now() - start_time) >
-      config.per_worker_throughput
-    ) {
-      console.log("at maximum throughput. waiting...");
-      await sleep(0.1);
-      continue;
-    }
-    total_spawned++;
-    if (total_spawned > config.max_per_worker) {
-      break;
-    }
-    let uuid: string;
-    if (config.custom) {
-      await evaluate(config.custom);
-      continue;
-    } else if (config.useFlows) {
-      let payload: api.FlowPreview;
-      if (config.flowPattern == "branchone") {
-        payload = {
-          path: "branchone",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
-                },
+  if (
+    (total_spawned * 1000) / (Date.now() - start_time) >
+    config.per_worker_throughput
+  ) {
+    console.log("at maximum throughput. waiting...");
+    await sleep(0.1);
+    continue;
+  }
+  total_spawned++;
+  if (total_spawned > config.max_per_worker) {
+    break;
+  }
+  let uuid: string;
+  if (config.custom) {
+    await evaluate(config.custom);
+    continue;
+  } else if (config.useFlows) {
+    let payload: api.FlowPreview;
+    if (config.flowPattern == "branchone") {
+      payload = {
+        path: "branchone",
+        args: {},
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                input_transforms: {},
+                language: api.RawScript.language.DENO,
+                type: "rawscript",
+                content:
+                  'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
               },
-              {
-                id: "b",
-                value: {
-                  type: "branchone",
-                  branches: [],
-                  default: [
-                    {
-                      id: "c",
-                      value: {
-                        input_transforms: {
-                          x: {
-                            type: "javascript",
-                            expr: "results.a",
-                          },
+            },
+            {
+              id: "b",
+              value: {
+                type: "branchone",
+                branches: [],
+                default: [
+                  {
+                    id: "c",
+                    value: {
+                      input_transforms: {
+                        x: {
+                          type: "javascript",
+                          expr: "results.a",
                         },
-                        language: api.RawScript.language.DENO,
-                        type: "rawscript",
-                        content: "export function main(x: string){ return x; }",
                       },
+                      language: api.RawScript.language.DENO,
+                      type: "rawscript",
+                      content: "export function main(x: string){ return x; }",
                     },
-                  ],
-                },
+                  },
+                ],
               },
-            ],
-          },
-        };
-      } else if (config.flowPattern == "branchallparrallel") {
-        payload = {
-          path: "branchall",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
-                },
+            },
+          ],
+        },
+      };
+    } else if (config.flowPattern == "branchallparrallel") {
+      payload = {
+        path: "branchall",
+        args: {},
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                input_transforms: {},
+                language: api.RawScript.language.DENO,
+                type: "rawscript",
+                content:
+                  'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
               },
-              {
-                id: "b",
-                value: {
-                  type: "branchall",
-                  parallel: true,
-                  branches: [
-                    {
-                      modules: [
-                        {
-                          id: "c",
-                          value: {
-                            input_transforms: {
-                              x: {
-                                type: "javascript",
-                                expr: "results.a",
-                              },
+            },
+            {
+              id: "b",
+              value: {
+                type: "branchall",
+                parallel: true,
+                branches: [
+                  {
+                    modules: [
+                      {
+                        id: "c",
+                        value: {
+                          input_transforms: {
+                            x: {
+                              type: "javascript",
+                              expr: "results.a",
                             },
-                            language: api.RawScript.language.DENO,
-                            type: "rawscript",
-                            content:
-                              "export function main(x: string){ return x; }",
                           },
+                          language: api.RawScript.language.DENO,
+                          type: "rawscript",
+                          content:
+                            "export function main(x: string){ return x; }",
                         },
-                      ],
-                    },
-                    {
-                      modules: [
-                        {
-                          id: "d",
-                          value: {
-                            input_transforms: {
-                              x: {
-                                type: "javascript",
-                                expr: "results.a",
-                              },
+                      },
+                    ],
+                  },
+                  {
+                    modules: [
+                      {
+                        id: "d",
+                        value: {
+                          input_transforms: {
+                            x: {
+                              type: "javascript",
+                              expr: "results.a",
                             },
-                            language: api.RawScript.language.DENO,
-                            type: "rawscript",
-                            content:
-                              "export function main(x: string){ return x; }",
                           },
+                          language: api.RawScript.language.DENO,
+                          type: "rawscript",
+                          content:
+                            "export function main(x: string){ return x; }",
                         },
-                      ],
-                    },
-                  ],
-                },
+                      },
+                    ],
+                  },
+                ],
               },
-            ],
-          },
-        };
-      } else {
-        payload = {
-          path: "2steps",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
-                },
+            },
+          ],
+        },
+      };
+    } else {
+      payload = {
+        path: "2steps",
+        args: {},
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                input_transforms: {},
+                language: api.RawScript.language.DENO,
+                type: "rawscript",
+                content:
+                  'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
               },
-              {
-                id: "b",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
-                },
+            },
+            {
+              id: "b",
+              value: {
+                input_transforms: {},
+                language: api.RawScript.language.DENO,
+                type: "rawscript",
+                content:
+                  'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
               },
-            ],
-          },
-        };
-      }
-      uuid = await windmill.JobService.runFlowPreview({
+            },
+          ],
+        },
+      };
+    }
+    uuid = await windmill.JobService.runFlowPreview({
+      workspace: config.workspace_id,
+      requestBody: payload,
+    });
+  } else {
+    let payload: api.Preview;
+    if (config.scriptPattern == "httpversion") {
+      payload = {
+        path: "httpversion",
+        kind: "http",
+        args: {
+          url: "http://localhost:8000/api/version",
+        },
+      };
+    } else if (config.scriptPattern == "httpslow") {
+      payload = {
+        path: "httpversion",
+        kind: "http",
+        args: {
+          url: "https://hub.dummyapis.com/delay?seconds=10",
+        },
+      };
+    } else if (config.scriptPattern == "noop") {
+      payload = {
+        path: "noop",
+        kind: "noop",
+        args: {},
+      };
+    } else if (config.scriptPattern == "identity") {
+      payload = {
+        path: "identity",
+        kind: "identity",
+        args: {
+          identity: "itsme",
+        },
+      };
+    } else if (config.scriptPattern == "postgresql") {
+      payload = {
+        path: "postgresql",
+        language: "postgresql",
+        args: {
+          query: "SELECT email FROM usr",
+          database_url:
+            "postgres://postgres:changeme@localhost:5432/windmill",
+        },
+      };
+    } else {
+      payload = {
+        path: "denosimple",
+        language: api.Preview.language.DENO,
+        content:
+          'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+        args: {},
+      };
+    }
+    try {
+      uuid = await windmill.JobService.runScriptPreview({
         workspace: config.workspace_id,
         requestBody: payload,
       });
-    } else {
-      let payload: api.Preview;
-      if (config.scriptPattern == "httpversion") {
-        payload = {
-          path: "httpversion",
-          kind: "http",
-          args: {
-            url: "http://localhost:8000/api/version",
-          },
-        };
-      } else if (config.scriptPattern == "httpslow") {
-        payload = {
-          path: "httpversion",
-          kind: "http",
-          args: {
-            url: "https://hub.dummyapis.com/delay?seconds=10",
-          },
-        };
-      } else if (config.scriptPattern == "noop") {
-        payload = {
-          path: "noop",
-          kind: "noop",
-          args: {},
-        };
-      } else if (config.scriptPattern == "identity") {
-        payload = {
-          path: "identity",
-          kind: "identity",
-          args: {
-            identity: "itsme",
-          },
-        };
-      } else if (config.scriptPattern == "postgresql") {
-        payload = {
-          path: "postgresql",
-          language: "postgresql",
-          args: {
-            query: "SELECT email FROM usr",
-            database_url:
-              "postgres://postgres:changeme@localhost:5432/windmill",
-          },
-        };
-      } else {
-        payload = {
-          path: "denosimple",
-          language: api.Preview.language.DENO,
-          content:
-            'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
-          args: {},
-        };
-      }
-      try {
-        uuid = await windmill.JobService.runScriptPreview({
-          workspace: config.workspace_id,
-          requestBody: payload,
-        });
-      } catch (e) {
-        console.error("error running script: " + e.body);
-        Deno.exit(1);
-      }
+    } catch (e) {
+      console.error("error running script: " + e.body);
+      Deno.exit(1);
     }
-    if (!config.continous) outstanding.push(uuid);
   }
-
-  clearInterval(updateStatusInterval);
+  if (!config.continous) outstanding.push(uuid);
 }
+
+clearInterval(updateStatusInterval);
+
 
 const end_time = Date.now() + complete_timeout;
 
@@ -340,59 +317,51 @@ async function getQueueCount() {
   ).database_length;
 }
 
-if (config.scriptPattern == "noop") {
-  let queue_length = await getQueueCount();
-  while (queue_length > 0 && Date.now() < end_time) {
-    await Deno.stdout.write(enc(`queue length: ${queue_length}\r`));
-    queue_length = await getQueueCount();
-  }
-} else {
-  while (outstanding.length > 0 && Date.now() < end_time) {
-    await Deno.stdout.write(
-      enc("\rwaiting for jobs to complete: " + outstanding.length + "\n")
-    );
-    const uuid = outstanding.shift()!;
+while (outstanding.length > 0 && Date.now() < end_time) {
+  await Deno.stdout.write(
+    enc("\rwaiting for jobs to complete: " + outstanding.length + "\n")
+  );
+  const uuid = outstanding.shift()!;
 
-    let r: Job;
+  let r: Job;
+  try {
+    r = await windmill.JobService.getJob({
+      workspace: config.workspace_id,
+      id: uuid,
+    });
+  } catch (e) {
+    console.log("job not found: " + uuid + " " + e.message);
+    continue;
+  }
+  if (r.type == "QueuedJob") {
+    outstanding.push(uuid);
+    await Deno.stdout.write(
+      enc(`uuid: ${uuid}, queue length: ${await getQueueCount()}\r`)
+    );
+  } else {
+    r = r as api.CompletedJob;
     try {
-      r = await windmill.JobService.getJob({
-        workspace: config.workspace_id,
-        id: uuid,
-      });
-    } catch (e) {
-      console.log("job not found: " + uuid + " " + e.message);
-      continue;
-    }
-    if (r.type == "QueuedJob") {
-      outstanding.push(uuid);
-      await Deno.stdout.write(
-        enc(`uuid: ${uuid}, queue length: ${await getQueueCount()}\r`)
-      );
-    } else {
-      r = r as api.CompletedJob;
-      try {
-        if (
-          !["httpversion", "identity", "httpslow", "noop"].includes(
-            config.scriptPattern
-          ) &&
-          r.result != uuid
-        ) {
-          console.log(
-            "job did not return correct UUID: " +
-              r.result +
-              " != " +
-              uuid +
-              "job: \n" +
-              JSON.stringify(r, null, 2)
-          );
-          incorrect_results++;
-        } else {
-          // console.log(r.result);
-        }
-      } catch (e) {
-        console.log("error during wait: ", e);
-        outstanding.push(uuid);
+      if (
+        !["httpversion", "identity", "httpslow", "noop"].includes(
+          config.scriptPattern
+        ) &&
+        r.result != uuid
+      ) {
+        console.log(
+          "job did not return correct UUID: " +
+            r.result +
+            " != " +
+            uuid +
+            "job: \n" +
+            JSON.stringify(r, null, 2)
+        );
+        incorrect_results++;
+      } else {
+        // console.log(r.result);
       }
+    } catch (e) {
+      console.log("error during wait: ", e);
+      outstanding.push(uuid);
     }
   }
 }
