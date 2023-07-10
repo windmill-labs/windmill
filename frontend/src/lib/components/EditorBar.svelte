@@ -57,7 +57,7 @@
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
-	export let diffEditor: DiffEditor | undefined
+	export let diffEditor: DiffEditor | undefined = undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
