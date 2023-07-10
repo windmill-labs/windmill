@@ -143,6 +143,7 @@ jobs:
   deploy_s3:
     needs: [build_ee]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -166,6 +167,7 @@ jobs:
   publish_ecr:
     needs: [build_ee]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
