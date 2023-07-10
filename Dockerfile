@@ -95,6 +95,35 @@ RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
+    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
+    mv linux-$arch/helm /usr/local/bin/helm &&\
+    chmod +x /usr/local/bin/helm
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    case "$arch" in \
+    'amd64') \
+    zip='awscli-exe-linux-x86_64.zip'; \
+    ;; \
+    'arm64') \
+    zip='awscli-exe-linux-aarch64.zip'; \
+    ;; \
+    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
+    esac; \
+    apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && rm awscliv2.zip
+
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&\
+    apt-get install -y nodejs
+
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
     unzip -p rclone.zip rclone-v1.60.1-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
@@ -102,7 +131,6 @@ RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    url=; \
     case "$arch" in \
     'amd64') \
     targz='go1.19.3.linux-amd64.tar.gz'; \
