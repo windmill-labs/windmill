@@ -42,7 +42,7 @@
 				await RawAppService.updateRawApp({
 					workspace: $workspaceStore ?? '',
 					path,
-					requestBody: { value: detail?.[0] }
+					requestBody: { value: detail?.[0], path: app.path, summary: app.summary }
 				})
 				goto(`/apps/get_raw/${version + 1}/${path}`)
 			}}
