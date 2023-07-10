@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.125.1"
+version = "1.127.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.125.1"
+version = "1.127.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -36,6 +36,7 @@ incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+benchmark = ["windmill-api/benchmark"]
 
 [dependencies]
 anyhow.workspace = true
@@ -178,6 +179,6 @@ serde-wasm-bindgen = "0.4"
 wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
 getrandom = "0.2"
-tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4"]}
+tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1"]}
 postgres-native-tls = "^0"
 native-tls = "^0"

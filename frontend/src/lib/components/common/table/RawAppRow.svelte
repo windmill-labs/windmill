@@ -5,13 +5,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faEdit,
-		faEye,
-		faFileExport,
-		faShare,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -87,25 +81,11 @@
 					</div>
 				{/if}
 			{/if}
-			<Button
-				href="/apps/get_raw/{version}/{path}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				View
-			</Button>
 		</span>
 		<Dropdown
 			placement="bottom-end"
 			dropdownItems={() => {
 				return [
-					{
-						displayName: 'View',
-						icon: faEye,
-						href: `/apps/get/${path}`
-					},
 					{
 						displayName: 'Move/Rename',
 						icon: faFileExport,

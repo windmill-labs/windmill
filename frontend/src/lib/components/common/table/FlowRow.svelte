@@ -12,10 +12,8 @@
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
-		faEye,
 		faFileExport,
 		faList,
-		faPlay,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -68,7 +66,7 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 <Row
-	href={`/flows/run/${path}`}
+	href="/flows/get/{path}?workspace={$workspaceStore}"
 	kind="flow"
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -79,12 +77,12 @@
 	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
-
 		{#if archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
+		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
+		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -115,28 +113,6 @@
 					</div>
 				{/if}
 			{/if}
-
-			{#if !draft_only}
-				<Button
-					href="/flows/get/{path}?workspace={$workspaceStore}"
-					color="light"
-					variant="border"
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faEye }}
-				>
-					Detail
-				</Button>
-				<Button
-					href="/flows/run/{path}"
-					color="dark"
-					size="xs"
-					spacingSize="md"
-					endIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
-			{/if}
 		</span>
 
 		<Dropdown
@@ -163,12 +139,6 @@
 					]
 				}
 				return [
-					{
-						displayName: 'Edit',
-						icon: faEdit,
-						href: `/flows/edit/${path}?nodraft=true`,
-						disabled: !canWrite || archived
-					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,

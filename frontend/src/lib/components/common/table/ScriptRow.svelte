@@ -13,22 +13,20 @@
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
-		faEye,
 		faFileExport,
 		faList,
-		faPlay,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
-	import LanguageBadge from './LanguageBadge.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { LanguageIcon } from '../languageIcons'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -86,7 +84,7 @@
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <Row
-	href={`/scripts/run/${hash}`}
+	href="/scripts/get/{hash}?workspace={$workspaceStore}"
 	kind="script"
 	{marked}
 	{path}
@@ -97,8 +95,6 @@
 	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
 		{#if lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
@@ -107,7 +103,11 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 
-		<LanguageBadge {language} />
+		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
+		<div class="w-8 center-center">
+			<LanguageIcon lang={language} width={12} height={12} />
+		</div>
 	</svelte:fragment>
 
 	<svelte:fragment slot="actions">
@@ -139,28 +139,6 @@
 					</div>
 				{/if}
 			{/if}
-
-			{#if !draft_only}
-				<Button
-					href="/scripts/get/{hash}?workspace={$workspaceStore}"
-					color="light"
-					variant="border"
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faEye }}
-				>
-					Detail
-				</Button>
-				<Button
-					href="/scripts/run/{hash}"
-					color="dark"
-					size="xs"
-					spacingSize="md"
-					endIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
-			{/if}
 		</span>
 		<Dropdown
 			placement="bottom-end"
@@ -186,12 +164,6 @@
 					]
 				}
 				return [
-					{
-						displayName: 'Edit',
-						icon: faEdit,
-						href: `/scripts/edit/${path}`,
-						disabled: !canWrite || archived
-					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,
