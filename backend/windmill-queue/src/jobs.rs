@@ -10,7 +10,7 @@ use std::{collections::HashMap, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
-use chrono::{Duration};
+use chrono::{Duration, DateTime, Utc};
 use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
@@ -90,11 +90,6 @@ const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 
 const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
-
-// TODO(gbouv): Discuss decent default values with Ruben
-const DEFAULT_JOB_CONCURRENT_LIMIT: i32 = 10;
-const DEFAULT_JOB_CONCURRENCY_TIME_WINDOW_SECS: i32 = 5;
-const JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS: i64 = 10;
 
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
@@ -695,25 +690,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     // let rs = rd_string(2);
     // let instant = Instant::now();
 
-    let mut script_path_blocklist: Vec<String> = Vec::new();
     loop {
-        // at each iteration, we need to ignore the script paths that have already been
-        // pulled and for which the concurrency limit has been reached. Otherwise each
-        // single worker will loop indefinitely here until the concurrency limit is not
-        // reached anymore
-        let cloned_sript_path_blocklist = script_path_blocklist.clone();
-        let mut script_path_filter = String::new();
-        if !cloned_sript_path_blocklist.is_empty() {
-            script_path_filter.push_str(&format!(
-                " AND script_path NOT IN ({})",
-                cloned_sript_path_blocklist
-                    .into_iter()
-                    .map(|x| format!("'{x}'"))
-                    .collect::<Vec<String>>()
-                    .join(",")
-            ));
-        }
-        let job = pull_single_job_and_mark_as_running_no_concurrency_limit(db, final_workspaces_filter, script_path_filter.as_str(), rsmq.clone()).await?;
+        let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
+        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(tx, final_workspaces_filter, rsmq.clone()).await?;
 
         if job.is_none() {
             return Ok(None);
@@ -721,82 +700,120 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job.unwrap();
-        if !pulled_job.script_path.is_none() {
-            let job_script_path = pulled_job.script_path.clone().unwrap();
-            script_path_blocklist.push(job_script_path.clone());
-
-            let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap_or(DEFAULT_JOB_CONCURRENT_LIMIT);
-            let job_custom_concurrency_time_window_s = pulled_job.concurrency_time_window_s.unwrap_or(DEFAULT_JOB_CONCURRENCY_TIME_WINDOW_SECS);
-            
-            let concurrent_jobs_for_this_script = sqlx::query_scalar!(
-                "SELECT COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count
-                FROM
-                    (SELECT script_path, COUNT(*) as completed_count
-                    FROM completed_job
-                    WHERE script_path = $1 AND started_at > (now() - INTERVAL '1 second' * $2)
-                    GROUP BY script_path) as j
-                FULL OUTER JOIN
-                    (SELECT script_path, COUNT(*) as running_count
-                    FROM queue
-                    WHERE script_path = $1 AND running = true
-                    GROUP BY script_path) as q
-                ON q.script_path = j.script_path",
-                job_script_path,
-                f64::from(job_custom_concurrency_time_window_s),
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(0);
-
-            if concurrent_jobs_for_this_script > i64::from(job_custom_concurrent_limit) {
-                // TODO(gbouv): we could optimize the requeue duration based on the time window here
-                tracing::info!("Job '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution in {} seconds", 
-                    job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS);
-
-                let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-
-                // re-schedule this job for in 10 seconds. It will be picked by the queue again and those checks will be re-run
-                let next_scheduled_for = pulled_job.scheduled_for + Duration::seconds(JOB_RESCHEDULE_DURATION_WHEN_CONCURRENCY_LIMIT_HIT_SECS);
-                let job_uuid = pulled_job.id;
-                let _updated_job_uuid = sqlx::query_scalar!(
-                    "UPDATE queue
-                    SET running = false
-                    , started_at = null
-                    , suspend_until = null
-                    , scheduled_for = $1
-                    WHERE id = $2
-                    RETURNING id",
-                    next_scheduled_for,
-                    job_uuid,
-                )
-                .fetch_optional(&mut tx)
-                .await
-                // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
-                .map_err(|e| Error::InternalErr(format!("Could not update job {job_uuid} status. The job will be marked as running but it is not running. This is problematic: {e}")))?;
-
-                // re-push the value to redis if using redis because pulled values disappear from redis
-                // TODO(gbouv): would need to check if we can trust the custom "transaction" implemented
-                // for redis. Would be bad if a value is upaded in PG but not re-inserted in redis
-                if let Some(ref mut rsmq) = tx.rsmq {
-                    rsmq.send_message(job_uuid.to_bytes_le().to_vec(), Option::Some(next_scheduled_for));
-                }
-                tx.commit().await?;
-            } else {
-                if *METRICS_ENABLED {
-                    QUEUE_PULL_COUNT.inc();
-                }
-                return Ok(Option::Some(pulled_job));
+        if pulled_job.script_path.is_none() || pulled_job.concurrent_limit.is_none()  {
+            if *METRICS_ENABLED {
+                QUEUE_PULL_COUNT.inc();
             }
+            tx.commit().await?;
+            return Ok(Option::Some(pulled_job))
+        }
+
+        // Else the job is subject to concurrency limits
+        let job_script_path = pulled_job.script_path.clone().unwrap();
+
+        let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
+        // setting concurrency_time_window to 0 will count only the currently running jobs
+        let job_custom_concurrency_time_window_s = pulled_job.concurrency_time_window_s.unwrap_or(0);
+        tracing::debug!("Job concurrency limit is {} per {}s", job_custom_concurrent_limit, job_custom_concurrency_time_window_s);
+        
+        let script_path_live_stats = sqlx::query!(
+            "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count
+            FROM
+                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count
+                FROM completed_job
+                WHERE script_path = $1 AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2)
+                GROUP BY script_path) as j
+            FULL OUTER JOIN
+                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as running_count
+                FROM queue
+                WHERE script_path = $1 AND running = true
+                GROUP BY script_path) as q
+            ON q.script_path = j.script_path",
+            job_script_path,
+            f64::from(job_custom_concurrency_time_window_s),
+        )
+        .fetch_one(&mut tx)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "Error getting concurrency count for script path {job_script_path}: {e}"
+            ))
+        })?;
+
+        let concurrent_jobs_for_this_script: Option<i64> = script_path_live_stats.total_count;
+        tracing::debug!("Current concurrent jobs for this script: {}", concurrent_jobs_for_this_script.unwrap_or(-1));
+        if concurrent_jobs_for_this_script.is_none() || concurrent_jobs_for_this_script.unwrap() <= i64::from(job_custom_concurrent_limit) {
+            if *METRICS_ENABLED {
+                QUEUE_PULL_COUNT.inc();
+            }
+            tx.commit().await?;
+            return Ok(Option::Some(pulled_job));
+        }
+
+        let job_uuid: Uuid = pulled_job.id;
+        let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
+        let avg_script_duration: Option<i32> = sqlx::query_scalar!(
+            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS INT) AS avg_duration_s FROM
+                (SELECT duration_ms FROM completed_job WHERE script_path = $1
+                ORDER BY started_at
+                DESC LIMIT 10) AS t",
+            job_script_path)
+            .fetch_one(&mut tx)
+            .await?;
+
+        // optimal scheduling is: 'current_running_job_min_started_time + script_avg_duration + concurrency_time_window_s'
+        let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for) + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0)) + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
+        tracing::info!("Job '{}' from path '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
+            job_uuid, job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+
+        if rsmq.is_some() {
+        // if let Some(ref mut rsmq) = tx.rsmq {
+            // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
+            // In this case, the job might be a job from the same script path, but we can't optimise this further
+            // if using posgtres, then we're able to re-queue the entire batch of scheduled job for this script_path, so we do it
+            let _requeued_job = sqlx::query_as::<_, QueuedJob>(&format!(
+                "UPDATE queue
+                SET running = false
+                , started_at = null
+                , suspend_until = null
+                , scheduled_for = '{estimated_next_schedule_timestamp}'
+                WHERE (id = '{job_uuid}')
+                RETURNING *"
+            ))
+            .fetch_one(&mut tx)
+            .await
+            // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
+            .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
+            
+            if let Some(ref mut rsmq) = tx.rsmq {
+                rsmq.send_message(job_uuid.to_bytes_le().to_vec(), Option::Some(estimated_next_schedule_timestamp));
+            }
+            tx.commit().await?;
+        } else {
+            // if using posgtres, then we're able to re-queue the entire batch of scheduled job for this script_path, so we do it
+            let _requeued_jobs = sqlx::query_as::<_, QueuedJob>(&format!(
+                "UPDATE queue
+                SET running = false
+                , started_at = null
+                , suspend_until = null
+                , scheduled_for = '{estimated_next_schedule_timestamp}'
+                WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false)
+                RETURNING *"
+            ))
+            .fetch_all(&mut tx)
+            .await
+            // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
+            .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
+            tx.commit().await?
         }
     }
 }
 
-async fn pull_single_job_and_mark_as_running_no_concurrency_limit<R: rsmq_async::RsmqConnection + Clone>(
-    db: &Pool<Postgres>,
+async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c, R: rsmq_async::RsmqConnection + Send + Clone>(
+    mut tx: QueueTransaction<'c, R>,
     workspaces_filter: &str,
-    script_path_filter: &str,
     rsmq: Option<R>,
-) -> windmill_common::error::Result<Option<QueuedJob>> {
+) -> windmill_common::error::Result<(Option<QueuedJob>, QueueTransaction<'c, R>)> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
         let msg = rsmq
@@ -822,7 +839,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<R: rsmq_async:
             RETURNING *",
             )
             .bind(uuid)
-            .fetch_optional(db)
+            .fetch_optional(&mut tx)
             .await?
         } else {
             None
@@ -851,7 +868,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<R: rsmq_async:
                        AND (   suspend <= 0
                             OR suspend_until <= now()))) 
                     {workspaces_filter}
-                    {script_path_filter}
                     {accepted_tags_filter}
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
@@ -859,10 +875,10 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<R: rsmq_async:
             )
             RETURNING *"
         ))
-        .fetch_optional(db)
+        .fetch_optional(&mut tx)
         .await?
     };
-    Ok(job)
+    Ok((job, tx))
 }
 
 #[async_recursion]
