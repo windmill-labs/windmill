@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.127.0](https://github.com/windmill-labs/windmill/compare/v1.126.0...v1.127.0) (2023-07-10)
+
+
+### Features
+
+* add test connection to resource editor ([9d5cfaf](https://github.com/windmill-labs/windmill/commit/9d5cfafb281c1cc7dd3eb18e5eb7bf9f7423957c))
+* **frontend:** add mobile view ([#1819](https://github.com/windmill-labs/windmill/issues/1819)) ([47d211b](https://github.com/windmill-labs/windmill/commit/47d211b21807d688fe631be8c4027285a2932cfc))
+
+
+### Bug Fixes
+
+* **frontend:** support special chars in postgresql client [[#1775](https://github.com/windmill-labs/windmill/issues/1775)] ([#1818](https://github.com/windmill-labs/windmill/issues/1818)) ([9e385d9](https://github.com/windmill-labs/windmill/commit/9e385d9467a554070e375fc406a6762879a582cb))
+
 ## [1.126.0](https://github.com/windmill-labs/windmill/compare/v1.125.1...v1.126.0) (2023-07-09)
 
 

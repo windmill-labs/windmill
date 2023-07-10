@@ -327,7 +327,7 @@ checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -404,7 +404,7 @@ checksum = "a564d521dd56509c4c47480d00b80ee55f7e385ae48db5744c67ad50c92d2ebf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -898,7 +898,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -1759,7 +1759,7 @@ checksum = "89ca545a94061b6365f2c7355b4b32bd20df3ff95f02da9329b34ccc3bd6ee72"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -2979,7 +2979,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -3234,7 +3234,7 @@ dependencies = [
  "phf_shared 0.11.2",
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -3272,7 +3272,7 @@ checksum = "ec2e072ecce94ec471b13398d5402c188e76ac03cf74dd1a975161b23a3f6d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -3495,7 +3495,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "syn 2.0.24",
+ "syn 2.0.25",
  "thiserror",
  "typify",
  "unicode-ident",
@@ -3515,7 +3515,7 @@ dependencies = [
  "serde_json",
  "serde_tokenstream",
  "serde_yaml",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -3872,7 +3872,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rust-embed-utils",
- "syn 2.0.24",
+ "syn 2.0.25",
  "walkdir",
 ]
 
@@ -4226,9 +4226,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.169"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd51c3db8f9500d531e6c12dd0fd4ad13d133e9117f5aebac3cdbb8b6d9824b0"
+checksum = "30e27d1e4fd7659406c492fd6cfaf2066ba8773de45ca75e855590f856dc34a9"
 dependencies = [
  "serde_derive",
 ]
@@ -4266,13 +4266,13 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.169"
+version = "1.0.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27738cfea0d944ab72c3ed01f3d5f23ec4322af8a1431e40ce630e4c01ea74fd"
+checksum = "389894603bd18c46fa56231694f8d827779c0951a667087194cf9de94ed24682"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -4359,7 +4359,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -5225,9 +5225,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.24"
+version = "2.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36ccaf716a23c35ff908f91c971a86a9a71af5998c1d8f10e828d9f55f68ac00"
+checksum = "15e3fc8c0c74267e2df136e5e5fb656a464158aa57624053375eb9c8c6e25ae2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5297,7 +5297,7 @@ checksum = "463fe12d7993d3b327787537ce8dd4dfa058de32fc2b195ef3cde03dc4771e8f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -5412,7 +5412,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -5674,7 +5674,7 @@ checksum = "5f4f31f56159e98206da9efd823404b79b6ef3143b4a7ab76e67b1751b25a4ab"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
 ]
 
 [[package]]
@@ -5791,7 +5791,7 @@ dependencies = [
  "regress",
  "schemars",
  "serde_json",
- "syn 2.0.24",
+ "syn 2.0.25",
  "thiserror",
  "unicode-ident",
 ]
@@ -5808,7 +5808,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_tokenstream",
- "syn 2.0.24",
+ "syn 2.0.25",
  "typify-impl",
 ]
 
@@ -6136,7 +6136,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
  "wasm-bindgen-shared",
 ]
 
@@ -6170,7 +6170,7 @@ checksum = "54681b18a46765f095758388f2d0cf16eb8d4169b639ab575a8f5693af210c7b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.24",
+ "syn 2.0.25",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -6310,7 +6310,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6345,7 +6345,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -6402,7 +6402,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -6419,7 +6419,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "chrono",
  "serde",
@@ -6432,7 +6432,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6457,7 +6457,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6465,7 +6465,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6476,7 +6476,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -6486,7 +6486,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -6497,7 +6497,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -6512,7 +6512,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6523,7 +6523,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -6538,7 +6538,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -6555,7 +6555,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -6584,7 +6584,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.126.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "async-recursion",

@@ -12,6 +12,8 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'typescript'
 	} else if (lang == 'nativets') {
 		return 'typescript'
+		// } else if (lang == 'graphql') {
+		// 	return 'typescript'
 	} else if (lang == 'postgresql') {
 		return 'sql'
 	} else if (lang == 'mysql') {

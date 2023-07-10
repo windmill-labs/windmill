@@ -542,7 +542,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={$jobsDrawerOpen} size="900px">
+<Drawer bind:open={$jobsDrawerOpen} size="900px" --zIndex={1003}>
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
