@@ -12,7 +12,7 @@ use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::Arc,
+    sync::{Arc},
 };
 use tokio::{
     fs::{metadata, DirBuilder},
