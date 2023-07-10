@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { CalendarCheck2, Terminal, Webhook } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
 
 	export let isOperator: boolean = false
+
+	let mobileTab: 'form' | 'detail' = 'form'
 </script>
 
 <main class="h-screen w-full">
-	<div class="flex flex-col h-full">
+	<div class="h-full hidden md:block">
 		<slot name="header" />
 		<SplitPanesWrapper>
 			<Splitpanes>
@@ -18,66 +18,36 @@
 					<slot name="form" />
 				</Pane>
 				<Pane size={35} minSize={15}>
-					<Splitpanes horizontal class="h-full">
-						<Pane size={100}>
-							<Tabs selected="saved_inputs">
-								<Tab value="saved_inputs">Saved inputs</Tab>
-								{#if !isOperator}
-									<Tab value="details">Details & Triggers</Tab>
-								{/if}
-								<svelte:fragment slot="content">
-									<div class="overflow-hidden" style="height:calc(100% - 32px);">
-										<TabContent value="saved_inputs" class="flex flex-col flex-1 h-full">
-											<slot name="save_inputs" />
-										</TabContent>
-										<TabContent value="details" class="flex flex-col flex-1 h-full">
-											<Splitpanes horizontal class="h-full">
-												<Pane size={50} minSize={20}>
-													<slot name="details" />
-												</Pane>
-												<Pane size={50} minSize={20}>
-													<Tabs bind:selected={triggerSelected}>
-														<Tab value="webhooks">
-															<span class="flex flex-row gap-2 items-center">
-																<Webhook size={14} />
-																Webhooks
-															</span>
-														</Tab>
-														<Tab value="schedule">
-															<span class="flex flex-row gap-2 items-center">
-																<CalendarCheck2 size={14} />
-																Schedules
-															</span>
-														</Tab>
-														<Tab value="cli">
-															<span class="flex flex-row gap-2 items-center">
-																<Terminal size={14} />
-																CLI
-															</span>
-														</Tab>
-													</Tabs>
-
-													<div class="h-[calc(100%-32px)]">
-														<div class="h-full overflow-auto">
-															{#if triggerSelected === 'webhooks'}
-																<slot name="webhooks" />
-															{:else if triggerSelected === 'schedule'}
-																<slot name="schedule" />
-															{:else if triggerSelected === 'cli'}
-																<slot name="cli" />
-															{/if}
-														</div>
-													</div>
-												</Pane>
-											</Splitpanes>
-										</TabContent>
-									</div>
-								</svelte:fragment>
-							</Tabs>
-						</Pane>
-					</Splitpanes>
+					<DetailPageDetailPanel {isOperator}>
+						<slot slot="webhooks" name="webhooks" />
+						<slot slot="schedule" name="schedule" />
+						<slot slot="cli" name="cli" />
+						<slot slot="details" name="details" />
+						<slot slot="save_inputs" name="save_inputs" />
+					</DetailPageDetailPanel>
 				</Pane>
 			</Splitpanes>
 		</SplitPanesWrapper>
+	</div>
+	<div class="h-full visible md:hidden">
+		<slot name="header" />
+		<Tabs bind:selected={mobileTab}>
+			<Tab value="form">Run form</Tab>
+			<Tab value="detail">Details</Tab>
+			<svelte:fragment slot="content">
+				<TabContent value="form" class="flex flex-col flex-1 h-full">
+					<slot name="form" />
+				</TabContent>
+				<TabContent value="detail" class="flex flex-col flex-1 h-full">
+					<DetailPageDetailPanel {isOperator}>
+						<slot slot="webhooks" name="webhooks" />
+						<slot slot="schedule" name="schedule" />
+						<slot slot="cli" name="cli" />
+						<slot slot="details" name="details" />
+						<slot slot="save_inputs" name="save_inputs" />
+					</DetailPageDetailPanel>
+				</TabContent>
+			</svelte:fragment>
+		</Tabs>
 	</div>
 </main>

@@ -188,7 +188,7 @@
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 
-	function getMainButtons(script: Script | undefined) {
+	function getMainButtons(script: Script | undefined, args: object | undefined) {
 		if (!script || $userStore?.operator) return []
 
 		const buttons: any = []
@@ -239,6 +239,7 @@
 
 		return buttons
 	}
+	$: mainButtons = getMainButtons(script, args)
 
 	function getMenuItems(script: Script | undefined) {
 		if (!script || $userStore?.operator) return []
@@ -372,7 +373,7 @@
 	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
-				mainButtons={getMainButtons(script)}
+				{mainButtons}
 				menuItems={getMenuItems(script)}
 				title={defaultIfEmptyString(script.summary, script.path)}
 			/>

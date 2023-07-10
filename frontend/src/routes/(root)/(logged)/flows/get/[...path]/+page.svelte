@@ -95,7 +95,7 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let runForm: RunForm
 
-	function getMainButtons(flow: Flow | undefined) {
+	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		if (!flow || $userStore?.operator) return []
 
 		const buttons: any = []
@@ -126,6 +126,8 @@
 		}
 		return buttons
 	}
+
+	$: mainButtons = getMainButtons(flow, args)
 
 	function getMenuItems(flow: Flow | undefined) {
 		if (!flow || $userStore?.operator) return []
@@ -204,7 +206,7 @@
 	<DetailPageLayout isOperator={$userStore?.operator}>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
-				mainButtons={getMainButtons(flow)}
+				{mainButtons}
 				menuItems={getMenuItems(flow)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
 			/>
