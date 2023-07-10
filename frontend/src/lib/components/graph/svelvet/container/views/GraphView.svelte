@@ -75,7 +75,7 @@
 	onMount(() => {
 		// actualizes the d3 instance
 
-		const nodes = d3.select(`.zoomable`).call(d3Zoom).on('dblclick.zoom', null)
+		const nodes = d3.select(`.zoomable-${canvasId}`).call(d3Zoom).on('dblclick.zoom', null)
 
 		if (!scroll) {
 			;[nodes].forEach((d3Instance) => {
@@ -87,14 +87,14 @@
 			})
 		}
 
-		d3.select('#zoom_in').on('click', function () {
+		d3.select(`#zoom_in_${canvasId}`).on('click', function () {
 			try {
 				d3Zoom.scaleBy(nodes.transition().duration(250), 1.4)
 			} catch (e) {
 				console.log('error', e)
 			}
 		})
-		d3.select('#zoom_out').on('click', function () {
+		d3.select(`#zoom_out_${canvasId}`).on('click', function () {
 			try {
 				d3Zoom.scaleBy(nodes.transition().duration(250), 0.714)
 			} catch (e) {
@@ -123,7 +123,7 @@
 	}
 </script>
 
-<div class="zoomable">
+<div class={`zoomable zoomable-${canvasId}`}>
 	<!-- This is the container that holds GraphView and we have disabled right click functionality to prevent a sticking behavior -->
 	<div id="graphview-container">
 		<div class={`Nodes Nodes-${canvasId}`} on:contextmenu|preventDefault>
@@ -211,10 +211,10 @@
 {/if}
 
 <div id="buttons">
-	<button title="Zoom In" id="zoom_in">
+	<button title="Zoom In" id={`zoom_in_${canvasId}`}>
 		<Plus size="14" class="flex justify-start m-1" />
 	</button>
-	<button title="Zoom Out" id="zoom_out">
+	<button title="Zoom Out" id={`zoom_out_${canvasId}`}>
 		<Minus size="14" class="flex justify-start m-1" />
 	</button>
 
