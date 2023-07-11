@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.127.1](https://github.com/windmill-labs/windmill/compare/v1.127.0...v1.127.1) (2023-07-10)
+
+
+### Bug Fixes
+
+* **frontend:** Fix debug runs zIndex ([#1822](https://github.com/windmill-labs/windmill/issues/1822)) ([ce9088e](https://github.com/windmill-labs/windmill/commit/ce9088e7a847834522890ed53c96794773ced491))
+* **frontend:** Fix graph view when mulitple graphs are displayed ([#1821](https://github.com/windmill-labs/windmill/issues/1821)) ([5e4e52a](https://github.com/windmill-labs/windmill/commit/5e4e52a10941c83b54da730ed51fc982f44f8ac8))
+
 ## [1.127.0](https://github.com/windmill-labs/windmill/compare/v1.126.0...v1.127.0) (2023-07-10)
 
 

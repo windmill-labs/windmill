@@ -230,9 +230,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0122885821398cc923ece939e24d1056a2384ee719432397fa9db87230ff11"
+checksum = "62b74f44609f0f91493e3082d3734d98497e094777144380ea4db9f9905dd5b6"
 dependencies = [
  "brotli",
  "flate2",
@@ -3494,7 +3494,7 @@ version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde824a14b7c14f85caff81225f411faacc04a2013f41670f41443742b1c1c55"
 dependencies = [
- "async-compression 0.4.0",
+ "async-compression 0.4.1",
  "base64 0.21.2",
  "bytes",
  "encoding_rs",
@@ -6026,7 +6026,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -6061,7 +6061,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -6118,7 +6118,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -6135,7 +6135,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "chrono",
  "serde",
@@ -6148,7 +6148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -6173,7 +6173,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6181,7 +6181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6192,7 +6192,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -6202,7 +6202,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -6213,7 +6213,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -6228,7 +6228,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6239,7 +6239,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -6254,7 +6254,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -6271,7 +6271,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -6300,7 +6300,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.127.0"
+version = "1.127.1"
 dependencies = [
  "anyhow",
  "async-recursion",

@@ -64,13 +64,23 @@
 		return obj as ArrayLike<ArrayLike<any>>
 	}
 
+	function isArrayofObjects(array: any[]): boolean {
+		if (!Array.isArray(array)) {
+			return false
+		}
+
+		return array.every((item) => {
+			return typeof item === 'object' && item !== null && !Array.isArray(item)
+		})
+	}
+
 	function inferResultKind(result: any) {
 		if (result) {
 			try {
 				let keys = Object.keys(result)
 				if (isRectangularArray(result)) {
 					return 'table-row'
-				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
+				} else if (isArrayofObjects(result)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
