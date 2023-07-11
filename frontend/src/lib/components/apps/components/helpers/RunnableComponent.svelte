@@ -345,19 +345,14 @@
 		const hasErrors = errorAsArray.some((r) => r?.error)
 
 		if (hasErrors) {
-			const concatenatedErrors = errorAsArray
+			const errorMessages = errorAsArray
 				.map((r) => r?.error?.message)
 				.filter(Boolean)
 				.join('\n')
 
-			jobId && recordError(concatenatedErrors, jobId)
+			jobId && recordError(errorMessages, jobId)
 
-			const messagesConcatenated = errorAsArray
-				.map((r) => r?.error?.message)
-				.filter(Boolean)
-				.join('\n')
-
-			dispatch('handleError', messagesConcatenated)
+			dispatch('handleError', errorMessages)
 		} else {
 			dispatch('success')
 		}
