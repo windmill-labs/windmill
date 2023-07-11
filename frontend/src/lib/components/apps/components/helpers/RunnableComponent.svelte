@@ -339,7 +339,7 @@
 		result = res
 
 		// Flows with loops can have multiple results
-		const errorAsArray = Array.isArray(result) ? result : [result]
+		const errorAsArray = Array.isArray(result) ? result.flat() : [result]
 
 		// As soon as we have an error, we consider the component errored
 		const hasErrors = errorAsArray.some((r) => r?.error)
