@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, generateScript } from './lib'
+	import { SUPPORTED_LANGUAGES, editScript, generateScript } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
 
 	// props
 	export let iconOnly: boolean = false
@@ -24,9 +25,11 @@
 	let funcDesc: string = ''
 	let genLoading: boolean = false
 	let openAIAvailable: boolean | undefined = undefined
-	let button: HTMLButtonElement
-	let input: HTMLInputElement
+	let button: HTMLButtonElement | undefined
+	let input: HTMLInputElement | undefined
 	let generatedCode = ''
+	let selection: Selection | undefined
+	let isEdit = false
 
 	async function onGenerate() {
 		try {
@@ -37,10 +40,21 @@
 			}
 
 			genLoading = true
-			generatedCode = await generateScript({
-				language: lang,
-				description: funcDesc
-			})
+			if (isEdit && selection) {
+				const selectedCode = editor?.getSelectedLines() || ''
+				const originalCode = editor?.getCode() || ''
+				const selectionGenCode = await editScript({
+					language: lang,
+					description: funcDesc,
+					selectedCode
+				})
+				generatedCode = originalCode.replace(selectedCode, selectionGenCode + '\n')
+			} else {
+				generatedCode = await generateScript({
+					language: lang,
+					description: funcDesc
+				})
+			}
 			funcDesc = ''
 		} catch (err) {
 			sendUserToast('Failed to generate code', true)
@@ -80,6 +94,12 @@
 		diffEditor?.hide()
 	}
 
+	function setSelectionHandler() {
+		editor?.onDidChangeCursorSelection((e) => {
+			selection = e.selection
+		})
+	}
+
 	$: checkIfOpenAIAvailable(lang)
 
 	$: input?.focus()
@@ -88,6 +108,8 @@
 
 	$: generatedCode && showDiff()
 	$: !generatedCode && hideDiff()
+	$: editor && setSelectionHandler()
+	$: selection && (isEdit = !selection.isEmpty())
 </script>
 
 {#if openAIAvailable}
@@ -130,7 +152,7 @@
 			{iconOnly}
 			loading={genLoading}
 		>
-			Ask AI
+			{isEdit ? 'AI Edit' : 'AI Gen'}
 		</Button>
 	{/if}
 	{#if !generatedCode}
@@ -155,6 +177,9 @@
 								onGenerate()
 							}
 						}}
+						placeholder={isEdit
+							? 'Describe the changes you want'
+							: 'Describe what the script should do'}
 					/>
 					<Button
 						size="xs"
