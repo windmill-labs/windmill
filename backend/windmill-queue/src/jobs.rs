@@ -72,6 +72,8 @@ lazy_static::lazy_static! {
             "go".to_string(),
             "bash".to_string(),
             "nativets".to_string(),
+            "mysql".to_string(),
+            "graphql".to_string(),
             "bun".to_string(),
             "postgresql".to_string(),
             "dependency".to_string(),

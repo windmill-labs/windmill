@@ -193,6 +193,8 @@ components:
             - go
             - bash
             - postgresql
+            - mysql
+            - graphql
             - nativets
         path:
           type: string

@@ -163,6 +163,17 @@
 								})
 							}}
 						/>
+						<FlowScriptPicker
+							label="MySQL"
+							lang={Script.language.MYSQL}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.MYSQL,
+									kind,
+									subkind: 'flow'
+								})
+							}}
+						/>
 
 						<FlowScriptPicker
 							label={`Docker`}

@@ -10,7 +10,7 @@
 	import RestIcon from '$lib/components/icons/RestIcon.svelte'
 	import { Script } from '$lib/gen'
 
-	export let lang: SupportedLanguage | 'pgsql' | 'mysql' | 'javascript' | 'fetch' | 'docker'
+	export let lang: SupportedLanguage | 'mysql' | 'bun' | 'pgsql' | 'javascript' | 'fetch' | 'docker'
 	export let width = 30
 	export let height = 30
 	export let scale = 1
@@ -26,7 +26,7 @@
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'mysql' | 'javascript' | 'fetch' | 'docker',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker',
 		typeof SvelteComponent
 	> = {
 		go: GoIcon,
@@ -41,7 +41,8 @@
 		fetch: FetchIcon,
 		docker: DockerIcon,
 		postgresql: PostgresIcon,
-		nativets: RestIcon
+		nativets: RestIcon,
+		graphql: RestIcon
 	}
 </script>
 
