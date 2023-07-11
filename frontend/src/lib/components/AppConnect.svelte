@@ -140,6 +140,8 @@
 		connects = await OauthService.listOAuthConnects()
 	}
 
+	const connectAndManual = ['gitlab']
+
 	async function loadResources() {
 		await loadConnects()
 		const availableRts = await ResourceService.listResourceTypeNames({
@@ -147,7 +149,7 @@
 		})
 
 		connectsManual = availableRts
-			.filter((x) => !Object.keys(connects ?? {}).includes(x))
+			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
 			.map((x) => [
 				x,
 				apiTokenApps[x] ?? {
@@ -298,9 +300,12 @@
 	}}
 	size="800px"
 >
-	<DrawerContent title="Connect an API or add a Resource" on:close={drawer.closeDrawer}
-	tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
-	documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill">
+	<DrawerContent
+		title="Connect an API or add a Resource"
+		on:close={drawer.closeDrawer}
+		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
+		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
+	>
 		{#if step == 1}
 			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
 				<input
