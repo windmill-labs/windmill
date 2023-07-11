@@ -742,7 +742,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let concurrent_jobs_for_this_script: Option<i64> = script_path_live_stats.total_count;
         tracing::debug!("Current concurrent jobs for this script: {}", concurrent_jobs_for_this_script.unwrap_or(-1));
-        if concurrent_jobs_for_this_script.is_none() || concurrent_jobs_for_this_script.unwrap() <= i64::from(job_custom_concurrent_limit) {
+        if concurrent_jobs_for_this_script.is_none() || concurrent_jobs_for_this_script.unwrap() < i64::from(job_custom_concurrent_limit) {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
@@ -761,7 +761,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             .fetch_one(&mut tx)
             .await?;
 
-        // optimal scheduling is: 'current_running_job_min_started_time + script_avg_duration + concurrency_time_window_s'
+        // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for) + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0)) + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
         tracing::info!("Job '{}' from path '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
@@ -782,7 +782,6 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             ))
             .fetch_one(&mut tx)
             .await
-            // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
             .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
             
             if let Some(ref mut rsmq) = tx.rsmq {
@@ -802,7 +801,6 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             ))
             .fetch_all(&mut tx)
             .await
-            // TODO(gbouv): Need to think of how to deal with this, if it happens it would become a zombie job in the DB
             .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
             tx.commit().await?
         }

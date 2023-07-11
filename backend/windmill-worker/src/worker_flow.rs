@@ -1719,7 +1719,7 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::RawScript { path, content, language, lock, tag, .. } => {
+        FlowModuleValue::RawScript { path, content, language, lock, tag, concurrent_limit, concurrency_time_window_s, ..} => {
             let path = path
                 .clone()
                 .or_else(|| Some(format!("{}/step-{}", flow_job.script_path(), status.step)));
@@ -1730,8 +1730,8 @@ async fn compute_next_flow_transform(
                         content: content.clone(),
                         language: language.clone(),
                         lock: lock.clone(),
-                        concurrent_limit: None, // TODO(gbouv): extract the limit from the script content tags, somehow
-                        concurrency_time_window_s: None,  // TODO(gbouv): extract the limit from the script content tags, somehow
+                        concurrent_limit: *concurrent_limit,
+                        concurrency_time_window_s: *concurrency_time_window_s,
                     }),
                     tag: tag.clone(),
                 }),
