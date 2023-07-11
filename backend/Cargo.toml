@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.125.1"
+version = "1.127.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.125.1"
+version = "1.127.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -36,6 +36,7 @@ incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+benchmark = ["windmill-api/benchmark"]
 
 [dependencies]
 anyhow.workspace = true

@@ -12,8 +12,12 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'typescript'
 	} else if (lang == 'nativets') {
 		return 'typescript'
+		// } else if (lang == 'graphql') {
+		// 	return 'typescript'
 	} else if (lang == 'postgresql') {
 		return 'sql'
+		// } else if (lang == 'mysql') {
+		// 	return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {

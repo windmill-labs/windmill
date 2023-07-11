@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::{Debug}};
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
 use rsmq_async::{RedisBytes, RsmqConnection};
@@ -8,6 +8,8 @@ pub enum RedisOp {
     SendMessage(RedisBytes, Option<chrono::DateTime<chrono::Utc>>),
     DeleteMessage(String),
 }
+
+unsafe impl Send for RedisOp {}
 
 impl RedisOp {
     pub async fn apply<R: RsmqConnection>(self, rsmq: &mut R) -> Result<(), rsmq_async::RsmqError> {

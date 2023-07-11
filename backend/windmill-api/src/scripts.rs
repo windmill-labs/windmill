@@ -399,15 +399,28 @@ async fn create_script(
         .execute(&mut tx)
         .await?;
 
-        let schedulables = sqlx::query_as!(
+        let mut schedulables = sqlx::query_as!(
         Schedule,
-            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
             ns.path,
             p_path,
             w_id,
         )
         .fetch_all(&mut tx)
         .await?;
+
+        let schedule = sqlx::query_as!(Schedule,
+            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
+            ns.path,
+            p_path,
+            w_id,
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        if let Some(schedule) = schedule {
+            schedulables.push(schedule);
+        }
 
         for schedule in schedulables {
             clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;

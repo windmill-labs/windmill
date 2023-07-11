@@ -206,6 +206,9 @@ pub fn pg_cell_to_json_value(
         Type::TIMESTAMP => get_basic(row, column, column_i, |a: chrono::NaiveDateTime| {
             Ok(JSONValue::String(a.to_string()))
         })?,
+        Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
         Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
             Ok(JSONValue::String(a.to_string()))
         })?,

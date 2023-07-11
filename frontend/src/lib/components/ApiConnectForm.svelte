@@ -1,13 +1,11 @@
 <script lang="ts">
-	import { JobService, Preview, ResourceService } from '$lib/gen'
+	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
-	import Button from './common/button/Button.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
-	import { sendUserToast } from '$lib/toast'
+	import TestConnection from './TestConnection.svelte'
 
 	export let resource_type: string
 	export let args: Record<string, any> | any = {}
@@ -60,40 +58,6 @@
 			parseJson()
 		}
 	}
-
-	let loading = false
-	async function testConnection() {
-		loading = true
-		const job = await JobService.runScriptPreview({
-			workspace: $workspaceStore!,
-			requestBody: {
-				language: 'deno' as Preview.language,
-				content: `
-import { Client } from 'https://deno.land/x/postgres/mod.ts'
-export async function main(args: any) {
-	const client = new Client("postgres://" + args.user + ":" + args.password + "@" + args.host + ":" + (args.port ?? 5432) + "/" + args.dbname + "?sslmode=" + args.sslmode)
-	await client.connect()
-	return 'Connection successful'
-}
-				`,
-				args: {
-					args
-				}
-			}
-		})
-		await new Promise((r) => setTimeout(r, 3000))
-		loading = false
-		const testResult = await JobService.getCompletedJob({
-			workspace: $workspaceStore!,
-			id: job
-		})
-		if (testResult) {
-			sendUserToast(
-				testResult.success ? testResult.result : testResult.result?.['error']?.['message'],
-				!testResult.success
-			)
-		}
-	}
 </script>
 
 {#if !notFound}
@@ -104,11 +68,7 @@ export async function main(args: any) {
 				right: 'As JSON'
 			}}
 		/>
-		{#if resource_type == 'postgresql'}
-			<Button size="sm" on:click={testConnection}
-				>{#if loading}<Loader2 class="animate-spin mr-2" />{/if} Test connection</Button
-			>
-		{/if}
+		<TestConnection {resource_type} />
 	</div>
 {:else}
 	<p class="italic text-gray-500 text-xs mb-4"

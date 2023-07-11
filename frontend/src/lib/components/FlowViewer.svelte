@@ -34,7 +34,9 @@
 		schema: flow.schema
 	}
 
-	export let tab: 'ui' | 'json' | 'schema' = 'ui'
+	export let noGraph: boolean = false
+
+	export let tab: 'ui' | 'json' | 'schema' = noGraph ? 'schema' : 'ui'
 	export let noSummary = false
 
 	let open: { [id: number]: boolean } = {}
@@ -48,7 +50,9 @@
 </script>
 
 <Tabs bind:selected={tab}>
-	<Tab value="ui">Graph</Tab>
+	{#if !noGraph}
+		<Tab value="ui">Graph</Tab>
+	{/if}
 	<Tab value="json">JSON</Tab>
 	<Tab value="schema">Input Schema</Tab>
 
@@ -91,9 +95,9 @@
 			<div class="relative pt-2">
 				<Button
 					on:click={() => copyToClipboard(JSON.stringify(flowFiltered, null, 4))}
-					color="dark"
+					color="light"
 					variant="border"
-					size="sm"
+					size="xs"
 					startIcon={{ icon: faClipboard }}
 					btnClasses="absolute top-2 right-2 w-min"
 				>

@@ -4012,106 +4012,6 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)"
   },
-  "8caa01546506f42740b7973a3a45e40093a06714b8524570c5143b77af4a8e19": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_by",
-          "ordinal": 2,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "schedule",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "enabled",
-          "ordinal": 5,
-          "type_info": "Bool"
-        },
-        {
-          "name": "script_path",
-          "ordinal": 6,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "args",
-          "ordinal": 7,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 8,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_flow",
-          "ordinal": 9,
-          "type_info": "Bool"
-        },
-        {
-          "name": "email",
-          "ordinal": 10,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "error",
-          "ordinal": 11,
-          "type_info": "Text"
-        },
-        {
-          "name": "timezone",
-          "ordinal": 12,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "on_failure",
-          "ordinal": 13,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-        true,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3"
-  },
   "8cc4fa257cb8053d27eb7a555d6e1b993e4a74b063eac632df8da24f6b87130e": {
     "describe": {
       "columns": [
@@ -5629,7 +5529,39 @@
     },
     "query": "DELETE FROM resource WHERE path = $1 AND workspace_id = $2"
   },
-  "bfc760c2f3f1477b177a7c570ddadda818dd3f57142165f381c1db01c26cf1bf": {
+  "c0635f65d561c1a6b183b8fea45320482375d0bb5e617a9dd236a631a7b9ff05": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1"
+  },
+  "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "customer_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1"
+  },
+  "c10348d26e3e3dc9e345d9044db35db9906617eb9c98aaf58a55d9681ffb85e3": {
     "describe": {
       "columns": [
         {
@@ -5727,39 +5659,7 @@
         ]
       }
     },
-    "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
-  },
-  "c0635f65d561c1a6b183b8fea45320482375d0bb5e617a9dd236a631a7b9ff05": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1"
-  },
-  "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
-    "describe": {
-      "columns": [
-        {
-          "name": "customer_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1"
+    "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
   },
   "c1149f74ef0cca4a48be80f523d339d78e8e20e2bfacac9ad1b6b75c5ae370fb": {
     "describe": {
@@ -6556,6 +6456,106 @@
       }
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
+  },
+  "dd74fa9468b5fe8c8ad657ded06076c11a78d0206af2af20685c691d4d9520bb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 5,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 6,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 7,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 10,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "on_failure",
+          "ordinal": 13,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
   },
   "dd7940ec390357b268d616e1880516ecc08d506db2109efcce840f096d7a594e": {
     "describe": {

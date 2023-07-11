@@ -21,7 +21,6 @@ services:
       retries: 5
 
   windmill_server:
-    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
@@ -48,7 +47,6 @@ services:
       - ./oauth.json:/usr/src/app/oauth.json
 
   windmill_worker:
-    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:

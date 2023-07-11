@@ -6,7 +6,13 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import Button from './common/button/Button.svelte'
+	import { ExternalLink } from 'lucide-svelte'
 
+	const dispatch = createEventDispatcher()
+
+	export let openDetails: boolean = false
 	export let scriptPath: string
 
 	let selectedVersion: string | undefined = undefined
@@ -38,6 +44,19 @@
 									on:click={() => (selectedVersion = version)}
 								>
 									<span class="text-xs truncate">{version}</span>
+									{#if openDetails}
+										<Button
+											on:click={() => {
+												dispatch('openDetails', { version })
+											}}
+											class="ml-2 inline-flex gap-1 text-xs items-center"
+											size="xs"
+											color="light"
+											variant="border"
+										>
+											Run page<ExternalLink size={14} />
+										</Button>
+									{/if}
 								</div>
 							{/each}
 						</div>
