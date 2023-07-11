@@ -1032,6 +1032,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
+                logs.push_str("\n");
             }
 
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));

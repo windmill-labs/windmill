@@ -690,14 +690,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         }
     }
 
-    let final_workspaces_filter = workspaces_filter.as_str();
-
     // let rs = rd_string(2);
     // let instant = Instant::now();
 
     loop {
         let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
-        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(tx, final_workspaces_filter, rsmq.clone()).await?;
+        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(tx, workspaces_filter.as_str(), rsmq.clone()).await?;
 
         if job.is_none() {
             return Ok(None);
@@ -771,6 +769,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         tracing::info!("Job '{}' from path '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
+        let job_log_line_break = '\n';
+        let job_log_event = format!("Re-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits");
         if rsmq.is_some() {
         // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
@@ -780,9 +780,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "UPDATE queue
                 SET running = false
                 , started_at = null
-                , suspend_until = null
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
-                WHERE (id = '{job_uuid}')
+                , logs = CASE WHEN logs IS NULL OR logs = '' THEN '{job_log_event}'::text WHEN logs LIKE '%{job_log_event}' THEN logs ELSE concat(logs, '{job_log_line_break}{job_log_event}'::text) END
+                WHERE id = '{job_uuid}'
                 RETURNING *"
             ))
             .fetch_one(&mut tx)
@@ -799,8 +799,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 "UPDATE queue
                 SET running = false
                 , started_at = null
-                , suspend_until = null
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
+                , logs = CASE WHEN logs IS NULL OR logs = '' THEN '{job_log_event}'::text WHEN logs LIKE '%{job_log_event}' THEN logs ELSE concat(logs, '{job_log_line_break}{job_log_event}'::text) END
                 WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false)
                 RETURNING *"
             ))
