@@ -93,7 +93,15 @@
 		dispatch('new', unusedInlineScript.inlineScript)
 	}
 
-	const langs = ['deno', 'python3', 'go', 'bash', 'nativets', 'postgresql'] as Script.language[]
+	const langs = [
+		'deno',
+		'python3',
+		'go',
+		'bash',
+		'nativets',
+		'postgresql',
+		'mysql'
+	] as Script.language[]
 </script>
 
 <Drawer bind:this={picker} size="1000px">

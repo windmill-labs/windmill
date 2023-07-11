@@ -11,10 +11,9 @@ use tokio_postgres::{
     types::{FromSql, Type},
     Column,
 };
-
 use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
-use windmill_parser_sql::parse_sql_sig;
+use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
 
@@ -93,21 +92,17 @@ pub async fn do_postgresql(
         .as_object()
         .map(|x| x.to_owned())
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
-    let mut i = 1;
     let mut statement_values: Vec<serde_json::Value> = vec![];
 
-    loop {
-        if args.get(&format!("${}", i)).is_none() {
-            break;
-        }
-        statement_values.push(args.get(&format!("${}", i)).unwrap().to_owned());
-        i += 1;
-    }
-    let query = get_content(&job, db).await?;
+    let query: String = get_content(&job, db).await?;
 
-    let sig = parse_sql_sig(&query)
+    let sig = parse_pgsql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    for arg in &sig {
+        statement_values.push(args.get(&arg.name).unwrap_or(&json!(null)).clone());
+    }
 
     let query_params = statement_values
         .iter()

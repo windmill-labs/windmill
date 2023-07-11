@@ -25,6 +25,11 @@ export function parse_python(code: string): string;
 * @returns {string}
 */
 export function parse_sql(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_mysql(code: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -35,6 +40,7 @@ export interface InitOutput {
   readonly parse_go: (a: number, b: number, c: number) => void;
   readonly parse_python: (a: number, b: number, c: number) => void;
   readonly parse_sql: (a: number, b: number, c: number) => void;
+  readonly parse_mysql: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

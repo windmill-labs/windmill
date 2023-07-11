@@ -68,6 +68,7 @@
 		langs.push(['Bash', Script.language.BASH])
 	}
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
