@@ -32,8 +32,6 @@
 
 	$: resultKind = inferResultKind(result)
 
-	$: console.log('resultKind', resultKind)
-
 	let forceJson = false
 	let enableHtml = false
 
