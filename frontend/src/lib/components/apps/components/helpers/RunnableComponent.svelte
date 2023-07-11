@@ -337,9 +337,27 @@
 		outputs.result?.set(res)
 
 		result = res
-		if (res?.error) {
-			jobId && recordError(res.error, jobId)
-			dispatch('handleError', res.error.message)
+
+		// Flows with loops can have multiple results
+		const errorAsArray = Array.isArray(result) ? result : [result]
+
+		// As soon as we have an error, we consider the component errored
+		const hasErrors = errorAsArray.some((r) => r?.error)
+
+		if (hasErrors) {
+			const concatenatedErrors = errorAsArray
+				.map((r) => r?.error?.message)
+				.filter(Boolean)
+				.join('\n')
+
+			jobId && recordError(concatenatedErrors, jobId)
+
+			const messagesConcatenated = errorAsArray
+				.map((r) => r?.error?.message)
+				.filter(Boolean)
+				.join('\n')
+
+			dispatch('handleError', messagesConcatenated)
 		} else {
 			dispatch('success')
 		}
@@ -348,7 +366,7 @@
 			(key) => $errorByComponent[key].componentId === id
 		)
 
-		if (previousJobId && !result?.error) {
+		if (previousJobId && !hasErrors) {
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
 		}
