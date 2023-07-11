@@ -34,7 +34,7 @@
 </script>
 
 <TabGroup class={twMerge(`h-8 flex ${noWFull ? '' : 'w-full'}`, $$props.class)}>
-	<TabList class="flex bg-gray-100 rounded-md p-0.5 gap-1 h-full">
+	<TabList class="flex bg-gray-100 rounded-md p-0.5 gap-1 h-full dark:bg-gray-800">
 		<slot />
 	</TabList>
 </TabGroup>

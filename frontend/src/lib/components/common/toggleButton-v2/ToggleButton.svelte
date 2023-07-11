@@ -23,7 +23,9 @@
 		class={twMerge(
 			' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
 			small ? 'px-1 py-0.5' : 'px-2 py-1',
-			$selected === value ? 'bg-white shadow-md text-gray-800' : 'text-gray-600 hover:bg-gray-200',
+			$selected === value
+				? 'bg-white shadow-md text-gray-800 dark:bg-gray-900 dark:text-gray-100'
+				: 'text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 dark:text-gray-300',
 			$$props.class
 		)}
 		on:click={() => select(value)}
