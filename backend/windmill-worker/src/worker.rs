@@ -1033,6 +1033,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
+                logs.push_str("\n");
             }
 
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
@@ -2153,7 +2154,7 @@ async fn handle_flow_dependency_job(
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
     let mut new_flow_modules = Vec::new();
     for mut e in flow.modules.into_iter() {
-        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag} = e.value else {
+        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             new_flow_modules.push(e);
             continue;
         };
@@ -2178,11 +2179,13 @@ async fn handle_flow_dependency_job(
             Ok(new_lock) => {
                 e.value = FlowModuleValue::RawScript {
                     lock: Some(new_lock),
-                    path: path,
+                    path,
                     input_transforms,
                     content,
                     language,
-                    tag
+                    tag,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 };
                 new_flow_modules.push(e);
                 continue;
@@ -2198,11 +2201,13 @@ async fn handle_flow_dependency_job(
                 );
                 e.value = FlowModuleValue::RawScript {
                     lock: None,
-                    path: path,
+                    path,
                     input_transforms,
                     content,
                     language,
-                    tag
+                    tag,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 };
                 new_flow_modules.push(e);
                 continue;
