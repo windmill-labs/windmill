@@ -16,6 +16,7 @@
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
 	import { Kbd } from './common'
 	import { evalValue } from './flows/utils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 
 	export let mod: FlowModule
@@ -121,6 +122,8 @@
 						{:else}
 							Test to see the result here
 						{/if}
+						<Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
+						</Tooltip>
 					</div>
 				{/if}
 			</Pane>

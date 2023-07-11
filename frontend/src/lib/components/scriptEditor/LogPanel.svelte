@@ -19,6 +19,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
@@ -101,6 +102,8 @@
 								{:else}
 									Test to see the result here
 								{/if}
+							<Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
+							</Tooltip>
 							</div>
 						{/if}
 					</Pane>

@@ -7,6 +7,7 @@
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -124,6 +125,8 @@
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
+				<Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
+				</Tooltip>
 			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md"
 			>
