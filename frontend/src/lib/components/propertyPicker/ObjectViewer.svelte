@@ -39,9 +39,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	function selectProp(key: string, value: any) {
+	function selectProp(key: string, value: any | undefined = undefined) {
 		if (pureViewer && allowCopy) {
-			copyToClipboard(computeKey(key, isArray, currentPath))
+			const valueToCopy = value !== undefined ? value : computeKey(key, isArray, currentPath)
+			copyToClipboard(valueToCopy)
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
@@ -69,7 +70,7 @@
 			>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
-						<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
+						<button on:click={() => selectProp(key)} class="whitespace-nowrap">
 							{#if topLevelNode}
 								<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
 							{:else}
