@@ -138,6 +138,7 @@
 		background: white;
 		z-index: 3;
 		transition: transform var(--duration) ease;
+		height: 100%;
 	}
 
 	.panel.left {
