@@ -16,7 +16,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents } from '../component'
+	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -26,7 +26,7 @@
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { secondaryMenu } from './secondaryMenu'
 	import StylePanel from './StylePanel.svelte'
-	import { Delete } from 'lucide-svelte'
+	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 
@@ -36,8 +36,6 @@
 	export let onDelete: (() => void) | undefined = undefined
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
-
-	let editor: TemplateEditor | undefined = undefined
 
 	const {
 		app,
@@ -52,10 +50,7 @@
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, ontextfocus, movingcomponents } =
-		getContext<AppEditorContext>('AppEditorContext')
-
-	$: editor && ($ontextfocus = () => editor?.focus())
+	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
 		push(history, $app)
@@ -82,7 +77,7 @@
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSettings?.item && !noGrid) {
-			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent, false)
+			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
@@ -137,10 +132,26 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
+	<div class="flex justify-between items-center px-3 py-2 bg-gray-100">
+		<div class="text-xs text-gray-900 font-semibold"
+			>{components[componentSettings.item.data.type].name}</div
+		>
+		<a
+			href={components[componentSettings.item.data.type].documentationLink}
+			target="_blank"
+			class="text-frost-500 font-semibold text-xs"
+		>
+			<div class="flex flex-row gap-2">
+				See documentation
+				<ExternalLink size="16" />
+			</div>
+		</a>
+	</div>
+
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
-				title={componentSettings?.item.data.type
+				title={componentSettings?.item.data.type == 'steppercomponent'
 					? 'Validations'
 					: hasInteraction
 					? 'Event handler'
@@ -174,7 +185,6 @@
 						{:else if componentSettings.item.data.componentInput.type === 'template' && componentSettings.item.data.componentInput !== undefined}
 							<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
 								<TemplateEditor
-									bind:this={editor}
 									fontSize={12}
 									bind:code={componentSettings.item.data.componentInput.eval}
 									{extraLib}
@@ -205,8 +215,8 @@
 								>
 									<svelte:fragment slot="action">
 										<Tooltip>
-											The runnable inputs of a button component are not settable by the user. They
-											must be defined statically or connected.
+											The runnable inputs are inferred from the inputs of the flow or script
+											parameters this component is attached to.
 										</Tooltip>
 									</svelte:fragment>
 
@@ -243,18 +253,33 @@
 		{/if}
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:disabledTabs={componentSettings.item.data.disabledTabs}
+				bind:component={componentSettings.item.data}
+				canDisableTabs
+			/>
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
-			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} word="Step" />
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:component={componentSettings.item.data}
+				word="Step"
+			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
-			<GridCondition bind:conditions={componentSettings.item.data.conditions} {component} />
+			<GridCondition
+				bind:conditions={componentSettings.item.data.conditions}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
-			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
+			<GridPane
+				bind:panes={componentSettings.item.data.panes}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
+		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
 				ownId={component.id}
@@ -293,6 +318,7 @@
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
+										tooltip={ccomponents[component.type].customCss[name].tooltip}
 										{name}
 										bind:value={componentSettings.item.data.customCss[name]}
 									/>

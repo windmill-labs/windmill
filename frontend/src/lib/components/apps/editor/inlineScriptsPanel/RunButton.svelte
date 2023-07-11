@@ -11,7 +11,7 @@
 	export let hideShortcut = false
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
-	let cancelable: CancelablePromise<void> | undefined = undefined
+	let cancelable: CancelablePromise<void>[] | undefined = undefined
 </script>
 
 {#if $runnableComponents[id] != undefined}
@@ -25,8 +25,8 @@
 			on:click={async () => {
 				runLoading = true
 				try {
-					cancelable = $runnableComponents[id]?.cb?.(inlineScript)
-					await cancelable
+					cancelable = $runnableComponents[id]?.cb?.map((f) => f(inlineScript))
+					await Promise.all(cancelable)
 				} catch {}
 				runLoading = false
 			}}
@@ -48,7 +48,7 @@
 			variant="border"
 			btnClasses="!px-2 !py-1.5"
 			on:click={async () => {
-				cancelable?.cancel()
+				cancelable?.forEach((f) => f.cancel())
 				runLoading = false
 			}}
 		>

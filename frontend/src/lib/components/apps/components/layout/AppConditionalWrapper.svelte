@@ -43,7 +43,6 @@
 	}
 
 	function setSelectedIndex(index: number) {
-		console.trace('setSelectedIndex', index)
 		$focusedGrid = {
 			parentComponentId: id,
 			subGridIndex: index
@@ -73,20 +72,22 @@
 <InitializeComponent {id} />
 
 <div class="w-full h-full">
-	{#if $app.subgrids?.[`${id}-${selectedConditionIndex}`]}
-		<SubGridEditor
-			visible={render}
-			{id}
-			class={css?.container?.class}
-			style={css?.container?.style}
-			subGridId={`${id}-${selectedConditionIndex}`}
-			containerHeight={componentContainerHeight}
-			on:focus={() => {
-				if (!$connectingInput.opened) {
-					$selectedComponent = [id]
-				}
-				onFocus()
-			}}
-		/>
+	{#if $app.subgrids}
+		{#each resolvedConditions ?? [] as _res, i}
+			<SubGridEditor
+				visible={render && i == selectedConditionIndex}
+				{id}
+				class={css?.container?.class}
+				style={css?.container?.style}
+				subGridId={`${id}-${i}`}
+				containerHeight={componentContainerHeight}
+				on:focus={() => {
+					if (!$connectingInput.opened) {
+						$selectedComponent = [id]
+					}
+					onFocus()
+				}}
+			/>
+		{/each}
 	{/if}
 </div>

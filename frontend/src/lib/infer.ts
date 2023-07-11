@@ -1,16 +1,28 @@
-import { ScriptService, type MainArgSignature } from '$lib/gen'
+import type { MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
-import type { Schema, SchemaProperty } from './common.js'
+import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
 import { sortObject } from './utils.js'
+import { tick } from 'svelte'
+import init, {
+	parse_deno,
+	parse_bash,
+	parse_go,
+	parse_python,
+	parse_sql
+} from 'windmill-parser-wasm'
+import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
+
+init(wasmUrl)
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
 export async function inferArgs(
-	language: 'python3' | 'deno' | 'go' | 'bash',
+	language: SupportedLanguage,
 	code: string,
 	schema: Schema
 ): Promise<void> {
-	let lastRun = get(loadSchemaLastRun)
+	await init(wasmUrl)
+	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
 		inferedSchema = lastRun[1]
@@ -19,21 +31,23 @@ export async function inferArgs(
 			code = ' '
 		}
 		if (language == 'python3') {
-			inferedSchema = await ScriptService.pythonToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
-			inferedSchema = await ScriptService.denoToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_deno(code))
+		} else if (language == 'nativets') {
+			inferedSchema = JSON.parse(parse_deno(code))
+		} else if (language == 'bun') {
+			inferedSchema = JSON.parse(parse_deno(code))
+		} else if (language == 'postgresql') {
+			inferedSchema = JSON.parse(parse_sql(code))
+			inferedSchema.args = [
+				{ name: 'database', typ: { resource: 'postgresql' } },
+				...inferedSchema.args
+			]
 		} else if (language == 'go') {
-			inferedSchema = await ScriptService.goToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
-			inferedSchema = await ScriptService.bashToJsonschema({
-				requestBody: code
-			})
+			inferedSchema = JSON.parse(parse_bash(code))
 		} else {
 			return
 		}
@@ -45,7 +59,6 @@ export async function inferArgs(
 
 	schema.required = []
 	const oldProperties = JSON.parse(JSON.stringify(schema.properties))
-
 	schema.properties = {}
 
 	for (const arg of inferedSchema.args) {
@@ -64,6 +77,7 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
+	await tick()
 }
 
 function argSigToJsonSchemaType(
@@ -121,23 +135,39 @@ function argSigToJsonSchemaType(
 			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
-		} else if (t.list && typeof t.list == 'object' && `object` in t.list) {
-			newS.items = { type: 'object' }
-		} else {
+		} else if (t.list == 'string') {
 			newS.items = { type: 'string' }
+		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
+			newS.items = { type: 'string', enum: t.list.str }
+		} else {
+			newS.items = { type: 'object' }
 		}
 	} else {
 		newS.type = 'object'
 	}
+
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
 			if (prop != 'description') {
 				delete oldS[prop]
 			}
 		}
+	} else if (oldS.format == 'date-time' && newS.format != 'date-time') {
+		delete oldS.format
+	} else if (oldS.items?.type != newS.items?.type) {
+		delete oldS.items
 	}
 
+	let sameItems = oldS.items?.type == 'string' && newS.items?.type == 'string'
+	let savedItems: any = undefined
+	if (sameItems) {
+		savedItems = JSON.parse(JSON.stringify(oldS.items))
+	}
 	Object.assign(oldS, newS)
+	if (sameItems) {
+		oldS.items = savedItems
+	}
+
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
 	}

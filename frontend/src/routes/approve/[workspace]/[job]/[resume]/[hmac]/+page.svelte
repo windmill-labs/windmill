@@ -3,13 +3,13 @@
 	import { page } from '$app/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
-	import autosize from 'svelte-autosize'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	let job: Job | undefined = undefined
 	let currentApprovers: { resume_id: number; approver: string }[] = []
@@ -21,9 +21,11 @@
 		.map((x) => x.resume_id)
 		.includes(new Number($page.params.resume).valueOf())
 
+	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
+	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
 	let timeout: NodeJS.Timer | undefined = undefined
 	let error: string | undefined = undefined
-	let message = ''
+	let payload: any = {}
 
 	onMount(() => {
 		getJob()
@@ -51,6 +53,23 @@
 		timeout && clearInterval(timeout)
 	})
 
+	let argsFetched = false
+	$: job && !argsFetched && getDefaultArgs()
+
+	let valid = true
+	async function getDefaultArgs() {
+		argsFetched = true
+		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
+		if (!jobId) {
+			return {}
+		}
+		let job_result = await JobService.getCompletedJobResult({
+			workspace: job?.workspace_id ?? '',
+			id: jobId
+		})
+		payload = job_result?.default_args ?? {}
+	}
+
 	async function getJob() {
 		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
 			workspace: $page.params.workspace,
@@ -70,7 +89,7 @@
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
 			approver,
-			requestBody: { message }
+			requestBody: payload
 		})
 		sendUserToast('Flow approved')
 		getJob()
@@ -142,6 +161,10 @@
 		<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 	{/if}
 
+	{#if schema}
+		<SchemaForm bind:isValid={valid} {schema} bind:args={payload} noVariablePicker />
+	{/if}
+
 	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
 		<Button
 			btnClasses="grow"
@@ -155,12 +178,8 @@
 			color="green"
 			on:click|once={resume}
 			size="md"
-			disabled={completed || alreadyResumed}>Approve/Resume</Button
+			disabled={completed || alreadyResumed || !valid}>Approve/Resume</Button
 		>
-	</div>
-	<div>
-		<h3 class="mt-2">message (optional)</h3>
-		<input type="text" bind:value={message} use:autosize />
 	</div>
 
 	<div class="mt-4 flex flex-row flex-wrap justify-between"

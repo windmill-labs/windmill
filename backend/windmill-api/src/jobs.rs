@@ -8,7 +8,8 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::{require_owner_of_path, Authed, OptAuthed},
+    users::{check_scopes, require_owner_of_path, Authed, OptAuthed},
+    utils::require_super_admin,
     variables::get_workspace_key,
     BASE_URL,
 };
@@ -20,6 +21,7 @@ use axum::{
     Extension, Form, RequestExt, Router,
 };
 use base64::Engine;
+use bytes::Bytes;
 use hmac::Mac;
 use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -51,7 +53,7 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/p/*script_path",
-            post(run_wait_result_job_by_path).head(|| async { "" }),
+            post(run_wait_result_script_by_path).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/p/*script_path",
@@ -59,14 +61,23 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_job_by_hash).head(|| async { "" }),
+            post(run_wait_result_script_by_hash).head(|| async { "" }),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path).head(|| async { "" }),
         )
+        .route(
+            "/openai_sync/p/*script_path",
+            post(openai_sync_script_by_path).head(|| async { "" }),
+        )
+        .route(
+            "/openai_sync/f/*script_path",
+            post(openai_sync_flow_by_path).head(|| async { "" }),
+        )
         .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
         .route("/run/preview", post(run_preview_job))
+        .route("/add_noop_jobs/:n", post(add_noop_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
@@ -111,6 +122,13 @@ pub fn global_service() -> Router {
             get(get_suspended_job_flow),
         )
         .route("/get/:id", get(get_job))
+        .route("/get_logs/:id", get(get_job_logs))
+        .route("/completed/get/:id", get(get_completed_job))
+        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route(
+            "/completed/get_result_maybe/:id",
+            get(get_completed_job_result_maybe),
+        )
         .route("/getupdate/:id", get(get_job_update))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/queue/force_cancel/:id", post(force_cancel))
@@ -139,7 +157,7 @@ async fn cancel_job_api(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, false).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -182,7 +200,7 @@ async fn force_cancel(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, true).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, true).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -259,6 +277,22 @@ async fn get_job(
     let job = not_found_if_none(job_o, "Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
+}
+
+async fn get_job_logs(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    let text = sqlx::query_scalar!(
+        "SELECT logs FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    let text = not_found_if_none(text, "Job Logs", id.to_string())?;
+    Ok(text)
 }
 
 pub async fn get_job_by_id<'c>(
@@ -348,6 +382,7 @@ pub struct RunJobQuery {
     invisible_to_owner: Option<bool>,
     queue_limit: Option<i64>,
     payload: Option<String>,
+    job_id: Option<Uuid>,
 }
 
 lazy_static::lazy_static! {
@@ -415,6 +450,7 @@ pub struct ListQueueQuery {
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
+    pub schedule_path: Option<String>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
@@ -437,6 +473,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(p) = &lq.script_path_exact {
         sqlb.and_where_eq("script_path", "?".bind(p));
+    }
+    if let Some(p) = &lq.schedule_path {
+        sqlb.and_where_eq("schedule_path", "?".bind(p));
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("script_hash", "?".bind(h));
@@ -561,6 +600,7 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
+    check_scopes(&authed, || format!("listjobs"))?;
     // TODO: todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
@@ -580,6 +620,7 @@ async fn list_jobs(
             suspended: lq.suspended,
             args: lq.args,
             tag: lq.tag,
+            schedule_path: lq.schedule_path,
         },
         &[
             "'QueuedJob' as typ",
@@ -593,7 +634,7 @@ async fn list_jobs(
             "running",
             "script_hash",
             "script_path",
-            "CASE WHEN pg_column_size(args) > 1000 THEN '\"too large args\"'::jsonb ELSE args END",
+            "null as args",
             "null as duration_ms",
             "null as success",
             "false as deleted",
@@ -629,7 +670,7 @@ async fn list_jobs(
             "null as running",
             "script_hash",
             "script_path",
-            "CASE WHEN pg_column_size(args) > 1000 THEN '\"too large args\"'::jsonb ELSE args END",
+            "null as args",
             "duration_ms",
             "success",
             "deleted",
@@ -667,6 +708,7 @@ pub async fn resume_suspended_flow_as_owner(
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    check_scopes(&authed, || format!("resumeflow"))?;
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
@@ -703,7 +745,7 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = get_suspended_prent_flow_info(job_id, &mut tx).await?;
+    let flow = get_suspended_parent_flow_info(job_id, &mut tx).await?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -794,7 +836,7 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_prent_flow_info<'c>(
+async fn get_suspended_parent_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<FlowInfo> {
@@ -865,18 +907,20 @@ pub async fn cancel_suspended_job(
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
 
     let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
-    let parent_flow = get_root_job(db, &w_id, job).await?;
-    let (mut tx, job) = windmill_queue::cancel_job(
+    let parent_flow = get_suspended_parent_flow_info(job, &mut tx).await?.id;
+
+    let (mut tx, cjob) = windmill_queue::cancel_job(
         &whom,
         Some("approval request disapproved".to_string()),
         parent_flow,
         &w_id,
         tx,
+        &db,
         rsmq,
         false,
     )
     .await?;
-    if job.is_some() {
+    if cjob.is_some() {
         audit_log(
             &mut tx,
             &whom,
@@ -887,26 +931,13 @@ pub async fn cancel_suspended_job(
             None,
         )
         .await?;
-    }
-    tx.commit().await?;
-    Ok("Flow of job cancelled".to_string())
-}
+        tx.commit().await?;
 
-pub async fn get_root_job(db: DB, w_id: &str, job: Uuid) -> error::Result<Uuid> {
-    let mut tx = db.begin().await?;
-    let mut job_id = job;
-    loop {
-        let (job, ntx) = get_job_by_id(tx, w_id, job_id).await?;
-        tx = ntx;
-        let p_job = job.and_then(|x| match x {
-            Job::QueuedJob(job) => job.parent_job,
-            Job::CompletedJob(job) => job.parent_job,
-        });
-        if let Some(p_job) = p_job {
-            job_id = p_job;
-        } else {
-            return Ok(job_id);
-        }
+        Ok(format!("Flow {parent_flow} of job {job} cancelled"))
+    } else {
+        Ok(format!(
+            "Flow {parent_flow} of job {job} was not cancellable"
+        ))
     }
 }
 
@@ -1206,11 +1237,20 @@ struct CancelJob {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PreviewKind {
+    Code,
+    Identity,
+    Http,
+    Noop,
+}
+#[derive(Deserialize)]
 struct Preview {
-    content: String,
+    content: Option<String>,
+    kind: Option<PreviewKind>,
     path: Option<String>,
     args: Option<serde_json::Map<String, serde_json::Value>>,
-    language: ScriptLang,
+    language: Option<ScriptLang>,
     tag: Option<String>,
 }
 
@@ -1221,15 +1261,15 @@ struct PreviewFlow {
     args: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
-pub struct JsonOrForm<T>(T);
+pub struct JsonOrForm(
+    Option<serde_json::Map<String, serde_json::Value>>,
+    Option<String>,
+);
 
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body>
-    for JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>
+impl<S> FromRequest<S, axum::body::Body> for JsonOrForm
 where
     S: Send + Sync,
-    Json<Option<serde_json::Map<String, serde_json::Value>>>: FromRequest<(), axum::body::Body>,
-    Form<serde_json::Map<String, serde_json::Value>>: FromRequest<(), axum::body::Body>,
 {
     type Rejection = Response;
 
@@ -1239,16 +1279,51 @@ where
     ) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
-
         if let Some(content_type) = content_type {
             if content_type.starts_with("application/json") {
-                let Json(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-                return Ok(Self(payload));
+                if req
+                    .uri()
+                    .query()
+                    .map(|x| x.contains("raw=true"))
+                    .unwrap_or(false)
+                {
+                    let bytes = Bytes::from_request(req, _state)
+                        .await
+                        .map_err(IntoResponse::into_response)?;
+                    let str = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                        Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
+                    })?;
+                    let payload =
+                        serde_json::from_str::<Option<serde_json::Value>>(&str).map_err(|e| {
+                            Error::BadRequest(format!("invalid json: {}", e)).into_response()
+                        })?;
+                    return match payload {
+                        Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), Some(str))),
+                        None => Ok(Self(None, Some(str))),
+                        Some(x) => {
+                            let mut map = serde_json::Map::new();
+                            map.insert("body".to_string(), x);
+                            Ok(Self(Some(map), Some(str)))
+                        }
+                    };
+                } else {
+                    let Json(payload): Json<Option<serde_json::Value>> =
+                        req.extract().await.map_err(IntoResponse::into_response)?;
+                    return match payload {
+                        Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), None)),
+                        None => Ok(Self(None, None)),
+                        Some(x) => {
+                            let mut map = serde_json::Map::new();
+                            map.insert("body".to_string(), x);
+                            Ok(Self(Some(map), None))
+                        }
+                    };
+                }
             }
 
             if content_type.starts_with("application/x-www-form-urlencoded") {
                 let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-                return Ok(Self(Some(payload)));
+                return Ok(Self(Some(payload), None));
             }
         }
 
@@ -1301,6 +1376,20 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
+
+fn add_raw_string(
+    raw_string: Option<String>,
+    mut args: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    if let Some(raw_string) = raw_string {
+        args.insert(
+            "raw_string".to_string(),
+            serde_json::Value::String(raw_string),
+        );
+    }
+    return args;
+}
+
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1308,12 +1397,15 @@ pub async fn run_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -1326,6 +1418,7 @@ pub async fn run_flow_by_path(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1344,14 +1437,17 @@ pub async fn run_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1365,6 +1461,7 @@ pub async fn run_job_by_path(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1546,6 +1643,8 @@ pub async fn run_wait_result_job_by_path_get(
 
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
@@ -1562,6 +1661,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1581,7 +1681,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await
 }
 
-pub async fn run_wait_result_job_by_path(
+pub async fn run_wait_result_script_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1589,15 +1689,94 @@ pub async fn run_wait_result_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_script_by_path_internal(
+        db,
+        run_query,
+        script_path,
+        authed,
+        rsmq,
+        user_db,
+        w_id,
+        headers,
+        args,
+        raw_string,
+    )
+    .await
+}
+
+fn convert_from_openai_json(
+    json: Option<serde_json::Map<String, serde_json::Value>>,
+) -> error::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+    if let Some(m) = json {
+        let mut new_json = serde_json::Map::new();
+        let input_keys = m
+            .get("inputKeys")
+            .and_then(|x| x.as_array())
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
+        let input_values = m
+            .get("inputValues")
+            .and_then(|x| x.as_array())
+            .map(|x| x.to_owned())
+            .unwrap_or_default();
+        for (k, v) in input_keys.into_iter().zip(input_values.into_iter()) {
+            new_json.insert(k.as_str().unwrap_or_else(|| "invalid_key").to_string(), v);
+        }
+        Ok(Some(new_json))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn openai_sync_script_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    JsonOrForm(args, raw_string): JsonOrForm,
+) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_script_by_path_internal(
+        db,
+        run_query,
+        script_path,
+        authed,
+        rsmq,
+        user_db,
+        w_id,
+        headers,
+        convert_from_openai_json(args)?,
+        raw_string,
+    )
+    .await
+}
+
+async fn run_wait_result_script_by_path_internal(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    script_path: StripPath,
+    authed: Authed,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    user_db: UserDB,
+    w_id: String,
+    headers: HeaderMap,
+    args: Option<serde_json::Map<String, serde_json::Value>>,
+    raw_string: Option<String>,
+) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
+    check_scopes(&authed, || format!("run:script/{script_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1611,6 +1790,7 @@ pub async fn run_wait_result_job_by_path(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1630,7 +1810,7 @@ pub async fn run_wait_result_job_by_path(
     .await
 }
 
-pub async fn run_wait_result_job_by_hash(
+pub async fn run_wait_result_script_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1638,15 +1818,17 @@ pub async fn run_wait_result_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1660,6 +1842,7 @@ pub async fn run_wait_result_job_by_hash(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1679,6 +1862,31 @@ pub async fn run_wait_result_job_by_hash(
     .await
 }
 
+pub async fn openai_sync_flow_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    JsonOrForm(args, raw_string): JsonOrForm,
+) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_flow_by_path_internal(
+        db,
+        run_query,
+        flow_path,
+        authed,
+        rsmq,
+        user_db,
+        headers,
+        convert_from_openai_json(args)?,
+        raw_string,
+        w_id,
+    )
+    .await
+}
+
 pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1687,14 +1895,35 @@ pub async fn run_wait_result_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    run_wait_result_flow_by_path_internal(
+        db, run_query, flow_path, authed, rsmq, user_db, headers, args, raw_string, w_id,
+    )
+    .await
+}
+
+async fn run_wait_result_flow_by_path_internal(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    flow_path: StripPath,
+    authed: Authed,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    user_db: UserDB,
+    headers: HeaderMap,
+    args: Option<serde_json::Map<String, serde_json::Value>>,
+    raw_string: Option<String>,
+    w_id: String,
+) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1708,6 +1937,7 @@ pub async fn run_wait_result_flow_by_path(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1736,6 +1966,7 @@ async fn run_preview_job(
     headers: HeaderMap,
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("runscript"))?;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
@@ -1743,12 +1974,17 @@ async fn run_preview_job(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::Code(RawCode {
-            content: preview.content,
-            path: preview.path,
-            language: preview.language,
-            lock: None,
-        }),
+        match preview.kind {
+            Some(PreviewKind::Identity) => JobPayload::Identity,
+            Some(PreviewKind::Http) => JobPayload::Http,
+            Some(PreviewKind::Noop) => JobPayload::Noop,
+            _ => JobPayload::Code(RawCode {
+                content: preview.content.unwrap_or_default(),
+                path: preview.path,
+                language: preview.language.unwrap_or(ScriptLang::Deno),
+                lock: None,
+            }),
+        },
         args,
         &authed.username,
         &authed.email,
@@ -1757,6 +1993,7 @@ async fn run_preview_job(
         None,
         None,
         None,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1769,6 +2006,44 @@ async fn run_preview_job(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+async fn add_noop_jobs(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path((w_id, n)): Path<(String, i32)>,
+) -> error::JsonResult<Vec<String>> {
+    require_super_admin(&mut db.begin().await?, &authed.email).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+
+    let mut uuids: Vec<String> = Vec::new();
+    for _ in 0..n {
+        let (uuid, ntx) = push(
+            tx,
+            &w_id,
+            JobPayload::Noop,
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+        )
+        .await?;
+        tx = ntx;
+        uuids.push(uuid.to_string());
+    }
+    tx.commit().await?;
+
+    Ok(Json(uuids))
+}
 async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1778,6 +2053,7 @@ async fn run_preview_flow_job(
     headers: HeaderMap,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("runflow"))?;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
@@ -1794,6 +2070,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1813,13 +2090,16 @@ pub async fn run_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
-    JsonOrForm(args): JsonOrForm<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    check_scopes(&authed, || format!("run:script/{path}"))?;
+
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
 
     let (uuid, tx) = push(
         tx,
@@ -1833,6 +2113,7 @@ pub async fn run_job_by_hash(
         None,
         run_query.parent_job,
         run_query.parent_job,
+        run_query.job_id,
         false,
         false,
         None,
@@ -1919,6 +2200,10 @@ fn list_completed_jobs_query(
         .limit(per_page)
         .clone();
 
+    if let Some(p) = &lq.schedule_path {
+        sqlb.and_where_eq("schedule_path", "?".bind(p));
+    }
+
     if let Some(ps) = &lq.script_path_start {
         sqlb.and_where_like_left("script_path", "?".bind(ps));
     }
@@ -1984,6 +2269,7 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
+    pub schedule_path: Option<String>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset
@@ -1992,11 +2278,14 @@ pub struct ListCompletedQuery {
 }
 
 async fn list_completed_jobs(
+    authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<CompletedJob>> {
+    check_scopes(&authed, || format!("listjobs"))?;
+
     let (per_page, offset) = paginate(pagination);
 
     let sql = list_completed_jobs_query(
@@ -2107,6 +2396,8 @@ async fn delete_completed_job(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<CompletedJob> {
+    check_scopes(&authed, || format!("deletejob"))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;

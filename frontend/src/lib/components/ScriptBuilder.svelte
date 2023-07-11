@@ -4,45 +4,42 @@
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { userStore, workerTags, workspaceStore } from '$lib/stores'
-	import {
-		emptySchema,
-		encodeState,
-		getModifierKey,
-		sendUserToast,
-		setQueryWithoutLoad
-	} from '$lib/utils'
+	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
+	import { emptySchema, encodeState, getModifierKey, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, Drawer, Kbd } from './common'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import { Alert, Badge, Button, Drawer, Kbd } from './common'
+	import { faPlus, faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Pen } from 'lucide-svelte'
+	import { Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
-	import {
-		SCRIPT_SHOW_BASH,
-		SCRIPT_SHOW_GO,
-		SCRIPT_SHOW_PSQL,
-		SCRIPT_CUSTOMISE_SHOW_KIND
-	} from '$lib/consts'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
+	import Awareness from './Awareness.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { fade } from 'svelte/transition'
 
 	export let script: NewScript
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let topHash: string | undefined = undefined
 	export let showMeta: boolean = false
 
 	let metadataOpen =
-		showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
+		showMeta ||
+		(initialPath == '' &&
+			$page.url.searchParams.get('state') == undefined &&
+			$page.url.searchParams.get('collab') == undefined)
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
@@ -61,7 +58,7 @@
 	}
 
 	const langs: [string, SupportedLanguage][] = [
-		['Typescript', Script.language.DENO],
+		['Typescript (Deno)', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
 	if (SCRIPT_SHOW_GO) {
@@ -70,6 +67,8 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
+	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
 		title: string
@@ -84,19 +83,19 @@
 			value: Script.kind.TRIGGER,
 			title: 'Trigger',
 			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_trigger'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_trigger'
 		},
 		{
 			value: Script.kind.APPROVAL,
 			title: 'Approval',
 			desc: 'Send notifications externally to ask for approval to continue a flow.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_approval'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_approval'
 		},
 		{
 			value: Script.kind.FAILURE,
 			title: 'Error Handler',
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
-			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_error_handler'
+			documentationLink: 'https://www.windmill.dev/docs/flows/flow_error_handler'
 		}
 	]
 
@@ -104,19 +103,30 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
+	$: {
+		;['collab', 'path'].forEach((x) => {
+			if ($page.url.searchParams.get(x)) {
+				$page.url.searchParams.delete(x)
+			}
+		})
+		setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
+	}
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
 	}
 
 	function initContent(
-		language: 'deno' | 'python3' | 'go' | 'bash',
+		language: SupportedLanguage,
 		kind: Script.kind | undefined,
-		template: 'pgsql' | 'mysql' | 'script'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker'
 	) {
+		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
+		if (script.content != editor?.getCode()) {
+			setCode(script.content)
+		}
 	}
 
 	async function editScript(): Promise<void> {
@@ -127,7 +137,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
@@ -146,7 +156,8 @@
 					is_template: script.is_template,
 					language: script.language,
 					kind: script.kind,
-					tag: script.tag
+					tag: script.tag,
+					envs: script.envs
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -165,7 +176,7 @@
 
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema as any)
 			} catch (error) {
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
@@ -185,7 +196,8 @@
 						language: script.language,
 						kind: script.kind,
 						tag: script.tag,
-						draft_only: true
+						draft_only: true,
+						envs: script.envs
 					}
 				})
 			}
@@ -279,13 +291,9 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
-							let lastTemplate = template
 							template = 'script'
 							initContent(lang, script.kind, template)
 							script.language = lang
-							if (lastTemplate != template) {
-								setCode(script.content)
-							}
 						}}
 						disabled={lockedLanguage}
 					>
@@ -293,26 +301,51 @@
 						<span class="ml-2 py-2">{label}</span>
 					</Button>
 				{/each}
-				{#if SCRIPT_SHOW_PSQL}
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'pgsql' ? 'blue' : 'dark'}
-						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						disabled={lockedLanguage}
-						on:click={() => {
-							let lastTemplate = template
-							template = 'pgsql'
-							initContent(Script.language.DENO, script.kind, template)
-							script.language = Script.language.DENO
-							if (lastTemplate != template) {
-								setCode(script.content)
-							}
-						}}
-					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
-					</Button>
-				{/if}
+				<Button
+					size="sm"
+					variant="border"
+					color={template == 'docker' ? 'blue' : 'dark'}
+					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						if (isCloudHosted()) {
+							sendUserToast(
+								'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+								true,
+								[
+									{
+										label: 'Learn more',
+										callback: () => {
+											window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+										}
+									}
+								]
+							)
+							return
+						}
+						template = 'docker'
+						initContent(Script.language.BASH, script.kind, template)
+						script.language = Script.language.BASH
+					}}
+				>
+					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
+				</Button>
+				<Button
+					size="xs"
+					variant="border"
+					color={script.language == 'bun' ? 'blue' : 'dark'}
+					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						initContent(Script.language.BUN, script.kind, template)
+						script.language = Script.language.BUN
+					}}
+				>
+					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2">
+						Typescript (Bun, experimental)
+					</span>
+				</Button>
+
 				<!-- <Button
 					size="sm"
 					variant="border"
@@ -338,7 +371,7 @@
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip
-					documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
+					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 					>The script will be executed on a worker configured to accept its worker group tag. For
 					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
 				></h2
@@ -370,12 +403,64 @@
 					{/if}
 				{/if}
 			</div>
+			{#if !isCloudHosted()}
+				<h2 class="border-b pb-1 mt-10 mb-4"
+					>Custom env variables<Tooltip
+						documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
+						>Additional static custom env variables to pass to the script.</Tooltip
+					></h2
+				>
+				<div class="w-full">
+					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					{#if Array.isArray(script.envs ?? [])}
+						{#each script.envs ?? [] as v, i}
+							<div class="flex max-w-md mt-1 w-full items-center">
+								<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
+								<button
+									transition:fade|local={{ duration: 50 }}
+									class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+									aria-label="Clear"
+									on:click={() => {
+										script.envs && script.envs.splice(i, 1)
+										script.envs = script.envs
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						{#if script.envs && script.envs.length > 0}
+							<div class="pt-2" />
+							<Alert type="warning" title="Not passed in previews"
+								>Static envs variables are not passed in preview but solely on deployed scripts.</Alert
+							>
+						{/if}
+					{/if}
+				</div>
+				<div class="flex mt-2">
+					<Button
+						variant="border"
+						color="dark"
+						size="xs"
+						btnClasses="mt-1"
+						on:click={() => {
+							if (script.envs == undefined || !Array.isArray(script.envs)) {
+								script.envs = []
+							}
+							script.envs = script.envs.concat('')
+						}}
+					>
+						<Icon data={faPlus} class="mr-2" />
+						Add item
+					</Button>
+				</div>
+			{/if}
 		</DrawerContent>
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex flex-col w-full px-2 py-1 border-b shadow-sm">
-			<div class="justify-between flex gap-8 w-full items-center px-2">
+		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 border-b shadow-sm">
+			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
 				<div class="min-w-64 w-full max-w-md">
 					<input
 						type="text"
@@ -421,7 +506,21 @@
 						<LanguageIcon lang={script.language} />
 					</button>
 				</div>
-				<div class="flex flex-row gap-x-4">
+				{#if $enterpriseLicense && initialPath != ''}
+					<Awareness />
+				{/if}
+
+				<div class="flex flex-row gap-x-1 lg:gap-x-4">
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							metadataOpen = true
+						}}
+					>
+						Metadata
+					</Button>
 					<Button
 						color="dark"
 						variant="border"
@@ -434,16 +533,18 @@
 					</Button>
 					<Button
 						loading={loadingDraft}
-						size="sm"
+						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveDraft()}
 					>
-						Save draft&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+						<span class="hidden sm:flex">
+							Save draft&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+						</span>
 						<Kbd small>S</Kbd>
 					</Button>
 					<Button
 						loading={loadingSave}
-						size="sm"
+						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript()}
 						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
@@ -476,7 +577,6 @@
 									template = 'script'
 									script.kind = value
 									initContent(script.language, value, template)
-									setCode(script.content)
 								}}
 							>
 								{title}
@@ -498,7 +598,10 @@
 				<ScriptSchema bind:schema={script.schema} />
 			</DrawerContent>
 		</Drawer>
+
 		<ScriptEditor
+			collabMode
+			edit={initialPath != ''}
 			on:format={() => {
 				saveDraft()
 			}}

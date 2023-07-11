@@ -152,6 +152,15 @@ pub struct Suspend {
     pub required_events: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_form: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Mock {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_value: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -166,9 +175,13 @@ pub struct FlowModule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<Suspend>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub mock: Option<Mock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<Retry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sleep: Option<InputTransform>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<u32>,
 }
 
 impl FlowModule {
@@ -263,6 +276,7 @@ pub enum FlowModuleValue {
         language: ScriptLang,
     },
     Identity,
+    Http,
 }
 
 fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>

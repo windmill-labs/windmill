@@ -25,19 +25,27 @@ use crate::utils::StripPath;
 )]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
+    Nativets,
     Deno,
     Python3,
     Go,
     Bash,
+    Postgresql,
+    Bun,
+    Mysql,
 }
 
 impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ScriptLang::Bun => "bun",
+            ScriptLang::Nativets => "nativets",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
             ScriptLang::Go => "go",
             ScriptLang::Bash => "bash",
+            ScriptLang::Postgresql => "postgresql",
+            ScriptLang::Mysql => "mysql",
         }
     }
 }
@@ -139,6 +147,8 @@ pub struct Script {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +199,7 @@ pub struct NewScript {
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
+    pub envs: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +220,11 @@ pub struct ListScriptQuery {
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
     let v = hex::decode(s)?;
+    if v.len() < 8 {
+        return Err(crate::error::Error::BadRequest(format!(
+            "hex string did not decode to an u64: {s}",
+        )));
+    }
     let nb: u64 = u64::from_be_bytes(
         v[0..8]
             .try_into()

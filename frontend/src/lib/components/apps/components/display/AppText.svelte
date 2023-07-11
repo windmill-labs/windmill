@@ -3,20 +3,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Clipboard } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { get } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
-	import Popover from '../../../Popover.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
-	import type {
-		AppEditorContext,
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -39,13 +32,18 @@
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const editorcontext = getContext<AppEditorContext>('AppEditorContext')
-
 	let result: string | undefined = undefined
 
 	if (componentInput?.type == 'template' && !isCodeInjection(componentInput.eval)) {
 		result = componentInput.eval
 		initializing = false
+	}
+
+	$componentControl[id] = {
+		...$componentControl[id],
+		setValue(value: string) {
+			result = value
+		}
 	}
 
 	const outputs = initOutput($worldStore, id, {
@@ -119,16 +117,15 @@
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
 	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
-	$: editableValue = initialValue ? JSON.parse(JSON.stringify(initialValue)) : ''
+	$: editableValue = initialValue ?? ''
 
 	let rows = 1
 
 	function onInput(e: Event) {
 		const target = e.target as HTMLTextAreaElement
 
-		if (target.value) {
+		if (target.value != undefined) {
 			$componentControl[id]?.setCode?.(target.value)
-			editableValue
 			autosize()
 		}
 	}
@@ -165,7 +162,7 @@
 		}}
 		on:keydown|stopPropagation
 	>
-		{#if editorMode && componentInput?.type == 'template'}
+		{#if $mode == 'dnd' && editorMode && componentInput?.type == 'template'}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				<textarea
 					class={twMerge(
@@ -204,14 +201,6 @@
 						componentInput?.type == 'template'
 							? 'cursor-text'
 							: ''}"
-						on:click={() => {
-							if ($mode === 'dnd' && componentInput?.type == 'template') {
-								let ontextfocus = editorcontext?.ontextfocus
-								if (ontextfocus) {
-									get(ontextfocus)?.()
-								}
-							}
-						}}
 					>
 						<svelte:element
 							this={component}
@@ -226,24 +215,25 @@
 							)}
 						>
 							{String(result)}
-							{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
-								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
-							{/if}
-							{#if resolvedConfig.copyButton && result}
-								<Popover notClickable>
-									<Button
-										variant="border"
-										size="xs"
-										color="dark"
-										btnClasses="!p-1"
-										on:click={() => copyToClipboard(result)}
-									>
-										<Clipboard size={14} strokeWidth={2} />
-									</Button>
-									<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
-								</Popover>
-							{/if}
 						</svelte:element>
+
+						{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
+							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
+						{/if}
+						{#if resolvedConfig.copyButton && result}
+							<div class="flex">
+								<Button
+									title="Copy to clipboard"
+									variant="border"
+									size="xs"
+									color="light"
+									btnClasses="!p-1"
+									on:click={() => copyToClipboard(result)}
+								>
+									<Clipboard size={14} strokeWidth={2} />
+								</Button>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</AlignWrapper>

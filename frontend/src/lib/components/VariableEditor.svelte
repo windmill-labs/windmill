@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { canWrite, isOwner, sendUserToast } from '$lib/utils'
 	import { VariableService } from '$lib/gen'
 	import Path from './Path.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -14,6 +13,8 @@
 	import Toggle from './Toggle.svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { canWrite, isOwner } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -155,7 +156,7 @@
 				</div>
 				<div class="mt-4">
 					<Toggle
-						on:change={() => loadVariable(initialPath)}
+						on:change={() => edit && loadVariable(initialPath)}
 						bind:checked={variable.is_secret}
 						options={{ right: 'Secret' }}
 					/>

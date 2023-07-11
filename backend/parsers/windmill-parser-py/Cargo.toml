@@ -10,11 +10,7 @@ path = "./src/lib.rs"
 
 [dependencies]
 windmill-parser.workspace = true
-windmill-common.workspace = true
 rustpython-parser.workspace = true
-phf.workspace = true
 itertools.workspace = true
-regex.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-lazy_static.workspace = true

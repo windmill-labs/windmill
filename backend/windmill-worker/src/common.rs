@@ -1,6 +1,6 @@
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::error::{self, Error};
+use windmill_common::error::{self};
 use windmill_queue::CLOUD_HOSTED;
 
 use crate::MAX_RESULT_SIZE;
@@ -10,11 +10,11 @@ pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
     let mut content = "".to_string();
     file.read_to_string(&mut content).await?;
     if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
-        return Err(Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
+        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
     }
     serde_json::from_str(&content)
-        .map_err(|e| Error::ExecutionErr(format!("Error parsing result: {e}")))
+        .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]

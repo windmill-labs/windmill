@@ -1,6 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
-import { parse as yamlParse } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 
 import {
   colors,
@@ -10,6 +9,7 @@ import {
   FlowService,
   JobService,
   Table,
+  yamlParse,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
@@ -26,8 +26,7 @@ const alreadySynced: string[] = [];
 export async function pushFlow(
   workspace: string,
   remotePath: string,
-  localFlowPath: string,
-  workspaceId: string
+  localFlowPath: string
 ): Promise<void> {
   if (alreadySynced.includes(localFlowPath)) {
     return;
@@ -36,7 +35,7 @@ export async function pushFlow(
   let flow: Flow | undefined = undefined;
   try {
     flow = await FlowService.getFlowByPath({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
     });
   } catch {
@@ -102,12 +101,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushFlow(
-    workspace.workspaceId,
-    remotePath,
-    filePath,
-    workspace.workspaceId
-  );
+  await pushFlow(workspace.workspaceId, remotePath, filePath);
   console.log(colors.bold.underline.green("Flow pushed"));
 }
 

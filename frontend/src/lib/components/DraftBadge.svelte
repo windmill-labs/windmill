@@ -15,7 +15,7 @@
 	{:else}
 		<Popover notClickable>
 			<svelte:fragment slot="text">Is deployed and has a draft</svelte:fragment>
-			<Badge color="indigo" baseClass="border border-indigo-200">+Draft</Badge>
+			<Badge small color="indigo" baseClass="border border-indigo-200">+Draft</Badge>
 		</Popover>
 	{/if}
 {/if}

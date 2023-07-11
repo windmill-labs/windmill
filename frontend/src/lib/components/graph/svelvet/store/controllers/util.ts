@@ -111,7 +111,8 @@ export function populateEdgesStore(store: StoreType, edges: UserEdgeType[], canv
 			userEdge.noHandle === undefined ? false : userEdge.noHandle,
 			userEdge.arrow === undefined ? false : userEdge.arrow,
 			userEdge.clickCallback === undefined ? () => {} : userEdge.clickCallback,
-			userEdge.className === undefined ? '' : userEdge.className
+			userEdge.className === undefined ? '' : userEdge.className,
+			userEdge.offset
 		)
 	}
 	store.edgesStore.set(edgesStore)

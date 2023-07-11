@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
-	import type { AppViewerContext, RichConfiguration } from '../../types'
+	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
@@ -19,6 +19,9 @@
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+
+	$: fullContext = iterContext ? { ...extraContext, iter: $iterContext } : extraContext
 	const dispatch = createEventDispatcher()
 
 	if (input == undefined) {
@@ -45,6 +48,12 @@
 
 	let firstDebounce = true
 	const debounce_ms = 50
+
+	export async function computeExpr() {
+		value = await evalExpr(lastInput)
+		return value
+	}
+
 	function debounce(cb: () => Promise<void>) {
 		if (firstDebounce) {
 			firstDebounce = false
@@ -66,33 +75,47 @@
 		if (timeout) {
 			clearTimeout(timeout)
 		}
-		timeout = setTimeout(cb, 1000)
+		timeout = setTimeout(cb, 50)
 	}
 
 	$: lastInput && $worldStore && debounce(handleConnection)
 
-	$: lastInput &&
-		lastInput.type == 'template' &&
-		$stateId &&
-		$state &&
-		debounce(async () => {
-			let nvalue = await getValue(lastInput)
-			if (!deepEqual(nvalue, value)) {
-				value = nvalue
-			}
-			dispatch('done')
-		})
+	const debounceTemplate = async () => {
+		let nvalue = await getValue(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+	}
 
 	$: lastInput &&
-		lastInput.type == 'eval' &&
+		lastInput.type == 'template' &&
+		isCodeInjection(lastInput.eval) &&
 		$stateId &&
 		$state &&
-		debounce2(async () => {
-			let nvalue = await evalExpr(lastInput)
-			if (!deepEqual(nvalue, value)) {
+		debounce(debounceTemplate)
+
+	let lastExpr: any = undefined
+
+	const debounceEval = async () => {
+		let nvalue = await evalExpr(lastInput)
+		if (!deepEqual(nvalue, value)) {
+			if (
+				typeof nvalue == 'string' ||
+				typeof nvalue == 'number' ||
+				typeof nvalue == 'boolean' ||
+				typeof nvalue == 'bigint'
+			) {
+				if (nvalue != lastExpr) {
+					lastExpr = nvalue
+					value = nvalue as T
+				}
+			} else {
 				value = nvalue
 			}
-		})
+		}
+	}
+
+	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
@@ -106,14 +129,17 @@
 		} else {
 			value = undefined
 		}
+
+		await tick()
 		dispatch('done')
 	}
 
 	async function evalExpr(input: EvalAppInput): Promise<any> {
+		if (iterContext && $iterContext.disabled) return
 		try {
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, extraContext),
+				computeGlobalContext($worldStore, fullContext),
 				true,
 				$state,
 				$mode == 'dnd',
@@ -125,17 +151,20 @@
 			return r
 		} catch (e) {
 			error = e.message
+			console.error("Eval error in app input '" + id + "' with key '" + key, e)
 			return value
 		}
 	}
 
 	async function getValue(input: AppInput) {
+		if (iterContext && $iterContext.disabled) return
+
 		if (!input) return
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
 					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, extraContext),
+					computeGlobalContext($worldStore, fullContext),
 					true,
 					$state,
 					$mode == 'dnd',
@@ -146,6 +175,7 @@
 				error = ''
 				return r
 			} catch (e) {
+				console.debug("Eval error in app input '" + id + "' with key '" + key, e)
 				return e.message
 			}
 		} else if (input.type === 'static') {
@@ -156,6 +186,8 @@
 	}
 
 	function onValueChange(newValue: any): void {
+		if (iterContext && $iterContext.disabled) return
+
 		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = lastInput
 			if (!connection) {

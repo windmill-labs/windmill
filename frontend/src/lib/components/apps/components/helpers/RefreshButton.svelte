@@ -8,14 +8,14 @@
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function refresh() {
-		await $runnableComponents[componentId]?.cb?.()
+		await $runnableComponents[componentId]?.cb?.map((cb) => cb())
 	}
 </script>
 
 <button
 	on:pointerdown|preventDefault|stopPropagation
 	on:click|preventDefault|stopPropagation={refresh}
-	class="center-center p-1 rounded border bg-white/60  hover:bg-gray-200 z-10"
+	class="center-center p-1 rounded border bg-white/60 hover:bg-gray-200 z-10"
 >
 	<RefreshCw class={loading ? 'animate-spin' : ''} size={16} />
 </button>

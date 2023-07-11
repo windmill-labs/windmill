@@ -9,9 +9,16 @@
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import { createSvelteTable, flexRender, type TableOptions } from '@tanstack/svelte-table'
+	import {
+		createSvelteTable,
+		flexRender,
+		type HeaderGroup,
+		type Row,
+		type Table,
+		type TableOptions
+	} from '@tanstack/svelte-table'
 	import AppButton from '../../buttons/AppButton.svelte'
-	import { classNames, isObject } from '$lib/utils'
+	import { classNames, isObject, sendUserToast } from '$lib/utils'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
@@ -22,6 +29,7 @@
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
+	import AppSelect from '../../inputs/AppSelect.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -71,7 +79,11 @@
 	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
-		if (selectedRowIndex !== rowIndex || force) {
+		if (
+			selectedRowIndex !== rowIndex ||
+			JSON.stringify(row.original) !== JSON.stringify(result?.[rowIndex]) ||
+			force
+		) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original, force)
 			outputs?.selectedRowIndex.set(rowIndex, force)
@@ -140,6 +152,7 @@
 			...(resolvedConfig?.pagination?.selected != 'manual'
 				? {
 						initialState: {
+							...resolvedConfig.initialState,
 							pagination: {
 								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
 							}
@@ -160,8 +173,10 @@
 			})
 		}
 		table = createSvelteTable(options)
+
 		if (result) {
-			toggleRow({ original: result[0] }, 0, true)
+			//console.log('rerendering table', result[0])
+			toggleRow({ original: filteredResult[0] }, 0, true)
 		}
 
 		if (outputs.page.peak()) {
@@ -186,6 +201,31 @@
 				return true
 			}
 			return false
+		},
+		setSelectedIndex: (index: number) => {
+			if (filteredResult) {
+				toggleRow({ original: filteredResult[index] }, index, true)
+			}
+		}
+	}
+
+	function getHeaderGroups<T>(table: Table<T>): Array<HeaderGroup<T>> {
+		try {
+			return table.getHeaderGroups()
+		} catch (e) {
+			sendUserToast("Couldn't render table header groups: " + e, true)
+			console.error(e)
+			return []
+		}
+	}
+
+	function safeVisibleCell<T>(row: Row<T>) {
+		try {
+			return row.getVisibleCells()
+		} catch (e) {
+			sendUserToast("Couldn't render table header groups: " + e, true)
+			console.error(e)
+			return []
 		}
 	}
 </script>
@@ -229,7 +269,7 @@
 						)}
 						style={css?.tableHeader?.style ?? ''}
 					>
-						{#each $table.getHeaderGroups() as headerGroup}
+						{#each getHeaderGroups($table) as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
 									{#if header?.column?.columnDef?.header}
@@ -271,7 +311,7 @@
 										: 'divide-gray-200'
 								)}
 							>
-								{#each row.getVisibleCells() as cell, index (index)}
+								{#each safeVisibleCell(row) as cell, index (index)}
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
@@ -297,7 +337,7 @@
 										on:keypress={() => toggleRow(row, rowIndex)}
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1">
+										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 												<div
@@ -387,6 +427,19 @@
 																}}
 																{controls}
 															/>
+														{:else if actionButton.type == 'selectcomponent'}
+															<AppSelect
+																extraKey={'idx' + rowIndex}
+																{render}
+																id={actionButton.id}
+																customCss={actionButton.customCss}
+																configuration={actionButton.configuration}
+																recomputeIds={actionButton.recomputeIds}
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
+																{controls}
+															/>
 														{/if}
 													{:else if actionButton.type == 'buttoncomponent'}
 														<AppButton
@@ -415,6 +468,18 @@
 																toggleRow(row, rowIndex)
 															}}
 														/>
+													{:else if actionButton.type == 'selectcomponent'}
+														<AppSelect
+															extraKey={'idx' + rowIndex}
+															{render}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
+															preclickAction={async () => {
+																toggleRow(row, rowIndex)
+															}}
+														/>
 													{/if}
 												</div>
 											{/each}
@@ -428,6 +493,7 @@
 			</div>
 
 			<AppTableFooter
+				download={resolvedConfig?.downloadButton}
 				pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
 				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
 				result={filteredResult}

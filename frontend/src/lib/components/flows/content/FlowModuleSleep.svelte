@@ -27,9 +27,9 @@
 	$: isSleepEnabled = Boolean(flowModule.sleep)
 </script>
 
-<h2>
+<h2 class="pb-4">
 	Sleep
-	<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/sleep">
+	<Tooltip documentationLink="https://www.windmill.dev/docs/flows/sleep">
 		If defined, at the end of the step, the flow will sleep for a number of seconds before
 		scheduling the next job (if any, no effect if the step is the last one).
 	</Tooltip>

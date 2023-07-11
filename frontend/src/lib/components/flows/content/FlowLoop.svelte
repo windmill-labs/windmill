@@ -15,6 +15,7 @@
 	import { getStepPropPicker } from '../previousResults'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
+	import FlowModuleMock from './FlowModuleMock.svelte'
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -49,7 +50,7 @@
 						Iterator expression
 						<Tooltip>
 							List to iterate over. For more information see the
-							<a href="https://docs.windmill.dev/docs/getting_started/flows_quickstart">docs.</a>
+							<a href="https://www.windmill.dev/docs/getting_started/flows_quickstart">docs.</a>
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
@@ -111,8 +112,9 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop/Break</Tab>
-					<Tab value="suspend">Suspend</Tab>
+					<Tab value="suspend">Suspend/Approval</Tab>
 					<Tab value="sleep">Sleep</Tab>
+					<Tab value="mock">Mock</Tab>
 
 					<svelte:fragment slot="content">
 						<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
@@ -136,6 +138,11 @@
 							<TabContent value="sleep" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule={mod} />
+								</div>
+							</TabContent>
+							<TabContent value="mock" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleMock bind:flowModule={mod} />
 								</div>
 							</TabContent>
 						</div>

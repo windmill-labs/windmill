@@ -2,7 +2,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
-	import { goto } from '$app/navigation'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
@@ -15,16 +14,16 @@
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let wrapperClasses: string = ''
+	export let wrapperStyle: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
-	export let target: ButtonType.Target = '_self'
+	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
-	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
@@ -96,33 +95,11 @@
 		}
 	}
 
-	$: buttonProps = {
-		id,
-		href,
-		target,
-		tabindex: disabled ? -1 : 0,
-		type: buttonType,
-		title,
-		...$$restProps
-	}
-
 	async function onClick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
 			event.stopPropagation()
 			dispatch('click', event)
-			if (href) {
-				if (href.startsWith('data')) {
-					return
-				}
-				if (href.startsWith('http') || target == '_blank') {
-					window.open(href, target)
-				} else {
-					loading = true
-					await goto(href)
-					loading = false
-				}
-			}
 		}
 	}
 
@@ -144,34 +121,79 @@
 	)
 </script>
 
-<div class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row">
-	<svelte:element
-		this={href ? 'a' : 'button'}
-		bind:this={element}
-		on:pointerdown
-		on:click={onClick}
-		on:focus
-		on:blur
-		{download}
-		class={twMerge(buttonClass, disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '')}
-		{...buttonProps}
-		disabled={disabled || loading}
-		type="submit"
-		{style}
-	>
-		{#if loading}
-			<Loader2 class="animate-spin mr-1" size={14} />
-		{:else if startIcon}
-			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-		{/if}
+<div
+	class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row"
+	style={wrapperStyle}
+>
+	{#if href}
+		<a
+			data-sveltekit-preload-code="hover"
+			bind:this={element}
+			on:pointerdown
+			on:focus
+			on:blur
+			on:click={() => {
+				loading = true
+				dispatch('click', event)
+				loading = false
+			}}
+			{href}
+			{download}
+			class={twMerge(
+				buttonClass,
+				disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
+			)}
+			{id}
+			{target}
+			tabindex={disabled ? -1 : 0}
+			{...$$restProps}
+			{style}
+		>
+			{#if loading}
+				<Loader2 class="animate-spin mr-1" size={14} />
+			{:else if startIcon}
+				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+			{/if}
 
-		{#if !iconOnly}
-			<slot />
-		{/if}
-		{#if endIcon}
-			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-		{/if}
-	</svelte:element>
+			{#if !iconOnly}
+				<slot />
+			{/if}
+			{#if endIcon}
+				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+			{/if}
+		</a>
+	{:else}
+		<button
+			bind:this={element}
+			on:pointerdown
+			on:click={onClick}
+			on:focus
+			on:blur
+			class={twMerge(
+				buttonClass,
+				disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
+			)}
+			{id}
+			tabindex={disabled ? -1 : 0}
+			{title}
+			{...$$restProps}
+			disabled={disabled || loading}
+			{style}
+		>
+			{#if loading}
+				<Loader2 class="animate-spin mr-1" size={14} />
+			{:else if startIcon}
+				<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+			{/if}
+
+			{#if !iconOnly}
+				<slot />
+			{/if}
+			{#if endIcon}
+				<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+			{/if}
+		</button>
+	{/if}
 
 	{#if dropdownItems}
 		<div class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>

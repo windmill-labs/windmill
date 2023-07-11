@@ -136,7 +136,6 @@
 								requestBody: {}
 							}))
 					} catch {}
-					jobId = undefined
 				}}
 				size="md"
 				btnClasses="w-full max-w-lg"

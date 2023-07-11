@@ -15,10 +15,12 @@ use crate::{
     webhook_util::WebhookShared,
 };
 use argon2::Argon2;
+use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::Method;
+use mail_send::SmtpClientBuilder;
 use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
@@ -28,6 +30,8 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::utils::rd_string;
+
+use windmill_common::error::AppError;
 
 mod apps;
 mod audit;
@@ -60,8 +64,14 @@ pub const GIT_VERSION: &str =
 
 pub use users::delete_expired_items_perdiodically;
 
+pub const DEFAULT_BODY_LIMIT: usize = 2097152; // 2MB
 lazy_static::lazy_static! {
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+
+    pub static ref REQUEST_SIZE_LIMIT: usize = std::env::var("REQUEST_SIZE_LIMIT")
+    .ok()
+    .and_then(|x| x.parse::<usize>().ok())
+    .unwrap_or(DEFAULT_BODY_LIMIT);
 
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
@@ -74,11 +84,55 @@ lazy_static::lazy_static! {
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
     pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
         .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
         .unwrap();
+
+    pub static ref SMTP_CLIENT: Option<SmtpClientBuilder<String>> = {
+        let smtp = parse_smtp();
+        if let Some(smtp) = smtp {
+            match smtp {
+                Ok(smtp) => Some(smtp),
+                Err(e) => {
+                    tracing::error!("SMTP is not configured correctly, emails will not be sent: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::warn!("SMTP is not configured, emails will not be sent");
+            None
+        }
+    };
+
+    pub static ref SMTP_FROM: String = std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@getwindmill.com".to_string());
+
+    pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
+}
+
+pub fn parse_smtp() -> Option<windmill_common::error::Result<SmtpClientBuilder<String>>> {
+    let username = std::env::var("SMTP_USERNAME").ok();
+    let port = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(587);
+    let password = std::env::var("SMTP_PASSWORD").ok();
+    let host = std::env::var("SMTP_HOST").ok();
+    let tls_implicit = std::env::var("SMTP_TLS_IMPLICIT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(false);
+
+    if username.is_some() && password.is_some() && host.is_some() {
+        let smtp = SmtpClientBuilder::new(host.unwrap(), port)
+            .implicit_tls(tls_implicit)
+            .credentials((username.unwrap(), password.unwrap()));
+        Some(Ok(smtp))
+    } else {
+        None
+    }
 }
 
 pub async fn run_server(
@@ -107,7 +161,8 @@ pub async fn run_server(
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
+        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
+        .layer(DefaultBodyLimit::max(*REQUEST_SIZE_LIMIT));
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
@@ -178,6 +233,8 @@ pub async fn run_server(
                 )
                 .nest("/oauth", oauth2::global_service())
                 .route("/version", get(git_v))
+                .route("/uptodate", get(is_up_to_date))
+                .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi)),
         )
         .fallback(static_assets::static_handler)
@@ -199,8 +256,55 @@ pub async fn run_server(
     Ok(())
 }
 
-async fn git_v() -> &'static str {
-    GIT_VERSION
+async fn is_up_to_date() -> Result<String, AppError> {
+    let error_reading_version = || anyhow::anyhow!("Error reading latest released version");
+    let version = HTTP_CLIENT
+        .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?
+        .get("tag_name")
+        .ok_or_else(error_reading_version)?
+        .as_str()
+        .ok_or_else(error_reading_version)?
+        .to_string();
+    let release = GIT_VERSION
+        .split('-')
+        .next()
+        .ok_or_else(error_reading_version)?
+        .to_string();
+    if version == release {
+        Ok("yes".to_string())
+    } else {
+        Ok(format!("Update: {GIT_VERSION} -> {version}"))
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn git_v() -> String {
+    format!("EE {GIT_VERSION}")
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn git_v() -> String {
+    format!("CE {GIT_VERSION}")
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn ee_license() -> &'static str {
+    ""
+}
+
+#[cfg(feature = "enterprise")]
+async fn ee_license() -> String {
+    LICENSE_KEY
+        .as_ref()
+        .unwrap()
+        .split(".")
+        .next()
+        .unwrap()
+        .to_string()
 }
 
 async fn openapi() -> &'static str {

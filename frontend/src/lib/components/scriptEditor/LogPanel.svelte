@@ -21,12 +21,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	export let path: string | undefined
-	export let lang: Preview.language
+	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
-	export let lastSave: string | null
 
 	type DrawerContent = {
 		mode: 'json' | Preview.language | 'plain'
@@ -61,16 +59,15 @@
 				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash'}
+		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash' || drawerContent?.mode === 'nativets'}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
 </Drawer>
 
 <Tabs bind:selected={selectedTab} class="mt-1">
-	<Tab value="logs" size="xs">Logs/Result</Tab>
+	<Tab value="logs" size="xs">Logs & Result</Tab>
 	<Tab value="history" size="xs">History</Tab>
-	<Tab value="last_save" size="xs">Last save</Tab>
 
 	<svelte:fragment slot="content">
 		<!--
@@ -82,6 +79,7 @@
 				<Splitpanes horizontal>
 					<Pane class="relative">
 						<LogViewer
+							jobId={previewJob?.id}
 							duration={previewJob?.['duration_ms']}
 							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}
@@ -91,7 +89,11 @@
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2"
-								><DisplayResult result={previewJob.result} />
+								><DisplayResult
+									workspaceId={previewJob?.workspace_id}
+									jobId={previewJob?.id}
+									result={previewJob.result}
+								/>
 							</div>
 						{:else}
 							<div class="text-sm text-gray-600 p-2">
@@ -155,7 +157,11 @@
 											})
 										).raw_code
 
-										openDrawer({ mode: lang, content: String(code), title: `Code ${lang}` })
+										openDrawer({
+											mode: lang ?? 'plain',
+											content: String(code),
+											title: `Code ${lang}`
+										})
 									}}
 								>
 									View code
@@ -182,17 +188,6 @@
 					{/each}
 				</tbody>
 			</TableCustom>
-		</TabContent>
-		<TabContent value="last_save" class="p-2">
-			{#if lastSave}
-				<div class="text-sm font-bold text-gray-600">
-					Last local save for path
-					<span class="italic">{path}</span>
-				</div>
-				<HighlightCode language={lang} code={lastSave} />
-			{:else}
-				No local save
-			{/if}
 		</TabContent>
 	</svelte:fragment>
 </Tabs>

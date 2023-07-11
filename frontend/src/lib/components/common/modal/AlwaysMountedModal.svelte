@@ -1,122 +1,77 @@
-<script context="module" lang="ts">
-	let onTop: HTMLDivElement
-	const modals = {}
-
-	export function getModal(id = '') {
-		return modals[id]
-	}
-</script>
-
 <script lang="ts">
-	import { onDestroy } from 'svelte'
+	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
-	import { Badge } from '..'
-	import Button from '../button/Button.svelte'
-
-	let topDiv: HTMLDivElement
-	let visible: boolean = false
-	let prevOnTop: HTMLDivElement
+	import { clickOutside } from '$lib/utils'
+	import { X } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 
 	export let title: string
-	export let style = ''
+	export let style: string = ''
+	export let css: any = {}
 
-	export let id = ''
+	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	function onKeyDown(event: KeyboardEvent) {
-		if (onTop == topDiv) {
-			switch (event.key) {
-				case 'Enter':
-					event.stopPropagation()
-					event.preventDefault()
-					break
-				case 'Escape':
-					event.stopPropagation()
-					event.preventDefault()
-					close()
-					break
-			}
-		}
+	let isOpen = false
+
+	export function close() {
+		isOpen = false
 	}
 
-	function open() {
-		if (visible) {
-			return
-		}
-		prevOnTop = onTop
-		onTop = topDiv
-		window.addEventListener('keydown', onKeyDown)
-		document.body.style.overflow = 'hidden'
-		visible = true
-		document.body.appendChild(topDiv)
+	export function open() {
+		isOpen = true
 	}
-
-	function close() {
-		if (!visible) {
-			return
-		}
-		window.removeEventListener('keydown', onKeyDown)
-
-		onTop = prevOnTop
-		if (onTop == null) {
-			document.body.style.overflow = ''
-		}
-		visible = false
-	}
-
-	modals[id] = { open, close }
-
-	onDestroy(() => {
-		delete modals[id]
-		window.removeEventListener('keydown', onKeyDown)
-	})
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div id="topModal" class:visible bind:this={topDiv} on:click={() => close()}>
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="relative bg-white p-4 rounded-md" on:click|stopPropagation={() => {}}>
-		<div class={twMerge('max-w-screen-lg max-h-screen-80 overflow-auto', $$props.class)} {style}>
-			<div class="flex">
-				<div class="ml-4 text-left flex-1">
-					<h3 class="text-lg font-medium text-gray-900">
-						{title}
-					</h3>
-					<div class="mt-2 text-sm text-gray-500">
+<Portal target="#app-editor-top-level-drawer">
+	<div
+		class={twMerge(
+			`${
+				$mode == 'dnd' ? 'absolute' : 'fixed'
+			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
+			isOpen ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
+		)}
+	>
+		<div class="flex min-h-full items-center justify-center p-4">
+			<div
+				style={css?.popup?.style}
+				class={twMerge(
+					'bg-white max-w-5xl m-24 overflow-y-auto rounded-lg relative',
+					css?.popup?.class
+				)}
+				use:clickOutside
+				on:click_outside={() => {
+					close()
+				}}
+			>
+				<div class="px-4 py-2 border-b flex justify-between items-center">
+					<div>{title}</div>
+					<div class="w-8">
+						<button
+							on:click={() => {
+								isOpen = false
+							}}
+							style={css?.button?.style}
+							class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+						>
+							<X class="text-gray-500" />
+						</button>
+					</div>
+				</div>
+
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
+					<div
+						class={twMerge(
+							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
+							$$props.class
+						)}
+						{style}
+					>
 						<slot />
 					</div>
 				</div>
 			</div>
-			<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-				<Button
-					on:click={() => {
-						close()
-					}}
-					color="light"
-					size="sm"
-				>
-					<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
-				</Button>
-			</div>
 		</div>
-	</div>
-</div>
-
-<style>
-	#topModal {
-		visibility: hidden;
-		z-index: 9999;
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: #4448;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.visible {
-		visibility: visible !important;
-	}
-</style>
+	</div></Portal
+>

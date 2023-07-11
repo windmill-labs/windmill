@@ -1,6 +1,6 @@
-import { sendUserToast } from '$lib/utils'
 import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
+import { sendUserToast } from '$lib/toast'
 
 export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
@@ -20,7 +20,7 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 
 function create_context_function_template(eval_string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid) {
+return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex) {
 "use strict";
 ${
 	Object.keys(context).length > 0
@@ -36,7 +36,16 @@ function make_context_evaluator(
 	eval_string,
 	context,
 	noReturn: boolean
-): (context, state, goto, setTab, recompute, getAgGrid) => Promise<any> {
+): (
+	context,
+	state,
+	goto,
+	setTab,
+	recompute,
+	getAgGrid,
+	setValue,
+	setSelectedIndex
+) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
 	return functor()
@@ -82,10 +91,15 @@ export async function eval_like(
 	editor: boolean,
 	controlComponents: Record<
 		string,
-		{ setTab?: (index: number) => void; agGrid?: { api: any; columnApi: any } }
+		{
+			setTab?: (index: number) => void
+			agGrid?: { api: any; columnApi: any }
+			setValue?: (value: any) => void
+			setSelectedIndex?: (index: number) => void
+		}
 	>,
 	worldStore: World | undefined,
-	runnableComponents: Record<string, { cb?: () => void }>
+	runnableComponents: Record<string, { cb?: (() => void)[] }>
 ) {
 	const proxiedState = new Proxy(state, {
 		set(target, key, value) {
@@ -122,10 +136,16 @@ export async function eval_like(
 			controlComponents[id]?.setTab?.(index)
 		},
 		(id) => {
-			runnableComponents[id]?.cb?.()
+			runnableComponents[id]?.cb?.forEach((f) => f())
 		},
 		(id) => {
 			return controlComponents[id]?.agGrid
+		},
+		(id, value) => {
+			controlComponents[id]?.setValue?.(value)
+		},
+		(id, index) => {
+			controlComponents[id]?.setSelectedIndex?.(index)
 		}
 	)
 }

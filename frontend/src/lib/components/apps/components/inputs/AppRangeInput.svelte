@@ -3,7 +3,13 @@
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -14,9 +20,11 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'rangecomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean = true
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	let min = 0
 	let max = 42
 	let step = 1
@@ -28,9 +36,18 @@
 		result: null as [number, number] | null
 	})
 
-	console.log('reset')
+	$componentControl[id] = {
+		setValue(nvalue: [number, number]) {
+			values = nvalue
+		}
+	}
 
-	$: outputs?.result.set(values)
+	$: {
+		outputs?.result.set(values)
+		if (iterContext && listInputs) {
+			listInputs(id, values)
+		}
+	}
 
 	$: css = concatCustomCss($app.css?.rangecomponent, customCss)
 
@@ -48,12 +65,7 @@
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.defaultLow} bind:value={values[0]} />
-<InputValue
-	on:done={() => (initializing = false)}
-	{id}
-	input={configuration.defaultHigh}
-	bind:value={values[1]}
-/>
+<InputValue {id} input={configuration.defaultHigh} bind:value={values[1]} />
 
 <InitializeComponent {id} />
 

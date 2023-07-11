@@ -7,17 +7,18 @@
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { RawScript, type FlowModule, type PathFlow, type PathScript } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { getLatestHashForScript, schemaToObject, scriptLangToEditorLang } from '$lib/utils'
+	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext } from 'svelte'
+	import { afterUpdate, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { loadSchemaFromModule } from '../utils'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
+	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
@@ -27,6 +28,8 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import { schemaToObject } from '$lib/schema'
+	import FlowModuleMock from './FlowModuleMock.svelte'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -37,12 +40,16 @@
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 
-	let value = flowModule.value as PathFlow | RawScript | PathScript
-	$: value = flowModule.value as PathFlow | RawScript | PathScript
-
 	let editor: Editor
 	let modulePreview: ModulePreview
-	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	let websocketAlive = {
+		pyright: false,
+		black: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
 	let wrapper: HTMLDivElement
@@ -51,14 +58,10 @@
 	let validCode = true
 	let width = 1200
 
-	let inputTransforms: Record<string, any> = value.input_transforms
-
-	$: value.input_transforms = inputTransforms
-
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: schemaToObject($flowStore.schema, $previewArgs),
+					flow_input: schemaToObject($flowStore.schema as any, $previewArgs),
 					priorIds: {},
 					previousId: undefined,
 					hasResume: false
@@ -83,16 +86,15 @@
 		}
 	}
 
+	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
 	async function reload(flowModule: FlowModule) {
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
-			setTimeout(() => {
-				if (!deepEqual(value.input_transforms, input_transforms)) {
-					inputTransforms = input_transforms
-				}
-			})
 
+			inputTransformSchemaForm?.setArgs(input_transforms)
+
+			await tick()
 			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
 				if (!$flowStateStore[flowModule.id]) {
 					$flowStateStore[flowModule.id] = { schema }
@@ -119,15 +121,12 @@
 		totalTopGap = panesTop - wrapperTop
 	})
 
-	let isScript = true
-	$: isScript != (value.type === 'script') && (isScript = value.type === 'script')
-
 	let forceReload = 0
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-{#if value}
+{#if flowModule.value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
 		<FlowCard bind:flowModule>
 			<svelte:fragment slot="header">
@@ -135,7 +134,9 @@
 					bind:module={flowModule}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
+					on:toggleMock={() => selectAdvanced('mock')}
 					on:toggleRetry={() => selectAdvanced('retries')}
+					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
@@ -165,12 +166,12 @@
 				/>
 			</svelte:fragment>
 
-			{#if value.type === 'rawscript'}
+			{#if flowModule.value.type === 'rawscript'}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
 						{validCode}
 						{editor}
-						lang={value['language'] ?? 'deno'}
+						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
 						iconOnly={width < 850}
 					/>
@@ -183,65 +184,71 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={isScript ? 30 : 50} minSize={20}>
-						{#if value.type === 'rawscript'}
-							<Editor
-								path={value['path']}
-								bind:websocketAlive
-								bind:this={editor}
-								class="h-full relative"
-								bind:code={value.content}
-								deno={value.language === RawScript.language.DENO}
-								lang={scriptLangToEditorLang(value.language)}
-								automaticLayout={true}
-								cmdEnterAction={async () => {
-									selected = 'test'
-									if ($selectedId == flowModule.id) {
-										if (value.type === 'rawscript') {
-											value.content = editor.getCode()
+					<Pane size={flowModule.value.type == 'script' ? 30 : 50} minSize={20}>
+						{#if flowModule.value.type === 'rawscript'}
+							{#key flowModule.id}
+								<Editor
+									folding
+									path={flowModule.value.path}
+									bind:websocketAlive
+									bind:this={editor}
+									class="h-full relative"
+									bind:code={flowModule.value.content}
+									deno={flowModule.value.language === RawScript.language.DENO}
+									lang={scriptLangToEditorLang(flowModule.value.language)}
+									automaticLayout={true}
+									cmdEnterAction={async () => {
+										selected = 'test'
+										if ($selectedId == flowModule.id) {
+											if (flowModule.value.type === 'rawscript') {
+												flowModule.value.content = editor.getCode()
+											}
+											await reload(flowModule)
+											modulePreview?.runTestWithStepArgs()
+										}
+									}}
+									on:change={async (event) => {
+										if (flowModule.value.type === 'rawscript') {
+											flowModule.value.content = event.detail
 										}
 										await reload(flowModule)
-										modulePreview?.runTestWithStepArgs()
-									}
-								}}
-								on:change={async (event) => {
-									if (flowModule.value.type === 'rawscript') {
-										flowModule.value.content = event.detail
-									}
-									await reload(flowModule)
-								}}
-								formatAction={() => {
-									reload(flowModule)
-									saveDraft()
-								}}
-								fixedOverflowWidgets={true}
-							/>
-						{:else if value.type === 'script'}
-							{#key forceReload}
-								<FlowModuleScript path={value.path} hash={value.hash} />
+									}}
+									formatAction={() => {
+										reload(flowModule)
+										saveDraft()
+									}}
+									fixedOverflowWidgets={true}
+								/>
 							{/key}
-						{:else if value.type === 'flow'}
-							<FlowPathViewer path={value.path} />
+						{:else if flowModule.value.type === 'script'}
+							<div class="border-t border-gray-200">
+								{#key forceReload}
+									<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+								{/key}
+							</div>
+						{:else if flowModule.value.type === 'flow'}
+							<FlowPathViewer path={flowModule.value.path} />
 						{/if}
 					</Pane>
-					<Pane size={isScript ? 70 : 50} minSize={20}>
+					<Pane size={flowModule.value.type == 'script' ? 70 : 50} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
-							{#if selected === 'inputs'}
+							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
 									>
 										<InputTransformSchemaForm
+											bind:this={inputTransformSchemaForm}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											previousModuleId={previousModule?.id}
-											bind:args={value.input_transforms}
-											bind:extraLib={stepPropPicker.extraLib}
+											bind:args={flowModule.value.input_transforms}
+											extraLib={stepPropPicker.extraLib}
 										/>
 									</PropPickerWrapper>
 								</div>
@@ -256,9 +263,11 @@
 								<Tabs bind:selected={advancedSelected}>
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
+										<Tab value="cache">Cache</Tab>
 										<Tab value="early-stop">Early Stop/Break</Tab>
-										<Tab value="suspend">Suspend</Tab>
+										<Tab value="suspend">Suspend/Approval</Tab>
 										<Tab value="sleep">Sleep</Tab>
+										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 									{/if}
 								</Tabs>
@@ -274,6 +283,14 @@
 									{:else if advancedSelected === 'sleep'}
 										<div>
 											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'cache'}
+										<div>
+											<FlowModuleCache bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'mock'}
+										<div>
+											<FlowModuleMock bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'same_worker'}
 										<div>

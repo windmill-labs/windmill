@@ -113,7 +113,7 @@
 					Selected file{files.length > 1 ? 's' : ''}:
 				</div>
 			</slot>
-			<ul class="relative z-20 max-w-[250px] bg-white rounded-lg overflow-hidden mx-auto">
+			<ul class="relative z-20 max-w-[500px] bg-white rounded-lg overflow-hidden mx-auto">
 				{#each files as { name }, i}
 					<li
 						class="flex justify-between items-center font-normal text-sm

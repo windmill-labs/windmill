@@ -79,7 +79,7 @@
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
 		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid, false)
+			const components = deleteGridItem($app, item.data, subgrid)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}
@@ -168,6 +168,7 @@
 								placeholder={condition?.['placeholder']}
 								customTitle={condition?.['customTitle']}
 								displayType={false}
+								noVariablePicker={true}
 							/>
 						</div>
 

@@ -167,7 +167,17 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	function set(x: T, force: boolean = false) {
 		if (!deepEqual(value, x) || force) {
 			state.update((x) => x + 1)
-			value = x
+
+			if (typeof x === 'object') {
+				if (Array.isArray(x)) {
+					value = [...x] as any
+				} else {
+					value = Object.assign({}, x)
+				}
+			} else {
+				value = x
+			}
+
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}

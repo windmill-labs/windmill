@@ -2,7 +2,13 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
@@ -18,12 +24,15 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	const { worldStore, connectingInput, app, selectedComponent } =
+	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
+		valid: true,
 		values: {}
 	})
 
@@ -40,15 +49,29 @@
 		}
 
 		outputs.values.set(newArgs, true)
+		if (iterContext && listInputs) {
+			listInputs(id, newArgs)
+		}
+	}
+
+	$componentControl[id] = {
+		setValue(nvalue: any) {
+			args = nvalue
+		}
 	}
 
 	$: args && handleArgsChange()
+
+	$: outputs.valid.set(valid)
+
 	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['schemaformcomponent'].initialData.configuration,
 		configuration
 	)
+
+	let valid = true
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}
@@ -70,6 +93,7 @@
 		>
 			<LightweightSchemaForm
 				schema={result}
+				bind:isValid={valid}
 				bind:args
 				displayType={Boolean(resolvedConfig.displayType)}
 				largeGap={Boolean(resolvedConfig.largeGap)}

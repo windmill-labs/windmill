@@ -3,6 +3,7 @@
 
 	export let format: string
 	export let value: any
+	export let disablePortal = false
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -33,6 +34,7 @@
 
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
 	<ResourcePicker
+		{disablePortal}
 		on:change={(e) => {
 			path = e.detail
 			resourceToValue()

@@ -75,10 +75,12 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight ? `height: ${containerHeight}px;` : ''} {style ?? ''}"
+		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
-			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
+			<div
+				class={highlight ? 'border-gray-600 animate-border border-dashed border-2 min-h-full' : ''}
+			>
 				<Grid
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}

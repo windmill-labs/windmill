@@ -4,12 +4,12 @@
 
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
+		faBook,
 		faCube,
 		faDollarSign,
-		faEye,
+		faHistory,
 		faPlus,
 		faRotate,
 		faRotateLeft
@@ -23,30 +23,48 @@
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Badge, Drawer } from './common'
+	import { Drawer } from './common'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import Popover from './Popover.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
+	import { createEventDispatcher } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { getScriptByPath } from '$lib/scripts'
+	import Toggle from './Toggle.svelte'
+	import { Link, Users } from 'lucide-svelte'
+	import { capitalize } from '$lib/utils'
+	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
+	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 
-	export let lang: 'python3' | 'deno' | 'go' | 'bash'
+	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
-	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
+	export let websocketAlive: {
+		pyright: boolean
+		black: boolean
+		ruff: boolean
+		deno: boolean
+		go: boolean
+		shellcheck: boolean
+	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
+	export let collabMode = false
+	export let collabLive = false
+	export let collabUsers: { name: string }[] = []
+	export let scriptPath: string | undefined = undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
+	let resourceTypePicker: ItemPicker
 	let variableEditor: VariableEditor
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeObj: { language: 'python3' | 'deno' | 'go' | 'bash'; content: string } | undefined =
-		undefined
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -80,7 +98,52 @@
 	}
 
 	let version = __pkg__.version
+
+	const dispatch = createEventDispatcher()
+
+	function compile(schema: Schema) {
+		function rec(x: { [name: string]: SchemaProperty }, root = false) {
+			let res = '{\n'
+			const entries = Object.entries(x)
+			if (entries.length == 0) {
+				return 'any'
+			}
+			let i = 0
+			for (let [name, prop] of entries) {
+				if (prop.type == 'object') {
+					res += `${name}: ${rec(prop.properties ?? {})}`
+				} else if (prop.type == 'array') {
+					res += `${name}: ${prop?.items?.type ?? 'any'}[]`
+				} else {
+					let typ = prop?.type ?? 'any'
+					if (typ == 'integer') {
+						typ = 'number'
+					}
+					res += `${name}: ${typ}`
+				}
+				i++
+				if (i < entries.length) {
+					res += ',\n'
+				}
+			}
+			if (!root) {
+				res += '\n}'
+			}
+			return res
+		}
+		return rec(schema.properties, true)
+	}
+
+	let historyBrowserDrawerOpen = false
 </script>
+
+{#if scriptPath}
+	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+			<ScriptVersionHistory {scriptPath} />
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
@@ -129,7 +192,7 @@
 	}}
 	tooltip="Contextual Variables are variables whose values are contextual to the Script
 	execution. They are are automatically set by Windmill."
-	documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
+	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 	itemName="Contextual Variable"
 	extraField="name"
 	loadItems={loadContextualVariables}
@@ -164,7 +227,7 @@
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets"
+	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
@@ -214,7 +277,7 @@
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
-	documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
+	documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	itemName="Resource"
 	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
 	extraField="description"
@@ -235,126 +298,170 @@
 	</div>
 </ItemPicker>
 
+{#if lang == 'deno'}
+	<ItemPicker
+		bind:this={resourceTypePicker}
+		pickCallback={async (_, name) => {
+			if (!editor) return
+			const toCamel = (s) => {
+				return s.replace(/([-_][a-z])/gi, ($1) => {
+					return $1.toUpperCase().replace('-', '').replace('_', '')
+				})
+			}
+			const resourceType = await ResourceService.getResourceType({
+				workspace: $workspaceStore ?? 'NO_W',
+				path: name
+			})
+
+			const tsSchema = compile(resourceType.schema)
+			console.log(tsSchema)
+			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+			sendUserToast(`${name} inserted at cursor`)
+		}}
+		tooltip="Resources Types are the schemas associated with a Resource. They define the structure of the data that is returned from a Resource."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+		itemName="Resource Type"
+		extraField="name"
+		loadItems={async () =>
+			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
+	/>
+{/if}
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<div class="flex justify-between items-center overflow-y-auto w-full p-1">
+<div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
-		<Badge color={validCode ? 'green' : 'red'} class="min-w-[60px] mr-3">
-			{validCode ? 'Valid' : 'Invalid'}
-		</Badge>
-		<div class="flex items-center divide-x">
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="pr-1"
-				disablePopup={!iconOnly}
+		<div
+			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
+			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+		/>
+		<div class="flex items-center">
+			<Button
+				title="Add context variable"
+				color="light"
+				btnClasses="!font-medium text-gray-600"
+				on:click={contextualVariablePicker.openDrawer}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faDollarSign }}
+				{iconOnly}
 			>
-				<Button
-					color="light"
-					btnClasses="!font-medium !h-full"
-					on:click={contextualVariablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
-					{iconOnly}
-				>
-					+Context Var
-				</Button>
-				<svelte:fragment slot="text">Add context variable</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				+Context Var
+			</Button>
+
+			<Button
+				title="Add variable"
+				color="light"
+				btnClasses="!font-medium text-gray-600"
+				on:click={variablePicker.openDrawer}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faDollarSign }}
+				{iconOnly}
 			>
-				<Button
-					color="light"
-					btnClasses="!font-medium !h-full"
-					on:click={variablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
-					startIcon={{ icon: faDollarSign }}
-					{iconOnly}
-				>
-					+Variable
-				</Button>
-				<svelte:fragment slot="text">Add variable</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				+Variable
+			</Button>
+
+			<Button
+				title="Add resource"
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={resourcePicker.openDrawer}
+				{iconOnly}
+				startIcon={{ icon: faCube }}
 			>
+				+Resource
+			</Button>
+
+			{#if lang == 'deno'}
 				<Button
-					btnClasses="!font-medium !h-full"
+					title="Add resource"
+					btnClasses="!font-medium text-gray-600"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={resourcePicker.openDrawer}
+					on:click={resourceTypePicker.openDrawer}
 					{iconOnly}
 					startIcon={{ icon: faCube }}
 				>
-					+Resource
+					+Resource Type
 				</Button>
-				<svelte:fragment slot="text">Add resource</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+			{/if}
+
+			<Button
+				title="Reset Content"
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor?.clearContent}
+				{iconOnly}
+				startIcon={{ icon: faRotateLeft }}
 			>
-				<Button
-					btnClasses="!font-medium !h-full"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={editor?.clearContent}
-					{iconOnly}
-					startIcon={{ icon: faRotateLeft }}
-				>
-					Reset
-				</Button>
-				<svelte:fragment slot="text">Reset</svelte:fragment>
-			</Popover>
-			<Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
+				Reset
+			</Button>
+
+			<Button
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor?.reloadWebsocket}
+				startIcon={{ icon: faRotate }}
+				title="Reload assistants"
 			>
-				<Button
-					btnClasses="!font-medium !h-full"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={editor?.reloadWebsocket}
-					startIcon={{ icon: faRotate }}
-				>
-					{#if !iconOnly}
-						Assistant
+				{#if !iconOnly}
+					Assistants
+				{/if}
+				<span class="ml-1 -my-1">
+					{#if lang == 'deno'}
+						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+					{:else if lang == 'go'}
+						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+					{:else if lang == 'python3'}
+						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
+						<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+					{:else if lang == 'bash'}
+						(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
 					{/if}
-					<span class="ml-1 -my-1">
-						{#if lang == 'deno'}
-							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-						{:else if lang == 'go'}
-							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-						{:else if lang == 'python3'}
-							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
-						{/if}
-					</span>
-				</Button>
-				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
-			</Popover>
+				</span>
+			</Button>
+			{#if collabMode}
+				<div class="flex items-center px-1">
+					<Toggle
+						options={{ right: iconOnly ? '' : 'Multiplayer' }}
+						size="xs"
+						checked={collabLive}
+						on:change={() => dispatch('toggleCollabMode')}
+					/>
+					{#if iconOnly}
+						<Users class="ml-1" size={12} />
+					{/if}
+					{#if collabLive}
+						<button
+							title="Show invite link"
+							class="p-1 rounded hover:bg-gray-400 mx-1 border"
+							on:click={() => dispatch('collabPopup')}><Link size={12} /></button
+						>
+						<div class="isolate flex -space-x-2 overflow-hidden pl-2">
+							{#each collabUsers as user}
+								<span
+									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
+									title={user.name}
+								>
+									<span class="text-sm font-medium leading-none text-white"
+										>{user.name.substring(0, 2).toLocaleUpperCase()}</span
+									>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<!-- <Popover
 				notClickable
 				placement="bottom"
@@ -381,28 +488,37 @@
 			</Popover> -->
 		</div>
 	</div>
-	<Popover
-		notClickable
-		placement="bottom"
-		disappearTimeout={0}
-		class="px-1"
-		disablePopup={!iconOnly}
-	>
+
+	<div class="flex flex-row items-center gap-2">
+		{#if scriptPath}
+			<Button
+				btnClasses="!font-medium text-gray-600"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={() => (historyBrowserDrawerOpen = true)}
+				{iconOnly}
+				startIcon={{ icon: faHistory }}
+				title="See history"
+			>
+				History
+			</Button>
+		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 			<Button
-				btnClasses="!font-medium"
+				btnClasses="!font-medium text-gray-600"
 				size="xs"
 				spacingSize="md"
 				color="light"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
-				startIcon={{ icon: faEye }}
+				startIcon={{ icon: faBook }}
+				title="Explore other scripts"
 			>
-				Explore other scripts
+				Library
 			</Button>
 		{/if}
-		<svelte:fragment slot="text">Script</svelte:fragment>
-	</Popover>
+	</div>
 </div>
 
 <style lang="postcss">

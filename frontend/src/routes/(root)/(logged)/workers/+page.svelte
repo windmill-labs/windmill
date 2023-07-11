@@ -5,7 +5,8 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { WorkerService, type WorkerPing } from '$lib/gen'
-	import { displayDate, groupBy, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { displayDate, groupBy } from '$lib/utils'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -51,7 +52,7 @@
 		title="Workers"
 		tooltip="The workers are the dutiful servants that execute your scripts.
 		 This page enables you to know their IP in case you need whitelisting and also display liveness information"
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 	/>
 
 	{#if workers != undefined}

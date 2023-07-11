@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, forLater, sendUserToast, truncateHash } from '$lib/utils'
+	import { canWrite, displayDate, forLater, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -33,6 +33,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	let job: Job | undefined
 	const iconScale = 1
@@ -129,27 +130,27 @@
 		loading={!job}
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
-	{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-		<ActionRow applyPageWidth>
-			<svelte:fragment slot="left">
-				{@const isScript = job?.job_kind === 'script'}
-				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<Dropdown
-						btnClasses="!text-red-500"
-						placement="bottom-start"
-						dropdownItems={[
-							{
-								displayName: 'delete log and results (admin only)',
-								icon: faTrash,
-								action: () => {
-									job?.id && deleteCompletedJob(job.id)
-								}
+	<ActionRow applyPageWidth>
+		<svelte:fragment slot="left">
+			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+				<Dropdown
+					btnClasses="!text-red-500"
+					placement="bottom-start"
+					dropdownItems={[
+						{
+							displayName: 'delete log and results (admin only)',
+							icon: faTrash,
+							action: () => {
+								job?.id && deleteCompletedJob(job.id)
 							}
-						]}
-					>
-						delete
-					</Dropdown>
+						}
+					]}
+				>
+					delete
+				</Dropdown>
+				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 					<Button
 						href={runsHref}
 						variant="border"
@@ -160,54 +161,56 @@
 						View runs
 					</Button>
 				{/if}
-			</svelte:fragment>
-			<svelte:fragment slot="right">
-				{@const stem = `/${job?.job_kind}s`}
-				{@const isScript = job?.job_kind === 'script'}
-				{@const route = isScript ? job?.script_hash : job?.script_path}
-				{@const isRunning = job && 'running' in job && job.running}
-				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-				{#if isRunning}
-					{#if !forceCancel}
-						<Button
-							color="red"
-							size="md"
-							startIcon={{ icon: faTimesCircle }}
-							on:click|once={() => {
-								if (job?.id) {
-									cancelJob(job?.id)
-									setTimeout(() => {
-										forceCancel = true
-									}, 3001)
-								}
-							}}
-						>
-							Cancel
-						</Button>
-					{:else}
-						<Button
-							color="red"
-							size="md"
-							startIcon={{ icon: faTimesCircle }}
-							on:click|once={() => {
-								if (job?.id) {
-									cancelJob(job?.id)
-								}
-							}}
-						>
-							Force Cancel
-						</Button>
-					{/if}
+			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			{@const stem = `/${job?.job_kind}s`}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if job?.type != 'CompletedJob' && !job?.schedule_path}
+				{#if !forceCancel}
+					<Button
+						color="red"
+						size="md"
+						startIcon={{ icon: faTimesCircle }}
+						on:click|once={() => {
+							if (job?.id) {
+								cancelJob(job?.id)
+								setTimeout(() => {
+									forceCancel = true
+								}, 3001)
+							}
+						}}
+					>
+						Cancel
+					</Button>
+				{:else}
+					<Button
+						color="red"
+						size="md"
+						startIcon={{ icon: faTimesCircle }}
+						on:click|once={() => {
+							if (job?.id) {
+								cancelJob(job?.id)
+							}
+						}}
+					>
+						Force Cancel
+					</Button>
 				{/if}
+			{/if}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
 						$runFormStore = job?.args
-						goto(`${stem}/run/${route}`)
+						goto(viewHref)
 					}}
 					color="blue"
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
 				>
+			{/if}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
@@ -224,12 +227,12 @@
 				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
 					View {job?.job_kind}
 				</Button>
-			</svelte:fragment>
-		</ActionRow>
-	{/if}
+			{/if}
+		</svelte:fragment>
+	</ActionRow>
 	<CenteredPage>
-		<h1 class="flex flex-row flex-wrap justify-between items-center gap-4 py-6">
-			<div>
+		<h1 class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6">
+			<div class="flex flex-row flex-wrap gap-6 items-center">
 				{#if job}
 					{#if 'success' in job && job.success}
 						{#if job.is_skipped}
@@ -277,22 +280,29 @@
 						/>
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
-					{#if job.script_hash}
-						<a href="/scripts/get/{job.script_hash}?$workspaceStore={$workspaceStore}}"
-							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-						>
-					{/if}
-					{#if job && 'job_kind' in job}<Badge baseClass="ml-2" color="blue">{job.job_kind}</Badge>
-					{/if}
-					{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash', 'other', 'dependency'].includes(job.tag)}
-						<Badge color="indigo">Worker group: {job.tag}</Badge>
-					{/if}
-					{#if !job.visible_to_owner}<Badge color="red"
-							>only visible to you <Tooltip
-								>The option to hide this run from the owner of this script or flow was activated</Tooltip
-							></Badge
-						>
-					{/if}
+					<div class="flex flex-row gap-2 items-center">
+						{#if job.script_hash}
+							<a href="/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
+							>
+						{/if}
+						{#if job && 'job_kind' in job}
+							<div>
+								<Badge color="blue">{job.job_kind}</Badge>
+							</div>
+						{/if}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'nativets', 'bash', 'other', 'dependency'].includes(job.tag)}
+							<div>
+								<Badge color="indigo">Worker group: {job.tag}</Badge>
+							</div>
+						{/if}
+						{#if !job.visible_to_owner}<Badge color="red"
+								>only visible to you <Tooltip
+									>The option to hide this run from the owner of this script or flow was activated</Tooltip
+								></Badge
+							>
+						{/if}
+					</div>
 				{/if}
 			</div>
 		</h1>
@@ -303,11 +313,11 @@
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
+		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-10">
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>
-			<div>
+			<div class="mt-6">
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}<FlowMetadata {job} />{/if}
 			</div>
@@ -322,7 +332,7 @@
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
 					{#if job?.job_kind == 'dependencies'}
-						<Tab value="code">Dependencies</Tab>
+						<Tab value="code">Code</Tab>
 					{:else if job?.job_kind == 'preview'}
 						<Tab value="code">Code</Tab>
 					{/if}
@@ -333,18 +343,26 @@
 					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
-								<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />
+								<LogViewer
+									jobId={job.id}
+									duration={job?.['duration_ms']}
+									mem={job?.['mem_peak']}
+									isLoading={!(job && 'logs' in job && job.logs)}
+									content={job?.logs}
+								/>
 							</div>
 						{:else if viewTab == 'code'}
 							{#if job && 'raw_code' in job && job.raw_code}
-								<HighlightCode language={job.language} code={job.raw_code} />
+								<div class="text-xs">
+									<HighlightCode lines language={job.language} code={job.raw_code} />
+								</div>
 							{:else if job}
 								No code is available
 							{:else}
 								<Skeleton layout={[[5]]} />
 							{/if}
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
-							<DisplayResult result={job.result} />
+							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
 						{:else if job}
 							No output is available yet
 						{/if}

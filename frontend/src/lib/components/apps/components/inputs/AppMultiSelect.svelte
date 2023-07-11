@@ -1,100 +1,156 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
-	import Select from 'svelte-select'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
-	import { initOutput } from '../../editor/appUtils'
+	import { getContext, onMount } from 'svelte'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	// @ts-ignore
+	import MultiSelect from 'svelte-multiselect'
+	import Portal from 'svelte-portal'
+	import { createFloatingActions } from 'svelte-floating-ui'
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, connectingInput, selectedComponent } =
-		getContext<AppViewerContext>('AppViewerContext')
-	let items: { label: string; value: string }[]
-	let placeholder: string = 'Select an item'
+	const [floatingRef, floatingContent] = createFloatingActions({
+		strategy: 'absolute'
+	})
 
-	let outputs = initOutput($worldStore, id, {
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
+	let items: string[]
+
+	const resolvedConfig = initConfig(
+		components['multiselectcomponent'].initialData.configuration,
+		configuration
+	)
+
+	const outputs = initOutput($worldStore, id, {
 		result: [] as string[]
 	})
 
-	// $: outputs && handleOutputs()
+	let value: string[] | undefined = outputs?.result.peak()
 
-	// function handleOutputs() {
-	// 	value = outputs.result.peak()
-	// }
+	$componentControl[id] = {
+		setValue(nvalue: string[]) {
+			value = nvalue
+			outputs?.result.set([...(value ?? [])])
+		}
+	}
 
-	let value: { value: string }[] | undefined = outputs?.result.peak()
-
-	$: labels && handleItems()
-
-	let labels: string[] | undefined = []
+	$: resolvedConfig.items && handleItems()
 
 	function handleItems() {
-		if (labels) {
-			items = labels?.map((label) => {
-				return {
-					label,
-					value: label
-				}
+		if (Array.isArray(resolvedConfig.items)) {
+			items = resolvedConfig.items?.map((label) => {
+				return typeof label === 'string' ? label : `NOT_STRING`
 			})
 		}
 	}
 
-	$: value ? outputs?.result.set(value.map((v) => v.value)) : outputs?.result.set([])
+	$: resolvedConfig.defaultItems && handleDefaultItems()
+
+	function handleDefaultItems() {
+		if (Array.isArray(resolvedConfig.defaultItems)) {
+			value = resolvedConfig.defaultItems?.map((label) => {
+				return typeof label === 'string' ? label : `NOT_STRING`
+			})
+			outputs?.result.set([...(value ?? [])])
+		}
+	}
 
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
+
+	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
+		outerDiv.setAttribute('style', style)
+		// find ul in portalRef and set style
+		const ul = portalRef.querySelector('ul')
+		ul?.setAttribute('style', style)
+	}
+
+	$: outerDiv &&
+		portalRef &&
+		css?.multiselect?.style &&
+		setOuterDivStyle(outerDiv, portalRef, css?.multiselect?.style)
+
+	let outerDiv: HTMLDivElement | undefined = undefined
+	let portalRef: HTMLDivElement | undefined = undefined
+
+	onMount(() => {
+		// Find ul element with class 'options' within the outerDiv
+		const ul = outerDiv?.querySelector('.options')
+
+		if (ul) {
+			// Move the ul element to the portal
+			portalRef?.appendChild(ul)
+		}
+	})
+
+	let w = 0
+	let h = 0
+	let open = false
 </script>
 
-<InputValue {id} input={configuration.items} bind:value={labels} />
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
+{#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} hFull>
 	<div
-		class="app-select w-full"
-		style="height: 100%; overflow: auto;"
+		class="app-select w-full h-full"
 		on:pointerdown={(e) => {
 			if (!e.shiftKey) {
 				e.stopPropagation()
 			}
 		}}
+		use:floatingRef
+		bind:clientWidth={w}
+		bind:clientHeight={h}
 	>
 		{#if !value || Array.isArray(value)}
-			<Select
-				--border-radius="0"
-				--border-color="#999"
-				multiple
-				on:change={(e) => e.stopPropagation()}
-				{items}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: #999; min-height: 100%;' +
-					SELECT_INPUT_DEFAULT_STYLE.containerStyles +
-					css?.input?.style}
-				bind:value
-				{placeholder}
-				on:click={() => {
-					if (!$connectingInput.opened) {
+			<div style={`height:${h}px;`}>
+				<MultiSelect
+					bind:outerDiv
+					outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
+					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
+					ulOptionsClass={'p-2'}
+					bind:selected={value}
+					on:change={() => {
+						outputs?.result.set([...(value ?? [])])
+					}}
+					options={Array.isArray(items) ? items : []}
+					placeholder={resolvedConfig.placeholder}
+					allowUserOptions={resolvedConfig.create}
+					on:open={() => {
 						$selectedComponent = [id]
-					}
-				}}
-				on:focus={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-				}}
-				floatingConfig={{
-					strategy: 'fixed'
-				}}
-			/>
+						open = true
+					}}
+					on:close={() => {
+						open = false
+					}}
+				>
+					<div slot="option" let:option>
+						{option}
+					</div>
+				</MultiSelect>
+				<Portal>
+					<div use:floatingContent class="z5000" hidden={!open}>
+						<div bind:this={portalRef} class="multiselect" style={`min-width: ${w}px;`} />
+					</div>
+				</Portal>
+			</div>
 		{:else}
 			Value {value} is not an array
 		{/if}
@@ -104,8 +160,10 @@
 <style global>
 	.app-select .value-container {
 		padding: 0 !important;
+		overflow: auto;
 	}
-	.svelte-select-list {
-		z-index: 1000 !important;
+
+	.z5000 {
+		z-index: 5000 !important;
 	}
 </style>

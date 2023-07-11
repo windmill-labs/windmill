@@ -61,17 +61,27 @@ async function pull(opts: GlobalOptions) {
   });
 
   for (const x of list) {
-    if (resourceTypes.find((y) => y.name === x.name)) {
+    if (
+      resourceTypes.find(
+        (y) => y.name === x.name && typeof y.schema !== "string"
+      )
+    ) {
       log.info("skipping " + x.name);
       continue;
     }
     log.info("syncing " + x.name);
+    try {
+      x.schema = JSON.parse(x.schema);
+    } catch (e) {
+      log.info("failed to parse schema for " + x.name);
+      continue;
+    }
     await pushResourceType(
       workspace.workspaceId,
       x.name + ".resource-type.json",
       undefined,
       x,
-      false
+      true
     );
   }
 }

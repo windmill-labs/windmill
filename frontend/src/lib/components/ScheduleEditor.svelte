@@ -21,6 +21,8 @@
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 	let itemKind: 'flow' | 'script' = 'script'
+	let errorHandleritemKind: 'flow' | 'script' = 'script'
+	let errorHandlerPath: string | undefined = undefined
 
 	let script_path = ''
 	let initialScriptPath = ''
@@ -45,6 +47,8 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		errorHandleritemKind = 'script'
+		errorHandlerPath = undefined
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
@@ -64,6 +68,12 @@
 	$: allowSchedule = isValid && validCRON && script_path != ''
 
 	$: script_path != '' && loadScript(script_path)
+
+	// set isValid to true when a script/flow without any properties is selected
+	$: runnable?.schema &&
+		runnable.schema.properties &&
+		Object.keys(runnable.schema.properties).length === 0 &&
+		(isValid = true)
 
 	const dispatch = createEventDispatcher()
 
@@ -91,6 +101,15 @@
 			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
+			if (s.on_failure) {
+				console.log(s.on_failure)
+				let splitted = s.on_failure.split('/')
+				errorHandleritemKind = splitted[0] as 'flow' | 'script'
+				errorHandlerPath = splitted.slice(1)?.join('/')
+			} else {
+				errorHandlerPath = undefined
+				errorHandleritemKind = 'script'
+			}
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (err) {
@@ -106,7 +125,8 @@
 				requestBody: {
 					schedule: formatCron(schedule),
 					timezone,
-					args
+					args,
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -120,7 +140,8 @@
 					script_path,
 					is_flow,
 					args,
-					enabled: true
+					enabled: true,
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -184,7 +205,6 @@
 		</svelte:fragment>
 		<div>
 			{#if !edit}
-				<span class="font-semibold text-gray-700">Path</span>
 				<Path
 					checkInitialPathExistence
 					bind:error={pathError}
@@ -231,8 +251,6 @@
 				/>
 			{/if}
 			<div class="mt-6">
-				<span class="font-semibold text-gray-700">Arguments</span>
-
 				{#if runnable}
 					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 						<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />
@@ -246,6 +264,32 @@
 						Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 					</div>
 				{/if}
+			</div>
+			<h2 class="border-b pb-1 mt-8 mb-2">Error Handler</h2>
+
+			<ScriptPicker
+				disabled={!can_write}
+				initialPath={errorHandlerPath}
+				kind={Script.kind.SCRIPT}
+				allowFlow={true}
+				bind:scriptPath={errorHandlerPath}
+				bind:itemKind={errorHandleritemKind}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="text-gray-600 italic text-sm"
+					>The following args will be passed to the error handler:
+					<ul class="mt-1 ml-2">
+						<li><b>path</b>: The path of the script or flow that errored</li>
+						<li><b>schedule_path</b>: The path of the schedule</li>
+						<li><b>error</b>: The error details</li>
+					</ul>
+				</div>
+				<Button
+					wrapperClasses="mt-6"
+					href="/scripts/add?hub=hub%2F1087%2Fwindmill%2Fschedule_error_handler_template"
+					target="_blank">Use template</Button
+				>
 			</div>
 		</div>
 	</DrawerContent>

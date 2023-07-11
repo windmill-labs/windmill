@@ -44,20 +44,20 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
-	import { migrateApp } from '../utils'
+	import { BG_PREFIX, migrateApp } from '../utils'
 
 	export let app: App
 	export let path: string
-	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
+	export let versions: number[]
 
 	migrateApp(app)
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
-	const mode = writable<EditorMode>(initialMode)
+	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
@@ -72,6 +72,7 @@
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
 	let context = {
 		email: $userStore?.email,
+		groups: $userStore?.groups,
 		username: $userStore?.username,
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
@@ -111,9 +112,9 @@
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
-		ontextfocus: writable(undefined),
 		movingcomponents: writable(undefined),
-		selectedComponentInEditor: writable(undefined)
+		selectedComponentInEditor: writable(undefined),
+		jobsDrawerOpen: writable(false)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -148,9 +149,9 @@
 		selectedTab = 'settings'
 
 		if (befSelected) {
-			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
+			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
-				if (item?.data.type === 'containercomponent') {
+				if (item?.data.type === 'containercomponent' || item?.data.type === 'listcomponent') {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex: 0
@@ -205,14 +206,12 @@
 
 {#if !$userStore?.operator}
 	{#if $appStore}
-		{#if initialMode !== 'preview'}
-			<AppEditorHeader {policy} {fromHub} />
-		{/if}
+		<AppEditorHeader on:restore {versions} {policy} {fromHub} />
 
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
-					class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
+					class={twMerge('h-full w-full relative', $appStore.css?.['app']?.['viewer']?.class)}
 					style={$appStore.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
@@ -244,11 +243,12 @@
 											$focusedGrid = undefined
 										}}
 										class={twMerge(
-											'bg-gray-100 h-full w-full',
+											'bg-gray-100 h-full w-full relative',
 											$appStore.css?.['app']?.['viewer']?.class
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
+										<div id="app-editor-top-level-drawer" />
 										<div
 											class={classNames(
 												'relative mx-auto w-full h-full overflow-auto',
@@ -261,17 +261,17 @@
 												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
 													<GridEditor {policy} />
 												</div>
-
-												<div id="app-editor-top-level-drawer" />
 											{/if}
 										</div>
 									</div>
 								</Pane>
-								<Pane size={$connectingInput?.opened ? 0 : 30}>
-									<div class="relative h-full w-full">
-										<InlineScriptsPanel />
-									</div>
-								</Pane>
+								{#if $connectingInput?.opened == false}
+									<Pane size={$connectingInput?.opened ? 0 : 30}>
+										<div class="relative h-full w-full">
+											<InlineScriptsPanel />
+										</div>
+									</Pane>
+								{/if}
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
@@ -338,7 +338,7 @@
 	pickCallback={(path, _) => {
 		$pickVariableCallback?.(path)
 	}}
-	itemName="Variablo"
+	itemName="Variable"
 	extraField="path"
 	loadItems={async () =>
 		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({

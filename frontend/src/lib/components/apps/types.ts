@@ -3,7 +3,12 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
-import type { AppComponent, RecomputeOthersSource, components } from './editor/component/components'
+import type {
+	AppComponent,
+	PresetComponentConfig,
+	RecomputeOthersSource,
+	components
+} from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -83,6 +88,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 export type ComponentSet = {
 	title: string
 	components: Readonly<AppComponent['type'][]>
+	presets?: Readonly<PresetComponentConfig['type'][]> | undefined
 }
 
 type SectionID = string
@@ -144,6 +150,14 @@ export interface CancelablePromise<T> extends Promise<T> {
 	cancel: () => void
 }
 
+export type ListContext = Writable<{
+	index: number
+	value: any
+	disabled: boolean
+}>
+
+export type ListInputs = (id: string, value: any) => void
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
@@ -162,7 +176,7 @@ export type AppViewerContext = {
 			{
 				autoRefresh: boolean
 				refreshOnStart?: boolean
-				cb: (inlineScript?: InlineScript) => CancelablePromise<void>
+				cb: ((inlineScript?: InlineScript) => CancelablePromise<void>)[]
 			}
 		>
 	>
@@ -189,6 +203,8 @@ export type AppViewerContext = {
 				agGrid?: { api: any; columnApi: any }
 				setCode?: (value: string) => void
 				onDelete?: () => void
+				setValue?: (value: any) => void
+				setSelectedIndex?: (index: number) => void
 			}
 		>
 	>
@@ -199,9 +215,9 @@ export type AppViewerContext = {
 export type AppEditorContext = {
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
-	ontextfocus: Writable<(() => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>
 	movingcomponents: Writable<string[] | undefined>
+	jobsDrawerOpen: Writable<boolean>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

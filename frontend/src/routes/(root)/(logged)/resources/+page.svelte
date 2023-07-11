@@ -7,6 +7,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
@@ -26,18 +27,14 @@
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
-	import {
-		canWrite,
-		classNames,
-		emptySchema,
-		removeMarkdown,
-		sendUserToast,
-		truncate
-	} from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import {
 		faChain,
 		faCircle,
 		faEdit,
+		faFileExport,
+		faPen,
 		faPlus,
 		faRefresh,
 		faSave,
@@ -67,7 +64,13 @@
 	}
 
 	let resourceTypeDrawer: Drawer
+	let editResourceTypeDrawer: Drawer
 	let newResourceType = {
+		name: '',
+		schema: emptySchema(),
+		description: ''
+	}
+	let editResourceType = {
 		name: '',
 		schema: emptySchema(),
 		description: ''
@@ -104,12 +107,20 @@
 	$: preFilteredType =
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
-					tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state'
+					tab == 'states'
+						? x.resource_type == 'state'
+						: tab == 'cache'
+						? x.resource_type == 'cache'
+						: x.resource_type != 'state' && x.resource_type != 'cache'
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
 						x.resource_type == typeFilter &&
-						(tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state')
+						(tab == 'states'
+							? x.resource_type == 'state'
+							: tab == 'cache'
+							? x.resource_type == 'cache'
+							: x.resource_type != 'state' && x.resource_type != 'cache')
 			  )
 
 	async function loadResources(): Promise<void> {
@@ -161,6 +172,20 @@
 		loadResourceTypes()
 	}
 
+	async function updateResourceType(): Promise<void> {
+		await ResourceService.updateResourceType({
+			workspace: $workspaceStore!,
+			path: editResourceType.name,
+			requestBody: {
+				schema: editResourceType.schema,
+				description: newResourceType.description
+			}
+		})
+		editResourceTypeDrawer.closeDrawer?.()
+		sendUserToast('Resource type updated')
+		loadResourceTypes()
+	}
+
 	async function handleDeleteResourceType(name: string) {
 		try {
 			await ResourceService.deleteResourceType({ workspace: $workspaceStore!, path: name })
@@ -184,6 +209,16 @@
 			description: ''
 		}
 		resourceTypeDrawer.openDrawer?.()
+	}
+
+	async function startEditResourceType(name: string) {
+		const rt = await ResourceService.getResourceType({ workspace: $workspaceStore!, path: name })
+		editResourceType = {
+			name: rt.name,
+			schema: rt.schema,
+			description: rt.description ?? ''
+		}
+		editResourceTypeDrawer.openDrawer?.()
 	}
 
 	$: {
@@ -213,7 +248,7 @@
 	}
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' | 'cache' = 'workspace'
 
 	let inferrer: Drawer | undefined = undefined
 	let inferrerJson = ''
@@ -231,7 +266,10 @@
 		}
 		inferrer?.closeDrawer?.()
 	}
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
+
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <Portal>
 	<Drawer bind:this={inferrer} size="800px">
@@ -257,6 +295,47 @@
 				{resourceTypeViewerObj.description ?? ''}
 			</div>
 			<SchemaViewer schema={resourceTypeViewerObj.schema} />
+		</div>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={editResourceTypeDrawer} size="800px">
+	<DrawerContent title="Edit resource type" on:close={editResourceTypeDrawer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button startIcon={{ icon: faSave }} on:click={updateResourceType}>Update</Button>
+		</svelte:fragment>
+		<div class="flex flex-col gap-6">
+			<label for="inp">
+				<div class="mb-1 font-semibold text-gray-700 gap-1 flex flex-row items-center"
+					>Name
+					<div class="flex flex-row items-center gap-x-4">
+						<div class="flex flex-row items-center">
+							<div class="inline-block">
+								<input
+									disabled
+									id="inp"
+									type="text"
+									bind:value={editResourceType.name}
+									class={classNames('!h-8  !border !border-gray-200')}
+								/>
+							</div>
+						</div>
+					</div>
+				</div></label
+			>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<textarea
+					type="text"
+					use:autosize
+					autocomplete="off"
+					bind:value={editResourceType.description}
+				/></label
+			>
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<SchemaEditor bind:schema={editResourceType.schema} />
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -316,9 +395,9 @@
 			<div>
 				<div class="mb-1 font-semibold text-gray-700">Schema</div>
 				<div class="mb-2 w-full flex flex-row-reverse">
-					<Button on:click={openInferrer} size="sm" color="dark" variant="border"
-						>Infer schema from a json value</Button
-					>
+					<Button on:click={openInferrer} size="sm" color="dark" variant="border">
+						Infer schema from a json value
+					</Button>
 				</div>
 				<SchemaEditor bind:schema={newResourceType.schema} />
 			</div>
@@ -364,12 +443,12 @@
 	<PageHeader
 		title="Resources"
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	>
 		<div class="flex flex-row justify-end gap-4">
-			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}
-				>Add a resource type</Button
-			>
+			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>
+				Add a resource type
+			</Button>
 			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
 				Add a resource/API
 			</Button>
@@ -384,29 +463,47 @@
 		</Tab>
 		<Tab size="md" value="types">
 			<div class="flex gap-2 items-center my-1">
-				Resource Types <Tooltip documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
-					>Every resources have Resource Types attached to them which contains its schema and make
-					it easy in scripts and flows to accept only resources of a specific resource type</Tooltip
+				Resource Types
+				<Tooltip
+					documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 				>
+					Every resources have Resource Types attached to them which contains its schema and make it
+					easy in scripts and flows to accept only resources of a specific resource type
+				</Tooltip>
 			</div>
 		</Tab>
 		<Tab size="md" value="states">
 			<div class="flex gap-2 items-center my-1">
-				States <Tooltip
-					>States are actually resources (but excluded from the Workspace tab for clarity). States
+				States
+				<Tooltip>
+					States are actually resources (but excluded from the Workspace tab for clarity). States
 					are used by scripts to keep data persistent between runs of the same script by the same
-					trigger (schedule or user)</Tooltip
-				>
+					trigger (schedule or user)
+				</Tooltip>
+			</div>
+		</Tab>
+		<Tab size="md" value="cache">
+			<div class="flex gap-2 items-center my-1">
+				Cache
+				<Tooltip>
+					Cached results are actually resources (but excluded from the Workspace tab for clarity).
+					Cache are used by flows's step to cache result to avoid recomputing unnecessarily
+				</Tooltip>
 			</div>
 		</Tab>
 	</Tabs>
-	{#if tab == 'workspace' || tab == 'states'}
+	{#if tab == 'workspace' || tab == 'states' || tab == 'cache'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		{#if tab != 'states'}
-			<ListFilters bind:selectedFilter={typeFilter} filters={types} resourceType />
+		{#if tab != 'states' && tab != 'cache'}
+			<ListFilters
+				queryName="app_filter"
+				bind:selectedFilter={typeFilter}
+				filters={types}
+				resourceType
+			/>
 		{/if}
 
 		<div class="overflow-x-auto pb-40">
@@ -440,8 +537,8 @@
 											>{#if marked}{@html marked}{:else}{path}{/if}</a
 										>
 									</td>
-									<td class="px-2"
-										><a
+									<td class="px-2">
+										<a
 											href="#{name}"
 											on:click={() => {
 												const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
@@ -458,14 +555,16 @@
 														true
 													)
 												}
-											}}><IconedResourceType name={resource_type} after={true} /></a
-										></td
-									>
-									<td
-										><span class="text-gray-500 text-xs"
-											>{removeMarkdown(truncate(description ?? '', 30))}</span
-										></td
-									>
+											}}
+										>
+											<IconedResourceType name={resource_type} after={true} />
+										</a>
+									</td>
+									<td>
+										<span class="text-gray-500 text-xs">
+											{removeMarkdown(truncate(description ?? '', 30))}
+										</span>
+									</td>
 									<td class="text-center">
 										<div class="flex flex-row">
 											<div class="w-10">
@@ -557,6 +656,13 @@
 													}
 												},
 												{
+													displayName: 'Deploy to prod/staging',
+													icon: faFileExport,
+													action: () => {
+														deploymentDrawer.openDrawer(path, 'resource')
+													}
+												},
+												{
 													displayName: 'Delete',
 													disabled: !canWrite,
 													icon: faTrash,
@@ -622,8 +728,8 @@
 						{#if resourceTypes}
 							{#each resourceTypes as { name, description, schema, canWrite }}
 								<tr>
-									<td
-										><a
+									<td>
+										<a
 											href="#{name}"
 											on:click={() => {
 												resourceTypeViewerObj = {
@@ -633,39 +739,54 @@
 												}
 
 												resourceTypeViewer.openDrawer?.()
-											}}><IconedResourceType after={true} {name} /></a
-										></td
-									>
-									<td
-										><span class="text-gray-500 text-xs"
-											>{removeMarkdown(truncate(description ?? '', 200))}</span
-										></td
-									>
+											}}
+										>
+											<IconedResourceType after={true} {name} />
+										</a>
+									</td>
+									<td>
+										<span class="text-gray-500 text-xs">
+											{removeMarkdown(truncate(description ?? '', 200))}
+										</span>
+									</td>
 									<td>
 										{#if !canWrite}
-											<Badge
-												>Shared globally<Tooltip
-													>This resource type is from the 'admins' workspace shared with all
-													workspaces</Tooltip
-												></Badge
-											>
+											<Badge>
+												Shared globally
+												<Tooltip>
+													This resource type is from the 'admins' workspace shared with all
+													workspaces
+												</Tooltip>
+											</Badge>
 										{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-											<Button
-												size="sm"
-												color="red"
-												variant="border"
-												startIcon={{ icon: faTrash }}
-												on:click={() => handleDeleteResourceType(name)}
-											>
-												Delete
-											</Button>
+											<div class="flex flex-row-reverse gap-2">
+												<Button
+													size="sm"
+													color="red"
+													variant="border"
+													startIcon={{ icon: faTrash }}
+													on:click={() => handleDeleteResourceType(name)}
+												>
+													Delete
+												</Button>
+												<Button
+													size="sm"
+													variant="border"
+													color="dark"
+													startIcon={{ icon: faPen }}
+													on:click={() => startEditResourceType(name)}
+												>
+													Edit
+												</Button>
+											</div>
 										{:else}
-											<Badge
-												>Non Editable <Tooltip
-													>Since resource types are shared with the whole workspace, only admins can
-													edit/delete them</Tooltip
-												></Badge
-											>
+											<Badge>
+												Non Editable
+												<Tooltip>
+													Since resource types are shared with the whole workspace, only admins can
+													edit/delete them
+												</Tooltip>
+											</Badge>
 										{/if}
 									</td>
 								</tr>

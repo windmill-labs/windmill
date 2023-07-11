@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -17,6 +17,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -116,11 +117,18 @@
 		inlineScript?.language == 'frontend' && worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
+
+	let drawerIsOpen: boolean | undefined = undefined
 </script>
 
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
-		<InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
+		<InlineScriptEditorDrawer
+			bind:isOpen={drawerIsOpen}
+			{editor}
+			bind:this={inlineScriptEditorDrawer}
+			bind:inlineScript
+		/>
 	{/if}
 
 	<div class="h-full flex flex-col gap-1">
@@ -192,9 +200,10 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border h-full">
-			{#if inlineScript.language != 'frontend'}
+		<div class="border-y h-full">
+			{#if inlineScript.language != 'frontend' && !drawerIsOpen}
 				<Editor
+					deno={inlineScript.language == 'deno'}
 					path={inlineScript.path}
 					bind:this={editor}
 					class="flex flex-1 grow h-full"
@@ -206,7 +215,7 @@
 							inlineScript.content = editor?.getCode() ?? ''
 						}
 						runLoading = true
-						await $runnableComponents[id]?.cb?.(inlineScript)
+						await Promise.all($runnableComponents[id]?.cb?.map((f) => f?.(inlineScript)) ?? [])
 						runLoading = false
 					}}
 					on:change={async (e) => {
@@ -233,7 +242,9 @@
 					lang="javascript"
 					cmdEnterAction={async () => {
 						runLoading = true
-						await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
+						await await Promise.all(
+							$runnableComponents[id]?.cb?.map((f) => f(!transformer ? inlineScript : undefined))
+						)
 						runLoading = false
 					}}
 					on:change={() => {

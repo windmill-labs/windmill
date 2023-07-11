@@ -2,7 +2,13 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -14,11 +20,20 @@
 	export let customCss: ComponentCustomCSS<'numberinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let defaultValue: number | undefined = undefined
 	let placeholder: string | undefined = undefined
 	let value: number | undefined = undefined
+
+	$componentControl[id] = {
+		setValue(nvalue: number) {
+			value = nvalue
+		}
+	}
 
 	let min: number | undefined = undefined
 	let max: number | undefined = undefined
@@ -30,7 +45,12 @@
 
 	$: handleDefault(defaultValue)
 
-	$: outputs?.result.set(value)
+	$: {
+		outputs?.result.set(value)
+		if (iterContext && listInputs) {
+			listInputs(id, value)
+		}
+	}
 
 	function handleDefault(defaultValue: number | undefined) {
 		value = defaultValue

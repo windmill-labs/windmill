@@ -9,9 +9,12 @@
 	} from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
-	import { Alert, Button, ToggleButton, ToggleButtonGroup } from './common'
+	import { Alert, Button, Drawer, DrawerContent, ToggleButton, ToggleButtonGroup } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import GroupEditor from './GroupEditor.svelte'
 
 	export let name: string
 	let can_write = false
@@ -22,6 +25,9 @@
 	let usernames: string[] = []
 	let groups: string[] = []
 	let ownerItem: string = ''
+
+	let newGroup: Drawer
+	let viewGroup: Drawer
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
@@ -92,7 +98,49 @@
 		}
 	}
 	let ownerKind: 'user' | 'group' = 'user'
+
+	let groupCreated: string | undefined = undefined
+
+	let newGroupName: string = ''
+
+	async function addGroup() {
+		await GroupService.createGroup({
+			workspace: $workspaceStore ?? '',
+			requestBody: { name: newGroupName }
+		})
+		groupCreated = newGroupName
+		$userStore?.folders?.push(newGroupName)
+		loadGroups()
+		ownerItem = newGroupName
+	}
 </script>
+
+<Drawer bind:this={newGroup}>
+	<DrawerContent
+		title="New Group"
+		on:close={() => {
+			newGroup.closeDrawer()
+			groupCreated = undefined
+		}}
+	>
+		{#if !groupCreated}
+			<div class="flex flex-row">
+				<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
+				<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+					New&nbsp;group
+				</Button>
+			</div>
+		{:else}
+			<GroupEditor name={groupCreated} />
+		{/if}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={viewGroup}>
+	<DrawerContent title="Group {ownerItem}" on:close={viewGroup.closeDrawer}>
+		<GroupEditor name={ownerItem} />
+	</DrawerContent>
+</Drawer>
 
 <div class="flex flex-col gap-6">
 	<h1>{name}</h1>
@@ -108,11 +156,33 @@
 					<ToggleButton position="right" value="group" size="xs">Group</ToggleButton>
 				</ToggleButtonGroup>
 			</div>
+
 			{#key ownerKind}
 				<AutoComplete
 					items={ownerKind === 'user' ? usernames : groups}
 					bind:selectedItem={ownerItem}
 				/>
+				{#if ownerKind == 'group'}
+					<Button
+						title="View Group"
+						btnClasses="!p-1.5"
+						variant="border"
+						size="xs"
+						disabled={!ownerItem || ownerItem == ''}
+						on:click={viewGroup.openDrawer}
+					>
+						<Icon scale={0.8} data={faEye} /></Button
+					>
+					<Button
+						title="New Group"
+						btnClasses="!p-1.5"
+						variant="border"
+						on:click={newGroup.openDrawer}
+						size="xs"
+					>
+						<Icon scale={0.8} data={faPlus} /></Button
+					>
+				{/if}
 			{/key}
 			<Button
 				disabled={ownerItem == ''}

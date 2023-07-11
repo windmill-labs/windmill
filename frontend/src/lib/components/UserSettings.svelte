@@ -1,49 +1,51 @@
 <script lang="ts">
 	import { usersWorkspaceStore } from '$lib/stores'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
-	import { UserService, SettingsService } from '$lib/gen'
-	import { displayDate, sendUserToast, copyToClipboard } from '$lib/utils'
+	import { UserService } from '$lib/gen'
+	import { displayDate, copyToClipboard } from '$lib/utils'
 	import { faClipboard, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
 	import Icon from 'svelte-awesome'
 
+	export let scopes: string[] | undefined = undefined
+
 	let newPassword: string | undefined
 	let passwordError: string | undefined
-	let version: string | undefined
 	let tokens: TruncatedToken[]
 	let newToken: string | undefined
 	let newTokenLabel: string | undefined
 	let newTokenExpiration: number | undefined
-	let displayCreateToken = false
+	let displayCreateToken = scopes != undefined
 	let login_type = 'none'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import Tooltip from './Tooltip.svelte'
+	import Version from './Version.svelte'
 
 	let drawer: Drawer
 
 	export function openDrawer() {
-		loadVersion()
 		loadLoginType()
 		listTokens()
 		drawer?.openDrawer()
 	}
 
-	export function toggleDrawer() {
-		drawer?.toggleDrawer()
-	}
-
 	export function closeDrawer() {
 		drawer?.closeDrawer()
+		removeHash()
+	}
+
+	function removeHash() {
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
 		goto(hashRemoved)
 	}
-
 	async function setPassword(): Promise<void> {
 		if (newPassword) {
 			await UserService.setPassword({
@@ -57,9 +59,6 @@
 		}
 	}
 
-	async function loadVersion(): Promise<void> {
-		version = await SettingsService.backendVersion()
-	}
 	async function loadLoginType(): Promise<void> {
 		login_type = (await UserService.globalWhoami()).login_type
 	}
@@ -72,7 +71,7 @@
 			date.setDate(date.getDate() + newTokenExpiration)
 		}
 		newToken = await UserService.createToken({
-			requestBody: { label: newTokenLabel, expiration: date?.toISOString() } as NewToken
+			requestBody: { label: newTokenLabel, expiration: date?.toISOString(), scopes } as NewToken
 		})
 		listTokens()
 		displayCreateToken = false
@@ -89,37 +88,38 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="800px">
+<Drawer bind:this={drawer} size="800px" on:clickAway={removeHash}>
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 pb-2 text-gray-500">
-					Windmill {version}
+				<div class="text-xs pt-1 pb-2 text-gray-500 flex-col flex">
+					Windmill <Version />
 				</div>
 
-				<h2 class="border-b mt-4">User info</h2>
-				<div class="">
-					{#if passwordError}
-						<div class="text-red-600 text-2xs grow">{passwordError}</div>
-					{/if}
-					<div class="flex flex-col gap-2 w-full">
-						<div class="mt-4">
-							<label class="block w-60 mb-2 text-gray-500">
-								<div class="text-gray-700">email</div>
-								<input
-									type="text"
-									disabled
-									value={$usersWorkspaceStore?.email}
-									class="input mt-1"
-								/>
-							</label>
-							{#if login_type == 'password'}
-								<label class="block w-120">
-									<div class="text-gray-700">password</div>
+				{#if scopes == undefined}
+					<h2 class="border-b mt-4">User info</h2>
+					<div class="">
+						{#if passwordError}
+							<div class="text-red-600 text-2xs grow">{passwordError}</div>
+						{/if}
+						<div class="flex flex-col gap-2 w-full">
+							<div class="mt-4">
+								<label class="block w-60 mb-2 text-gray-500">
+									<div class="text-gray-700">email</div>
 									<input
-										type="password"
-										bind:value={newPassword}
-										class="
+										type="text"
+										disabled
+										value={$usersWorkspaceStore?.email}
+										class="input mt-1"
+									/>
+								</label>
+								{#if login_type == 'password'}
+									<label class="block w-120">
+										<div class="text-gray-700">password</div>
+										<input
+											type="password"
+											bind:value={newPassword}
+											class="
 							w-full
 							block
 							py-1
@@ -131,17 +131,18 @@
 							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 							text-sm
 							"
-									/>
-									<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
-										>Set password</Button
-									>
-								</label>
-							{:else if login_type == 'github'}
-								<span>Authentified through Github OAuth2. Cannot set a password.</span>
-							{/if}
+										/>
+										<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
+											>Set password</Button
+										>
+									</label>
+								{:else if login_type == 'github'}
+									<span>Authentified through Github OAuth2. Cannot set a password.</span>
+								{/if}
+							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 
 				<div class="grid grid-cols-2 pt-8 pb-1">
 					<h2 class="py-0 my-0 border-b">Tokens</h2>
@@ -187,7 +188,22 @@
 							? ''
 							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-gray-50 min-w-min"
 					>
-						<h3 class="pb-3 font-semibold">Add new token</h3>
+						<h3 class="pb-3 font-semibold">Add a new token</h3>
+						{#if scopes != undefined}
+							{#each scopes as scope}
+								<div class="flex flex-col mb-4">
+									<label for="label"
+										>Scope <Tooltip
+											>This token can only be used within its scope. For flows and scripts, it
+											allows you to share them without fear of being impersonated. Once a script is
+											triggered, the script itself uses a new ephemeral token to be able to act on
+											behalf of the token owner.</Tooltip
+										></label
+									>
+									<input disabled type="text" value={scope} />
+								</div>
+							{/each}
+						{/if}
 						<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
 							<div class="flex flex-col">
 								<label for="label"
@@ -197,7 +213,7 @@
 							</div>
 							<div class="flex flex-col">
 								<label for="expires"
-									>Expires In<span class="text-xs text-gray-500">(optional)</span>
+									>Expires In &nbsp;<span class="text-xs text-gray-500">(optional)</span>
 								</label>
 								<select bind:value={newTokenExpiration}>
 									<option value={undefined}>No expiration</option>
@@ -218,15 +234,17 @@
 							<th>prefix</th>
 							<th>label</th>
 							<th>expiration</th>
+							<th>scopes</th>
 							<th />
 						</tr>
 						<tbody slot="body">
 							{#if tokens && tokens.length > 0}
-								{#each tokens as { token_prefix, expiration, label }}
+								{#each tokens as { token_prefix, expiration, label, scopes }}
 									<tr>
 										<td class="grow">{token_prefix}****</td>
 										<td class="grow">{label ?? ''}</td>
 										<td class="grow">{displayDate(expiration ?? '')}</td>
+										<td class="grow">{scopes?.join(', ') ?? ''}</td>
 										<td class="grow"
 											><button
 												class="text-red-500 text-xs underline"

@@ -1,4 +1,4 @@
-import type { Schema } from '$lib/common'
+import type { Schema, SupportedLanguage } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
@@ -14,8 +14,10 @@ import type {
 	VerticalAlignment
 } from './types'
 
+export const BG_PREFIX = 'bg_'
+
 export function migrateApp(app: App) {
-	app.hiddenInlineScripts.forEach((x) => {
+	app?.hiddenInlineScripts.forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
 			x.type = 'runnableByName'
@@ -48,14 +50,14 @@ export async function loadSchema(
 			path
 		})
 
-		return { schema: script.schema, summary: script.summary }
+		return { schema: script.schema as any, summary: script.summary }
 	} else if (runType === 'flow') {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
 		})
 
-		return { schema: flow.schema, summary: flow.summary }
+		return { schema: flow.schema as any, summary: flow.summary }
 	} else {
 		const script = await ScriptService.getHubScriptByPath({
 			path
@@ -68,7 +70,7 @@ export async function loadSchema(
 			script.schema = emptySchema()
 		}
 
-		await inferArgs(script.language, script.content, script.schema)
+		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
 		return { schema: script.schema, summary: script.summary }
 	}
 }
@@ -184,7 +186,7 @@ export function toStatic(
 	})
 
 	newApp.hiddenInlineScripts?.forEach((x, i) => {
-		x.noBackendValue = staticExporter[`bg_` + i]()
+		x.noBackendValue = staticExporter[BG_PREFIX + i]()
 	})
 
 	return { app: newApp, summary }
@@ -214,15 +216,18 @@ ${
 declare function setTab(id: string, index: string): void;
 declare function recompute(id: string): void;
 declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
+declare function setValue(id: string, value: any): void;
+declare function setSelectedIndex(id: string, index: number): void;
 `
 		: ''
 }
 declare const state: ${JSON.stringify(state)};
+declare const iter: {index: number, value: any};
 `
 }
 
 export function getAllScriptNames(app: App): string[] {
-	const names = app.grid.reduce((acc, gridItem: GridItem) => {
+	const names = allItems(app.grid, app?.subgrids).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
 		if (
@@ -260,7 +265,7 @@ export function toPascalCase(text: string) {
 }
 
 export function toKebabCase(text: string) {
-	return text.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+	return text.replace(/[A-Z]+(?![a-z])|[A-Z]/g, ($, ofs) => (ofs ? '-' : '') + $.toLowerCase())
 }
 
 export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
@@ -308,6 +313,16 @@ export function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
 		bottom: 'items-end'
 	}
 	return classes[alignment]
+}
+
+export const TailwindClassPatterns = {
+	bg: /bg-(?:[^-\s]+-)?(?:[^-\s]+)/g,
+	height: /(h-[^\s]+)/g,
+	width: /(w-[^\s]+)/g
+}
+
+export function hasTailwindClass(classes: string | undefined, pattern: RegExp) {
+	return Boolean(classes?.match(pattern))
 }
 
 export function transformBareBase64IfNecessary(source: string | undefined) {

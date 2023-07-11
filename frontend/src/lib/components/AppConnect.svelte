@@ -57,8 +57,7 @@
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
-	import { page } from '$app/stores'
-	import { emptyString, sendUserToast, truncateRev } from '$lib/utils'
+	import { emptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
@@ -68,6 +67,7 @@
 	import SearchItems from './SearchItems.svelte'
 	import autosize from 'svelte-autosize'
 	import WhitelistIp from './WhitelistIp.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let newPageOAuth = false
 
@@ -163,7 +163,7 @@
 			step += 1
 			args = {}
 		} else if (step == 1 && !manual) {
-			const url = new URL(`/api/oauth/connect/${resource_type}`, $page.url.origin)
+			const url = new URL(`/api/oauth/connect/${resource_type}`, window.location.origin)
 			url.searchParams.append('scopes', scopes.join('+'))
 			if (extra_params.length > 0) {
 				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
@@ -298,7 +298,9 @@
 	}}
 	size="800px"
 >
-	<DrawerContent title="Connect an API or add a Resource" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Connect an API or add a Resource" on:close={drawer.closeDrawer}
+	tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
+	documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill">
 		{#if step == 1}
 			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
 				<input
@@ -357,6 +359,7 @@
 						<Button
 							variant="border"
 							color="blue"
+							hover="yo"
 							size="sm"
 							endIcon={{ icon: faPlus }}
 							on:click={() => {

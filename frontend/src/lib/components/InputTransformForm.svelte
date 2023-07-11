@@ -9,14 +9,17 @@
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { Button, ToggleButton, ToggleButtonGroup } from './common'
-	import { faCode } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from './common'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
-	import type { InputTransform } from '$lib/gen'
+	import { ResourceService, type InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { Plug } from 'lucide-svelte'
+	import { Code, Plug } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -128,6 +131,13 @@
 	}
 
 	$: schema.properties[argName].default && setDefaultCode()
+
+	let resourceTypes: string[] | undefined = undefined
+
+	async function loadResourceTypes() {
+		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+	}
+	loadResourceTypes()
 </script>
 
 {#if arg != undefined}
@@ -153,7 +163,7 @@
 			{/if}
 		</div>
 		{#if !noDynamicToggle}
-			<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap z-10">
+			<div class="flex flex-row gap-x-6 gap-y-1 flex-wrap z-10 items-center">
 				<div>
 					<ToggleButtonGroup
 						bind:selected={propertyType}
@@ -196,24 +206,25 @@
 					>
 						{#if isStaticTemplate(inputCat)}
 							<ToggleButton
-								title={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`result\` to connect to another node\'s output.`}
+								tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 								light
 								position="left"
 								value="static"
 								size="xs2"
-							>
-								{'${} '}&nbsp;
-							</ToggleButton>
+								small
+								label={'${}'}
+							/>
 						{:else}
-							<ToggleButton light position="left" value="static" size="xs2">Static</ToggleButton>
+							<ToggleButton small label="Static" position="left" value="static" size="xs2" />
 						{/if}
 
 						<ToggleButton
+							small
 							light
-							title="Write javascript expressions directly, using 'flow_input' or 'result'. You can use multiline javascript."
+							tooltip="Javascript expression ('flow_input' or 'results')."
 							position="right"
 							value="javascript"
-							startIcon={{ icon: faCode }}
+							icon={Code}
 							size="xs2"
 						/>
 					</ToggleButtonGroup>
@@ -250,7 +261,7 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-500">
+			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-400">
 				{#if arg}
 					<TemplateEditor
 						bind:this={monacoTemplate}
@@ -263,6 +274,7 @@
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput
+				{resourceTypes}
 				noMargin
 				compact
 				bind:this={argInput}

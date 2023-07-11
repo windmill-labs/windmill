@@ -52,7 +52,7 @@
 				actions: false,
 				renderer: canvas ? 'canvas' : 'svg',
 				height: h - 75,
-				width: w - 75
+				width: w - 100
 			}
 		)
 </script>

@@ -12,6 +12,7 @@
 
 <Menu placement="bottom-start" let:close>
 	<button
+		title="Workspace Menu"
 		slot="trigger"
 		type="button"
 		class={classNames(
@@ -29,28 +30,26 @@
 
 	<div class="divide-y divide-gray-100" role="none">
 		<div class="py-1">
-			<table class="w-full">
-				{#each $userWorkspaces as workspace}
-					<tr
-						class="text-xs
+			{#each $userWorkspaces as workspace}
+				<button
+					class="text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5
 						{$workspaceStore === workspace.id
-							? 'cursor-default bg-blue-50'
-							: 'cursor-pointer hover:bg-gray-100'}"
-						on:click={() => {
-							if ($workspaceStore === workspace.id) {
-								return
-							}
-							switchWorkspace(workspace.id)
-							close()
-						}}
+						? 'cursor-default bg-blue-50'
+						: 'cursor-pointer hover:bg-gray-100'}"
+					on:click={() => {
+						if ($workspaceStore === workspace.id) {
+							return
+						}
+						switchWorkspace(workspace.id)
+						close()
+					}}
+				>
+					<div class="text-gray-700 pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
+					<div class="text-gray-400 font-mono pl-4 text-2xs whitespace-nowrap truncate text-left"
+						>{workspace.id}</div
 					>
-						<td class="text-gray-500 font-mono pl-4 pr-1 py-2 text-xs whitespace-nowrap"
-							>{workspace.id}</td
-						>
-						<td class="text-gray-700 pr-4 py-2 w-full">{workspace.name}</td>
-					</tr>
-				{/each}
-			</table>
+				</button>
+			{/each}
 		</div>
 		<div class="py-1" role="none">
 			<a

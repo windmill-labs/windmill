@@ -1,14 +1,9 @@
 <script lang="ts">
-	import {
-		faChevronDown,
-		faChevronUp,
-		faDollarSign,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { X } from 'lucide-svelte'
+	import { DollarSign, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
 	import Icon from 'svelte-awesome'
@@ -28,6 +23,9 @@
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ArgEnum from './ArgEnum.svelte'
+	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -45,7 +43,11 @@
 	export let disabled = false
 	export let editableSchema = false
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
+		| {
+				type?: 'string' | 'number' | 'bytes' | 'object'
+				contentEncoding?: 'base64'
+				enum?: string[]
+		  }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -59,11 +61,11 @@
 	export let extra: Record<string, any> = {}
 	export let minW = true
 	export let prettifyHeader = false
+	export let resourceTypes: string[] | undefined
+	export let disablePortal = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
-
-	$: validateInput(pattern, value)
 
 	let error: string = ''
 
@@ -71,32 +73,49 @@
 
 	export let editor: SimpleEditor | undefined = undefined
 
+	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 
-	$: {
-		if (rawValue) {
-			try {
-				value = JSON.parse(rawValue)
-				error = ''
-			} catch (err) {
-				error = err.toString()
+	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
+		if (value == undefined || value == null) {
+			value = defaultValue
+			if (defaultValue === undefined || defaultValue === null) {
+				if (inputCat === 'string') {
+					value = ''
+				} else if (inputCat == 'enum') {
+					value = enum_?.[0]
+				} else if (inputCat == 'boolean') {
+					value = false
+				} else if (inputCat == 'list') {
+					value = []
+				}
+			} else if (inputCat === 'object') {
+				evalValueToRaw()
 			}
 		}
 	}
 
-	$: {
-		error = ''
-		if (inputCat === 'object') {
-			evalValueToRaw()
-			validateInput(pattern, value)
+	computeDefaultValue()
+
+	$: computeDefaultValue(value, inputCat, defaultValue)
+
+	$: defaultValue != undefined && handleDefaultValueChange()
+
+	let oldDefaultValue = defaultValue
+	function handleDefaultValueChange() {
+		if (value == oldDefaultValue) {
+			value = defaultValue
 		}
+		oldDefaultValue = defaultValue
 	}
 
-	export function evalValueToRaw() {
-		if (value) {
-			rawValue = JSON.stringify(value, null, 2)
-		}
+	function evalValueToRaw() {
+		rawValue = inputCat === 'object' ? JSON.stringify(value, null, 2) : undefined
 	}
+
+	evalValueToRaw()
 
 	function fileChanged(e: any, cb: (v: string | undefined) => void) {
 		let t = e.target
@@ -119,9 +138,9 @@
 		}
 	}
 
-	function validateInput(pattern: string | undefined, v: any): void {
+	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (required && (v == undefined || v == null || v === '')) {
-			error = 'This field is required'
+			error = 'Required'
 			valid = false
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
@@ -149,27 +168,14 @@
 		}
 		e.stopPropagation()
 	}
-	$: {
-		if (value == undefined || value == null) {
-			value = defaultValue
-			if (defaultValue === undefined || defaultValue === null) {
-				if (inputCat === 'string') {
-					value = ''
-				} else if (inputCat == 'enum') {
-					value = enum_?.[0]
-				} else if (inputCat == 'boolean') {
-					value = false
-				} else if (inputCat == 'list') {
-					value = []
-				}
-			}
-		}
-	}
 
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let redraw = 0
 
 	let itemsLimit = 50
+
+	let customValue = false
+
+	$: validateInput(pattern, value, required)
 </script>
 
 <!-- svelte-ignore a11y-autofocus -->
@@ -179,52 +185,47 @@
 			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 		{#if editableSchema}
-			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<span
-					class="underline"
-					on:click={() => {
-						seeEditable = !seeEditable
-					}}
-				>
-					Customize property
-					<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
-				</span>
+			<label class="text-gray-700">
+				Description
+				<textarea
+					class="mb-1"
+					use:autosize
+					rows="1"
+					bind:value={description}
+					on:keydown={onKeyDown}
+					placeholder="Field description"
+				/>
+			</label>
 
-				{#if seeEditable}
-					<div class="mt-2">
-						<label class="text-gray-700">
-							Description
-							<textarea
-								class="mb-1"
-								use:autosize
-								rows="1"
-								bind:value={description}
-								on:keydown={onKeyDown}
-								placeholder="Field description"
-							/>
+			{#if type == 'array'}
+				<ArrayTypeNarrowing bind:itemsType />
+			{:else if (type == 'string' && format != 'date-time') || ['number', 'object'].includes(type ?? '')}
+				<div class="p-2 my-1 text-xs border-solid border border-gray-200 rounded-lg">
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<span
+						class="underline"
+						on:click={() => {
+							seeEditable = !seeEditable
+						}}
+					>
+						Customize
+						<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
+					</span>
+
+					{#if seeEditable}
+						<div class="mt-2">
 							{#if type == 'string' && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'number'}
 								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
-							{:else if type == 'array'}
-								<select bind:value={itemsType}>
-									<option value={undefined}>No specific item type</option>
-									<option value={{ type: 'string' }}> Items are strings</option>
-									<option value={{ type: 'object' }}> Items are objects (JSON)</option>
-									<option value={{ type: 'number' }}>Items are numbers</option>
-									<option value={{ type: 'string', contentEncoding: 'base64' }}
-										>Items are bytes</option
-									>
-								</select>
 							{/if}
-						</label>
-					</div>
-				{/if}
-			</div>
-			<span class="text-2xs">Input preview:</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
+			<span class="text-2xs font-semibold">Preview:</span>
 		{/if}
 
 		{#if description}
@@ -294,12 +295,24 @@
 												/>
 											{:else if itemsType?.type == 'object'}
 												<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+											{:else if Array.isArray(itemsType?.enum)}
+												<select
+													on:focus={(e) => {
+														dispatch('focus')
+													}}
+													class="px-6"
+													bind:value={v}
+												>
+													{#each itemsType?.enum ?? [] as e}
+														<option>{e}</option>
+													{/each}
+												</select>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 ml-2"
 												aria-label="Clear"
 												on:click={() => {
 													value.splice(i, 1)
@@ -322,7 +335,7 @@
 					<div class="flex mt-2">
 						<Button
 							variant="border"
-							color="dark"
+							color="light"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -337,12 +350,13 @@
 						</Button>
 					</div>
 				</div>
-			{:else if inputCat == 'resource-object'}
-				<ObjectResourceInput {format} bind:value />
-			{:else if inputCat == 'object'}
+			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
+				<ObjectResourceInput {disablePortal} {format} bind:value />
+			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
+							{disablePortal}
 							{disabled}
 							schema={{ properties, $schema: '', required: [], type: 'object' }}
 							bind:args={value}
@@ -361,18 +375,9 @@
 					/>
 				{/if}
 			{:else if inputCat == 'enum'}
-				<select
-					on:focus={(e) => {
-						dispatch('focus')
-					}}
-					{disabled}
-					class="px-6"
-					bind:value
-				>
-					{#each enum_ ?? [] as e}
-						<option>{e}</option>
-					{/each}
-				</select>
+				<div class="flex flex-row w-full gap-1">
+					<ArgEnum {defaultValue} {valid} {customValue} {disabled} bind:value {enum_} {autofocus} />
+				</div>
 			{:else if inputCat == 'date'}
 				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
@@ -397,6 +402,7 @@
 				/>
 			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
+					{disablePortal}
 					bind:value
 					resourceType={format.split('-').length > 1
 						? format.substring('resource-'.length)
@@ -404,7 +410,7 @@
 				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
-					<div class="flex flex-row w-full items- justify-between">
+					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password}
 							<Password {disabled} bind:password={value} />
 						{:else}
@@ -419,25 +425,27 @@
 								on:keydown={onKeyDown}
 								type="text"
 								{disabled}
-								class="col-span-10 {valid
-									? ''
-									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+								class={twMerge(
+									'w-full',
+									valid
+										? ''
+										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
+								)}
 								placeholder={defaultValue ?? ''}
 								bind:value
 							/>
 							{#if itemPicker}
-								<div class="ml-1 relative">
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class="min-w-min min-h-[34px] items-center leading-4 px-3 text-blue-500 cursor-pointer border border-blue-500 rounded center-center"
-										on:click={() => {
-											pickForField = label
-											itemPicker?.openDrawer?.()
-										}}
-									>
-										<Icon data={faDollarSign} />
-									</div>
-								</div>
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<button
+									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+									on:click={() => {
+										pickForField = label
+										itemPicker?.openDrawer?.()
+									}}
+									title="Insert a Variable"
+								>
+									<DollarSign size={14} />
+								</button>
 							{/if}
 						{/if}
 					</div>

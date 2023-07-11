@@ -14,7 +14,7 @@ use crate::{
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, IS_SECURE,
+    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT, SMTP_FROM,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -27,6 +27,7 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
+use mail_send::mail_builder::MessageBuilder;
 use rand::rngs::OsRng;
 use regex::Regex;
 use retainer::Cache;
@@ -37,7 +38,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, Error, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
@@ -57,13 +58,14 @@ pub fn workspaced_service() -> Router {
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
         .route("/is_owner/*path", get(is_owner_of_path))
-        .route("/whois/:email", get(whois))
+        .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
 }
 
 pub fn global_service() -> Router {
     Router::new()
+        .route("/exists/:email", get(exists_email))
         .route("/email", get(get_email))
         .route("/whoami", get(global_whoami))
         .route("/list_invites", get(list_invites))
@@ -79,6 +81,7 @@ pub fn global_service() -> Router {
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
+        .route("/all_runnables", get(get_all_runnables))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -117,9 +120,9 @@ impl AuthCache {
         match s {
             a @ Some(_) => a,
             None => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool)>(
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -130,7 +133,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), email, super_admin) if w_id.is_some() => {
+                            (Some(owner), email, super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let is_admin = super_admin
@@ -164,6 +167,7 @@ impl AuthCache {
                                             is_admin,
                                             groups,
                                             folders,
+                                            scopes: None,
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -183,6 +187,7 @@ impl AuthCache {
                                             is_admin: false,
                                             groups,
                                             folders,
+                                            scopes: None,
                                         })
                                     }
                                 } else {
@@ -195,10 +200,11 @@ impl AuthCache {
                                         is_admin: super_admin,
                                         groups,
                                         folders,
+                                        scopes: None,
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin) => {
+                            (_, Some(email), super_admin, scopes) => {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool)>(
                                         "SELECT username, is_admin FROM usr where email = $1 AND \
@@ -236,17 +242,17 @@ impl AuthCache {
                                                 is_admin: is_admin || super_admin,
                                                 groups,
                                                 folders,
+                                                scopes,
                                             })
                                         }
-                                        None if super_admin || w_id.unwrap() == "starter" => {
-                                            Some(Authed {
-                                                email: email.clone(),
-                                                username: email,
-                                                is_admin: super_admin,
-                                                groups: vec![],
-                                                folders: vec![],
-                                            })
-                                        }
+                                        None if super_admin => Some(Authed {
+                                            email: email.clone(),
+                                            username: email,
+                                            is_admin: super_admin,
+                                            groups: vec![],
+                                            folders: vec![],
+                                            scopes,
+                                        }),
                                         None => None,
                                     }
                                 } else {
@@ -256,6 +262,7 @@ impl AuthCache {
                                         is_admin: super_admin,
                                         groups: Vec::new(),
                                         folders: Vec::new(),
+                                        scopes,
                                     })
                                 }
                             }
@@ -280,6 +287,7 @@ impl AuthCache {
                         is_admin: true,
                         groups: Vec::new(),
                         folders: Vec::new(),
+                        scopes: None,
                     })
                 } else {
                     None
@@ -361,6 +369,7 @@ pub struct Authed {
     pub groups: Vec<String>,
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
+    pub scopes: Option<Vec<String>>,
 }
 
 pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
@@ -427,6 +436,13 @@ where
                 {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         parts.extensions.insert(authed.clone());
+                        if authed.scopes.is_some() && (path_vec.len() < 3 || path_vec[4] != "jobs")
+                        {
+                            return Err((
+                                StatusCode::UNAUTHORIZED,
+                                format!("Unauthorized scoped token: {:?}", authed.scopes),
+                            ));
+                        }
                         Span::current().record("username", &authed.username.as_str());
                         Span::current().record("email", &authed.email);
 
@@ -440,6 +456,19 @@ where
             Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
     }
+}
+
+pub fn check_scopes<F>(authed: &Authed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if let Some(scopes) = &authed.scopes {
+        let req = &required();
+        if !scopes.contains(req) {
+            return Err(Error::BadRequest(format!("missing required scope: {req}")));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -591,6 +620,7 @@ pub struct TruncatedToken {
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -598,6 +628,7 @@ pub struct NewToken {
     pub label: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub impersonate_email: Option<String>,
+    pub scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -792,7 +823,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, is_admin, groups, folders }: Authed,
+    Authed { username, email, is_admin, groups, folders, .. }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -851,6 +882,17 @@ async fn global_whoami(
     } else {
         Err(user.unwrap_err())
     }
+}
+
+async fn exists_email(Extension(db): Extension<DB>, Path(email): Path<String>) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
+        email
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    Ok(Json(exists))
 }
 
 async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
@@ -1049,6 +1091,7 @@ lazy_static! {
     .ok()
     .and_then(|x| x.parse::<u32>().ok())
     .unwrap_or(60 * 60 * 24 * 60); // 60 days
+
 }
 
 async fn accept_invite(
@@ -1339,6 +1382,7 @@ async fn delete_user(
 
 lazy_static::lazy_static! {
     pub static ref NEW_USER_WEBHOOK: Option<String> = std::env::var("NEW_USER_WEBHOOK").ok();
+
 }
 
 async fn create_user(
@@ -1365,7 +1409,7 @@ async fn create_user(
     VALUES ($1, $2, $3, 'password', $4, $5, $6)",
         &nu.email,
         true,
-        &hash_password(argon2, nu.password)?,
+        &hash_password(argon2, nu.password.clone())?,
         &nu.super_admin,
         nu.name,
         nu.company
@@ -1386,9 +1430,49 @@ async fn create_user(
     tx.commit().await?;
 
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
+    send_email_if_possible(
+        "Invited to Windmill",
+        &format!(
+            "You have been granted access to Windmill by {email}.
 
+Login and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
+
+You can then join or create a workspace. Happy building!",
+            *BASE_URL, &nu.email, &nu.password
+        ),
+        &nu.email,
+    );
     webhook.send_instance_event(InstanceEvent::UserAdded { email: nu.email.clone() });
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
+}
+
+pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
+    let subject = subject.to_string();
+    let content = content.to_string();
+    let to = to.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = send_email_if_possible_intern(&subject, &content, &to).await {
+            tracing::error!("Failed to send email to {}: {}", &to, e);
+        }
+    });
+}
+
+pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
+    if let Some(ref smtp) = *SMTP_CLIENT {
+        let message = MessageBuilder::new()
+            .from(("Windmill", SMTP_FROM.as_str()))
+            .to(to)
+            .subject(subject)
+            .text_body(content);
+        smtp.connect()
+            .await
+            .map_err(to_anyhow)?
+            .send(message)
+            .await
+            .map_err(to_anyhow)?;
+        tracing::info!("Sent email to {to}: {subject}");
+    }
+    return Ok(());
 }
 
 async fn delete_workspace_user(
@@ -1411,15 +1495,20 @@ async fn delete_workspace_user(
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
     let username = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
-        email_to_delete
+        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2 RETURNING username",
+        email_to_delete,
+        &w_id
     )
     .fetch_one(&mut tx)
     .await?;
 
-    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-        .execute(&mut tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+        &username,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
 
     audit_log(
         &mut tx,
@@ -1729,13 +1818,14 @@ async fn create_token(
             .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
+            (token, email, label, expiration, super_admin, scopes)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         token,
         email,
         new_token.label,
         new_token.expiration,
-        is_super_admin
+        is_super_admin,
+        new_token.scopes.as_ref().map(|x| x.as_slice())
     )
     .execute(&mut tx)
     .await?;
@@ -1814,7 +1904,7 @@ async fn list_tokens(
     let rows = sqlx::query_as!(
         TruncatedToken,
         "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-         last_used_at FROM token WHERE email = $1
+         last_used_at, scopes FROM token WHERE email = $1
          ORDER BY created_at DESC",
         email,
     )
@@ -1890,6 +1980,103 @@ async fn leave_workspace(
     Ok(format!("left workspace {w_id}"))
 }
 
+#[derive(Serialize)]
+struct Runnable {
+    workspace: String,
+    endpoint_async: String,
+    endpoint_sync: String,
+    endpoint_openai_sync: String,
+    summary: String,
+    description: String,
+    schema: Option<serde_json::Value>,
+    kind: String,
+    path: String,
+}
+
+async fn get_all_runnables(
+    Extension(db): Extension<UserDB>,
+    authed: Authed,
+    Tokened { token }: Tokened,
+    Extension(cache): Extension<Arc<AuthCache>>,
+) -> JsonResult<Vec<Runnable>> {
+    let mut tx = db.clone().begin(&authed).await?;
+    let mut runnables = Vec::new();
+    let workspaces = sqlx::query_scalar!(
+        "SELECT workspace.id as id FROM workspace, usr WHERE usr.workspace_id = workspace.id AND \
+         usr.email = $1 AND deleted = false",
+        authed.email
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    for workspace in workspaces {
+        let nauthed = cache
+            .get_authed(Some(workspace.clone()), &token)
+            .await
+            .ok_or_else(|| {
+                Error::BadRequest(format!("not authorized to access workspace: {workspace}"))
+            })?;
+        let mut tx = db.clone().begin(&nauthed).await?;
+        let flows = sqlx::query!(
+            "SELECT workspace_id as workspace, path, summary, description, schema FROM flow WHERE workspace_id = $1", workspace
+        )
+        .fetch_all(&mut tx)
+        .await?;
+        runnables.extend(
+            flows
+                .into_iter()
+                .map(|f| Runnable {
+                    workspace: f.workspace.clone(),
+                    endpoint_async: format!("/w/{}/jobs/run/f/{}", &f.workspace, &f.path),
+                    endpoint_sync: format!(
+                        "/w/{}/jobs/run_wait_result/f/{}",
+                        &f.workspace, &f.path
+                    ),
+                    endpoint_openai_sync: format!(
+                        "/w/{}/jobs/openai_sync/f/{}",
+                        &f.workspace, &f.path
+                    ),
+                    summary: f.summary,
+                    description: f.description,
+                    schema: f.schema,
+                    kind: "flow".to_string(),
+                    path: f.path,
+                })
+                .collect::<Vec<_>>(),
+        );
+        let scripts = sqlx::query!(
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1) and workspace_id = $1", workspace
+    )
+    .fetch_all(&mut tx)
+    .await?;
+        runnables.extend(
+            scripts
+                .into_iter()
+                .map(|s| Runnable {
+                    workspace: s.workspace.clone(),
+                    endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
+                    endpoint_sync: format!(
+                        "/w/{}/jobs/run_wait_result/p/{}",
+                        &s.workspace, &s.path
+                    ),
+                    endpoint_openai_sync: format!(
+                        "/w/{}/jobs/openai_sync/p/{}",
+                        &s.workspace, &s.path
+                    ),
+                    summary: s.summary,
+                    description: s.description,
+                    schema: s.schema,
+                    kind: "script".to_string(),
+                    path: s.path,
+                })
+                .collect::<Vec<_>>(),
+        );
+        tx.commit().await?;
+    }
+    Ok(Json(runnables))
+}
+
 pub async fn delete_expired_items_perdiodically(
     db: &DB,
     mut rx: tokio::sync::broadcast::Receiver<()>,
@@ -1916,6 +2103,17 @@ pub async fn delete_expired_items_perdiodically(
         match pip_resolution_r {
             Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
             Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
+        }
+
+        let deleted_cache = sqlx::query_scalar!(
+            "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
+        )
+        .fetch_all(db)
+        .await;
+
+        match deleted_cache {
+            Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
+            Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
         }
 
         if *JOB_RETENTION_SECS > 0 {

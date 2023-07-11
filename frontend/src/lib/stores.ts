@@ -1,9 +1,7 @@
-import { browser } from '$app/environment'
-import { derived, type Readable, writable, get } from 'svelte/store'
+import { BROWSER } from 'esm-env'
+import { derived, type Readable, writable } from 'svelte/store'
 import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
-import { getUserExt } from './user'
-import { WorkspaceService, type TokenResponse } from './gen'
-import { isCloudHosted } from './utils'
+import type { TokenResponse } from './gen'
 
 export interface UserExt {
 	email: string
@@ -18,8 +16,11 @@ export interface UserExt {
 	folders_owners: string[]
 }
 
-let persistedWorkspace = browser && localStorage.getItem('workspace')
+const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
 
+export const globalEmailInvite = writable<string>('')
+export const awarenessStore = writable<Record<string, string>>(undefined)
+export const enterpriseLicense = writable<string | undefined>(undefined)
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const runFormStore = writable<any>()
@@ -42,7 +43,7 @@ export const userWorkspaces: Readable<
 	const originalWorkspaces = store?.workspaces ?? []
 	if (superadmin) {
 		return [
-			...originalWorkspaces.filter((x) => x.id != 'starter' && x.id != 'admins'),
+			...originalWorkspaces.filter((x) => x.id != 'admins'),
 			{
 				id: 'admins',
 				name: 'Admins',
@@ -64,39 +65,6 @@ export const hubScripts = writable<
 	  }>
 	| undefined
 >(undefined)
-
-if (browser) {
-	workspaceStore.subscribe(async (workspace) => {
-		if (workspace) {
-			try {
-				localStorage.setItem('workspace', String(workspace))
-			} catch (e) {
-				console.error('Could not persist workspace to local storage', e)
-			}
-			const user = await getUserExt(workspace)
-			userStore.set(user)
-			if (isCloudHosted() && user?.is_admin) {
-				premiumStore.set(await WorkspaceService.getPremiumInfo({ workspace }))
-			}
-		} else {
-			userStore.set(undefined)
-		}
-	})
-
-	setInterval(async () => {
-		try {
-			const workspace = get(workspaceStore)
-			const user = get(userStore)
-
-			if (workspace && user && !user.is_super_admin && !user.is_admin) {
-				userStore.set(await getUserExt(workspace))
-				console.log('refreshed user')
-			}
-		} catch (e) {
-			console.error('Could not refresh user', e)
-		}
-	}, 30000)
-}
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')

@@ -1,24 +1,11 @@
-<script lang="ts" context="module">
-	import getDialogServiceOverride from 'vscode/service-override/dialogs'
-	import getNotificationServiceOverride from 'vscode/service-override/notifications'
-	import { StandaloneServices } from 'vscode/services'
-
-	try {
-		StandaloneServices?.initialize({
-			...getNotificationServiceOverride(document.body),
-			...getDialogServiceOverride()
-		})
-	} catch (e) {
-		console.error(e)
-	}
-</script>
-
 <script lang="ts">
-	import { browser } from '$app/environment'
-	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { BROWSER } from 'esm-env'
+
+	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+
+	import * as vscode from 'vscode'
 
 	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
@@ -32,16 +19,12 @@
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
+	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import * as vscode from 'vscode'
-	languages.typescript.typescriptDefaults.setModeConfiguration({
-		completionItems: false,
-		definitions: false,
-		hovers: false
-	})
+	import { MonacoBinding } from 'y-monaco'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -72,29 +55,57 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
+	import type { Text } from 'yjs'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql'
+	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	export let websocketAlive = {
+		pyright: false,
+		black: false,
+		ruff: false,
+		deno: false,
+		go: false,
+		shellcheck: false
+	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
-	export let path: string = randomHash()
+	export let path: string | undefined = undefined
+	export let yContent: Text | undefined = undefined
+	export let awareness: any | undefined = undefined
+	export let folding = false
 
-	if (path == '' || path == undefined || path.startsWith('/')) {
-		path = randomHash()
+	$: {
+		languages.typescript.typescriptDefaults.setModeConfiguration({
+			completionItems: !deno,
+			definitions: !deno,
+			hovers: !deno
+		})
 	}
 
-	let initialPath: string = path
+	const rHash = randomHash()
+	$: filePath = computePath(path)
 
-	$: path != initialPath && handlePathChange()
+	function computePath(path: string | undefined): string {
+		if (path == '' || path == undefined || path.startsWith('/')) {
+			return rHash
+		} else {
+			return path as string
+		}
+	}
 
-	let websockets: [MonacoLanguageClient, WebSocket][] = []
+	let initialPath: string | undefined = path
+
+	$: path != initialPath && lang == 'typescript' && handlePathChange()
+
+	let websockets: WebSocket[] = []
+	let languageClients: MonacoLanguageClient[] = []
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
@@ -102,11 +113,11 @@
 	const dispatch = createEventDispatcher()
 
 	const uri =
-		lang == 'go' ? `file:///tmp/monaco/${randomHash()}.go` : `file:///${path}.${langToExt(lang)}`
+		lang == 'typescript'
+			? `file:///${filePath}.${langToExt(lang)}`
+			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
-	// if (lang != 'typescript') {
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
-	// }
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -158,7 +169,9 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor?.getAction('editor.action.formatDocument')?.run()
+			if (lang != 'shell') {
+				editor?.getAction('editor.action.formatDocument')?.run()
+			}
 			if (formatAction) {
 				formatAction()
 			}
@@ -180,12 +193,40 @@
 	}
 
 	let command: Disposable | undefined = undefined
-	let monacoServices: Disposable | undefined = undefined
 
+	const outputChannel = {
+		name: 'Language Server Client',
+		appendLine: (msg: string) => {
+			console.log(msg)
+		},
+		append: (msg: string) => {
+			console.log(msg)
+		},
+		clear: () => {},
+		replace: () => {},
+		show: () => {},
+		hide: () => {},
+		dispose: () => {}
+	}
 	export async function reloadWebsocket() {
+		console.log('reloadWebsocket')
 		await closeWebsockets()
-
-		monacoServices = MonacoServices.install()
+		try {
+			await initServices({
+				enableThemeService: false,
+				enableModelEditorService: true,
+				enableNotificationService: false,
+				modelEditorServiceConfig: {
+					useDefaultFunction: true
+				},
+				debugLogging: false
+			})
+		} catch (e) {
+			console.log('initServices failed', e.message)
+			if (e.message != 'Lifecycle cannot go backwards') {
+				return
+			}
+		}
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -196,6 +237,7 @@
 			const client = new MonacoLanguageClient({
 				name: name,
 				clientOptions: {
+					outputChannel,
 					documentSelector: [lang],
 					errorHandler: {
 						error: () => ({ action: ErrorAction.Continue }),
@@ -206,7 +248,14 @@
 					markdown: {
 						isTrusted: true
 					},
-
+					workspaceFolder:
+						name != 'deno'
+							? {
+									uri: vscode.Uri.parse(uri),
+									name: 'windmill',
+									index: 0
+							  }
+							: undefined,
 					initializationOptions,
 					middleware: {
 						workspace: {
@@ -235,7 +284,7 @@
 		) {
 			try {
 				const webSocket = new WebSocket(url)
-
+				websockets.push(webSocket)
 				webSocket.onopen = async () => {
 					const socket = toSocket(webSocket)
 					const reader = new WebSocketMessageReader(socket)
@@ -249,7 +298,7 @@
 					// if (middlewareOptions != undefined) {
 					// 	languageClient.registerNotUsedFeatures()
 					// }
-					websockets.push([languageClient, webSocket])
+					languageClients.push(languageClient)
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
 					// the only way I could figure out to listen for this event is this. I'm sure there is a better way to do this
@@ -314,30 +363,24 @@
 			}
 		}
 
-		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
+		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
-		if (lang == 'typescript') {
-			if (path && path.split('/').length > 2) {
+		if (lang == 'typescript' && deno) {
+			if (filePath && filePath.split('/').length > 2) {
 				let expiration = new Date()
 				expiration.setHours(expiration.getHours() + 2)
 				const token = await UserService.createToken({
 					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
 				})
-				let root =
-					$page.url.protocol +
-					'//' +
-					$page.url.host +
-					'/api/scripts_u/tokened_raw/' +
-					$workspaceStore +
-					'/' +
-					token
+				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
 				const importMap = {
 					imports: {
 						'file:///': root + '/'
 					}
 				}
-				let path_splitted = path.split('/')
+				let path_splitted = filePath.split('/')
 				for (let c = 0; c < path_splitted.length; c++) {
 					let key = 'file://./'
 					for (let i = 0; i < c; i++) {
@@ -350,7 +393,7 @@
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			}
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/deno`,
+				`${wsProtocol}://${window.location.host}/ws/deno`,
 				'deno',
 				{
 					certificateStores: null,
@@ -392,7 +435,7 @@
 			)
 		} else if (lang === 'python') {
 			await connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/pyright`,
+				`${wsProtocol}://${window.location.host}/ws/pyright`,
 				'pyright',
 				{},
 				(params, token, next) => {
@@ -423,7 +466,13 @@
 			)
 
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/black`,
+				`${wsProtocol}://${window.location.host}/ws/ruff`,
+				'ruff',
+				{},
+				undefined
+			)
+			connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
 				'black',
 				{
 					formatters: {
@@ -440,13 +489,51 @@
 			)
 		} else if (lang === 'go') {
 			connectToLanguageServer(
-				`${wsProtocol}://${$page.url.host}/ws/go`,
+				`${wsProtocol}://${window.location.host}/ws/go`,
 				'go',
 				{
 					'build.allowImplicitNetworkAccess': true
 				},
 				undefined
 			)
+		} else if (lang === 'shell') {
+			connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+				'shellcheck',
+				{
+					linters: {
+						shellcheck: {
+							command: 'shellcheck',
+							debounce: 100,
+							args: ['--format=gcc', '-'],
+							offsetLine: 0,
+							offsetColumn: 0,
+							sourceName: 'shellcheck',
+							formatLines: 1,
+							formatPattern: [
+								'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
+								{
+									line: 1,
+									column: 2,
+									message: 4,
+									security: 3
+								}
+							],
+							securities: {
+								error: 'error',
+								warning: 'warning',
+								note: 'info'
+							}
+						}
+					},
+					filetypes: {
+						shell: 'shellcheck'
+					}
+				},
+				undefined
+			)
+		} else {
+			closeWebsockets()
 		}
 
 		websocketInterval && clearInterval(websocketInterval)
@@ -479,34 +566,50 @@
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined
 	function handlePathChange() {
+		console.log('path changed, reloading language server', initialPath, path)
 		initialPath = path
 		pathTimeout && clearTimeout(pathTimeout)
-		pathTimeout = setTimeout(reloadWebsocket, 3000)
+		pathTimeout = setTimeout(reloadWebsocket, 1000)
 	}
 
 	async function closeWebsockets() {
 		command && command.dispose()
 		command = undefined
-		monacoServices && monacoServices.dispose()
-		monacoServices = undefined
-		for (const x of websockets) {
+
+		console.debug(`disposing ${websockets.length} language clients and closing websockets`)
+		for (const x of languageClients) {
 			try {
-				await x[0].stop()
-				x[1].close()
+				await x.dispose()
 			} catch (err) {
-				try {
-					x[1].close()
-				} catch (err) {}
-				console.log('error disposing websocket', err)
+				console.debug('error disposing language client', err)
 			}
 		}
+		languageClients = []
+
+		for (const x of websockets) {
+			try {
+				await x.close()
+			} catch (err) {
+				console.debug('error closing websocket', err)
+			}
+		}
+
+		console.debug('done closing websockets')
 		websockets = []
 		websocketInterval && clearInterval(websocketInterval)
 	}
 
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+	let model: meditor.ITextModel
+
+	let monacoBinding: MonacoBinding | undefined = undefined
+	// @ts-ignore
+	$: if (yContent && awareness && model && editor) {
+		monacoBinding && monacoBinding.destroy()
+		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
+	}
+
 	async function loadMonaco() {
-		let model: meditor.ITextModel
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -522,7 +625,8 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
-			tabSize: lang == 'python' ? 4 : 2
+			tabSize: lang == 'python' ? 4 : 2,
+			folding
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
@@ -531,8 +635,11 @@
 
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', code)
+				let ncode = getCode()
+				if (ncode != '') {
+					code = ncode
+					dispatch('change', code)
+				}
 			}, 500)
 		})
 
@@ -553,9 +660,12 @@
 				!websocketAlive.black &&
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
+				!websocketAlive.ruff &&
+				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
+				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
 			}
 		})
@@ -563,10 +673,12 @@
 		reloadWebsocket()
 
 		return () => {
+			console.log('disposing editor')
 			try {
 				closeWebsockets()
 				model?.dispose()
 				editor && editor.dispose()
+				console.log('disposed editor')
 			} catch (err) {
 				console.log('error disposing editor', err)
 			}
@@ -592,7 +704,7 @@
 	}
 
 	onMount(() => {
-		if (browser) {
+		if (BROWSER) {
 			loadMonaco().then((x) => (disposeMethod = x))
 		}
 	})
@@ -605,8 +717,27 @@
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 
-<style lang="postcss">
+<style global lang="postcss">
 	.editor {
-		@apply p-0 border rounded-md border-gray-50;
+		@apply p-0;
+	}
+	.yRemoteSelection {
+		background-color: rgb(250, 129, 0, 0.5);
+	}
+	.yRemoteSelectionHead {
+		position: absolute;
+		border-left: orange solid 2px;
+		border-top: orange solid 2px;
+		border-bottom: orange solid 2px;
+		height: 100%;
+		box-sizing: border-box;
+	}
+	.yRemoteSelectionHead::after {
+		position: absolute;
+		content: ' ';
+		border: 3px solid orange;
+		border-radius: 4px;
+		left: -4px;
+		top: -5px;
 	}
 </style>

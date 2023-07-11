@@ -2,14 +2,15 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import InputValue from '../helpers/InputValue.svelte'
 	import Portal from 'svelte-portal'
 	import { concatCustomCss } from '../../utils'
-	import { Button, ButtonType, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -19,33 +20,41 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	//used so that we can count number of outputs setup for first refresh
+	const resolvedConfig = initConfig(
+		components['drawercomponent'].initialData.configuration,
+		configuration
+	)
 	initOutput($worldStore, id, {})
 
-	let gridContent: string[] | undefined = undefined
-	let drawerTitle: string | undefined = undefined
 	let appDrawer: Drawer
 
-	let labelValue: string
-	let color: ButtonType.Color
-	let size: ButtonType.Size
-	let disabled: boolean | undefined = undefined
-	let fillContainer: boolean | undefined = undefined
-
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	$: css = concatCustomCss($app.css?.drawercomponent, customCss)
 </script>
+
+{#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
+
+<InitializeComponent {id} />
 
 <div class="h-full w-full">
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
-			btnClasses={twMerge(
-				$app.css?.['buttoncomponent']?.['button']?.class,
-				fillContainer ? 'w-full h-full' : ''
+			btnClasses={css?.button?.class}
+			wrapperClasses={twMerge(
+				css?.container?.class,
+				resolvedConfig?.fillContainer ? 'w-full h-full' : ''
 			)}
-			{disabled}
+			wrapperStyle={css?.container?.style}
+			disabled={resolvedConfig?.disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 			}}
@@ -56,27 +65,27 @@
 				}
 				appDrawer.toggleDrawer()
 			}}
-			{size}
-			{color}
+			size={resolvedConfig.size}
+			color={resolvedConfig.color}
+			style={css?.button?.style}
 		>
-			<div>{labelValue}</div>
+			{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+				<div>{resolvedConfig.label}</div>
+			{/if}
 		</Button>
 	</AlignWrapper>
 </div>
 
-<InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-<InputValue {id} input={configuration.drawerTitle} bind:value={drawerTitle} />
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
-
-<InitializeComponent {id} />
-
 <Portal target="#app-editor-top-level-drawer">
-	<Drawer let:open bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
+	<Drawer
+		let:open
+		bind:this={appDrawer}
+		size="800px"
+		alwaysOpen
+		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+	>
 		<DrawerContent
-			title={drawerTitle}
+			title={resolvedConfig.drawerTitle}
 			on:close={() => {
 				appDrawer?.toggleDrawer()
 				$focusedGrid = undefined
@@ -99,8 +108,6 @@
 					<SubGridEditor
 						visible={open && render}
 						{id}
-						class={css?.container?.class}
-						style={css?.container?.style}
 						subGridId={`${id}-0`}
 						containerHeight={1200}
 						on:focus={() => {

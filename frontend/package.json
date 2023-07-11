@@ -1,6 +1,6 @@
 {
-	"name": "windmill",
-	"version": "1.99.0",
+	"name": "windmill-components",
+	"version": "1.127.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -16,54 +16,56 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.33.0",
+		"@floating-ui/core": "^1.3.1",
+		"@playwright/test": "^1.34.3",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
-		"@sveltejs/kit": "^1.16.2",
+		"@sveltejs/kit": "^1.20.1",
 		"@sveltejs/package": "^2.0.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
-		"@types/d3-zoom": "^3.0.2",
-		"@types/lodash": "^4.14.194",
-		"@types/node": "^18.16.3",
-		"@types/vscode": "~1.77.0",
-		"@typescript-eslint/eslint-plugin": "^5.59.5",
-		"@typescript-eslint/parser": "^5.59.1",
-		"@zerodevx/svelte-toast": "^0.9.3",
+		"@types/d3-zoom": "^3.0.3",
+		"@types/lodash": "^4.14.195",
+		"@types/node": "^20.3.3",
+		"@types/vscode": "~1.78.1",
+		"@typescript-eslint/eslint-plugin": "^5.59.8",
+		"@typescript-eslint/parser": "^5.60.0",
+		"@zerodevx/svelte-toast": "^0.9.5",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
 		"d3-dag": "^0.11.5",
-		"eslint": "^8.40.0",
+		"eslint": "^8.44.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"monaco-editor-workers": "0.37.0",
-		"ol": "^7.2.2",
-		"openapi-typescript-codegen": "^0.23.0",
+		"monaco-editor-workers": "~0.39.1",
+		"ol": "^7.4.0",
+		"openapi-typescript-codegen": "^0.24.0",
 		"path-browserify": "^1.0.1",
-		"pdfjs-dist": "^3.5.141",
-		"postcss": "^8.4.23",
+		"pdfjs-dist": "^3.8.162",
+		"postcss": "^8.4.24",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.8",
-		"prettier-plugin-svelte": "^2.9.0",
+		"prettier-plugin-svelte": "^2.10.1",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^12.0.0",
-		"svelte": "^3.55.1",
+		"svelte": "^3.59.2",
 		"svelte-awesome": "^3.2.0",
-		"svelte-awesome-color-picker": "^2.4.1",
-		"svelte-check": "^3.2.0",
-		"svelte-highlight": "^7.2.1",
-		"svelte-multiselect": "^8.6.0",
+		"svelte-awesome-color-picker": "^2.4.5",
+		"svelte-check": "^3.4.3",
+		"svelte-floating-ui": "^1.5.3",
+		"svelte-highlight": "^7.3.0",
+		"svelte-multiselect": "^8.6.2",
 		"svelte-overlay": "^1.4.1",
 		"svelte-popperjs": "^1.3.2",
 		"svelte-preprocess": "^5.0.1",
 		"svelte-range-slider-pips": "^2.1.1",
-		"svelte-splitpanes": "^0.7.3",
-		"svelte2tsx": "^0.6.14",
+		"svelte-splitpanes": "^0.7.14",
+		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.3.2",
-		"tslib": "^2.4.1",
-		"typescript": "^5.0.4",
+		"tslib": "^2.6.0",
+		"typescript": "^5.1.3",
 		"vite": "^4.3.3",
 		"yootils": "^0.3.1"
 	},
@@ -72,35 +74,40 @@
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
-		"@leeoniya/ufuzzy": "^1.0.6",
+		"@leeoniya/ufuzzy": "^1.0.7",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.9.1",
+		"@tanstack/svelte-table": "^8.9.2",
 		"ag-grid-svelte": "^0.1.4",
-		"chart.js": "^3.9.1",
+		"ansi_up": "^5.2.1",
+		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
 		"d3-zoom": "^3.0.0",
-		"date-fns": "^2.29.3",
+		"date-fns": "^2.30.0",
+		"diff": "^5.1.0",
+		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.214.0",
-		"monaco-editor": "0.36.1",
-		"monaco-languageclient": "5.0.1",
+		"lucide-svelte": "^0.246.0",
+		"monaco-languageclient": "~6.0.3",
+		"quill": "^1.3.7",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-dnd-action": "^0.9.22",
 		"svelte-portal": "^2.2.0",
-		"svelte-select": "^5.6.0",
 		"svelte-timezone-picker": "^2.0.3",
-		"tailwind-merge": "^1.12.0",
-		"vscode-languageclient": "^8.1.0",
-		"vscode-ws-jsonrpc": "3.0.0"
+		"tailwind-merge": "^1.13.2",
+		"vscode-ws-jsonrpc": "3.0.0",
+		"windmill-parser-wasm": "^1.123.2",
+		"y-monaco": "^0.1.4",
+		"y-websocket": "^1.5.0",
+		"yjs": "^13.6.4"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.16.2",
-		"svelte": "^3.55.1"
+		"@sveltejs/kit": "^1.20.1",
+		"svelte": "^3.59.2"
 	},
 	"exports": {
 		"./package.json": "./package.json",
@@ -109,6 +116,21 @@
 			"svelte": "./dist/index.js"
 		},
 		"./assets/app.css": "./package/assets/app.css",
+		"./components/TestJobLoader.svelte": {
+			"types": "./package/components/TestJobLoader.svelte.d.ts",
+			"svelte": "./package/components/TestJobLoader.svelte",
+			"default": "./package/components/TestJobLoader.svelte"
+		},
+		"./components/common/kbd/Kbd.svelte": {
+			"types": "./package/components/common/kbd/Kbd.svelte.d.ts",
+			"svelte": "./package/components/common/kbd/Kbd.svelte",
+			"default": "./package/components/common/kbd/Kbd.svelte"
+		},
+		"./components/icons/WindmillIcon.svelte": {
+			"types": "./package/components/icons/WindmillIcon.d.ts",
+			"svelte": "./package/components/icons/WindmillIcon.svelte",
+			"default": "./package/components/icons/WindmillIcon.svelte"
+		},
 		"./components/IconedResourceType.svelte": {
 			"types": "./package/components/IconedResourceType.svelte.d.ts",
 			"svelte": "./package/components/IconedResourceType.svelte",
@@ -159,19 +181,55 @@
 			"svelte": "./package/components/FlowViewer.svelte",
 			"default": "./package/components/FlowViewer.svelte"
 		},
+		"./components/FlowBuilder.svelte": {
+			"types": "./package/components/FlowBuilder.svelte.d.ts",
+			"svelte": "./package/components/FlowBuilder.svelte",
+			"default": "./package/components/FlowBuilder.svelte"
+		},
+		"./components/FlowEditor.svelte": {
+			"types": "./package/components/flows/FlowEditor.svelte.d.ts",
+			"svelte": "./package/components/flows/FlowEditor.svelte",
+			"default": "./package/components/flows/FlowEditor.svelte"
+		},
 		"./components/SchemaViewer.svelte": {
 			"types": "./package/components/SchemaViewer.svelte.d.ts",
 			"svelte": "./package/components/SchemaViewer.svelte",
 			"default": "./package/components/SchemaViewer.svelte"
+		},
+		"./components/SchemaForm.svelte": {
+			"types": "./package/components/SchemaForm.svelte.d.ts",
+			"svelte": "./package/components/SchemaForm.svelte",
+			"default": "./package/components/SchemaForm.svelte"
 		},
 		"./components/SchemaEditor.svelte": {
 			"types": "./package/components/SchemaEditor.svelte.d.ts",
 			"svelte": "./package/components/SchemaEditor.svelte",
 			"default": "./package/components/SchemaEditor.svelte"
 		},
+		"./components/scriptEditor/LogPanel.svelte": {
+			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
+			"svelte": "./package/components/scriptEditor/LogPanel.svelte",
+			"default": "./package/components/scriptEditor/LogPanel.svelte"
+		},
 		"./common": {
 			"types": "./package/common.d.ts",
 			"default": "./package/common.js"
+		},
+		"./utils": {
+			"types": "./package/utils.d.ts",
+			"default": "./package/utils.js"
+		},
+		"./infer": {
+			"types": "./package/infer.d.ts",
+			"default": "./package/infer.js"
+		},
+		"./stores": {
+			"types": "./package/stores.d.ts",
+			"default": "./package/stores.js"
+		},
+		"./components/flows/flowStore": {
+			"types": "./package/components/flows/flowStore.d.ts",
+			"default": "./package/components/flows/flowStore.js"
 		},
 		"./components/icons": {
 			"types": "./package/components/icons/index.d.ts",
@@ -189,18 +247,37 @@
 		"./components/apps/editor/inlineScriptsPanel/utils": {
 			"types": "./package/components/apps/editor/inlineScriptsPanel/utils.d.ts",
 			"default": "./package/components/apps/editor/inlineScriptsPanel/utils.js"
+		},
+		"./gen/core/OpenAPI": {
+			"types": "./package/gen/core/OpenAPI.d.ts",
+			"default": "./package/gen/core/OpenAPI.js"
 		}
 	},
 	"files": [
 		"dist",
 		"package"
 	],
-	"license": "Apache-2.0",
+	"license": "AGPL-3.0",
 	"svelte": "./dist/index.js",
 	"typesVersions": {
 		">4.0": {
 			"components/IconedResourceType.svelte": [
 				"./package/components/IconedResourceType.svelte.d.ts"
+			],
+			"components/TestJobLoader.svelte": [
+				"./package/components/TestJobLoader.svelte.d.ts"
+			],
+			"components/SchemaForm.svelte": [
+				"./package/components/SchemaForm.svelte.d.ts"
+			],
+			"components/icons/WindmillIcon.svelte": [
+				"./package/components/icons/WindmillIcon.svelte.d.ts"
+			],
+			"components/scriptEditor/LogPanel.svelte": [
+				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
+			],
+			"components/common/kbd/Kbd.svelte": [
+				"./package/components/common/kbd/Kbd.svelte.d.ts"
 			],
 			"components/common/drawer/Drawer.svelte": [
 				"./package/components/common/drawer/Drawer.svelte.d.ts"
@@ -229,14 +306,32 @@
 			"components/FlowViewer.svelte": [
 				"./package/components/FlowViewer.svelte.d.ts"
 			],
+			"components/FlowBuilder.svelte": [
+				"./package/components/FlowBuilder.svelte.d.ts"
+			],
+			"components/FlowEditor.svelte": [
+				"./package/components/flows/FlowEditor.svelte.d.ts"
+			],
 			"components/SchemaViewer.svelte": [
 				"./package/components/SchemaViewer.svelte.d.ts"
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
 			],
+			"utils": [
+				"./package/utils.d.ts"
+			],
+			"infer": [
+				"./package/infer.d.ts"
+			],
 			"common": [
 				"./package/common.d.ts"
+			],
+			"stores": [
+				"./package/stores.d.ts"
+			],
+			"components/flows/flowStore": [
+				"./package/components/flows/flowStore.d.ts"
 			],
 			"components/icons": [
 				"./package/components/icons/index.d.ts"
@@ -249,6 +344,9 @@
 			],
 			"components/apps/editor/inlineScriptsPanel/utils": [
 				"./package/components/apps/editor/inlineScriptsPanel/utils.d.ts"
+			],
+			"gen/core/OpenAPI": [
+				"./package/gen/core/OpenAPI.d.ts"
 			]
 		}
 	}

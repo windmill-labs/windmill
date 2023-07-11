@@ -2,6 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -16,12 +17,14 @@
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, isOwner, sendUserToast, truncate } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import {
 		faChain,
 		faCircle,
 		faEdit,
 		faEyeSlash,
+		faFileExport,
 		faPlus,
 		faRefresh,
 		faShare,
@@ -93,7 +96,11 @@
 		}
 	}
 	let tab: 'workspace' | 'contextual' = 'workspace'
+
+	let deploymentDrawer: DeployWorkspaceDrawer
 </script>
+
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
 <SearchItems
 	{filter}
@@ -106,7 +113,7 @@
 	<PageHeader
 		title="Variables"
 		tooltip="Save and permission strings to be reused in Scripts and Flows."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	>
 		<div class="flex flex-row justify-end">
 			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
@@ -304,6 +311,13 @@
 														}
 													},
 													disabled: !owner
+												},
+												{
+													displayName: 'Deploy to prod/staging',
+													icon: faFileExport,
+													action: () => {
+														deploymentDrawer.openDrawer(path, 'variable')
+													}
 												},
 												{
 													displayName: owner ? 'Share' : 'See Permissions',

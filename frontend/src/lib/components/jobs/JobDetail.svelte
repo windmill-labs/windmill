@@ -122,7 +122,7 @@
 					</div>
 
 					<div class="flex flex-row space-x-2">
-						<JobPreview {job}>
+						<JobPreview id={job.id}>
 							<div class="whitespace-nowrap">
 								{#if job.script_path}
 									<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
 	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQuery, setQueryWithoutLoad } from '$lib/utils'
+	import { setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -21,6 +21,8 @@
 	import Slider from '$lib/components/Slider.svelte'
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
+	import { setQuery } from '$lib/navigation'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -39,6 +41,7 @@
 	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
+	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
 	let nbOfJobs = 30
 
@@ -50,7 +53,7 @@
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
 		if (jobKindsCat == 'all') {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB},${CompletedJob.job_kind.HTTP}`
 		} else if (jobKindsCat == 'dependencies') {
 			return CompletedJob.job_kind.DEPENDENCIES
 		} else if (jobKindsCat == 'previews') {
@@ -80,6 +83,7 @@
 			workspace: $workspaceStore!,
 			startedBefore,
 			startedAfter,
+			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,
@@ -198,7 +202,7 @@
 		title="Runs {path ? `of ${path}` : ''}"
 		tooltip="All past and schedule executions of scripts and flows, including previews.
 	You only see your own runs or runs of groups you belong to unless you are an admin."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
 	/>
 
 	<div class="max-w-7x mt-2">
@@ -219,6 +223,7 @@
 				<option value={true}>If a flow job, show only if it was not skipped</option>
 				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
 			</select>
+			<Tooltip>Skipped flows are flows that did an early break</Tooltip>
 		</div>
 		<div>
 			<div class="my-2 pb-2">

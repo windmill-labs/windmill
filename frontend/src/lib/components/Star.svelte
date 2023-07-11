@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FavoriteService } from '$lib/gen'
 	import { starStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
 	import { Star, StarOff } from 'lucide-svelte'
 
@@ -47,6 +47,10 @@
 			<Star size={18} fill="currentcolor" />
 		{/if}
 	{:else}
-		<Star size={18} fill={buttonHover ? 'currentcolor' : 'none'} />
+		<Star
+			class={!buttonHover ? 'opacity-60' : ''}
+			size={18}
+			fill={buttonHover ? 'currentcolor' : 'none'}
+		/>
 	{/if}
 </button>

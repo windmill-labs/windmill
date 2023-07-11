@@ -61,6 +61,9 @@ export function langToExt(lang: string): string {
 			return 'sh'
 		case 'deno':
 			return 'ts'
+		case 'nativets':
+			return 'ts'
+
 		default:
 			return 'unknown'
 	}

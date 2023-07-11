@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { isCloudHosted } from '$lib/cloud'
 	import AddUser from '$lib/components/AddUser.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -23,8 +25,15 @@
 		WorkspaceService,
 		type WorkspaceInvite
 	} from '$lib/gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { capitalize, isCloudHosted, sendUserToast } from '$lib/utils'
+	import {
+		enterpriseLicense,
+		superadmin,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { capitalize, setQueryWithoutLoad } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 
@@ -32,8 +41,8 @@
 	let invites: WorkspaceInvite[] = []
 	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
-	let scriptPath: string
 	let initialPath: string
+	let scriptPath: string
 	let team_name: string | undefined
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
@@ -43,13 +52,19 @@
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
+	let workspaceToDeployTo: string | undefined = undefined
+	let errorHandlerInitialPath: string
+	let errorHandlerScriptPath: string
+	let errorHandlerItemKind: 'script' = 'script'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
 			| 'premium'
 			| 'export_delete'
-			| 'webhook') ?? 'users'
+			| 'webhook'
+			| 'deploy_to'
+			| 'error_handler') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -77,11 +92,20 @@
 	// }
 
 	async function editSlackCommand(): Promise<void> {
-		await WorkspaceService.editSlackCommand({
-			workspace: $workspaceStore!,
-			requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
-		})
-		sendUserToast(`slack command script set to ${scriptPath}`)
+		initialPath = scriptPath
+		if (scriptPath) {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
+			})
+			sendUserToast(`slack command script set to ${scriptPath}`)
+		} else {
+			await WorkspaceService.editSlackCommand({
+				workspace: $workspaceStore!,
+				requestBody: { slack_command_script: undefined }
+			})
+			sendUserToast(`slack command script removed`)
+		}
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -106,11 +130,17 @@
 		team_name = settings.slack_name
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
+		if (settings.slack_command_script) {
+			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
+		}
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		initialPath = scriptPath
+		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
 	async function listUsers(): Promise<void> {
@@ -161,32 +191,41 @@
 		)
 	}
 
+	async function editErrorHandler() {
+		errorHandlerInitialPath = errorHandlerScriptPath
+		if (errorHandlerScriptPath) {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}` }
+			})
+			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+		} else {
+			await WorkspaceService.editErrorHandler({
+				workspace: $workspaceStore!,
+				requestBody: { error_handler: undefined }
+			})
+			sendUserToast(`workspace error handler removed`)
+		}
+	}
+
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
 			'<b>1 000</b> free global executions per-user per month'
 		],
 		Team: [
-			`<b>$10/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $8/mo</b> per extra user/author in the workspace (1 included)`,
-			`<b>+ $4/mo</b> per extra operators in the workspace.`,
-			`<b>$0.001</b> per additional computation (10k included)`,
-			`Google/Github/Microsoft/Gitlab <b>SSO</b>`,
-			`<b>Unlimited</b> variables/resources/scripts/apps/flows`,
-			`<b>Support 24/7 with 48h response time</b>`
+			`<b>$10/mo</b> per seat`,
+			`Every seat includes <b>10 000</b> executions`,
+			`Every seat includes either 1 user OR 2 operators`
 		],
 		Enterprise: [
-			`<b>$200/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $32/mo</b> per extra user/author in the workspace (1 included)`,
-			`<b>+ $16/mo</b> per extra operators in the workspace.`,
-			`<b>$0.004</b> per additional computation (10k included)`,
-			`<b>Dedicated</b> and isolated database and workers available for <b>+400$/mo</b> (EU/US)`,
-			`<b>Dedicated</b> entire cluster available for <b>+4000$/mo</b> (EU/US)`,
-			`<b>SAML</b> support`,
+			`<b>Dedicated</b> and isolated database and workers available (EU/US/Asia)`,
+			`<b>Dedicated</b> entire cluster available for (EU/US/Asia)`,
+			`<b>SAML</b> support with group syncing`,
 			`<b>SLA</b>`,
 			`<b>Priority Support 24/7 with 3h response time and automation engineer assistance</b>`,
 			`<b>Design partners for Roadmap</b>`,
-			`<div class="mt-4">(Self-hosted enterprise licenses also available at 50% discount)</div>`
+			`<div class="mt-4">Self-hosted licenses also available</div>`
 		]
 	}
 </script>
@@ -203,14 +242,22 @@
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<div class="overflow-x-auto scrollbar-hidden">
-			<Tabs bind:selected={tab}>
+			<Tabs
+				bind:selected={tab}
+				on:selected={() => {
+					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
+				}}
+			>
 				<Tab size="md" value="users">
-					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
+					<div class="flex gap-2 items-center my-1"> Users</div>
+				</Tab>
+				<Tab size="md" value="deploy_to">
+					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-				<Tab size="md" value="slack">
-					<div class="flex gap-2 items-center my-1"> Slack Command </div>
-				</Tab>
+					<Tab size="md" value="slack">
+						<div class="flex gap-2 items-center my-1"> Slack Command </div>
+					</Tab>
 				{/if}
 				{#if isCloudHosted()}
 					<Tab size="md" value="premium">
@@ -218,13 +265,16 @@
 					</Tab>
 				{/if}
 				<Tab size="md" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-				<Tab size="md" value="webhook">
-					<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
-				</Tab>
+					<Tab size="md" value="webhook">
+						<div class="flex gap-2 items-center my-1">Webhook</div>
+					</Tab>
 				{/if}
+				<Tab size="md" value="error_handler">
+					<div class="flex gap-2 items-center my-1">Error Handler</div>
+				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
@@ -454,6 +504,22 @@
 			{#if !allowedAutoDomain}
 				<div class="text-red-400 text-sm mb-2">{domain} domain not allowed for auto-invite</div>
 			{/if}
+		{:else if tab == 'deploy_to'}
+			<div class="my-2"
+				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
+					>Linking this workspace to another staging/prod workspace unlock the Web-based flow to
+					deploy to another workspace.</Alert
+				></div
+			>
+			{#if $enterpriseLicense}
+				<DeployToSetting bind:workspaceToDeployTo />
+			{:else}
+				<div class="my-2"
+					><Alert type="error" title="Enterprise license required"
+						>Deploy to staging/prod from the web UI is only available with an enterprise license</Alert
+					></div
+				>
+			{/if}
 		{:else if tab == 'premium'}
 			{#if isCloudHosted()}
 				<div class="mt-4" />
@@ -483,29 +549,33 @@
 							{/if}
 
 							{#if plan}
-								{@const team_factor = plan == 'team' ? 8 : 32}
-								{@const user_nb = Math.max(0, (users?.filter((x) => !x.operator).length ?? 0) - 1)}
+								{@const team_factor = plan == 'team' ? 10 : 40}
+								{@const user_nb = users?.filter((x) => !x.operator)?.length ?? 0}
+								{@const operator_nb = users?.filter((x) => x.operator)?.length ?? 0}
+								{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
+								{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
 
 								<div>
-									Extra seats:
-									<div class="inline text-2xl font-bold float-right"
-										>{user_nb} * ${team_factor}
-										= ${(users?.length ?? 0) * team_factor}/mo</div
-									>
+									Authors:
+									<div class="inline text-2xl font-bold float-right">{user_nb}</div>
 									<Tooltip
 										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
 										period, see the customer portal for more info.</Tooltip
 									>
 								</div>
 								<div>
-									Extra operators:
-									<div class="inline text-2xl font-bold float-right"
-										>{Math.max(0, (users?.filter((x) => x.operator).length ?? 0) - 1)} * ${team_factor /
-											2} = ${((users?.length ?? 0) * team_factor) / 2}/mo</div
-									>
+									Operators:
+									<div class="inline text-2xl font-bold float-right">{operator_nb}</div>
 									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.</Tooltip
+										>Actual pricing is calculated on the MAXIMUM number of operators in a given
+										billing period, see the customer portal for more info.</Tooltip
+									>
+								</div>
+
+								<div>
+									Seats from authors + operators:
+									<div class="inline text-2xl font-bold float-right mb-8"
+										>ceil({user_nb} + {operator_nb}/2) = {seats_from_users}</div
 									>
 								</div>
 								<div>
@@ -515,12 +585,19 @@
 									</div>
 								</div>
 								<div>
-									Extra computations (above the 10k included) this month:
-									<div class=" inline text-2xl font-bold float-right"
-										>{Math.max(0, (premium_info?.usage ?? 0) - 10000)} x {plan == 'team'
-											? '0.001'
-											: '0.004'} = ${Math.max(0, (premium_info?.usage ?? 0) - 10000) *
-											(plan == 'team' ? 0.001 : 0.004)}
+									Seats from computations:
+									<div class="inline text-2xl font-bold float-right mb-8"
+										>ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}</div
+									>
+								</div>
+
+								<div>
+									Total seats:
+									<div class=" inline text-2xl font-bold float-right">
+										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
+											seats_from_comps,
+											seats_from_users
+										) * team_factor}/mo
 									</div>
 								</div>
 							{/if}
@@ -528,17 +605,17 @@
 					{:else}
 						This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
 						doing executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited
-						execution in this workspace.
+						executions in this workspace.
 					{/if}
 				</div>
 
-				<div class="my-4">
-					<Slider text="What is a computation ?">
+				<div class="flex flex-col gap-1 mb-4">
+					<Slider text="What is an execution?">
 						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called a "computation". An computation corresponds to a
-							single job whose duration is less than 1s. For any additional seconds of computation,
-							an additional computation is accounted for. Jobs are executed on one powerful virtual
-							CPU with 2Gb of memory. Most jobs will take less than 200ms to execute.
+							The single credit-unit is called an "execution". An execution corresponds to a single
+							job whose duration is less than 1s. For any additional seconds of computation, an
+							additional execution is accounted for. Jobs are executed on one powerful virtual CPU
+							with 2Gb of memory. Most jobs will take less than 200ms to execute.
 						</Alert>
 					</Slider>
 
@@ -554,7 +631,7 @@
 					{#each Object.entries(plans) as [planTitle, planDesc]}
 						<div class="box p-4 text-sm flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
-							<ul class="list-disc p-4">
+							<ul class="list-disc text-lg p-4">
 								{#each planDesc as item}
 									<li class="mt-2">{@html item}</li>
 								{/each}
@@ -564,7 +641,7 @@
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
 									<div class="mt-4 mx-auto">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+										<Button size="lg" href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 											>Upgrade to the Team plan</Button
 										>
 									</div>
@@ -574,11 +651,8 @@
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
 									<div class="mt-4 mx-auto">
-										<Button
-											on:click={() =>
-												sendUserToast(
-													'Contact contact@windmill.dev to have your dedicated instance provisioned'
-												)}>Upgrade to the Enterprise plan</Button
+										<Button size="lg" href="https://www.windmill.dev/pricing" target="_blank"
+											>See more</Button
 										>
 									</div>
 								{:else}
@@ -637,9 +711,11 @@
 					</Button>
 				</div>
 			{:else}
-				<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
-					Connect to Slack
-				</Button>
+				<div class="flex">
+					<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
+						Connect to Slack
+					</Button>
+				</div>
 			{/if}
 			<h3 class="mt-5 text-gray-700"
 				>Script or flow to run on /windmill command <Tooltip>
@@ -735,6 +811,41 @@
 				<input class="justify-start" type="text" bind:value={webhook} />
 				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
 					>Set Webhook</Button
+				>
+			</div>
+		{:else if tab == 'error_handler'}
+			<PageHeader title="Script to run as error handler" primary={false} />
+			<ScriptPicker
+				kind={Script.kind.SCRIPT}
+				bind:itemKind={errorHandlerItemKind}
+				bind:scriptPath={errorHandlerScriptPath}
+				initialPath={errorHandlerInitialPath}
+				on:select={editErrorHandler}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="w-2/3">
+					<div class="text-gray-600 italic text-sm"
+						>The following args will be passed to the error handler:
+						<ul class="mt-1 ml-2">
+							<li><b>path</b>: The path of the script or flow that errored</li>
+							<li><b>email</b>: The email of the user who ran the script or flow that errored</li>
+							<li><b>error</b>: The error details</li>
+							<li><b>job_id</b>: The job id</li>
+							<li><b>is_flow</b>: Whether the error comes from a flow</li>
+							<li><b>workspace_id</b>: The workspace id of the failed script or flow</li>
+						</ul>
+						<br />
+						The error handler will be executed by the automatically created group g/error_handler. If
+						your error handler requires variables or resources, you need to add them to the group.
+					</div>
+				</div>
+				<div class="w-1/3 flex items-start">
+					<Button
+						wrapperClasses="mt-6"
+						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+						target="_blank">Use template</Button
+					></div
 				>
 			</div>
 		{/if}

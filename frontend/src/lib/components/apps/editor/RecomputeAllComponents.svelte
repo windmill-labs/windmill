@@ -1,10 +1,12 @@
 <script lang="ts">
-	import Dropdown from '$lib/components/Dropdown.svelte'
-	import { ChevronDown, RefreshCw } from 'lucide-svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppViewerContext } from '../types'
 	import { allItems } from '../utils'
+	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { classNames } from '$lib/utils'
 
 	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 	let loading: boolean = false
@@ -48,7 +50,7 @@
 		loading = true
 
 		const promises = Object.keys($runnableComponents)
-			.map((id) => {
+			.flatMap((id) => {
 				if (
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
@@ -56,7 +58,7 @@
 					return
 				}
 
-				return $runnableComponents?.[id]?.cb?.()
+				return $runnableComponents?.[id]?.cb?.map((f) => f())
 			})
 			.filter(Boolean)
 
@@ -84,7 +86,22 @@
 			if (timeout) clearInterval(timeout)
 		}
 	})
+
+	let items = [
+		{
+			displayName: 'Once',
+			action: () => setInter(undefined)
+		},
+		...[1, 2, 3, 4, 5, 6].map((i) => ({
+			displayName: `Every ${i * 5} seconds`,
+			action: () => setInter(i * 5000)
+		}))
+	]
 </script>
+
+<!-- {allItems($app.grid, $app.subgrids)
+	.map((x) => x.id)
+	.filter((x) => !$initialized.initializedComponents?.includes(x))} -->
 
 <div class="flex items-center">
 	<Button
@@ -100,22 +117,39 @@
 	>
 		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} /> &nbsp;({componentNumber})
 	</Button>
-	<Dropdown
-		btnClasses="!rounded-l-none !border-l-0 min-w-[4rem] !px-2"
-		color={timeout ? 'blue' : 'light'}
-		variant="border"
-		dropdownItems={[
-			{
-				displayName: 'Once',
-				action: () => setInter(undefined)
-			},
-			...[1, 2, 3, 4, 5, 6].map((i) => ({
-				displayName: `Every ${i * 5} seconds`,
-				action: () => setInter(i * 5000)
-			}))
-		]}
-	>
-		<span class="grow text center">{interval ? `${interval / 1000}s` : 'once'}</span>
-		<ChevronDown class="ml-0.5" size={14} />
-	</Dropdown>
+
+	<ButtonDropdown hasPadding={true}>
+		<svelte:fragment slot="label">
+			<span
+				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-gray-600')}
+			>
+				{interval ? `${interval / 1000}s` : 'once'}
+			</span>
+		</svelte:fragment>
+		<svelte:fragment slot="items">
+			{#each items ?? [] as { }, index}
+				<MenuItem
+					on:click={() => {
+						if (index === 0) {
+							setInter(undefined)
+						} else {
+							setInter(index * 5000)
+						}
+					}}
+				>
+					<div
+						class={classNames(
+							'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+						)}
+					>
+						{#if index === 0}
+							Once
+						{:else}
+							{`Every ${index * 5} seconds`}
+						{/if}
+					</div>
+				</MenuItem>
+			{/each}
+		</svelte:fragment>
+	</ButtonDropdown>
 </div>

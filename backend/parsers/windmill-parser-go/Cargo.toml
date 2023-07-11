@@ -10,9 +10,6 @@ path = "./src/lib.rs"
 
 [dependencies]
 windmill-parser.workspace = true
-windmill-common.workspace = true
-phf.workspace = true
-unicode-general-category.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
 gosyn.workspace = true

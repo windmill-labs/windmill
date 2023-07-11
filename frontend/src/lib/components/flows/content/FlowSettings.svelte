@@ -3,6 +3,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
+	import { BROWSER } from 'esm-env'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -13,7 +14,6 @@
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
 	import Slider from '$lib/components/Slider.svelte'
-	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
@@ -22,8 +22,9 @@
 
 	const { selectedId, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
-	$: syncedUrl = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
+	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
+	$: url = `${hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
+	$: syncedUrl = `${hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
 </script>
 
 <div class="h-full overflow-hidden">
@@ -70,7 +71,7 @@
 									<ul class="pt-4">
 										<li>
 											1. <a
-												href="https://docs.windmill.dev/docs/core_concepts/auto_generated_uis"
+												href="https://www.windmill.dev/docs/core_concepts/auto_generated_uis"
 												target="_blank">Auto-generated UIs</a
 											>
 										</li>
@@ -81,7 +82,7 @@
 											3. <a href="/schedules" target="_blank">Scheduling</a>
 										</li>
 										<li>
-											4. <a href="https://docs.windmill.dev/docs/advanced/cli" target="_blank"
+											4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
 												>Windmill CLI</a
 											>
 										</li>
@@ -93,7 +94,7 @@
 										</li>
 										<li class="mt-2">
 											5. Send a <a
-												href="https://docs.windmill.dev/docs/core_concepts/webhooks"
+												href="https://www.windmill.dev/docs/core_concepts/webhooks"
 												target="_blank">webhook</a
 											>
 											after each event:
@@ -107,7 +108,7 @@
 															e.preventDefault()
 															copyToClipboard(url)
 														}}
-														href={$page.url.protocol + '//' + url}
+														href={url}
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
@@ -123,7 +124,7 @@
 															e.preventDefault()
 															copyToClipboard(syncedUrl)
 														}}
-														href={$page.url.protocol + '//' + syncedUrl}
+														href={syncedUrl}
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{syncedUrl}
@@ -137,7 +138,7 @@
 										<br />
 										<li>
 											6. Use a <a
-												href="https://docs.windmill.dev/docs/flows/flow_trigger"
+												href="https://www.windmill.dev/docs/flows/flow_trigger"
 												target="_blank">trigger script</a
 											>
 											and schedule this flow to run as frequently as needed and compare a state persisted
@@ -160,7 +161,7 @@
 						<Alert
 							type="info"
 							title="Primary Schedule"
-							documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling"
+							documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 						>
 							Flows can be triggered by any schedules, their webhooks or their UI but they only have
 							only one primary schedules with which they share the same path. The primary schedule

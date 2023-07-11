@@ -9,6 +9,7 @@
 	import type { TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { PropertyGroup } from './quickStyleProperties'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -16,6 +17,8 @@
 	export let forceClass: boolean = false
 	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
 	export let componentType: TypedComponent['type'] | undefined = undefined
+	export let tooltip: string | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
@@ -33,6 +36,9 @@
 </div>
 {#if value}
 	<div class="px-3">
+		{#if tooltip}
+			<div class="text-gray-600 text-2xs py-2">{tooltip}</div>
+		{/if}
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -85,7 +91,11 @@
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
-				<div class="text-sm font-medium text-gray-600 pb-0.5"> Tailwind classes </div>
+				<div class="text-sm font-medium text-gray-600 pb-0.5">
+					Tailwind classes<Tooltip documentationLink="https://tailwindcss.com/"
+						>Use any tailwind classes to style your component</Tooltip
+					></div
+				>
 				<div class="relative">
 					<ClearableInput bind:value={value.class} />
 				</div>

@@ -4,15 +4,17 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { decodeState, sendUserToast } from '$lib/utils'
+	import { decodeState } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
+	const templateId = $page.url.searchParams.get('template_id')
 
 	const importJson = $importStore
 	if ($importStore) {
@@ -62,6 +64,14 @@
 			value = template.value
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
+		} else if (templateId) {
+			const template = await AppService.getAppByVersion({
+				workspace: $workspaceStore!,
+				id: parseInt(templateId)
+			})
+			value = template.value
+			sendUserToast('App loaded from template')
+			goto('?', { replaceState: true })
 		} else if (hubId) {
 			const hub = await AppService.getHubAppById({ id: Number(hubId) })
 			value = {
@@ -74,7 +84,7 @@
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('App restored from draft', false, [
+			sendUserToast('App restored from browser stored autosave', false, [
 				{
 					label: 'Start from blank',
 					callback: () => {
@@ -98,7 +108,7 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
+			<AppEditor versions={[]} {summary} app={value} path={''} {policy} fromHub={hubId != null} />
 		{/key}
 	</div>
 {/if}

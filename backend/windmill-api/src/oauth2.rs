@@ -75,6 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/connect_slack_callback", post(connect_slack_callback))
 }
 
+#[derive(Debug)]
 pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
@@ -105,6 +106,8 @@ pub struct OAuthClient {
     connect_config: Option<OAuthConfig>,
     login_config: Option<OAuthConfig>,
 }
+
+#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
@@ -130,9 +133,14 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     } else if std::path::Path::new(path).exists() {
         fs::read_to_string(path).map_err(to_anyhow)?
     } else {
-        "{}".to_string()
+        tracing::warn!("oauth.json not found, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
     };
 
+    if content.is_empty() {
+        tracing::warn!("oauth.json is empty, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
+    };
     let oauths: HashMap<String, OAuthClient> =
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,
@@ -415,7 +423,12 @@ async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
     let mut client = OAUTH_CLIENTS
         .slack
         .as_ref()
-        .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
+        .ok_or_else(|| {
+            error::Error::BadRequest(
+                "slack client not setup. See: https://www.windmill.dev/docs/misc/setup_oauth#slack"
+                    .to_string(),
+            )
+        })?
         .to_owned();
     let state = State::new_random();
 
@@ -616,7 +629,12 @@ async fn connect_slack_callback(
     let client = OAUTH_CLIENTS
         .slack
         .as_ref()
-        .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
+        .ok_or_else(|| {
+            error::Error::BadRequest(
+                "slack client not setup. See: https://www.windmill.dev/docs/misc/setup_oauth#slack"
+                    .to_string(),
+            )
+        })?
         .to_owned();
     let token =
         exchange_code::<SlackTokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await?;
@@ -792,6 +810,7 @@ async fn slack_command(
                 &form.user_name,
                 &settings.slack_email,
                 "g/slack".to_string(),
+                None,
                 None,
                 None,
                 None,

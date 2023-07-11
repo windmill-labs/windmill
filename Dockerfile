@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl lld nodejs npm
+    curl nodejs npm
 
 RUN rustup component add rustfmt
 
@@ -52,13 +52,13 @@ RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
+
 RUN cd /backend/windmill-api && . ./build_openapi.sh
+COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
-RUN npm run check
-
 
 
 FROM rust_base AS planner
@@ -95,6 +95,35 @@ RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
+    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
+    mv linux-$arch/helm /usr/local/bin/helm &&\
+    chmod +x /usr/local/bin/helm
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    case "$arch" in \
+    'amd64') \
+    zip='awscli-exe-linux-x86_64.zip'; \
+    ;; \
+    'arm64') \
+    zip='awscli-exe-linux-aarch64.zip'; \
+    ;; \
+    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
+    esac; \
+    apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && rm awscliv2.zip
+
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&\
+    apt-get install -y nodejs
+
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
     unzip -p rclone.zip rclone-v1.60.1-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
@@ -102,7 +131,6 @@ RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    url=; \
     case "$arch" in \
     'amd64') \
     targz='go1.19.3.linux-amd64.tar.gz'; \
@@ -129,16 +157,23 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:1.35.0 /usr/bin/deno /usr/bin/deno
+
+COPY --from=oven/bun:0.6.13 /usr/local/bin/bun /usr/bin/bun
 
 # docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
-COPY --from=lukechannings/deno:latest /usr/bin/deno /usr/bin/deno-arm
+COPY --from=lukechannings/deno:v1.35.0 /usr/bin/deno /usr/bin/deno-arm
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
 
+# add the docker client to call docker from a worker if enabled
+COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+
 RUN mkdir -p ${APP}
+
+RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 WORKDIR ${APP}
 
 EXPOSE 8000
 
-CMD ["./windmill"]
+CMD ["windmill"]

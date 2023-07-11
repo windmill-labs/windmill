@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { AppService, FlowService, type OpenFlow } from '$lib/gen'
+	import { AppService, FlowService, Script, type OpenFlow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
 	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
-	import { getScriptByPath } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import { faCodeFork } from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
@@ -24,9 +24,10 @@
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab = window.location.hash?.includes('#')
-		? (window.location.hash?.replace('#', '') as Tab)
-		: 'workspace'
+	let tab: Tab =
+		window.location.hash == '#workspace' || window.location.hash == '#hub'
+			? (window.location.hash?.replace('#', '') as Tab)
+			: 'workspace'
 
 	let subtab: 'flows' | 'scripts' | 'apps' = 'apps'
 
@@ -40,7 +41,7 @@
 
 	let codeViewer: Drawer
 	let codeViewerContent: string = ''
-	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
+	let codeViewerLanguage: Script.language = 'deno' as Script.language
 	let codeViewerObj: HubItem | undefined = undefined
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
@@ -167,7 +168,8 @@
 					isEditor={false}
 					context={{
 						username: $userStore?.username ?? 'anonymous',
-						email: $userStore?.email ?? 'anonymous'
+						email: $userStore?.email ?? 'anonymous',
+						groups: $userStore?.groups ?? []
 					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
@@ -200,7 +202,7 @@
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden">
-				<Tabs dflt="workspace" hashNavigation bind:selected={tab}>
+				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
 					<Tab size="md" value="workspace">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
@@ -236,7 +238,7 @@
 					<div class="my-2" />
 
 					{#if subtab == 'scripts'}
-						<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"
@@ -245,7 +247,7 @@
 							></PickHubScript
 						>
 					{:else if subtab == 'flows'}
-						<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"
@@ -254,7 +256,7 @@
 							></PickHubFlow
 						>
 					{:else if subtab == 'apps'}
-						<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}
 							><Button
 								target="_blank"
 								href="https://hub.windmill.dev"

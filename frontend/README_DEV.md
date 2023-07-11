@@ -1,5 +1,7 @@
 # Developing
 
+In the `frontend/` directory:
+
 - install the dependencies with `npm install` (or `pnpm install` or `yarn`)
 - generate the windmill client:
 
@@ -46,7 +48,7 @@ REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
   **On OSX:**
 
   ```bash
-  brew install llvm caddy gsed
+  brew install llvm gsed
 
   # make LLVM tools available on PATH
   echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc

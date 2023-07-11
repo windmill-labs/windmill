@@ -20,9 +20,9 @@
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
-	<h2>
+	<h2 class="pb-4">
 		Early stop/Break
-		<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/early_stop">
+		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 			If defined, at the end of the step, the predicate expression will be evaluated to decide if
 			the flow should stop early.
 		</Tooltip>

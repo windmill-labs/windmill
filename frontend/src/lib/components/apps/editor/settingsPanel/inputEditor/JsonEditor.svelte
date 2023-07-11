@@ -4,17 +4,23 @@
 	export let value: any = undefined
 	export let error = ''
 	export let editor: SimpleEditor | undefined = undefined
+	export let small = false
 
 	$: tooBig = code && code?.length > 1000000
 	function parseJson() {
 		try {
+			if (code == '') {
+				value = undefined
+				error = ''
+				return
+			}
 			value = JSON.parse(code ?? '')
 			error = ''
 		} catch (e) {
 			error = e.message
 		}
 	}
-	$: code && parseJson()
+	$: code != undefined && parseJson()
 </script>
 
 {#if tooBig}
@@ -22,7 +28,15 @@
 {:else}
 	<div class="flex flex-col w-full">
 		<div class="border border-gray-300 w-full">
-			<SimpleEditor on:focus bind:this={editor} on:change autoHeight lang="json" bind:code />
+			<SimpleEditor
+				{small}
+				on:focus
+				bind:this={editor}
+				on:change
+				autoHeight
+				lang="json"
+				bind:code
+			/>
 		</div>
 		{#if error != ''}
 			<span class="text-red-600 text-xs">{error}</span>

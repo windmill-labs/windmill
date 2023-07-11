@@ -6,27 +6,29 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::Arc,
-};
-
+use gethostname::gethostname;
 use git_version::git_version;
 use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{Arc},
+};
 use tokio::{
     fs::{metadata, DirBuilder},
     join,
     sync::RwLock,
 };
+use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
 use windmill_common::{utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
-    DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR,
-    HUB_TMP_CACHE_DIR, PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
+    BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR,
+    GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR,
+    TAR_PIP_TMP_CACHE_DIR,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
-const DEFAULT_NUM_WORKERS: usize = 3;
+const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
@@ -44,24 +46,35 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
+    if num_workers > 1 {
+        tracing::warn!("We recommend using at most 1 worker per container, use more only if you know what you are doing.");
+    }
     let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
-
-    let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
-        .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR));
-
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|x| x.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_PORT as u16);
-    let base_internal_url: String = std::env::var("BASE_INTERNAL_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", port.to_string()));
 
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
+
+    let server_bind_address: IpAddr = if server_mode {
+        std::env::var("SERVER_BIND_ADDR")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR))
+    } else {
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+    };
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|x| x.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PORT as u16);
+
+    if std::env::var("BASE_INTERNAL_URL").is_ok() {
+        tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
+    }
+
+    let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
     let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
         let url = x.parse::<url::Url>().unwrap();
@@ -81,11 +94,12 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
             .into_owned();
         config.port = url.port().unwrap_or(6379).to_string();
-
         config
     });
 
+    tracing::info!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode).await?;
+    tracing::info!("Database connected");
 
     let rsmq = if let Some(config) = rsmq_config {
         let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
@@ -97,9 +111,8 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    if server_mode {
-        windmill_api::migrate_db(&db).await?;
-    }
+    // migration code to avoid break
+    windmill_api::migrate_db(&db).await?;
 
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx.clone(), rx.resubscribe());
@@ -127,7 +140,6 @@ Windmill Community Edition {GIT_VERSION}
         "METRICS_ADDR",
         "JSON_FMT",
         "BASE_URL",
-        "BASE_INTERNAL_URL",
         "TIMEOUT",
         "ZOMBIE_JOB_TIMEOUT",
         "RESTART_ZOMBIE_JOBS",
@@ -143,6 +155,7 @@ Windmill Community Edition {GIT_VERSION}
         "DENO_PATH",
         "GO_PATH",
         "GOPRIVATE",
+        "GOPROXY",
         "NETRC",
         "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
@@ -170,16 +183,30 @@ Windmill Community Edition {GIT_VERSION}
         "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
         "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
         "EXIT_AFTER_NO_JOB_FOR_SECS",
+        "REQUEST_SIZE_LIMIT",
+        "SMTP_HOST",
+        "SMTP_USERNAME",
+        "SMTP_PORT",
+        "SMTP_TLS_IMPLICIT",
+        "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
+        "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     ]);
 
+    tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
+    if let Some(ref smtp) = *SMTP_CLIENT {
+        tracing::info!("Smtp client defined. Testing connection...");
+        if let Err(e) = smtp.connect().await {
+            tracing::error!("Failed to connect to smtp server: {}", e);
+        } else {
+            tracing::info!("Smtp client connected.");
+        }
+    }
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from((server_bind_address, port));
 
         let rsmq2 = rsmq.clone();
         let server_f = async {
-            if server_mode {
-                windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
-            }
+            windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
             Ok(()) as anyhow::Result<()>
         };
 
@@ -268,16 +295,26 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]
-    ee::verify_license_key(license_key)?;
+    ee::verify_license_key(LICENSE_KEY.clone())?;
 
     #[cfg(not(feature = "enterprise"))]
-    if license_key.is_some() {
+    if LICENSE_KEY.as_ref().is_some_and(|x| !x.is_empty()) {
         panic!("License key is required ONLY for the enterprise edition");
     }
 
-    let instance_name = rd_string(5);
+    let instance_name = gethostname()
+        .to_str()
+        .map(|x| {
+            x.replace(" ", "")
+                .split("-")
+                .last()
+                .unwrap()
+                .to_ascii_lowercase()
+                .to_string()
+        })
+        .unwrap_or_else(|| rd_string(5));
+
     let monitor = tokio_metrics::TaskMonitor::new();
 
     let ip = windmill_common::external_ip::get_ip()
@@ -298,10 +335,12 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for x in [
         PIP_CACHE_DIR,
         DENO_CACHE_DIR,
+        BUN_CACHE_DIR,
         GO_CACHE_DIR,
         HUB_CACHE_DIR,
         TAR_PIP_TMP_CACHE_DIR,
         DENO_TMP_CACHE_DIR,
+        BUN_TMP_CACHE_DIR,
         GO_TMP_CACHE_DIR,
         HUB_TMP_CACHE_DIR,
     ] {
@@ -316,7 +355,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
-        let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
+        let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();

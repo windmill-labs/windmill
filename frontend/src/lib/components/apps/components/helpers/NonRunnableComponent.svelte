@@ -23,7 +23,7 @@
 		outputs?.result?.set(v, true)
 	}
 
-	$: result && outputs && setOutput(result)
+	$: result != undefined && outputs && setOutput(result)
 </script>
 
 <InitializeComponent {id} />

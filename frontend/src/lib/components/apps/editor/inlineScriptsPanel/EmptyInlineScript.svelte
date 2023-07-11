@@ -7,7 +7,9 @@
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { capitalize, emptySchema, getScriptByPath } from '$lib/utils'
+	import { capitalize, emptySchema } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
+
 	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -91,7 +93,7 @@
 		dispatch('new', unusedInlineScript.inlineScript)
 	}
 
-	const langs = ['deno', 'python3', 'go', 'bash'] as Script.language[]
+	const langs = ['deno', 'python3', 'go', 'bash', 'nativets', 'postgresql'] as Script.language[]
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -171,14 +173,14 @@
 		</div>
 	</div>
 
-	<div class="flex flex-row w-full justify-between">
+	<div class="flex flex-row w-full gap-24">
 		<div class="">
 			<div class="mb-1 text-sm font-semibold">Backend</div>
 
-			<div class="flex gap-2 flex-row flex-wrap">
+			<div class="gap-2 grid grid-cols-4">
 				{#each langs as lang}
 					<FlowScriptPicker
-						label={lang === 'deno' ? 'Typescript' : capitalize(lang)}
+						label={lang === 'deno' ? 'Typescript' : lang === 'nativets' ? 'REST' : capitalize(lang)}
 						{lang}
 						on:click={() => {
 							createInlineScriptByLanguage(lang, name)
@@ -186,34 +188,14 @@
 					/>
 				{/each}
 			</div>
-
-			<div class="mt-2 mb-2 text-sm">Typescript templates</div>
-
-			<div class="flex gap-2 flex-row flex-wrap mb-4">
-				<FlowScriptPicker
-					label={`PostgreSQL`}
-					lang="pgsql"
-					on:click={() => {
-						createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
-					}}
-				/>
-
-				<FlowScriptPicker
-					label={`HTTP`}
-					lang="fetch"
-					on:click={() => {
-						createInlineScriptByLanguage(Script.language.DENO, name, 'fetch')
-					}}
-				/>
-			</div>
 		</div>
 		<div class="">
 			<div class="mb-1 text-sm font-semibold">
 				Frontend
 				<Tooltip
-					documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#frontend-script"
+					documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
 				>
-					Frontend scripts are executed in the browser and can manipulate the app context directly
+					Frontend scripts are executed in the browser and can manipulate the app context directly.
 				</Tooltip>
 			</div>
 
@@ -235,6 +217,8 @@ state.foo += 1
 // you may also just reassign as next statement 'state.foo = state.foo'
 
 // you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
+// Inputs and display components support settings their value directly (setValue)
+// Tables support setting their selected index (setSelectedIndex)
 
 return state.foo`,
 							language: 'frontend',

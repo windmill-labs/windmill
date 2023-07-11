@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y git libssl-dev pkg-config
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl lld
+    curl
 
 ENV SQLX_OFFLINE=true
 

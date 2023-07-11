@@ -17,6 +17,8 @@ import {
   FlowModule,
   RawScript,
   log,
+  yamlStringify,
+  yamlParse,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -31,11 +33,7 @@ import { downloadZip } from "./pull.ts";
 import { handleScriptMetadata } from "./script.ts";
 
 import { handleFile } from "./script.ts";
-import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
-import {
-  stringify as yamlStringify,
-  parse as yamlParse,
-} from "https://deno.land/std@0.184.0/yaml/mod.ts";
+import { deepEqual } from "./utils.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -110,6 +108,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       path: string;
       content: string;
     }
+
     let counter = 0;
     const seen_names = new Set<string>();
     function assignPath(
@@ -133,8 +132,11 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "deno") ext = "ts";
       else if (language == "go") ext = "go";
       else if (language == "bash") ext = "sh";
+      else if (language == "postgresql") ext = "sql";
+
       return `${name}.inline_script.${ext}`;
     }
+
     function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
       return modules.flatMap((m) => {
         if (m.value.type == "rawscript") {
@@ -158,6 +160,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
         }
       });
     }
+
     const flowPath = transformPath();
     return {
       isDirectory: isFlow,
@@ -294,7 +297,7 @@ async function elementsToMap(
     if (json && entry.path.endsWith(".yaml")) continue;
     if (!json && entry.path.endsWith(".json")) continue;
     if (
-      !["json", "yaml", "go", "sh", "ts", "py"].includes(
+      !["json", "yaml", "go", "sh", "ts", "py", "sql"].includes(
         entry.path.split(".").pop() ?? ""
       )
     )
@@ -325,8 +328,8 @@ async function compareDynFSElement(
       changes.push({ name: "added", path: k, content: v });
     } else if (
       m2[k] != v &&
-      (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k]))) &&
-      (!k.endsWith(".yaml") || !equal(yamlParse(v), yamlParse(m2[k])))
+      (!k.endsWith(".json") || !deepEqual(JSON.parse(v), JSON.parse(m2[k]))) &&
+      (!k.endsWith(".yaml") || !deepEqual(yamlParse(v), yamlParse(m2[k])))
     ) {
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
@@ -361,10 +364,10 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
   }
 };
 
-const isWhitelisted = (p: string) => {
+export const isWhitelisted = (p: string) => {
   return p == "./" || p == "" || p == "u" || p == "f" || p == "g";
 };
-async function ignoreF() {
+export async function ignoreF() {
   try {
     const ignore: {
       accepts(file: string): boolean;
@@ -390,6 +393,9 @@ async function pull(
     failConflicts: boolean;
     plainSecrets?: boolean;
     json?: boolean;
+    skipVariables?: boolean;
+    skipResources?: boolean;
+    skipSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -405,7 +411,13 @@ async function pull(
     )
   );
   const remote = ZipFSElement(
-    (await downloadZip(workspace, opts.plainSecrets))!,
+    (await downloadZip(
+      workspace,
+      opts.plainSecrets,
+      opts.skipVariables,
+      opts.skipResources,
+      opts.skipSecrets
+    ))!,
     !opts.json
   );
   const local = opts.raw
@@ -589,6 +601,9 @@ async function push(
     failConflicts: boolean;
     plainSecrets?: boolean;
     json?: boolean;
+    skipVariables?: boolean;
+    skipResources?: boolean;
+    skipSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -613,7 +628,13 @@ async function push(
   const remote = opts.raw
     ? undefined
     : ZipFSElement(
-        (await downloadZip(workspace, opts.plainSecrets))!,
+        (await downloadZip(
+          workspace,
+          opts.plainSecrets,
+          opts.skipVariables,
+          opts.skipResources,
+          opts.skipSecrets
+        ))!,
         !opts.json
       );
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
@@ -662,12 +683,7 @@ async function push(
           }
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.after,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
@@ -700,12 +716,7 @@ async function push(
         ) {
           continue;
         } else if (
-          await handleFile(
-            change.path,
-            change.content,
-            workspace.workspaceId,
-            alreadySynced
-          )
+          await handleFile(change.path, workspace.workspaceId, alreadySynced)
         ) {
           continue;
         }
@@ -748,7 +759,7 @@ async function push(
           case "folder":
             await FolderService.deleteFolder({
               workspace: workspaceId,
-              name: change.path.split("/")[1],
+              name: change.path.split(path.sep)[1],
             });
             break;
           case "resource":
@@ -812,6 +823,9 @@ const command = new Command()
   .option("--raw", "Pull without using state, just overwrite.")
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
+  .option("--skip-variables", "Skip syncing variables (including secrets)")
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--skip-resources", "Skip syncing  resources")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -827,6 +841,9 @@ const command = new Command()
   .option("--raw", "Push without using state, just overwrite.")
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
+  .option("--skip-variables", "Skip syncing variables (including secrets)")
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--skip-resources", "Skip syncing  resources")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 

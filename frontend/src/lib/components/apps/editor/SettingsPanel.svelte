@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
-	import { allItems } from '../utils'
+	import { BG_PREFIX, allItems } from '../utils'
 	import { findGridItem } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
@@ -13,7 +13,7 @@
 
 	$: hiddenInlineScript = $app?.hiddenInlineScripts
 		?.map((x, i) => ({ script: x, index: i }))
-		.find(({ script, index }) => $selectedComponent?.includes(`bg_${index}`))
+		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
 
 	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
 	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
@@ -81,11 +81,11 @@
 		/>
 	{/key}
 {:else if hiddenInlineScript}
-	{@const id = `bg_${hiddenInlineScript.index}`}
+	{@const id = BG_PREFIX + hiddenInlineScript.index}
 	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
-	<div class="mb-8">
-		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
+	{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
+		<div class="mb-8">
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
 					<InputsSpecsEditor
@@ -97,8 +97,8 @@
 					/>
 				{/key}
 			</PanelSection>
-		{/if}
-	</div>
+		</div>
+	{/if}
 	<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
 	<div class="grow shrink" />
 {/if}

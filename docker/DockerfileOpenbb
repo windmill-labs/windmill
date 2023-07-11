@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl lld nodejs npm
+    curl nodejs npm
 
 RUN rustup component add rustfmt
 
@@ -53,11 +53,11 @@ COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 RUN cd /backend/windmill-api && . ./build_openapi.sh
+COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
-RUN npm run check
 
 
 
@@ -90,7 +90,7 @@ FROM python:3.10.8-slim-buster
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev libwebkit2gtk-4.0-37 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -132,8 +132,10 @@ RUN /usr/local/bin/python3 -m pip install openbb[all]
 
 RUN mkdir -p ${APP}
 
+RUN ln -s ${APP}/windmill /usr/local/bin/windmill
+
 WORKDIR ${APP}
 
 EXPOSE 8000
 
-CMD ["./windmill"]
+CMD ["windmill"]

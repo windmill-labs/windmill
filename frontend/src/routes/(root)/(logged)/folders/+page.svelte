@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Folder } from '$lib/gen'
 	import { FolderService } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -14,6 +13,7 @@
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
+	import { canWrite } from '$lib/utils'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -72,7 +72,7 @@
 	<PageHeader
 		title="Folders"
 		tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/groups_and_folders"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 	>
 		<div class="flex flex-row">
 			<input
@@ -94,7 +94,7 @@
 		</div>
 	</PageHeader>
 
-	<div class="relative mb-20">
+	<div class="relative mb-20 pt-8">
 		<TableCustom>
 			<tr slot="header-row">
 				<th class="!px-0" />

@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { OpenAPI, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { getUserExt, refreshSuperadmin } from '$lib/user'
-	import { sendUserToast } from '$lib/utils'
-	import { onMount } from 'svelte'
+	import { enterpriseLicense, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { getUserExt } from '$lib/user'
+	import { sendUserToast } from '$lib/toast'
+	import { onDestroy, onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
+
+	import { refreshSuperadmin } from '$lib/refreshUser'
+
+	let token = $page.url.searchParams.get('wm_token') ?? undefined
+	if (token) {
+		OpenAPI.WITH_CREDENTIALS = true
+		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+	}
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -20,26 +28,35 @@
 		'NetworkError when attempting to fetch resource.'
 	]
 
+	async function setUserWorkspaceStore() {
+		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+	}
+
+	async function setLicense() {
+		const license = await SettingsService.getLicenseId()
+		if (license) {
+			$enterpriseLicense = license
+		}
+	}
+
 	async function loadUser() {
 		try {
-			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
-				} else if ($superadmin) {
-					console.log(
-						`You are a superadmin, you can go wherever you please, even at ${$workspaceStore}`
-					)
 				} else {
 					$userStore = await getUserExt($workspaceStore)
-					if (!userStore) {
+					if (!$userStore) {
 						throw Error('Not logged in')
 					}
 				}
 			} else {
-				if (!$page.url.pathname.startsWith('/user/')) {
+				if (
+					!$page.url.pathname.startsWith('/user/') ||
+					$page.url.pathname.startsWith('/user/cli')
+				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(
 							$page.url.href.replace($page.url.origin, '')
@@ -58,6 +75,7 @@
 		}
 	}
 
+	let interval: NodeJS.Timer | undefined = undefined
 	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
@@ -107,8 +125,27 @@
 			}
 		}
 		if ($page.url.pathname != '/user/login') {
+			setUserWorkspaceStore()
 			loadUser()
+			setLicense()
+			interval = setInterval(async () => {
+				try {
+					const workspace = $workspaceStore
+					const user = $userStore
+
+					if (workspace && user) {
+						userStore.set(await getUserExt(workspace))
+						console.log('refreshed user')
+					}
+				} catch (e) {
+					console.error('Could not refresh user', e)
+				}
+			}, 300000)
 		}
+	})
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
 	})
 </script>
 

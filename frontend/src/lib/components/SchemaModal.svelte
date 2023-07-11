@@ -53,28 +53,28 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
+	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 
-	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
 	export let editing = false
 	export let oldArgName: string | undefined = undefined
 	export let isFlowInput = false
 
-	let resource_type: string | undefined = undefined
-
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
+
+	let property: ModalSchemaProperty = DEFAULT_PROPERTY
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
 		if (key === 'Enter') {
-			dispatch('save')
+			dispatch('save', property)
 		}
 	}
 
-	export function openDrawer(): void {
+	export function openDrawer(nproperty: ModalSchemaProperty): void {
 		drawer.openDrawer()
-		resource_type = property.format?.substring(5)
+		property = nproperty
 	}
 
 	export function closeDrawer(): void {
@@ -91,13 +91,8 @@
 		property.required = DEFAULT_PROPERTY.required
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
-		resource_type = undefined
 
 		drawer.closeDrawer()
-	}
-
-	$: if (property.selectedType == 'object' && resource_type) {
-		property.format = resource_type ? `$res:${resource_type}` : undefined
 	}
 
 	$: if (property.name == '') {
@@ -156,6 +151,11 @@
 								property.contentEncoding = undefined
 								property.enum_ = undefined
 								property.pattern = undefined
+								if (argType == 'array') {
+									property.items = { type: 'string' }
+								} else {
+									property.items = undefined
+								}
 							}}
 						>
 							{argType}
@@ -175,16 +175,18 @@
 				</div>
 			</div>
 			<div>
-				<div class="flex flex-row gap-x-4">
+				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
+						resourceTypes={[]}
 						label="Default"
 						bind:value={property.default}
 						type={property.selectedType}
 						pattern={property.pattern}
+						itemsType={property.items}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}
-						class="mt-5 !justify-start"
+						class="!justify-start"
 						bind:checked={property.required}
 					/>
 				</div>
@@ -208,11 +210,7 @@
 							bind:contentEncoding={property.contentEncoding}
 						/>
 					{:else if property.selectedType == 'array'}
-						<select bind:value={property.items}>
-							<option value={undefined}>No specific item type</option>
-							<option value={{ type: 'string' }}> Items are strings</option>
-							<option value={{ type: 'number' }}>Items are numbers</option>
-						</select>
+						<ArrayTypeNarrowing bind:itemsType={property.items} />
 					{:else if property.selectedType == 'object'}
 						<h3 class="mb-2 font-bold mt-4">Resource type</h3>
 						<ObjectTypeNarrowing bind:format={property.format} />
@@ -227,7 +225,7 @@
 				color="blue"
 				disabled={!property.name || !property.selectedType || error != ''}
 				on:click={() => {
-					dispatch('save')
+					dispatch('save', property)
 				}}
 			>
 				Save

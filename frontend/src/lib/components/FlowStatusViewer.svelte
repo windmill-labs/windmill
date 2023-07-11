@@ -15,9 +15,8 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import Tooltip from './Tooltip.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -37,6 +36,7 @@
 	let localFlowModuleStates: Record<string, GraphModuleState> = {}
 	export let retry_status: Record<string, number> = {}
 	export let suspend_status: number | undefined = undefined
+	export let render = true
 
 	export let is_owner = false
 
@@ -152,7 +152,7 @@
 
 	$: jobId && updateJobId()
 
-	$: isListJob = flowJobIds && Array.isArray(flowJobIds?.flowJobs)
+	$: isListJob = flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs)
 
 	onDestroy(() => {
 		timeout && clearTimeout(timeout)
@@ -162,9 +162,7 @@
 		is_owner = isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
 	}
 
-	let selected: 'graph' | 'sequence' = 'graph'
-
-	let payload: string = '"a test payload in json"'
+	$: selected = isListJob ? 'sequence' : 'graph'
 
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
@@ -209,56 +207,26 @@
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
 		{/if}
 		{#if isListJob}
-			<div class="w-full h-full border border-gray-600 bg-white p-1">
-				<DisplayResult result={jobResults} />
-			</div>
-		{:else}
+			{#if render}
+				<div class="w-full h-full border border-gray-600 bg-white p-1">
+					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
+				</div>
+			{/if}
+		{:else if render}
 			<div class={innerModules.length > 0 ? 'border border-gray-400 shadow p-2' : ''}>
 				<FlowPreviewStatus {job} />
 				{#if `result` in job}
 					<div class="w-full h-full">
 						<FlowJobResult
+							workspaceId={job?.workspace_id}
+							jobId={job?.id}
 							loading={job['running'] == true}
 							result={job.result}
 							logs={job.logs ?? ''}
 						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
-					<div class="w-full h-full mt-2 text-sm text-gray-600">
-						<p>Waiting to be resumed</p>
-						<div>
-							{#if is_owner}
-								<div class="flex flex-row gap-2 mt-2">
-									<div>
-										<Button
-											color="green"
-											variant="border"
-											on:click={async () =>
-												await JobService.resumeSuspendedFlowAsOwner({
-													workspace: workspaceId ?? $workspaceStore ?? '',
-													id: job?.id ?? '',
-													requestBody: JSON.parse(payload)
-												})}
-											>Resume <Tooltip
-												>Since you are an owner of this flow, you can send resume events without
-												necessarily knowing the resume id sent by the approval step</Tooltip
-											></Button
-										>
-									</div>
-									<div class="w-full border rounded-lg border-gray-600 p-2">
-										<SimpleEditor automaticLayout lang="json" bind:code={payload} autoHeight />
-									</div>
-									<Tooltip
-										>The payload is optional, it is passed to the following step through the
-										`resume` variable</Tooltip
-									>
-								</div>
-							{:else}
-								You cannot resume the flow yourself without receiving the resume secret since you
-								are not an owner of {job.script_path}
-							{/if}
-						</div>
-					</div>
+					<FlowStatusWaitingForEvents {workspaceId} {job} {is_owner} />
 				{:else if job.logs}
 					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
 						<pre class="w-full">{job.logs}</pre>
@@ -291,48 +259,51 @@
 				{/if}
 			</div>
 		{/if}
-
-		{#if innerModules.length > 0 && !isListJob}
-			<Tabs bind:selected>
-				<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
-				<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
-			</Tabs>
+		{#if render}
+			{#if innerModules.length > 0 && !isListJob}
+				<Tabs bind:selected>
+					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
+				</Tabs>
+			{/if}
 		{/if}
-
-		<div class={selected == 'graph' && !isListJob ? 'hidden' : ''}>
+		<div class={selected == 'graph' ? 'hidden' : ''}>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#each flowJobIds?.flowJobs ?? [] as loopJobId, j}
-					<Button
-						variant={forloop_selected === loopJobId ? 'contained' : 'border'}
-						color={jobFailures[j] === true
-							? 'red'
-							: forloop_selected === loopJobId
-							? 'dark'
-							: 'light'}
-						btnClasses="w-full flex justify-start"
-						on:click={() => {
-							if (forloop_selected == loopJobId) {
-								forloop_selected = ''
-							} else {
-								forloop_selected = loopJobId
-							}
-						}}
-					>
-						<span class="truncate">
-							#{j + 1}: {loopJobId}
-						</span>
+					{#if render}
+						<Button
+							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
+							color={jobFailures[j] === true
+								? 'red'
+								: forloop_selected === loopJobId
+								? 'dark'
+								: 'light'}
+							btnClasses="w-full flex justify-start"
+							on:click={() => {
+								if (forloop_selected == loopJobId) {
+									forloop_selected = ''
+								} else {
+									forloop_selected = loopJobId
+								}
+							}}
+						>
+							<span class="truncate">
+								#{j + 1}: {loopJobId}
+							</span>
 
-						<Icon
-							class="ml-2"
-							data={forloop_selected == loopJobId ? faChevronUp : faChevronDown}
-							scale={0.8}
-						/>
-					</Button>
+							<Icon
+								class="ml-2"
+								data={forloop_selected == loopJobId ? faChevronUp : faChevronDown}
+								scale={0.8}
+							/>
+						</Button>
+					{/if}
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							render={forloop_selected == loopJobId && selected == 'sequence' && render}
 							{workspaceId}
 							bind:suspend_status
 							bind:retry_status
@@ -386,29 +357,32 @@
 					</h3>
 
 					{#each innerModules as mod, i}
-						<div class="line w-8 h-10" />
-						<h3 class="text-gray-500 mb-2 w-full">
-							{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
-								Step
-								<span class="font-medium text-gray-900">
-									{i + 1}
-								</span>
-								out of
-								<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
-								{#if job.raw_flow?.modules[i]?.summary}
-									: <span class="font-medium text-gray-900">
-										{job.raw_flow?.modules[i]?.summary ?? ''}
+						{#if render}
+							<div class="line w-8 h-10" />
+							<h3 class="text-gray-500 mb-2 w-full">
+								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
+									Step
+									<span class="font-medium text-gray-900">
+										{i + 1}
 									</span>
+									out of
+									<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
+									{#if job.raw_flow?.modules[i]?.summary}
+										: <span class="font-medium text-gray-900">
+											{job.raw_flow?.modules[i]?.summary ?? ''}
+										</span>
+									{/if}
+								{:else}
+									<h3>Failure module</h3>
 								{/if}
-							{:else}
-								<h3>Failure module</h3>
-							{/if}
-						</h3>
-						<div class="line w-8 h-10" />
+							</h3>
+							<div class="line w-8 h-10" />
+						{/if}
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
+										render={selected == 'sequence' && render}
 										{workspaceId}
 										jobId={mod.job}
 										bind:suspend_status
@@ -417,6 +391,7 @@
 									/>
 								{:else}
 									<svelte:self
+										render={selected == 'sequence' && render}
 										{workspaceId}
 										bind:suspend_status
 										bind:retry_status
@@ -444,102 +419,109 @@
 			{/if}
 		</div>
 	</div>
-	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
-			<div class="grid grid-cols-3 border border-gray-300">
-				<div class="col-span-2 bg-gray-50">
-					<div class="flex flex-col">
-						{#each Object.values(retry_status) as count}
-							<span class="text-sm">
-								Retry in progress, # of failed attempts: {count}
-							</span>
-						{/each}
-						{#if suspend_status}
-							<span class="text-sm">
-								Flow suspended, waiting for {pluralize(suspend_status, 'approval')}
-							</span>
-						{/if}
-					</div>
-
-					<FlowGraph
-						success={isSuccess(job?.['success'])}
-						flowModuleStates={localFlowModuleStates}
-						on:select={(e) => {
-							if (typeof e.detail == 'string') {
-								if (e.detail == 'Input') {
-									selectedNode = 'start'
-								} else if (e.detail == 'Result') {
-									selectedNode = 'end'
-								} else {
-									selectedNode = e.detail
-								}
-							} else {
-								selectedNode = e.detail.id
-							}
-						}}
-						modules={job.raw_flow?.modules ?? []}
-						failureModule={job.raw_flow?.failure_module}
-					/>
-				</div>
-				<div class="border-l border-gray-400 pt-1 overflow-hidden">
-					{#if selectedNode}
-						{@const node = localFlowModuleStates[selectedNode]}
-						{#if selectedNode == 'end'}
-							<FlowJobResult
-								filename={job.id}
-								loading={job['running']}
-								noBorder
-								col
-								result={job['result']}
-								logs={job.logs ?? ''}
-							/>
-						{:else if selectedNode == 'start'}
-							{#if job.args}
-								<div class="p-2">
-									<JobArgs args={job.args} />
-								</div>
-							{:else}
-								<p class="p-2">No arguments</p>
+	{#if render}
+		{#if job.raw_flow && !isListJob}
+			<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
+				<div class="grid grid-cols-3 border border-gray-300">
+					<div class="col-span-2 bg-gray-50">
+						<div class="flex flex-col">
+							{#each Object.values(retry_status) as count}
+								<span class="text-sm">
+									Retry in progress, # of failed attempts: {count}
+								</span>
+							{/each}
+							{#if suspend_status}
+								<span class="text-sm">
+									Flow suspended, waiting for {pluralize(suspend_status, 'approval')}
+								</span>
 							{/if}
-						{:else if node}
-							<div class="px-2 flex gap-2 min-w-0">
-								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
-								{#if node.job_id}
-									<div class="truncate"
-										><div class=" text-gray-900 whitespace-nowrap truncate">
-											<span class="font-bold">Job Id</span>
-											<a
-												rel="noreferrer"
-												target="_blank"
-												href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-											>
-												{truncateRev(node.job_id ?? '', 10) ?? ''}
-											</a>
-										</div>
-									</div>
-								{/if}
-							</div>
-							<div class="px-1 border-b border-black">
-								<JobArgs args={node.args} />
-							</div>
+						</div>
 
-							<FlowJobResult
-								loading={job['running'] == true}
-								noBorder
-								col
-								result={node.result}
-								logs={node.logs ?? ''}
-							/>
-						{:else}
-							<p class="p-2 text-gray-600 italic"
-								>The execution of this node has no information attached to it. The job likely did
-								not run yet</p
-							>
-						{/if}
-					{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p>{/if}
+						<FlowGraph
+							success={isSuccess(job?.['success'])}
+							flowModuleStates={localFlowModuleStates}
+							on:select={(e) => {
+								if (typeof e.detail == 'string') {
+									if (e.detail == 'Input') {
+										selectedNode = 'start'
+									} else if (e.detail == 'Result') {
+										selectedNode = 'end'
+									} else {
+										selectedNode = e.detail
+									}
+								} else {
+									selectedNode = e.detail.id
+								}
+							}}
+							modules={job.raw_flow?.modules ?? []}
+							failureModule={job.raw_flow?.failure_module}
+						/>
+					</div>
+					<div class="border-l border-gray-400 pt-1 overflow-auto min-h-[800px] flex flex-col">
+						{#if selectedNode}
+							{@const node = localFlowModuleStates[selectedNode]}
+							{#if selectedNode == 'end'}
+								<FlowJobResult
+									workspaceId={job?.workspace_id}
+									jobId={job?.id}
+									filename={job.id}
+									loading={job['running']}
+									noBorder
+									col
+									result={job['result']}
+									logs={job.logs ?? ''}
+								/>
+							{:else if selectedNode == 'start'}
+								{#if job.args}
+									<div class="p-2">
+										<JobArgs args={job.args} />
+									</div>
+								{:else}
+									<p class="p-2">No arguments</p>
+								{/if}
+							{:else if node}
+								<div class="px-2 flex gap-2 min-w-0">
+									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
+									{#if node.job_id}
+										<div class="truncate"
+											><div class=" text-gray-900 whitespace-nowrap truncate">
+												<span class="font-bold">Job Id</span>
+												<a
+													rel="noreferrer"
+													target="_blank"
+													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+												>
+													{truncateRev(node.job_id ?? '', 10) ?? ''}
+												</a>
+											</div>
+										</div>
+									{/if}
+								</div>
+								<div class="px-1 border-b border-black">
+									<JobArgs args={node.args} />
+								</div>
+
+								<FlowJobResult
+									workspaceId={job?.workspace_id}
+									jobId={job?.id}
+									loading={job['running'] == true}
+									noBorder
+									col
+									result={node.result}
+									logs={node.logs ?? ''}
+								/>
+							{:else}
+								<p class="p-2 text-gray-600 italic"
+									>The execution of this node has no information attached to it. The job likely did
+									not run yet</p
+								>
+							{/if}
+						{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p
+							>{/if}
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 	{/if}
 {:else}
 	Job loading...

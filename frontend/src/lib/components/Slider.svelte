@@ -7,9 +7,10 @@
 	export let text: string
 	export let tooltip: string | undefined = undefined
 	export let view = false
+	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md'
 </script>
 
-<Button color="light" on:click={() => (view = !view)} variant="border"
+<Button color="light" on:click={() => (view = !view)} {size} variant="border"
 	>{text}
 	{#if tooltip}
 		<Tooltip wrapperClass="mx-1">{tooltip}</Tooltip>

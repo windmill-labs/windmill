@@ -21,13 +21,6 @@ export {
   WorkspaceService,
 } from "./windmill-api/index.ts";
 
-// @ts-ignore: Otherwise BigInt is not supported for export
-BigInt.prototype.toJSON = function () {
-  return this.toString();
-};
-
-export { pgSql, pgClient } from "./pg.ts";
-
 export type Sql = string;
 export type Email = string;
 export type Base64 = string;
@@ -77,6 +70,19 @@ export async function getResource(
     } else {
       throw Error(`Resource not found at ${path} or not visible to you`);
     }
+  }
+}
+
+/**
+ * Resolve a resource value in case the default value was picked because the input payload was undefined
+ * @param obj resource value or path of the resource under the format `$res:path`
+ * @returns resource value
+ */
+export async function resolveDefaultResource(obj: any): Promise<any> {
+  if (typeof obj === "string" && obj.startsWith("$res:")) {
+    return await getResource(obj.substring(5), true);
+  } else {
+    return obj;
   }
 }
 
@@ -207,6 +213,39 @@ export async function getVariable(path: string): Promise<string | undefined> {
     return variable.value;
   } catch (e: any) {
     throw Error(`Variable not found at ${path} or not visible to you`);
+  }
+}
+
+/**
+ * Set a variable by path, create if not exist
+ * @param path path of the variable
+ * @param value value of the variable
+ * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
+ * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
+ */
+export async function setVariable(
+  path: string,
+  value: string,
+  isSecretIfNotExist?: boolean,
+  descriptionIfNotExist?: string
+): Promise<void> {
+  const workspace = getWorkspace();
+  if (await VariableService.existsVariable({ workspace, path })) {
+    await VariableService.updateVariable({
+      workspace,
+      path,
+      requestBody: { value },
+    });
+  } else {
+    await VariableService.createVariable({
+      workspace,
+      requestBody: {
+        path,
+        value,
+        is_secret: isSecretIfNotExist ?? false,
+        description: descriptionIfNotExist ?? "",
+      },
+    });
   }
 }
 

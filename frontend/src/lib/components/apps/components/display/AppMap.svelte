@@ -42,8 +42,8 @@
 		}
 	})
 
-	let map: Map
-	let mapElement: HTMLDivElement
+	let map: Map | undefined = undefined
+	let mapElement: HTMLDivElement | undefined = undefined
 
 	let longitude: number | undefined = undefined
 	let latitude: number | undefined = undefined
@@ -72,9 +72,9 @@
 
 	function getLayersByName(name: keyof typeof LAYER_NAME) {
 		return map
-			.getLayers()
-			.getArray()
-			.filter((l) => l.getProperties().name === LAYER_NAME[name])
+			?.getLayers()
+			?.getArray()
+			?.filter((l) => l.getProperties().name === LAYER_NAME[name])
 	}
 
 	function getMarkerArray(): Marker[] | undefined {
@@ -121,9 +121,14 @@
 	function updateMarkers() {
 		const layers = getLayersByName('MARKER')
 		if (layers?.length) {
-			layers.forEach((l) => map.removeLayer(l))
+			layers.forEach((l) => map?.removeLayer(l))
 		}
-		createMarkerLayers()?.forEach((l) => map.addLayer(l))
+		createMarkerLayers()?.forEach((l) => map?.addLayer(l))
+	}
+
+	$: if (!render) {
+		map = undefined
+		mapElement = undefined
 	}
 
 	$: if (!map && mapElement) {

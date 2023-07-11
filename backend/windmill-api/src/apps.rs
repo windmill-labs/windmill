@@ -31,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{script_path_to_payload, JobPayload, RawCode},
+    jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
@@ -495,6 +495,13 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+
+    if path == "g/all/setup_app" && w_id == "admins" {
+        return Err(Error::BadRequest(
+            "Cannot delete the global setup app".to_string(),
+        ));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -602,7 +609,7 @@ async fn update_app(
     if let Some(nvalue) = &ns.value {
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
-            path,
+            npath,
             w_id
         )
         .fetch_one(&mut tx)
@@ -623,7 +630,7 @@ async fn update_app(
         sqlx::query!(
             "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
             v_id,
-            path,
+            npath,
             w_id
         )
         .execute(&mut tx)
@@ -667,6 +674,7 @@ pub struct ExecuteApp {
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
+    pub component: String,
     pub raw_code: Option<RawCode>,
     // if set, the app is executed as viewer with the given static fields
     pub force_viewer_static_fields: Option<StaticFields>,
@@ -705,11 +713,16 @@ async fn execute_component(
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
+
         if let Some(path) = payload.path.clone() {
-            hm.insert(path, static_fields);
+            hm.insert(format!("{}:{path}", payload.component), static_fields);
         } else {
             hm.insert(
-                digest(payload.raw_code.clone().unwrap().content.as_str()),
+                format!(
+                    "{}:{}",
+                    payload.component,
+                    digest(payload.raw_code.clone().unwrap().content.as_str())
+                ),
                 static_fields,
             );
         }
@@ -761,33 +774,17 @@ async fn execute_component(
     };
 
     let (job_payload, args, tag) = match &payload {
-        ExecuteApp { args, raw_code: Some(raw_code), path: None, .. } => {
+        ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
-            let args = build_args(policy, path, args)?;
+            let args = build_args(policy, component, path, args)?;
             (payload, args, None)
         }
-        ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = if path.starts_with("script/") {
-                script_path_to_payload(
-                    path.strip_prefix("script/").unwrap(),
-                    tx.transaction_mut(),
-                    &w_id,
-                )
-                .await?
-            } else if path.starts_with("flow/") {
-                (
-                    JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),
-                    None,
-                )
-            } else {
-                return Err(Error::BadRequest(format!(
-                    "path must start with script/ or flow/ (got {})",
-                    path
-                )));
-            };
-            let args = build_args(policy, path.to_string(), args)?;
+        ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
+            let (payload, tag) =
+                get_payload_tag_from_prefixed_path(path, tx.transaction_mut(), &w_id).await?;
+            let args = build_args(policy, component, path.to_string(), args)?;
             (payload, args, tag)
         }
         _ => unreachable!(),
@@ -801,6 +798,7 @@ async fn execute_component(
         &username,
         &email,
         permissioned_as,
+        None,
         None,
         None,
         None,
@@ -860,15 +858,18 @@ async fn exists_app(
 
 fn build_args(
     policy: Policy,
+    component: &str,
     path: String,
     args: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     // disallow var and res access in args coming from the user for security reasons
     args.into_iter()
         .try_for_each(|x| disallow_var_res_access(x.1))?;
+    let key = format!("{}:{}", component, &path);
     let static_args = policy
         .triggerables
-        .get(&path)
+        .get(&key)
+        .or_else(|| policy.triggerables.get(&path))
         .map(|x| x.clone())
         .or_else(|| {
             if matches!(policy.execution_mode, ExecutionMode::Viewer) {

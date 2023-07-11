@@ -43,7 +43,6 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 lazy_static::lazy_static! {
@@ -70,17 +69,12 @@ pub struct ScriptWDraft {
     pub schema: Option<Schema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<Vec<String>>,
 }
 
 pub fn global_service() -> Router {
     Router::new()
-        .route(
-            "/python/tojsonschema",
-            post(parse_python_code_to_jsonschema),
-        )
-        .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
-        .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
-        .route("/bash/tojsonschema", post(parse_bash_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
@@ -353,7 +347,7 @@ async fn create_script(
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
 
-    let lock = if ns.language == ScriptLang::Bash || ns.language == ScriptLang::Deno {
+    let lock = if !(ns.language == ScriptLang::Python3 || ns.language == ScriptLang::Go) {
         Some(String::new())
     } else {
         ns.lock
@@ -363,11 +357,18 @@ async fn create_script(
     };
 
     let needs_lock_gen = lock.is_none();
+
+    let envs = ns.envs.as_ref().map(|x| x.as_slice());
+    let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
+        None
+    } else {
+        envs
+    };
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16)",
+         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17)",
         &w_id,
         &hash.0,
         ns.path,
@@ -383,7 +384,8 @@ async fn create_script(
         ns.language: ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
         ns.tag,
-        ns.draft_only
+        ns.draft_only,
+        envs
     )
     .execute(&mut tx)
     .await?;
@@ -397,15 +399,28 @@ async fn create_script(
         .execute(&mut tx)
         .await?;
 
-        let schedulables = sqlx::query_as!(
+        let mut schedulables = sqlx::query_as!(
         Schedule,
-            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
             ns.path,
             p_path,
             w_id,
         )
         .fetch_all(&mut tx)
         .await?;
+
+        let schedule = sqlx::query_as!(Schedule,
+            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
+            ns.path,
+            p_path,
+            w_id,
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        if let Some(schedule) = schedule {
+            schedulables.push(schedule);
+        }
 
         for schedule in schedulables {
             clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;
@@ -473,7 +488,7 @@ async fn create_script(
     if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
-                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+                windmill_parser_py_imports::parse_python_imports(&ns.content)?.join("\n")
             }
             _ => ns.content,
         };
@@ -485,6 +500,7 @@ async fn create_script(
             &authed.username,
             &authed.email,
             username_to_permissioned_as(&authed.username),
+            None,
             None,
             None,
             None,
@@ -549,7 +565,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, draft.value as draft FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, draft.value as draft FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -841,8 +857,14 @@ async fn delete_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+
+    if path == "u/admin/hub_sync" && w_id == "admins" {
+        return Err(Error::BadRequest(
+            "Cannot delete the global setup app".to_string(),
+        ));
+    }
+    let mut tx = user_db.begin(&authed).await?;
 
     let draft_only = sqlx::query_scalar!(
         "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
@@ -884,33 +906,4 @@ async fn delete_script_by_path(
     );
 
     Ok(Json(script))
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-enum SigParsing {
-    Valid(MainArgSignature),
-    Invalid { error: String },
-}
-
-fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
-    match result {
-        Ok(sig) => Json(SigParsing::Valid(sig)),
-        Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
-    }
-}
-
-async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_py::parse_python_signature(&code))
-}
-
-async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code, false))
-}
-async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
-}
-
-async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
 }

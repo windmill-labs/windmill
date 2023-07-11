@@ -1,7 +1,7 @@
 import type { IntRange } from '../../../../common'
 import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../../gridUtils'
 import { BUTTON_COLORS } from '../../../common'
-
+import type { ChartType } from 'chart.js'
 import { defaultAlignement } from '../componentsPanel/componentDefaultProps'
 import {
 	BarChart4,
@@ -36,7 +36,10 @@ import {
 	FileText,
 	AtSignIcon,
 	Split,
-	Download
+	Download,
+	PanelLeft,
+	PanelTopInactive,
+	ListIcon
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -60,6 +63,7 @@ export type RecomputeOthersSource = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type QuillComponent = BaseComponent<'quillcomponent'>
 export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
@@ -80,16 +84,21 @@ export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & Recompu
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
+export type ChartJsComponent = BaseComponent<'chartjscomponent'>
+
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type LogComponent = BaseComponent<'logcomponent'>
+export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'resourceselectcomponent'>
-export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
+export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
+	RecomputeOthersSource
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
 export type RadioComponent = BaseComponent<'radiocomponent'>
@@ -99,7 +108,9 @@ export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
+	disabledTabs: RichConfiguration[]
 }
+export type ListComponent = BaseComponent<'listcomponent'>
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
 export type MapComponent = BaseComponent<'mapcomponent'>
@@ -120,10 +131,14 @@ export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & 
 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
+export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
+	| LogComponent
+	| FlowStatusComponent
 	| TextInputComponent
+	| QuillComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -150,6 +165,7 @@ export type TypedComponent =
 	| PlotlyComponent
 	| TabsComponent
 	| ContainerComponent
+	| ListComponent
 	| IconComponent
 	| HorizontalDividerComponent
 	| VerticalDividerComponent
@@ -166,7 +182,9 @@ export type TypedComponent =
 	| Schemaformcomponent
 	| SelectTabComponent
 	| ConditionalWrapperComponent
+	| SelectStepComponent
 	| DownloadComponent
+	| ChartJsComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -186,6 +204,7 @@ export function getRecommendedDimensionsByComponent(
 export type AppComponentConfig<T extends TypedComponent['type']> = {
 	name: string
 	icon: any
+	documentationLink: string
 	/**
 	 * Dimensions key formula:
 	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
@@ -198,6 +217,14 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+}
+
+export type PresetComponentConfig = {
+	name: string
+	icon: any
+	targetComponent: keyof typeof components
+	configuration: object
+	type: string
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -236,9 +263,18 @@ export const selectOptions = {
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
 	splitPanelOptions: ['2', '3', '4'],
-	formorientationOptions: ['Horizontal', 'Vertical']
+	formorientationOptions: ['Horizontal', 'Vertical'],
+	chartTypeOptions: [
+		'bar',
+		'bubble',
+		'doughnut',
+		'line',
+		'pie',
+		'polarArea',
+		'radar',
+		'scatter'
+	] as ChartType[]
 }
-
 const labels = {
 	none: 'Do nothing',
 	errorOverlay: 'Show error overlay',
@@ -285,7 +321,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				noVariablePicker: true
 			}
 		}
 	}
@@ -368,10 +405,14 @@ const paginationOneOf = {
 	}
 } as const
 
+const documentationBaseUrl =
+	'https://www.windmill.dev/docs/apps/app_configuration-settings/app_component_library'
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#rich-result`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -386,11 +427,49 @@ export const components = {
 			configuration: {}
 		}
 	},
+	logcomponent: {
+		name: 'Log',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#log-display`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			}
+		}
+	},
+	flowstatuscomponent: {
+		name: 'Flow Status',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#flow-status`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			}
+		}
+	},
 	containercomponent: {
 		name: 'Container',
 		icon: BoxSelect,
+		documentationLink: `${documentationBaseUrl}#container`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -400,11 +479,56 @@ export const components = {
 			numberOfSubgrids: 1
 		}
 	},
+	listcomponent: {
+		name: 'List',
+		icon: ListIcon,
+		documentationLink: `${documentationBaseUrl}#list`,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				width: {
+					type: 'oneOf',
+					selected: 'card',
+					labels: {
+						card: 'Card',
+						row: 'Full Row'
+					},
+					configuration: {
+						card: {
+							minWidthPx: {
+								type: 'static',
+								fieldType: 'number',
+								value: 300,
+								tooltip: 'Min Width in pixels'
+							}
+						},
+						row: {}
+					}
+				} as const,
+				heightPx: {
+					type: 'static',
+					fieldType: 'number',
+					value: 280,
+					tooltip: 'Height in pixels'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
+			numberOfSubgrids: 1
+		}
+	},
 	textcomponent: {
 		name: 'Text',
 		icon: Type,
 		dims: '1:1-3:1' as AppComponentDimensions,
-
+		documentationLink: `${documentationBaseUrl}#text`,
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -445,9 +569,10 @@ export const components = {
 		name: 'Button',
 		icon: Inspect,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
+		documentationLink: `${documentationBaseUrl}#button`,
 		customCss: {
-			button: { style: '', class: '' }
+			button: { style: '', class: '' },
+			container: { style: '', class: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -457,7 +582,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -467,9 +592,9 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -482,7 +607,9 @@ export const components = {
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -515,8 +642,8 @@ export const components = {
 	downloadcomponent: {
 		name: 'Download Button',
 		icon: Download,
+		documentationLink: `${documentationBaseUrl}#download-button`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			button: { style: '', class: '' }
 		},
@@ -546,7 +673,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
@@ -581,6 +707,7 @@ export const components = {
 	formcomponent: {
 		name: 'Submit form',
 		icon: FormInput,
+		documentationLink: `${documentationBaseUrl}#submit-form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -594,7 +721,7 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -604,7 +731,6 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
 					selectOptions: selectOptions.buttonColorOptions
 				},
@@ -623,6 +749,7 @@ export const components = {
 	formbuttoncomponent: {
 		name: 'Modal Form',
 		icon: PlusSquare,
+		documentationLink: `${documentationBaseUrl}#modal-form`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
@@ -637,8 +764,14 @@ export const components = {
 				fields: {},
 				runnable: undefined
 			},
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
+				modalTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Modal title',
+					onlyStatic: true
+				},
 				label: {
 					type: 'static',
 					value: 'Open popup',
@@ -647,9 +780,9 @@ export const components = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					value: 'dark',
-					selectOptions: buttonColorOptions
+					selectOptions: buttonColorOptions,
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -671,6 +804,7 @@ export const components = {
 	piechartcomponent: {
 		name: 'Pie Chart',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#pie-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -698,9 +832,49 @@ export const components = {
 			}
 		}
 	},
+	chartjscomponent: {
+		name: 'ChartJs',
+		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#chartjs`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'select',
+					selectOptions: selectOptions.chartTypeOptions,
+					value: 'pie'
+				},
+				options: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'ChartJs options object'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					labels: ['Pie', 'Charts', '<3'],
+					datasets: [
+						{
+							data: [25, 50, 25],
+							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
+						}
+					]
+				}
+			}
+		}
+	},
 	barchartcomponent: {
 		name: 'Bar/Line Chart',
 		icon: BarChart4,
+		documentationLink: `${documentationBaseUrl}#barline-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -731,8 +905,8 @@ export const components = {
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
+		documentationLink: `${documentationBaseUrl}#html`,
 		dims: '1:2-1:2' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -753,8 +927,8 @@ Hello \${ctx.username}
 	vegalitecomponent: {
 		name: 'Vega Lite',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#vega-lite`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -790,8 +964,8 @@ Hello \${ctx.username}
 	plotlycomponent: {
 		name: 'Plotly',
 		icon: PieChart,
+		documentationLink: `${documentationBaseUrl}#plotly`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -824,6 +998,7 @@ Hello \${ctx.username}
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal,
+		documentationLink: `${documentationBaseUrl}#timeseries`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -897,6 +1072,7 @@ Hello \${ctx.username}
 	scatterchartcomponent: {
 		name: 'Scatter Chart',
 		icon: GripHorizontal,
+		documentationLink: `${documentationBaseUrl}#scatter-chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -946,6 +1122,7 @@ Hello \${ctx.username}
 	tablecomponent: {
 		name: 'Table',
 		icon: Table2,
+		documentationLink: `${documentationBaseUrl}#table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -964,7 +1141,22 @@ Hello \${ctx.username}
 					tooltip:
 						'Search can be configured in the following ways: Disabled: The search is disabled,By Runnable: The search is done in the backend, or by component: The search is done in the frontend.'
 				},
-				pagination: paginationOneOf
+				pagination: paginationOneOf,
+				downloadButton: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'display a button to download the table as a csv file'
+				},
+				initialState: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)',
+					onlyStatic: true
+				}
 			},
 			componentInput: {
 				type: 'static',
@@ -989,6 +1181,7 @@ Hello \${ctx.username}
 	aggridcomponent: {
 		name: 'AgGrid Table',
 		icon: Table2,
+		documentationLink: `${documentationBaseUrl}#aggrid-table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -999,6 +1192,13 @@ Hello \${ctx.username}
 					subFieldType: 'object',
 					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
 				} as StaticAppInput,
+				flex: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'default col flex is 1 (see ag-grid docs)'
+				},
 				allEditable: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -1006,10 +1206,31 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					tooltip: 'Configure all columns as Editable by users'
 				},
+				multipleSelectable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true,
+					tooltip: 'Make multiple rows selectable at once'
+				},
+				rowMultiselectWithClick: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'If multiple selectable, allow multiselect with click'
+				},
 				pagination: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
+					onlyStatic: true
+				},
+				extraConfig: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'any configuration that can be passed to ag-grid top level',
 					onlyStatic: true
 				}
 			},
@@ -1035,15 +1256,15 @@ Hello \${ctx.username}
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
+		documentationLink: `${documentationBaseUrl}#toggle`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			text: { class: '', style: '' }
 		},
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			recomputeIds: undefined,
+			recomputeIds: true,
 			configuration: {
 				label: {
 					type: 'static',
@@ -1061,8 +1282,8 @@ Hello \${ctx.username}
 	textinputcomponent: {
 		name: 'Text Input',
 		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#text-input`,
 		dims: '2:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1084,11 +1305,36 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	quillcomponent: {
+		name: 'Rich Text Editor',
+		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
+		dims: '2:1-2:1' as AppComponentDimensions,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				}
+			}
+		}
+	},
 	textareainputcomponent: {
 		name: 'Textarea',
 		icon: TextCursorInput,
+		documentationLink: `${documentationBaseUrl}#textarea`,
 		dims: '2:1-2:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1112,12 +1358,16 @@ Hello \${ctx.username}
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
-			input: { style: '' }
+			input: {
+				style: '',
+				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+			}
 		},
 		initialData: {
+			recomputeIds: true,
 			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
@@ -1136,7 +1386,7 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true,
 					tooltip: 'Allows user to manually add new value',
-					customTitle: 'Manually add new value '
+					customTitle: 'User creatable'
 				},
 				placeholder: {
 					type: 'static',
@@ -1148,6 +1398,20 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'object'
+				},
+				preselectFirst: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					onlyStatic: true,
+					tooltip: 'Preselect first item in the options if no default value is set'
+				},
+				fullWidth: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
 		}
@@ -1155,10 +1419,14 @@ Hello \${ctx.username}
 	multiselectcomponent: {
 		name: 'Multi Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#multiselect`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
-			input: { style: '' }
+			multiselect: {
+				style: '',
+				tooltip:
+					'See https://multiselect.janosh.dev/#with-css-variables for the available variables'
+			}
 		},
 		initialData: {
 			componentInput: undefined,
@@ -1169,11 +1437,33 @@ Hello \${ctx.username}
 					subFieldType: 'text',
 					value: ['Foo', 'Bar']
 				} as StaticAppInput,
+				defaultItems: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: []
+				} as StaticAppInput,
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
 					value: 'Select items',
 					onlyStatic: true
+				},
+				create: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true,
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'User creatable'
+				},
+				allowOverflow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
 				}
 			}
 		}
@@ -1181,8 +1471,8 @@ Hello \${ctx.username}
 	resourceselectcomponent: {
 		name: 'Resource Select',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#resource-select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { style: '' }
 		},
@@ -1201,6 +1491,13 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
+				},
+				fullWidth: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					onlyStatic: true,
+					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
 		}
@@ -1208,8 +1505,8 @@ Hello \${ctx.username}
 	numberinputcomponent: {
 		name: 'Number',
 		icon: Binary,
+		documentationLink: `${documentationBaseUrl}#number-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1250,8 +1547,8 @@ Hello \${ctx.username}
 	currencycomponent: {
 		name: 'Currency',
 		icon: DollarSign,
+		documentationLink: `${documentationBaseUrl}#currency-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1291,8 +1588,8 @@ Hello \${ctx.username}
 	slidercomponent: {
 		name: 'Slider',
 		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}#slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
-
 		customCss: {
 			bar: { style: '' },
 			handle: { style: '' },
@@ -1306,8 +1603,7 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: 0,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
@@ -1324,6 +1620,12 @@ Hello \${ctx.username}
 					value: 1,
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
+				},
+				vertical: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
 				}
 			}
 		}
@@ -1331,8 +1633,8 @@ Hello \${ctx.username}
 	rangecomponent: {
 		name: 'Range',
 		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}#range`,
 		dims: '3:2-4:2' as AppComponentDimensions,
-
 		customCss: {
 			handles: { style: '' },
 			bar: { style: '' },
@@ -1375,8 +1677,8 @@ Hello \${ctx.username}
 	passwordinputcomponent: {
 		name: 'Password',
 		icon: Lock,
+		documentationLink: `${documentationBaseUrl}#password-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1396,8 +1698,8 @@ Hello \${ctx.username}
 	emailinputcomponent: {
 		name: 'Email Input',
 		icon: AtSignIcon,
+		documentationLink: `${documentationBaseUrl}#email-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1422,8 +1724,8 @@ Hello \${ctx.username}
 	dateinputcomponent: {
 		name: 'Date',
 		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}#date-input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1452,8 +1754,8 @@ Hello \${ctx.username}
 	tabscomponent: {
 		name: 'Tabs',
 		icon: ListOrdered,
+		documentationLink: `${documentationBaseUrl}#tabs-2`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -1467,11 +1769,11 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tabsKindOptions,
-					value: 'tabs' as string
+					value: 'tabs' as string,
+					tooltip: `Tabs can be configured to be either horizontal (tabs), vertical (sidebar), or invisible.`
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab'] as string[]
 		}
@@ -1479,12 +1781,9 @@ Hello \${ctx.username}
 	steppercomponent: {
 		name: 'Stepper',
 		icon: ListOrdered,
+		documentationLink: `${documentationBaseUrl}#stepper`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
-			stepsRow: { class: '', style: '' },
-			allSteps: { class: '', style: '' },
-			selectedStep: { class: '', style: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
@@ -1502,8 +1801,8 @@ Hello \${ctx.username}
 	iconcomponent: {
 		name: 'Icon',
 		icon: Smile,
+		documentationLink: `${documentationBaseUrl}#icon`,
 		dims: '1:3-1:2' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' },
 			icon: { class: '', style: '' }
@@ -1516,12 +1815,15 @@ Hello \${ctx.username}
 				icon: {
 					type: 'static',
 					value: 'Smile',
-					fieldType: 'icon-select'
+					fieldType: 'icon-select',
+					tooltip: 'The icons can be found at https://lucide.dev/'
 				},
 				color: {
 					type: 'static',
 					value: 'currentColor',
-					fieldType: 'color'
+					fieldType: 'color',
+					tooltip:
+						'The color of the icon can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					type: 'static',
@@ -1541,10 +1843,15 @@ Hello \${ctx.username}
 	horizontaldividercomponent: {
 		name: 'Divider X',
 		icon: SeparatorHorizontal,
+		documentationLink: `${documentationBaseUrl}#divider-x`,
 		dims: '3:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
-			divider: { class: '', style: '' }
+			divider: {
+				class: '',
+				style: '',
+				tooltip: '`background-color` and `height` are handled by the component configuration'
+			}
 		},
 		initialData: {
 			verticalAlignment: 'center',
@@ -1554,13 +1861,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The height of the divider in pixels can be overridden by the `height` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1568,6 +1879,7 @@ Hello \${ctx.username}
 	verticaldividercomponent: {
 		name: 'Divider Y',
 		icon: SeparatorVertical,
+		documentationLink: `${documentationBaseUrl}#divider-y`,
 		dims: '1:4-1:6' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1581,13 +1893,17 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The width of the divider in pixels can be overridden by the `width` property in the styling menu'
 				},
 				color: {
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip:
+						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
 			}
 		}
@@ -1595,6 +1911,7 @@ Hello \${ctx.username}
 	fileinputcomponent: {
 		name: 'File Input',
 		icon: Paperclip,
+		documentationLink: `${documentationBaseUrl}#file-input`,
 		dims: '3:4-6:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1627,6 +1944,7 @@ Hello \${ctx.username}
 	imagecomponent: {
 		name: 'Image',
 		icon: Image,
+		documentationLink: `${documentationBaseUrl}#image`,
 		dims: '3:4-5:4' as AppComponentDimensions,
 		customCss: {
 			image: { class: '', style: '' }
@@ -1648,7 +1966,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.objectFitOptions,
-					value: 'contain'
+					value: 'contain',
+					tooltip:
+						'The image fit property can be overridden by the `object-fit` property in the styling menu'
 				},
 				altText: {
 					type: 'static',
@@ -1663,9 +1983,10 @@ Hello \${ctx.username}
 	drawercomponent: {
 		name: 'Drawer',
 		icon: SidebarClose,
+		documentationLink: `${documentationBaseUrl}#drawer`,
 		dims: '1:1-2:1' as AppComponentDimensions,
-
 		customCss: {
+			button: { style: '', class: '' },
 			container: { class: '', style: '' }
 		},
 		initialData: {
@@ -1686,9 +2007,10 @@ Hello \${ctx.username}
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
 					selectOptions: buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip:
+						'The color of the button can be overridden by the `background-color` property in the styling menu'
 				},
 				size: {
 					fieldType: 'select',
@@ -1701,7 +2023,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -1710,13 +2034,13 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
 	mapcomponent: {
 		name: 'Map',
 		icon: MapPin,
+		documentationLink: `${documentationBaseUrl}#map`,
 		dims: '3:6-6:10' as AppComponentDimensions,
 		customCss: {
 			map: { class: '', style: '' }
@@ -1770,15 +2094,14 @@ Hello \${ctx.username}
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
+		documentationLink: `${documentationBaseUrl}#vertical-split-panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
-
 			panes: [50, 50] as number[],
 			numberOfSubgrids: 2
 		}
@@ -1786,8 +2109,8 @@ Hello \${ctx.username}
 	horizontalsplitpanescomponent: {
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
+		documentationLink: `${documentationBaseUrl}#horizontal-split-panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1801,6 +2124,7 @@ Hello \${ctx.username}
 	pdfcomponent: {
 		name: 'PDF',
 		icon: FileText,
+		documentationLink: `${documentationBaseUrl}#pdf`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1829,9 +2153,11 @@ Hello \${ctx.username}
 	modalcomponent: {
 		name: 'Modal',
 		icon: SidebarClose,
+		documentationLink: `${documentationBaseUrl}#modal-layout`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
+			buttonContainer: { class: '', style: '' },
 			popup: { class: '', style: '' }
 		},
 		initialData: {
@@ -1854,7 +2180,8 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: buttonColorOptions,
-					value: 'blue'
+					value: 'blue',
+					tooltip: 'Theses presets can be overwritten with custom styles.'
 				},
 				buttonSize: {
 					fieldType: 'select',
@@ -1867,7 +2194,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					onlyStatic: true,
-					value: false
+					value: false,
+					tooltip:
+						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
 				buttonDisabled: {
 					fieldType: 'boolean',
@@ -1876,13 +2205,13 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
 	schemaformcomponent: {
 		name: 'Form',
 		icon: FileText,
+		documentationLink: `${documentationBaseUrl}#form-input`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1909,13 +2238,15 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will diplay the type and/or the format on the field next to the label.'
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'This will add a large gap between the form elements.'
 				}
 			}
 		}
@@ -1923,8 +2254,8 @@ Hello \${ctx.username}
 	selecttabcomponent: {
 		name: 'Select Tab',
 		icon: List,
+		documentationLink: `${documentationBaseUrl}#select-tab`,
 		dims: '2:1-3:1' as AppComponentDimensions,
-
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -1946,14 +2277,47 @@ Hello \${ctx.username}
 
 				defaultValue: {
 					type: 'static',
-					value: undefined as { value: string; label: string } | undefined,
+					value: undefined,
 					fieldType: 'object'
 				},
 				tabSize: {
 					type: 'static',
 					value: 'sm',
 					fieldType: 'select',
-					selectOptions: selectOptions.buttonSizeOptions
+					selectOptions: selectOptions.buttonSizeOptions,
+					tooltip:
+						'Size of the tabs can be overwritten with custom styles using `font-size` in CSS or using tailwind classes.'
+				}
+			}
+		}
+	},
+	selectstepcomponent: {
+		name: 'Select Step',
+		icon: List,
+		documentationLink: `${documentationBaseUrl}#select-step`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledselect',
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				} as StaticAppInput,
+				defaultValue: {
+					type: 'static',
+					value: undefined as { value: string; label: string } | undefined,
+					fieldType: 'object'
 				}
 			}
 		}
@@ -1961,8 +2325,8 @@ Hello \${ctx.username}
 	conditionalwrapper: {
 		name: 'Conditional tabs',
 		icon: Split,
+		documentationLink: `${documentationBaseUrl}#conditional-tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
-
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1985,6 +2349,35 @@ Hello \${ctx.username}
 		}
 	}
 } as const
+
+export const presetComponents = {
+	sidebartabscomponent: {
+		name: 'Sidebar Tabs',
+		icon: PanelLeft,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'sidebar'
+			}
+		},
+		type: 'sidebartabscomponent'
+	},
+	invisibletabscomponent: {
+		name: 'Invisible Tabs',
+		icon: PanelTopInactive,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'invisibleOnView'
+			}
+		},
+		type: 'invisibletabscomponent'
+	}
+}
+
+export const presets: {
+	[Property in keyof typeof presetComponents]: PresetComponentConfig
+} = presetComponents
 
 export const ccomponents: {
 	[Property in keyof typeof components]: AppComponentConfig<Property>

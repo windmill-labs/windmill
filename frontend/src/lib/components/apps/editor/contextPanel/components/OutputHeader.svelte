@@ -20,7 +20,7 @@
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
-	const { selectedComponent, app, hoverStore, allIdsInPath, connectingInput } =
+	const { selectedComponent, app, hoverStore, allIdsInPath, connectingInput, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$: subids = $search != '' ? allsubIds($app, id) : []
@@ -91,6 +91,8 @@
 
 		$app = $app
 		$selectedComponent = [newId]
+
+		delete $worldStore.outputsById[id]
 	}
 
 	function renameComponent(from: string, to: string, data: AppComponent) {

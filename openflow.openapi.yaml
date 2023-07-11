@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.99.0
+  version: 1.127.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -16,7 +16,7 @@ paths: {}
 
 externalDocs:
   description: documentation portal
-  url: https://docs.windmill.dev
+  url: https://windmill.dev
 
 components:
   schemas:
@@ -88,8 +88,16 @@ components:
             - expr
         sleep:
           $ref: "#/components/schemas/InputTransform"
+        cache_ttl:
+          type: number
         summary:
           type: string
+        mock:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            return_value: {}
         suspend:
           type: object
           properties:
@@ -97,6 +105,11 @@ components:
               type: integer
             timeout:
               type: integer
+            resume_form:
+              type: object
+              properties:
+                schema:
+                  type: object
         retry:
           $ref: "#/components/schemas/Retry"
       required:
@@ -147,6 +160,8 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
+        - $ref: "#/components/schemas/Http"
+        - $ref: "#/components/schemas/Graphql"
       discriminator:
         propertyName: type
         mapping:
@@ -157,6 +172,8 @@ components:
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
+          http: "#/components/schemas/Http"
+          graphql: "#/components/schemas/Graphql"
 
     RawScript:
       type: object
@@ -175,6 +192,8 @@ components:
             - python3
             - go
             - bash
+            - postgresql
+            - nativets
         path:
           type: string
         lock:
@@ -313,6 +332,7 @@ components:
       required:
         - branches
         - type
+
     Identity:
       type: object
       properties:
@@ -322,6 +342,27 @@ components:
             - identity
         flow:
           type: boolean
+
+      required:
+        - type
+
+    Http:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - http
+      required:
+        - type
+
+    Graphql:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - graphql
       required:
         - type
 

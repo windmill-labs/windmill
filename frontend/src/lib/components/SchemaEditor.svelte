@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { Schema, SchemaProperty, PropertyDisplayInfo } from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
-	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
-	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
+	import PropertyRow from './PropertyRow.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
@@ -19,7 +19,10 @@
 	const dispatch = createEventDispatcher()
 
 	export let lightMode: boolean = false
-	export let schema: Schema = emptySchema()
+
+	const moveAnimationDuration = 300
+
+	export let schema: Schema | any = emptySchema()
 	if (!schema) {
 		schema = emptySchema()
 	}
@@ -28,7 +31,6 @@
 	let schemaString: string = ''
 
 	// Internal state: bound to args builder modal
-	let modalProperty: ModalSchemaProperty = Object.assign({}, DEFAULT_PROPERTY)
 	let argError = ''
 	let editing = false
 	let oldArgName: string | undefined // when editing argument and changing name
@@ -62,9 +64,10 @@
 			format: schema.format
 		}
 	}
-	function handleAddOrEditArgument(): void {
+	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
+		modalProperty.name = modalProperty.name.trim()
 		if (modalProperty.name.length === 0) {
 			argError = 'Arguments need to have a name'
 		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
@@ -83,7 +86,7 @@
 			}
 
 			if (editing && oldArgName && oldArgName !== modalProperty.name) {
-				handleDeleteArgument(oldArgName)
+				handleDeleteArgument([oldArgName])
 			}
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
@@ -96,28 +99,50 @@
 		dispatch('change', schema)
 	}
 
+	function handleStartEditEvent(event: CustomEvent): void {
+		startEditArgument(event.detail)
+	}
+
 	function startEditArgument(argName: string): void {
 		argError = ''
 		if (Object.keys(schema.properties).includes(argName)) {
 			editing = true
-			modalProperty = schemaToModal(
+			const modalProperty = schemaToModal(
 				schema.properties[argName],
 				argName,
 				schema.required.includes(argName)
 			)
+			console.log(modalProperty.format)
 			oldArgName = argName
-			schemaModal.openDrawer()
+			schemaModal.openDrawer(modalProperty)
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
 	}
 
-	function handleDeleteArgument(argName: string): void {
-		try {
-			if (Object.keys(schema.properties).includes(argName)) {
-				delete schema.properties[argName]
+	function handleDeleteEvent(event: CustomEvent): void {
+		handleDeleteArgument(event.detail)
+	}
 
-				schema.required = schema.required.filter((arg) => arg !== argName)
+	function handleDeleteArgument(argPath: string[]): void {
+		try {
+			let modifiedObject: Schema | SchemaProperty = schema
+			let modifiedProperties = modifiedObject.properties as object
+			let argName = argPath.pop() as string
+
+			argPath.forEach((property) => {
+				if (Object.keys(modifiedProperties).includes(property)) {
+					modifiedObject = modifiedProperties[property]
+					modifiedProperties = modifiedObject.properties as object
+				} else {
+					throw Error('Nested argument not found!')
+				}
+			})
+
+			if (Object.keys(modifiedProperties).includes(argName)) {
+				delete modifiedProperties[argName]
+
+				modifiedObject.required = schema.required.filter((arg) => arg !== argName)
 
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
@@ -142,11 +167,15 @@
 		}
 	}
 
+	function handleChangePositionEvent(event: CustomEvent): void {
+		changePosition(event.detail.i, event.detail.up)
+	}
+
 	function changePosition(i: number, up: boolean): any {
 		isAnimated = true
 		setTimeout(() => {
 			isAnimated = false
-		}, 500)
+		}, moveAnimationDuration)
 		const entries = Object.entries(schema.properties)
 		var element = entries[i]
 		entries.splice(i, 1)
@@ -155,6 +184,45 @@
 	}
 	let isAnimated = false
 	let error = ''
+
+	function schemaPropertiesToDisplay(schema: Schema): PropertyDisplayInfo[] {
+		return propertiesToDisplay(schema.properties, schema.required, [])
+	}
+
+	function propertiesToDisplay(
+		properties: { [name: string]: SchemaProperty },
+		required: string[],
+		path: string[]
+	): PropertyDisplayInfo[] {
+		return Object.entries(properties)
+			.map(([name, property], index) => {
+				const isRequired = required.includes(name)
+				const displayInfo = {
+					property: property,
+					name: name,
+					isRequired: isRequired,
+					path: path,
+					index: index,
+					propertiesNumber: Object.entries(properties).length
+				}
+				if (property.type === 'object') {
+					const newPath = [...path, name]
+					return [
+						displayInfo,
+						...propertiesToDisplay(property.properties || {}, property.required || [], newPath)
+					]
+				} else {
+					return [displayInfo]
+				}
+			})
+			.flat()
+	}
+
+	/* Small hash function to generate a unique key for each property */
+	function displayInfoKey(displayInfo: PropertyDisplayInfo): string {
+		const pathLengthString = displayInfo.path.length.toString()
+		return pathLengthString + [...displayInfo.path, displayInfo.name].join(pathLengthString)
+	}
 </script>
 
 <div class="flex flex-col">
@@ -163,11 +231,10 @@
 			<Button
 				variant="contained"
 				color="dark"
-				size={lightMode ? 'xs' : 'sm'}
+				size="sm"
 				startIcon={{ icon: faPlus }}
 				on:click={() => {
-					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
-					schemaModal.openDrawer()
+					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
 				}}
 			>
 				Add Property
@@ -180,11 +247,10 @@
 				options={{
 					right: 'As JSON'
 				}}
-				size={lightMode ? 'xs' : 'sm'}
 			/>
 			<div class="ml-2">
 				<Tooltip
-					documentationLink="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema"
+					documentationLink="https://www.windmill.dev/docs/reference/#script-parameters-to-json-schema"
 				>
 					Arguments can be edited either using the wizard, or by editing their JSON Schema
 				</Tooltip>
@@ -202,69 +268,26 @@
 							<th>Name</th>
 							<th>Type</th>
 							{#if !lightMode}
-								<th>Description</th>
 								<th>Default</th>
-								<th>Required</th>
+								<th>Description</th>
 							{/if}
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each Object.entries(schema.properties) as [name, property], i (name)}
-								<tr animate:flip>
-									<td class="font-bold">{name}</td>
-									<td>
-										<SchemaEditorProperty {property} />
-									</td>
-									{#if !lightMode}
-										<td>{property.description ?? ''}</td>
-										<td>{property.default ? JSON.stringify(property.default) : ''}</td>
-										<td>
-											{#if schema.required.includes(name)}
-												<span class="text-red-600 font-bold text-lg">*</span>
-											{/if}
-										</td>
-									{/if}
-									<td class="justify-end flex">
-										{#if i > 0}
-											<button
-												on:click={() => changePosition(i, true)}
-												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
-											>
-												&uparrow;
-											</button>
-										{/if}
-										{#if i < Object.keys(schema.properties).length - 1}
-											<button
-												on:click={() => changePosition(i, false)}
-												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
-												>&downarrow;
-											</button>
-										{/if}
-
-										<Button
-											color="red"
-											variant="border"
-											btnClasses="mx-2"
-											size={lightMode ? 'xs' : 'sm'}
-											startIcon={{ icon: faTrash }}
-											on:click={() => handleDeleteArgument(name)}
-											iconOnly={lightMode}
-										>
-											Delete
-										</Button>
-										<Button
-											color="light"
-											variant="border"
-											size={lightMode ? 'xs' : 'sm'}
-											startIcon={{ icon: faPen }}
-											on:click={() => startEditArgument(name)}
-											iconOnly={lightMode}
-										>
-											Edit
-										</Button>
-									</td>
-								</tr>
-							{/each}
+							{#key schema.required}
+								{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
+									<tr animate:flip={{ duration: moveAnimationDuration }}>
+										<PropertyRow
+											{displayInfo}
+											{isAnimated}
+											{lightMode}
+											on:startEditArgument={handleStartEditEvent}
+											on:deleteArgument={handleDeleteEvent}
+											on:changePosition={handleChangePositionEvent}
+										/>
+									</tr>
+								{/each}
+							{/key}
 						</tbody>
 					</TableCustom>
 				{:else}
@@ -299,9 +322,8 @@
 	<SchemaModal
 		{isFlowInput}
 		bind:this={schemaModal}
-		bind:property={modalProperty}
 		bind:error={argError}
-		on:save={handleAddOrEditArgument}
+		on:save={(e) => handleAddOrEditArgument(e.detail)}
 		bind:editing
 		bind:oldArgName
 	/>

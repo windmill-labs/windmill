@@ -6,10 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
+use std::{collections::HashMap, vec, sync::atomic::AtomicBool};
 
+use anyhow::Context;
+use async_recursion::async_recursion;
 use itertools::Itertools;
 use reqwest::Client;
+use rsmq_async::RsmqConnection;
+use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
@@ -17,14 +21,24 @@ use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error},
-    flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
+    flow_status::{
+        FlowStatus, FlowStatusModule, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+    },
     flows::{FlowModule, FlowModuleValue, FlowValue},
-    jobs::{JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{
+        get_payload_tag_from_prefixed_path, script_path_to_payload, JobKind, JobPayload, Metrics,
+        QueuedJob, RawCode,
+    },
+    schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
+    users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
     METRICS_ENABLED,
 };
 
-use crate::QueueTransaction;
+use crate::{
+    schedule::{get_schedule_opt, push_scheduled_job},
+    QueueTransaction,
+};
 
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -57,6 +71,9 @@ lazy_static::lazy_static! {
             "python3".to_string(),
             "go".to_string(),
             "bash".to_string(),
+            "nativets".to_string(),
+            "bun".to_string(),
+            "postgresql".to_string(),
             "dependency".to_string(),
             "flow".to_string(),
             "hub".to_string(),
@@ -64,55 +81,578 @@ lazy_static::lazy_static! {
 
     pub static ref ACCEPTED_TAGS_FILTER: String = format!(" AND ({})",
         ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "));
+
+    // When compiled in 'benchmark' mode, this flags is exposed via the /workers/toggle endpoint
+    // and make it possible to disable to current active workers (such that they don't pull any)
+    // jobs from the queue
+    pub static ref IDLE_WORKERS: AtomicBool = AtomicBool::new(false);
 }
 
+#[cfg(feature = "enterprise")]
 const MAX_FREE_EXECS: i32 = 1000;
+#[cfg(feature = "enterprise")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
+
 const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
 
-pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
+#[async_recursion]
+pub async fn cancel_job<'c: 'async_recursion>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
-    rsmq: Option<R>,
-    force_rerun: bool,
+    db: &Pool<Postgres>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0, running = CASE WHEN $3 THEN false ELSE running END  WHERE id = $4 \
-         AND workspace_id = $5 RETURNING id",
+    let job_running = get_queued_job(id, &w_id, &mut tx).await?;
+
+    if job_running.is_none() {
+        return Ok((tx, None));
+    }
+    let job_running = job_running.unwrap();
+    if job_running.running && !force_cancel {
+        sqlx::query!(
+        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
+         AND workspace_id = $4 ",
         username,
         reason,
-        force_rerun,
         id,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .execute(&mut tx)
     .await?;
-    if let Some(mut rsmq) = rsmq {
+    } else {
+        let reason = reason
+            .clone()
+            .unwrap_or_else(|| "No reason provided".to_string());
+        let add_job = add_completed_job_error(
+            &db,
+            &job_running,
+            format!("canceled by {username}: (force cancel: {force_cancel}"),
+            serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username}),
+            None,
+            rsmq.clone(),
+        )
+        .await;
+        if let Err(e) = add_job {
+            tracing::error!("Failed to add canceled job: {}", e);
+        }
+    }
+    if let Some(mut rsmq) = rsmq.clone() {
         rsmq.change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
 
-    let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
+    let mut jobs = vec![id];
+    let mut jobs_to_cancel = vec![];
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, running = CASE WHEN $3 THEN false ELSE running END WHERE parent_job = $4 \
-             AND workspace_id = $5 RETURNING id",
-            username,
-            reason,
-            force_rerun,
+            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
             p_job,
             w_id
         )
         .fetch_all(&mut tx)
         .await?;
-        jobs.extend(new_jobs);
+        jobs.extend(new_jobs.clone());
+        jobs_to_cancel.extend(new_jobs);
     }
-    Ok((tx, job_option))
+    for job in jobs_to_cancel {
+        let (ntx, _) = cancel_job(
+            username,
+            reason.clone(),
+            job,
+            w_id,
+            tx,
+            db,
+            rsmq.clone(),
+            force_cancel,
+        )
+        .await?;
+        tx = ntx;
+    }
+    Ok((tx, Some(id)))
+}
+
+#[instrument(level = "trace", skip_all)]
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
+    db: &Pool<Postgres>,
+    queued_job: &QueuedJob,
+    logs: String,
+    e: serde_json::Value,
+    metrics: Option<Metrics>,
+    rsmq: Option<R>,
+) -> Result<serde_json::Value, Error> {
+    if *METRICS_ENABLED {
+        metrics.map(|m| m.worker_execution_failed.inc());
+    }
+    let result = serde_json::json!({ "error": e });
+    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs, rsmq).await?;
+    Ok(result)
+}
+
+fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
+    modules
+        .into_iter()
+        .filter_map(|m| match m {
+            FlowStatusModule::Success { job, flow_jobs, .. }
+            | FlowStatusModule::Failure { job, flow_jobs, .. } => {
+                if let Some(flow_jobs) = flow_jobs {
+                    Some(flow_jobs)
+                } else {
+                    Some(vec![job])
+                }
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect::<Vec<_>>()
+}
+
+lazy_static::lazy_static! {
+    pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
+}
+
+#[instrument(level = "trace", skip_all)]
+pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
+    db: &Pool<Postgres>,
+    queued_job: &QueuedJob,
+    success: bool,
+    skipped: bool,
+    result: serde_json::Value,
+    logs: String,
+    rsmq: Option<R>,
+) -> Result<Uuid, Error> {
+    let is_flow =
+        queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
+    let duration = if is_flow {
+        let jobs = queued_job.parse_flow_status().map(|s| {
+            let mut modules = s.modules;
+            modules.extend([s.failure_module.module_status]);
+            flatten_jobs(modules)
+        });
+        if let Some(jobs) = jobs {
+            sqlx::query_scalar!(
+                "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)",
+                jobs.as_slice()
+            )
+            .fetch_one(db)
+            .await
+            .ok()
+            .flatten()
+        } else {
+            tracing::warn!("Could not parse flow status");
+            None
+        }
+    } else {
+        None
+    };
+
+    let mem_peak = sqlx::query_scalar!("SELECT mem_peak FROM queue WHERE id = $1", &queued_job.id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
+    let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+    let job_id = queued_job.id.clone();
+    let _duration = sqlx::query_scalar!(
+        "INSERT INTO completed_job AS cj
+                   ( workspace_id
+                   , id
+                   , parent_job
+                   , created_by
+                   , created_at
+                   , started_at
+                   , duration_ms
+                   , success
+                   , script_hash
+                   , script_path
+                   , args
+                   , result
+                   , logs
+                   , raw_code
+                   , raw_lock
+                   , canceled
+                   , canceled_by
+                   , canceled_reason
+                   , job_kind
+                   , schedule_path
+                   , permissioned_as
+                   , flow_status
+                   , raw_flow
+                   , is_flow_step
+                   , is_skipped
+                   , language
+                   , email
+                   , visible_to_owner
+                   , mem_peak
+                   , tag
+                )
+            VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30)
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING duration_ms",
+        queued_job.workspace_id,
+        queued_job.id,
+        queued_job.parent_job,
+        queued_job.created_by,
+        queued_job.created_at,
+        queued_job.started_at,
+        success,
+        queued_job.script_hash.map(|x| x.0),
+        queued_job.script_path,
+        queued_job.args,
+        result,
+        logs,
+        queued_job.raw_code,
+        queued_job.raw_lock,
+        queued_job.canceled,
+        queued_job.canceled_by,
+        queued_job.canceled_reason,
+        queued_job.job_kind: JobKind,
+        queued_job.schedule_path,
+        queued_job.permissioned_as,
+        queued_job.flow_status,
+        queued_job.raw_flow,
+        queued_job.is_flow_step,
+        skipped,
+        queued_job.language: ScriptLang,
+        duration: Option<i64>,
+        queued_job.email,
+        queued_job.visible_to_owner,
+        mem_peak,
+        queued_job.tag,
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
+
+    tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+    if !queued_job.is_flow_step
+        && queued_job.job_kind != JobKind::Flow
+        && queued_job.job_kind != JobKind::FlowPreview
+        && queued_job.schedule_path.is_some()
+        && queued_job.script_path.is_some()
+    {
+        tx = handle_maybe_scheduled_job(
+            tx,
+            db,
+            queued_job.schedule_path.as_ref().unwrap(),
+            queued_job.script_path.as_ref().unwrap(),
+            &queued_job.workspace_id,
+            success,
+            if success { None } else { Some(&result) },
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    #[cfg(feature = "enterprise")]
+    if !is_flow && _duration > 1000 {
+        let additional_usage = _duration / 1000;
+        let w_id = &queued_job.workspace_id;
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+                .fetch_one(db)
+                .await
+                .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;
+        let _ = sqlx::query!(
+                "INSERT INTO usage (id, is_workspace, month_, usage) 
+                VALUES ($1, $2, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $3",
+                if premium_workspace { w_id } else { &queued_job.email },
+                premium_workspace,
+                additional_usage)
+                .execute(db)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
+    }
+
+    if matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
+        && queued_job.parent_job.is_none()
+        && !success
+    {
+        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, &result).await {
+            tracing::error!(
+                "Could not run global error handler for job {}: {}",
+                &queued_job.id,
+                e
+            );
+        }
+
+        if let Err(e) =
+            send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, &result).await
+        {
+            tracing::error!(
+                "Could not run workspace error handler for job {}: {}",
+                &queued_job.id,
+                e
+            );
+        }
+    }
+
+    tracing::debug!("Added completed job {}", queued_job.id);
+    Ok(queued_job.id)
+}
+
+pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+    error_handler_path: &str,
+    is_global: bool,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+    let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
+    let job_id = queued_job.id;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+    let (job_payload, tag) =
+        script_path_to_payload(&error_handler_path, tx.transaction_mut(), script_w_id).await?;
+    let mut args = result.as_object().unwrap().clone();
+    args.insert("workspace_id".to_string(), json!(w_id));
+    args.insert("job_id".to_string(), json!(job_id));
+    args.insert("path".to_string(), json!(queued_job.script_path));
+    args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
+    args.insert("email".to_string(), json!(queued_job.email));
+
+    let (uuid, tx) = push(
+        tx,
+        script_w_id,
+        job_payload,
+        args,
+        if is_global { "global" } else { "error_handler" },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL
+        } else {
+            "error_handler@windmill.dev"
+        },
+        if is_global {
+            SUPERADMIN_SECRET_EMAIL.to_string()
+        } else {
+            "g/error_handler".to_string()
+        },
+        None,
+        None,
+        Some(job_id),
+        Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+    )
+    .await?;
+    tx.commit().await?;
+
+    let error_handler_type = if is_global { "global" } else { "workspace" };
+    tracing::info!(
+        "Sent error of job {job_id} to {error_handler_type} error handler under uuid {uuid}"
+    );
+
+    Ok(())
+}
+
+pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+) -> Result<(), Error> {
+    if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
+        run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
+    }
+
+    Ok(())
+}
+
+pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    result: &serde_json::Value,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+    let mut tx = db.begin().await?;
+    let error_handler = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut tx)
+    .await
+    .context("sending error to global handler")?
+    .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
+
+    if let Some(error_handler) = error_handler {
+        run_error_handler(
+            rsmq,
+            queued_job,
+            db,
+            result,
+            &error_handler.strip_prefix("script/").unwrap(),
+            false,
+        )
+        .await?
+    }
+
+    Ok(())
+}
+
+#[instrument(level = "trace", skip_all)]
+pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
+    db: &Pool<Postgres>,
+    schedule_path: &str,
+    script_path: &str,
+    w_id: &str,
+    success: bool,
+    result: Option<&serde_json::Value>,
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
+
+    if schedule.is_none() {
+        tracing::error!(
+            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+        );
+        return Ok(tx);
+    }
+
+    let schedule = schedule.unwrap();
+
+    if schedule.enabled && script_path == schedule.script_path {
+        if !success {
+            if let Some(on_failure_path) = schedule.on_failure.clone() {
+                let on_failure_result = handle_on_failure(
+                    tx,
+                    schedule_path,
+                    script_path,
+                    w_id,
+                    &on_failure_path,
+                    result,
+                    &schedule.email,
+                    &schedule_to_user(&schedule.path),
+                    username_to_permissioned_as(&schedule.edited_by),
+                )
+                .await;
+
+                match on_failure_result {
+                    Ok(ntx) => {
+                        tx = ntx;
+                    }
+                    Err(err) => {
+                        sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        format!("Could not trigger error handler: {err}"),
+                        &schedule.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await?;
+                        tracing::warn!(
+                            "Could not trigger error handler for {}: {}",
+                            schedule_path,
+                            err
+                        );
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        let res = push_scheduled_job(
+            tx,
+            Schedule {
+                workspace_id: w_id.to_owned(),
+                path: schedule.path.clone(),
+                edited_by: schedule.edited_by,
+                edited_at: schedule.edited_at,
+                schedule: schedule.schedule,
+                timezone: schedule.timezone,
+                enabled: schedule.enabled,
+                script_path: schedule.script_path,
+                is_flow: schedule.is_flow,
+                args: schedule
+                    .args
+                    .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
+                extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
+                email: schedule.email,
+                error: None,
+                on_failure: schedule.on_failure,
+            },
+        )
+        .await;
+        match res {
+            Ok(tx) => Ok(tx),
+            Err(err) => {
+                sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    err.to_string(),
+                    &schedule.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await?;
+                tracing::warn!("Could not schedule job for {}: {}", schedule_path, err);
+                Err(err)
+            }
+        }
+    } else {
+        Ok(tx)
+    }
+}
+
+async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
+    schedule_path: &str,
+    script_path: &str,
+    w_id: &str,
+    on_failure_path: &str,
+    result: Option<&serde_json::Value>,
+    username: &str,
+    email: &str,
+    permissioned_as: String,
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let (payload, tag) =
+        get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
+
+    let mut args = result
+        .map(|x| x.clone())
+        .unwrap_or_else(|| json!({}))
+        .as_object()
+        .unwrap()
+        .clone();
+    args.insert("schedule_path".to_string(), json!(schedule_path));
+    args.insert("path".to_string(), json!(script_path));
+    let (uuid, tx) = push(
+        tx,
+        w_id,
+        payload,
+        args,
+        username,
+        email,
+        permissioned_as,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+    )
+    .await?;
+    tracing::info!(
+        "Pushed on_failure job {} for {} to queue",
+        uuid,
+        schedule_path
+    );
+    return Ok(tx);
 }
 
 pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
@@ -149,12 +689,16 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         }
     }
 
+    // let rs = rd_string(2);
+    // let instant = Instant::now();
+
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
         let msg = rsmq
             .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
+        // println!("3.1: {:?} {rs}", instant.elapsed());
 
         if let Some(msg) = msg {
             let uuid = Uuid::from_bytes_le(
@@ -212,6 +756,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         .fetch_optional(db)
         .await?
     };
+    // println!("3.2: {:?} {rs}", instant.elapsed());
 
     if job.is_some() && *METRICS_ENABLED {
         QUEUE_PULL_COUNT.inc();
@@ -220,23 +765,42 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
     Ok(job)
 }
 
+#[async_recursion]
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
     flow_id: Uuid,
     node_id: String,
 ) -> error::Result<serde_json::Value> {
-    let job_result: Option<JobResult> = sqlx::query_scalar!(
-        "SELECT leaf_jobs->$1::text FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
+    let flow_job_result = sqlx::query!(
+        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
         node_id,
         flow_id,
         w_id,
     )
     .fetch_optional(&db)
-    .await?
-    .flatten()
-    .map(|x| serde_json::from_value(x).ok())
-    .flatten();
+    .await?;
+
+    let flow_job_result = windmill_common::utils::not_found_if_none(
+        flow_job_result,
+        "Flow result by id",
+        format!("{}, {}", flow_id, node_id),
+    )?;
+
+    let job_result = flow_job_result
+        .leaf_jobs
+        .map(|x| serde_json::from_value(x).ok())
+        .flatten();
+
+    if job_result.is_none() && flow_job_result.parent_job.is_some() {
+        let parent_job = flow_job_result.parent_job.unwrap();
+        let root_job = sqlx::query_scalar!("SELECT root_job FROM queue WHERE id = $1", parent_job)
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .unwrap_or(parent_job);
+        return get_result_by_id(db, w_id, root_job, node_id).await;
+    }
 
     let result_id = windmill_common::utils::not_found_if_none(
         job_result,
@@ -324,6 +888,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
+    job_id: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
@@ -331,9 +896,27 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut tag: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
-    let job_id: Uuid = Ulid::new().into();
+    let job_id: Uuid = if let Some(job_id) = job_id {
+        let conflicting_id = sqlx::query_scalar!(
+            "SELECT 1 FROM queue WHERE id = $1 UNION ALL select 1 FROM completed_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut tx)
+        .await?;
 
-    if cfg!(feature = "enterprise") {
+        if conflicting_id.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Job with id {job_id} already exists"
+            )));
+        }
+
+        job_id
+    } else {
+        Ulid::new().into()
+    };
+
+    #[cfg(feature = "enterprise")]
+    {
         let premium_workspace = *CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
@@ -347,27 +930,17 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             job_payload,
             JobPayload::Flow(_) | JobPayload::RawFlow { .. }
         ) {
-            if !premium_workspace {
-                sqlx::query_scalar!(
+            sqlx::query_scalar!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    VALUES ($1, $2, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
                     ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
                     RETURNING usage.usage",
-                    email)
+                    if premium_workspace { workspace_id } else { email },
+                    premium_workspace
+                )
                 .fetch_one(&mut tx)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-            } else {
-                sqlx::query_scalar!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                    RETURNING usage.usage",
-                    workspace_id)
-                .fetch_one(&mut tx)
-                .await
-                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-            }
         } else if *CLOUD_HOSTED && !premium_workspace {
             sqlx::query_scalar!(
                 "
@@ -524,6 +1097,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 (None, Some(flow), None, JobKind::Flow, Some(value), None)
             }
             JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
+            JobPayload::Http => (None, None, None, JobKind::Http, None, None),
+            JobPayload::Noop => (None, None, None, JobKind::Noop, None, None),
         };
 
     let is_running = same_worker;
@@ -560,9 +1135,11 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 summary: Some(
                     "Virtual module needed for suspend/sleep when last module".to_string(),
                 ),
+                mock: None,
                 retry: None,
                 sleep: None,
                 suspend: None,
+                cache_ttl: None,
             });
             raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }
@@ -654,6 +1231,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
+            JobKind::Http => "jobs.run.http",
+            JobKind::Noop => "jobs.run.noop",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 

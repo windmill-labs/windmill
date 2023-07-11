@@ -32,6 +32,7 @@
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
+	export let noVariablePicker: boolean | undefined = undefined
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -55,7 +56,7 @@
 	<div
 		class={classNames(
 			'flex gap-1',
-			onlyStatic ? 'flex-row items-center justify-between' : 'flex-col'
+			onlyStatic && fieldType != 'object' ? 'flex-row items-center justify-between' : 'flex-col'
 		)}
 	>
 		<div class="flex justify-between items-end">
@@ -67,7 +68,7 @@
 						? capitalize(addWhitespaceBeforeCapitals(key))
 						: key}
 					{#if tooltip}
-						<Tooltip>
+						<Tooltip light>
 							{tooltip}
 						</Tooltip>
 					{/if}
@@ -122,13 +123,18 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full flex flex-row-reverse'}>
+			<div
+				class={onlyStatic && fieldType != 'object'
+					? 'w-2/3 flex justify-end'
+					: 'w-full flex flex-row-reverse'}
+			>
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}
 					{selectOptions}
 					{format}
 					{placeholder}
+					noVariablePicker={noVariablePicker ?? false}
 					bind:componentInput
 				/>
 			</div>

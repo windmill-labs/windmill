@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { isOwner } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
 	import { AppService, FlowService, RawAppService, ScriptService } from '$lib/gen'
+	import { isOwner } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -111,9 +111,9 @@
 		<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 		<div class="flex flex-col mb-2 gap-6">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
-			<div class="mt-4" />
-			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
-			<div />
 		</div>
+		<svelte:fragment slot="actions">
+			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

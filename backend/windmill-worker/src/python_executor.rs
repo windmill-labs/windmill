@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -18,6 +18,7 @@ use windmill_common::{
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+
 
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
@@ -48,11 +49,14 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 #[cfg(feature = "enterprise")]
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
+#[cfg(feature = "enterprise")]
+use crate::S3_CACHE_BUCKET;
+
 use crate::{
     common::{read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
-    PIP_CACHE_DIR, S3_CACHE_BUCKET,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY, NO_PROXY,
+    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -74,8 +78,24 @@ pub async fn pip_compile(
 ) -> error::Result<String> {
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
-    logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
-    let req_hash = calculate_hash(&requirements);
+    logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
+    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| {
+                if !deps.contains(&s.to_string()) {
+                    return true;
+                } else {
+                    logs.push_str(&format!("\nignoring local dependency: {}", s));
+                    return false;
+                }
+            })
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
+    let req_hash = format!("py-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
         req_hash
@@ -83,19 +103,11 @@ pub async fn pip_compile(
     .fetch_optional(db)
     .await?
     {
-        logs.push_str(&format!("\nfound cached resolution"));
+        logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
         return Ok(cached);
     }
     let file = "requirements.in";
-    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
-        let deps = pip_local_dependencies.clone();
-        requirements
-            .lines()
-            .filter(|s| !deps.contains(&s.to_string()))
-            .join("\n")
-    } else {
-        requirements.to_string()
-    };
+
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
@@ -108,6 +120,7 @@ pub async fn pip_compile(
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
+
     let child = Command::new("pip-compile")
         .current_dir(job_dir)
         .args(args)
@@ -157,6 +170,7 @@ pub async fn handle_python_job(
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
+    envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
@@ -166,7 +180,8 @@ pub async fn handle_python_job(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements = windmill_parser_py::parse_python_imports(&inner_content)?.join("\n");
+            let requirements =
+                windmill_parser_py_imports::parse_python_imports(&inner_content)?.join("\n");
             if requirements.is_empty() {
                 "".to_string()
             } else {
@@ -314,7 +329,7 @@ import json
 import traceback
 import sys
 from {module_dir_dot} import {last} as inner_script
-
+import re
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -329,7 +344,8 @@ def to_b_64(v: bytes):
     import base64
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
-    
+
+replace_nan = re.compile(r'\bNaN\b')
 try:
     res = inner_script.main(**args)
     typ = type(res)
@@ -344,7 +360,7 @@ try:
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
     with open("result.json", 'w') as f:
         f.write(res_json)
 except Exception as e:
@@ -426,6 +442,7 @@ mount {{
         Command::new(PYTHON_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -471,6 +488,16 @@ pub async fn handle_python_reqs(
         if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
+        if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+            vars.push(("HTTP_PROXY", http_proxy));
+        }
+        if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+            vars.push(("HTTPS_PROXY", https_proxy));
+        }
+        if let Some(no_proxy) = NO_PROXY.as_ref() {
+            vars.push(("NO_PROXY", no_proxy));
+        }
+
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -554,9 +581,20 @@ pub async fn handle_python_reqs(
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 args.extend(["--trusted-host", &host]);
             }
+            let mut envs = vec![("PATH", PATH_ENV.as_str())];
+            if let Some(http_proxy) = HTTP_PROXY.as_ref() {
+                envs.push(("HTTP_PROXY", http_proxy));
+            }
+            if let Some(https_proxy) = HTTPS_PROXY.as_ref() {
+                envs.push(("HTTPS_PROXY", https_proxy));
+            }
+            if let Some(no_proxy) = NO_PROXY.as_ref() {
+                envs.push(("NO_PROXY", no_proxy));
+            }
+
             Command::new(PYTHON_PATH.as_str())
                 .env_clear()
-                .env("PATH", PATH_ENV.as_str())
+                .envs(envs)
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

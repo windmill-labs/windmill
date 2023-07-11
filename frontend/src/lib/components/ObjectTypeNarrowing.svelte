@@ -6,9 +6,14 @@
 	let resource: string | undefined = format?.startsWith('resource-')
 		? format.substring('resource-'.length)
 		: undefined
-
-	$: format = resource != undefined ? `resource-${resource}` : undefined
 </script>
 
 <div class="mt-2" />
-<ResourceTypePicker bind:value={resource} nonePickable={true} />
+<ResourceTypePicker
+	on:click={(e) => {
+		resource = e.detail
+		format = resource != undefined ? `resource-${resource}` : undefined
+	}}
+	value={resource}
+	nonePickable={true}
+/>

@@ -15,7 +15,7 @@
 	export let trigger: boolean
 	export let insertable: boolean
 	export let insertableEnd = false
-	// export let annotation: string | undefined = undefined
+	export let annotation: string | undefined = undefined
 	export let branchable: boolean = false
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
@@ -41,7 +41,9 @@
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined,
 		suspend: Boolean(mod.suspend),
-		sleep: Boolean(mod.sleep)
+		sleep: Boolean(mod.sleep),
+		cache: Boolean(mod.cache_ttl),
+		mock: Boolean(mod.mock?.enabled)
 	}
 
 	function onDelete(event: CustomEvent<MouseEvent>) {
@@ -84,6 +86,12 @@
 				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">
 					Cancel move
 				</Button>
+			</div>
+		{/if}
+
+		{#if annotation && annotation != ''}
+			<div class="absolute z-10 left-0 -top-5 center-center text-gray-600">
+				{annotation}
 			</div>
 		{/if}
 

@@ -202,7 +202,7 @@
 				<div
 					bind:clientWidth={controlsWidth}
 					bind:clientHeight={controlsHeight}
-					class="sticky flex {$mode !== 'preview'
+					class="flex {$mode !== 'preview'
 						? 'w-[calc(100%-2px)] top-[1px]'
 						: 'w-full top-0'} {wideView
 						? 'justify-center gap-14'

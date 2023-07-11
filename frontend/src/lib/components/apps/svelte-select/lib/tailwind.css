@@ -1,0 +1,130 @@
+@import 'tailwindcss/base';
+
+.svelte-select {
+    @apply border rounded box-border h-10 relative flex items-center px-4 py-0 bg-white m-0	w-full
+        hover:border-gray-400;
+}
+
+.svelte-select input {
+    @apply cursor-default border-none text-gray-600 h-10 leading-10 px-4 py-0 bg-transparent text-sm absolute left-0 m-0 w-full 
+        focus:outline-none hover:border-gray-400;
+}
+
+.svelte-select.focused {
+    @apply border-blue-600;
+}
+
+.svelte-select.disabled {
+    @apply bg-gray-200 border-gray-200 text-gray-600;
+}
+
+.svelte-select.disabled input {
+    @apply placeholder:text-gray-400 placeholder:opacity-100;
+}
+
+.svelte-select .selected-item {
+    @apply leading-10 h-10 overflow-x-hidden pr-5
+        focus:outline-none;
+}
+
+.svelte-select .icons {
+    @apply absolute flex items-center right-0 translate-y-0 text-gray-200 pointer-events-none top-0 bottom-0;
+}
+
+.svelte-select .icons > * {
+    @apply transition-colors ease-in-out duration-200;
+}
+
+.svelte-select .clear-select {
+    @apply pointer-events-auto;
+}
+
+.svelte-select.focused .icons,
+.svelte-select .chevron:hover,
+.svelte-select .clear-select:hover {
+    @apply text-gray-600;
+}
+
+.svelte-select .clear-select {
+    @apply px-2 h-5 text-gray-300 flex-none w-9;
+}
+
+.svelte-select .chevron {
+    @apply flex pt-0 pr-2 pl-2 border-l-2 w-9 h-5 text-gray-300;
+}
+
+.svelte-select.multi {
+    @apply pr-9 pl-4 h-auto flex-wrap items-stretch;
+}
+
+.svelte-select.multi input {
+    @apply p-0 relative m-0;
+}
+
+.svelte-select.error {
+    @apply border-red-500 bg-white;
+}
+
+.a11y-text {
+    @apply sr-only;
+}
+
+.list {
+    @apply shadow-md rounded-sm max-h-64 overflow-y-auto bg-white border-none absolute z-10 w-full left-0 right-0;
+}
+
+.list .list-group-title {
+    @apply text-gray-400 cursor-default text-sm font-medium h-10 leading-10 px-5 overflow-ellipsis whitespace-nowrap uppercase;
+}
+
+.list .empty {
+    @apply text-center py-5 text-gray-500;
+}
+
+.item {
+    @apply cursor-default h-10 leading-10 px-5 text-gray-800 overflow-ellipsis overflow-hidden whitespace-nowrap;
+}
+
+.item.group-item {
+    @apply px-10;
+}
+
+.item:active {
+    @apply bg-blue-200;
+}
+
+.item.active {
+    @apply bg-blue-600 text-white;
+}
+
+.item.not-selectable {
+    @apply text-gray-300;
+}
+
+.item.first {
+    @apply rounded-t-sm;
+}
+
+.item.hover:not(.active) {
+    @apply bg-blue-100;
+}
+
+.multi input {
+    flex: 1 1 40px;
+}
+
+.multi-item {
+    @apply bg-gray-100 mt-1 mr-1 border border-gray-200 rounded-sm h-8 leading-8 flex cursor-default pr-1 pl-1 max-w-full items-center mr-1 overflow-hidden overflow-ellipsis whitespace-nowrap;
+}
+
+.multi-item.disabled {
+    @apply hover:bg-gray-300 hover:text-gray-500;
+}
+
+.multi-item-clear {
+    @apply flex items-center justify-center w-5;
+}
+
+.list-item {
+    @apply list-none;
+}

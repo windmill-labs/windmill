@@ -1,3 +1,5 @@
 ./build.sh
+rm client.ts
 tsc
-npm run publish
+cp src/client.ts .
+npm publish

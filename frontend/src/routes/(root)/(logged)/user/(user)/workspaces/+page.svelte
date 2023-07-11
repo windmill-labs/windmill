@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import {
@@ -49,7 +49,8 @@
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				switchWorkspace(localStorage.getItem('workspace')?.toString())
+				const local = localStorage.getItem('workspace')?.toString()
+				switchWorkspace(local)
 			}
 		} else {
 			const url = $page.url
@@ -63,13 +64,14 @@
 		})
 	}
 
-	$: {
+	function handleListWorkspaces() {
 		if (list_all_as_super_admin) {
 			loadWorkspacesAsAdmin()
 		} else {
 			workspaces = $userWorkspaces
 		}
 	}
+	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
 
@@ -85,9 +87,8 @@
 {/if}
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
-	<h2 class="mb-4 inline-flex gap-2"
-		>Workspaces{#if loading}<WindmillIcon spin="fast" />
-		{/if}
+	<h2 class="mb-4 inline-flex gap-2">
+		Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
 	</h2>
 
 	{#if $superadmin}

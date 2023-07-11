@@ -98,6 +98,7 @@ pub struct Input {
     args: serde_json::Value,
     created_by: String,
     is_public: bool,
+    success: bool,
 }
 
 async fn get_input_history(
@@ -149,6 +150,7 @@ async fn get_input_history(
             args: row.args.unwrap_or(serde_json::json!({})),
             created_by: row.created_by,
             is_public: true,
+            success: row.success,
         });
     }
 
@@ -169,7 +171,7 @@ async fn list_saved_inputs(
     let rows = sqlx::query_as::<_, InputRow>(
         "select * from input \
          where runnable_id = $1 and runnable_type = $2 and workspace_id = $3 \
-         and is_public IS true OR created_by = $4 \
+         and (is_public IS true OR created_by = $4) \
          order by created_at desc limit $5 offset $6",
     )
     .bind(&r.runnable_id)
@@ -193,6 +195,7 @@ async fn list_saved_inputs(
             created_by: row.created_by,
             created_at: row.created_at,
             is_public: row.is_public,
+            success: true,
         })
     }
 

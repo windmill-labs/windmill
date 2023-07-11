@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment'
+	import { BROWSER } from 'esm-env'
 	import {
 		convertKind,
 		createDocumentationString,
@@ -390,6 +390,7 @@
 
 	if ($selectedComponent) {
 		$componentControl[$selectedComponent[0]] = {
+			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
 				code = value
 				setCode(value)
@@ -578,7 +579,7 @@
 
 	let mounted = false
 	onMount(async () => {
-		if (browser) {
+		if (BROWSER) {
 			await loadMonaco()
 			mounted = true
 		}

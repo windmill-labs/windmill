@@ -31,7 +31,8 @@
 	export let highlightEdges: boolean = true
 	export let scroll: boolean = false
 	export let download: boolean = false
-
+	export let dataflow: boolean = false
+	export let nodeSelected: boolean = false
 	const fullHeight = settings?.fullHeight ?? false
 	// generates a unique string for each svelvet component's unique store instance
 	// creates a store that uses the unique sting as the key to create and look up the corresponding store
@@ -48,7 +49,6 @@
 			let output = sanitizeUserNodesAndEdges(nodes, edges)
 			const userNodes = output['userNodes']
 			const userEdges = output['userEdges']
-
 			// set canvas related stores. you need to do this before setting node/edge related stores because
 			// initializing nodes/edges might read relevant options from the store.
 			store.widthStore.set(width)
@@ -120,7 +120,17 @@
 	{#if error != ''}
 		<div class="error text-red-600 center-center p-4">{error}</div>
 	{:else}
-		<GraphView on:expand {download} {scroll} {canvasId} {width} {height} {boundary} />
+		<GraphView
+			showDataflowToggle={nodeSelected}
+			bind:dataflow
+			on:expand
+			{download}
+			{scroll}
+			{canvasId}
+			{width}
+			{height}
+			{boundary}
+		/>
 	{/if}
 </div>
 

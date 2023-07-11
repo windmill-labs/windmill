@@ -3,12 +3,17 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
+	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, isCloudHosted, sendUserToast } from '$lib/utils'
-	import { getUserExt, refreshSuperadmin } from '$lib/user'
+	import { classNames, parseQueryParams } from '$lib/utils'
+	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
+	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
+	import { refreshSuperadmin } from '$lib/refreshUser'
+	import Version from '$lib/components/Version.svelte'
+	import Uptodate from '$lib/components/Uptodate.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -82,19 +87,28 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
+			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
+			if (rd && workspaceTarget) {
+				$workspaceStore = workspaceTarget
+				goto(rd)
+				return
+			}
+
 			if (!$usersWorkspaceStore) {
 				try {
 					usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 				} catch {}
 			}
+
 			const allWorkspaces = $usersWorkspaceStore?.workspaces
+
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
-				goto('/')
-				return
-			}
-			if (rd?.startsWith('/user/workspaces')) {
+				goto(rd ?? '/')
+			} else if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
+			} else if (rd == '/#user-settings') {
+				goto(`/user/workspaces#user-settings`)
 			} else {
 				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 			}
@@ -103,7 +117,7 @@
 
 	async function loadLogins() {
 		logins = await OauthService.listOAuthLogins()
-		showPassword = logins.length == 0
+		showPassword = logins.length == 0 || (email != undefined && email.length > 0)
 	}
 
 	onMount(async () => {
@@ -139,17 +153,11 @@
 	$: if (error) {
 		sendUserToast(error, true)
 	}
-
-	let version = ''
-
-	onMount(async () => {
-		version = await SettingsService.backendVersion()
-	})
 </script>
 
 <div class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-gray-50 h-screen">
 	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
-		<span class="font-mono">{version}</span>
+		<div class="font-mono flex-col flex"><Version /><div><Uptodate /></div></div>
 	</div>
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
@@ -268,11 +276,11 @@
 					{#if isCloudHosted()}
 						<p class="text-2xs text-gray-500 italic mt-10 text-center">
 							By logging in, you agree to our
-							<a href="https://docs.windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
+							<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
 								Terms of Service
 							</a>
 							and
-							<a href="https://docs.windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
+							<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
 								Privacy Policy
 							</a>
 						</p>

@@ -2,7 +2,13 @@
 	import { initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -15,7 +21,10 @@
 	export let customCss: ComponentCustomCSS<'currencycomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const outputs = initOutput($worldStore, id, {
 		result: null as number | null
@@ -28,8 +37,17 @@
 	let locale: string | undefined = undefined
 	let value: number | undefined = undefined
 
+	$componentControl[id] = {
+		setValue(nvalue: number) {
+			value = nvalue
+		}
+	}
+
 	function handleInput() {
 		outputs?.result.set(value ?? null)
+		if (iterContext && listInputs) {
+			listInputs(id, value ?? null)
+		}
 	}
 
 	function handleDefault() {

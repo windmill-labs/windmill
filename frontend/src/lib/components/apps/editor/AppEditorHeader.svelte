@@ -16,10 +16,17 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
-	import { workspaceStore } from '$lib/stores'
-	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import {
+		faClipboard,
+		faFileExport,
+		faHistory,
+		faSave,
+		faSlidersH
+	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
+		BellOff,
 		Bug,
 		Expand,
 		Laptop2,
@@ -29,7 +36,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import { classNames, copyToClipboard } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -39,7 +46,7 @@
 		UserAppInput
 	} from '../inputType'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { allItems, toStatic } from '../utils'
+	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
@@ -51,6 +58,9 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import { sendUserToast } from '$lib/toast'
+	import DeploymentHistory from './DeploymentHistory.svelte'
+	import Awareness from '$lib/components/Awareness.svelte'
 
 	async function hash(message) {
 		try {
@@ -71,6 +81,7 @@
 
 	export let policy: Policy
 	export let fromHub: boolean = false
+	export let versions: number[]
 
 	const {
 		app,
@@ -83,7 +94,7 @@
 		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
 		publish: false,
@@ -93,7 +104,7 @@
 
 	$: if ($openDebugRun == undefined) {
 		$openDebugRun = (componentId: string) => {
-			jobsDrawerOpen = true
+			$jobsDrawerOpen = true
 
 			const job = $jobs.find((job) => job.component === componentId)
 			if (job) {
@@ -108,8 +119,8 @@
 
 	let draftDrawerOpen = false
 	let saveDrawerOpen = false
-	let jobsDrawerOpen = false
 	let inputsDrawerOpen = fromHub
+	let historyBrowserDrawerOpen = false
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -135,20 +146,23 @@
 			allItems($app.grid, $app.subgrids)
 				.flatMap((x) => {
 					let c = x.data as AppComponent
-					let r: (AppInput | undefined)[] = [c.componentInput]
+					let r: { input: AppInput | undefined; id: string }[] = [
+						{ input: c.componentInput, id: x.id }
+					]
 					if (c.type === 'tablecomponent') {
-						r.push(...c.actionButtons.map((x) => x.componentInput))
+						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
-					return r.filter((x) => x)
-				})
-				.map(async (input) => {
-					if (input?.type == 'runnable') {
-						return await processRunnable(input.runnable, input.fields)
-					}
+					return r
+						.filter((x) => x.input)
+						.map(async (o) => {
+							if (o.input?.type == 'runnable') {
+								return await processRunnable(o.id, o.input.runnable, o.input.fields)
+							}
+						})
 				})
 				.concat(
-					Object.values($app.hiddenInlineScripts ?? {}).map(async (v) => {
-						return await processRunnable(v, v.fields)
+					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
+						return await processRunnable(BG_PREFIX + i, v, v.fields)
 					})
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
@@ -158,16 +172,17 @@
 	}
 
 	async function processRunnable(
+		id: string,
 		runnable: Runnable,
 		fields: Record<string, any>
 	): Promise<[string, Record<string, any>] | undefined> {
 		const staticInputs = collectStaticFields(fields)
 		if (runnable?.type == 'runnableByName') {
 			let hex = await hash(runnable.inlineScript?.content)
-			return [`rawscript/${hex}`, staticInputs]
+			return [`${id}:rawscript/${hex}`, staticInputs]
 		} else if (runnable?.type == 'runnableByPath') {
 			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-			return [`${prefix}/${runnable.path}`, staticInputs]
+			return [`${id}:${prefix}/${runnable.path}`, staticInputs]
 		}
 	}
 	async function createApp(path: string) {
@@ -185,26 +200,34 @@
 			$dirtyStore = false
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
+			localStorage.removeItem(`app-${path}`)
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
 	}
 
-	async function updateApp(path: string) {
+	async function updateApp(npath: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
-			path: $page.params.path,
+			path: appPath,
 			requestBody: {
 				value: $app!,
 				summary: $summary,
-				policy
+				policy,
+				path: npath
 			}
 		})
+
 		$dirtyStore = false
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		if (appPath !== npath) {
+			localStorage.removeItem(`app-${appPath}`)
+			await goto(`/apps/edit/${npath}?nodraft=true`)
+			window.location.reload()
+		}
 	}
 
 	let secretUrl: string | undefined = undefined
@@ -277,15 +300,17 @@
 		try {
 			await computeTriggerables()
 			$dirtyStore = false
+			let path = $page.params.path
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: $page.params.path,
+					path: path,
 					typ: 'app',
 					value: $app!
 				}
 			})
 			sendUserToast('Draft saved')
+			localStorage.removeItem(`app-${path}`)
 			loading.saveDraft = false
 		} catch (e) {
 			loading.saveDraft = false
@@ -511,13 +536,21 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={jobsDrawerOpen} size="900px">
+<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
+	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
+		<DeploymentHistory on:restore {versions} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={$jobsDrawerOpen} size="900px" --zIndex={1003}>
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
-		on:close={() => (jobsDrawerOpen = false)}
+		on:close={() => {
+			$jobsDrawerOpen = false
+		}}
 		tooltip="Look at latests runs to spot potential bugs."
-		documentationLink="https://docs.windmill.dev/docs/apps/app_toolbar#debug-runs"
+		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
 	>
 		<Splitpanes class="!overflow-visible">
 			<Pane size={25}>
@@ -564,11 +597,15 @@
 									</Pane>
 									<Pane size={50} minSize={10} class="text-sm text-gray-600">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult result={{ error: { name: 'Frontend execution error', message: jobResult.error } }} />
+											<DisplayResult
+												result={{
+													error: { name: 'Frontend execution error', message: jobResult.error }
+												}}
+											/>
 										</pre>
 									</Pane>
 								</Splitpanes>
-							{:else if jobResult?.result !== undefined}
+							{:else if jobResult !== undefined}
 								<Splitpanes horizontal class="grow border w-full">
 									<Pane size={50} minSize={10}>
 										<LogViewer
@@ -578,7 +615,7 @@
 									</Pane>
 									<Pane size={50} minSize={10} class="text-sm text-gray-600">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
-											<DisplayResult result={jobResult.result} />
+											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
 										</pre>
 									</Pane>
 								</Splitpanes>
@@ -606,15 +643,25 @@
 								{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 									<Splitpanes horizontal class="grow border w-full">
 										<Pane size={50} minSize={10}>
-											<LogViewer content={job?.logs} isLoading={testIsLoading} />
+											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
 										</Pane>
 										<Pane size={50} minSize={10} class="text-sm text-gray-600">
 											{#if job != undefined && 'result' in job && job.result != undefined}
 												<pre class="overflow-x-auto break-words relative h-full px-2"
-													><DisplayResult result={job.result} /></pre
+													><DisplayResult
+														workspaceId={$workspaceStore}
+														jobId={selectedJobId}
+														result={job.result}
+													/></pre
 												>
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>
+											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+												<div class="p-2 text-gray-500">Result is undefined</div>
+											{:else}
+												<div class="p-2 text-gray-500">
+													<Loader2 size={14} class="animate-spin mr-2" />
+												</div>
 											{/if}
 										</Pane>
 									</Splitpanes>
@@ -682,11 +729,21 @@
 		{/if}
 	</div>
 
+	{#if $enterpriseLicense && appPath != ''}
+		<Awareness />
+	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
 			btnClasses="!rounded-md"
 			dropdownItems={[
+				{
+					displayName: 'Deployment History',
+					icon: faHistory,
+					action: () => {
+						historyBrowserDrawerOpen = true
+					}
+				},
 				{
 					displayName: 'JSON',
 					icon: faFileExport,
@@ -732,7 +789,7 @@
 					if (selectedJobId == undefined && $jobs.length > 0) {
 						selectedJobId = $jobs[0].job
 					}
-					jobsDrawerOpen = true
+					$jobsDrawerOpen = true
 				}}
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"
@@ -741,7 +798,18 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
-					<div> Debug runs </div>
+					<div> Debug runs</div>
+					<div class="text-2xs text-gray-500">({$jobs?.length ?? 0})</div>
+					{#if hasErrors}
+						<Button
+							size="xs"
+							btnClasses="-my-2 !px-1 !py-0"
+							color="light"
+							variant="border"
+							on:click={() => errorByComponent.set({})}
+							><BellOff size={12} />
+						</Button>
+					{/if}
 				</div>
 			</Button>
 		</div>

@@ -4,13 +4,15 @@
 	import type { HubItem } from './model'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { capitalize, classNames, loadHubScripts } from '$lib/utils'
+	import { capitalize, classNames } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import { loadHubScripts } from '$lib/scripts'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let filter = ''
+	export let syncQuery = false
 
 	const dispatch = createEventDispatcher()
 
@@ -34,7 +36,7 @@
 	<slot />
 	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
-<ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
+<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if $hubScripts}
 	{#if filteredItems.length == 0}
@@ -61,7 +63,7 @@
 								/>
 							</div>
 
-							<div class="w-full text-left font-normal ">
+							<div class="w-full text-left font-normal">
 								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
 									{#if item.marked}
 										{@html item.marked ?? ''}
@@ -69,7 +71,7 @@
 										{item.summary ?? ''}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs ">
+								<div class="text-gray-600 text-xs">
 									{item.path}
 								</div>
 							</div>

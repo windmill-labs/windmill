@@ -33,6 +33,7 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v3
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |

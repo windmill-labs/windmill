@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { Copy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
@@ -60,6 +60,7 @@
 				quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
 				forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
 				forceClass={ccomponents[component.type].customCss[name].class !== undefined}
+				tooltip={ccomponents[component.type].customCss[name].tooltip}
 				{name}
 				componentType={component.type}
 				bind:value={component.customCss[name]}

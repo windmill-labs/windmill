@@ -3,16 +3,15 @@
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
+		getModifierKey,
 		getToday,
 		truncateHash
 	} from '$lib/utils'
-	import { slide } from 'svelte/transition'
 
 	import type { Schema } from '$lib/common'
 	import { runFormStore, userStore } from '$lib/stores'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import CliHelpBox from './CliHelpBox.svelte'
-	import { Badge, Button } from './common'
+	import { Badge, Button, Kbd } from './common'
 	import InlineCodeCopy from './InlineCodeCopy.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
@@ -24,7 +23,7 @@
 	export let runnable:
 		| {
 				summary?: string
-				schema?: Schema
+				schema?: Schema | any
 				description?: string
 				path?: string
 				is_template?: boolean
@@ -50,6 +49,7 @@
 	export let noVariablePicker = false
 	export let viewCliRun = false
 	export let isFlow: boolean
+	export let viewKeybinding = false
 
 	export let args: Record<string, any> = {}
 
@@ -58,14 +58,16 @@
 		$runFormStore = undefined
 	}
 
+	export async function setArgs(nargs: Record<string, any>) {
+		args = nargs
+		reloadArgs++
+	}
+
 	export function run() {
 		runAction(scheduledForStr, args, invisible_to_owner)
 	}
 
 	export let isValid = true
-
-	let viewOptions = false
-	let viewCliOptions = false
 
 	let scheduledForStr: string | undefined
 	let invisible_to_owner: false
@@ -73,9 +75,10 @@
 	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
 		args
 	)}'`
+	let reloadArgs = 0
 </script>
 
-<div class="max-w-6xl">
+<div class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
@@ -130,93 +133,93 @@
 	{#if runnable?.schema}
 		<div class="my-2" />
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm p-4">No arguments</div>
+			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
-			<SchemaForm
-				prettifyHeader
-				{noVariablePicker}
-				{autofocus}
-				schema={runnable.schema}
-				bind:isValid
-				bind:args
-			/>
+			{#key reloadArgs}
+				<SchemaForm
+					prettifyHeader
+					{noVariablePicker}
+					{autofocus}
+					schema={runnable.schema}
+					bind:isValid
+					bind:args
+				/>
+			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-gray-600">No schema</div>
+		<div class="text-xs text-gray-600">No arguments</div>
 	{/if}
 	{#if schedulable}
 		<div class="mt-10" />
-		<CollapseLink text="Advanced">
-			<div class="flex flex-col gap-4 mt-2 border p-2">
-				<div class="flex flex-col gap-2">
-					{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
-						<div class="flex">
-							<Button
-								color="light"
-								size="sm"
-								endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
-								on:click={() => (viewOptions = !viewOptions)}
-							>
-								Schedule to run later
-							</Button>
-						</div>
-					{/if}
-					{#if viewOptions}
-						<div transition:slide|local class="mt-6">
-							<div class="border rounded-md p-3 pt-4">
-								<div class="flex flex-row items-end">
-									<div class="w-max md:w-2/3 mt-2 mb-1">
-										<label for="run-time" />
-										<input
-											class="inline-block"
-											type="datetime-local"
-											id="run-time"
-											name="run-scheduled-time"
-											bind:value={scheduledForStr}
-											min={getToday().toISOString().slice(0, 16)}
-										/>
-									</div>
-									<Button
-										variant="border"
-										color="blue"
-										size="sm"
-										btnClasses="mx-2 mb-1"
-										on:click={() => {
-											scheduledForStr = undefined
-										}}
-									>
-										Clear
-									</Button>
-								</div>
-							</div>
-						</div>
-					{/if}
-				</div>
-				{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
-					<div class="flex items-center gap-1">
-						<Toggle
-							options={{
-								right: `make run invisible to others`
-							}}
-							bind:checked={invisible_to_owner}
-						/>
-						<Tooltip
-							>By default, runs are visible to the owner(s) of the script or flow being triggered</Tooltip
-						>
-					</div>
-				{/if}
-			</div>
-		</CollapseLink>
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
-			<div class="flex-row-reverse flex grow">
+			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
 					{loading}
-					btnClasses="!px-6 !py-1"
+					color="dark"
+					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
 				>
-					{scheduledForStr ? 'Schedule to run later' : buttonText}
+					{#if viewKeybinding}
+						<div class="inline-flex gap-0 items-center">
+							<Kbd small>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd>
+						</div>{/if}
+					<div>
+						{scheduledForStr ? 'Schedule to run later' : buttonText}
+					</div>
 				</Button>
+				<div>
+					<CollapseLink small text="Advanced" class="justify-end">
+						<div class="flex flex-col gap-4 mt-2 border p-2">
+							<div class="flex flex-col gap-2">
+								{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
+									<div class="border rounded-md p-3 pt-4">
+										<div class="px-2 font-semibold text-sm">Schedule to run later</div>
+
+										<div class="flex flex-row items-end">
+											<div class="w-max md:w-2/3 mt-2 mb-1">
+												<label for="run-time" />
+												<input
+													class="inline-block"
+													type="datetime-local"
+													id="run-time"
+													name="run-scheduled-time"
+													bind:value={scheduledForStr}
+													min={getToday().toISOString().slice(0, 16)}
+												/>
+											</div>
+											<Button
+												variant="border"
+												color="blue"
+												size="sm"
+												btnClasses="mx-2 mb-1"
+												on:click={() => {
+													scheduledForStr = undefined
+												}}
+											>
+												Clear
+											</Button>
+										</div>
+									</div>
+								{/if}
+							</div>
+							{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
+								<div class="flex items-center gap-1">
+									<Toggle
+										options={{
+											right: `make run invisible to others`
+										}}
+										bind:checked={invisible_to_owner}
+									/>
+									<Tooltip
+										>By default, runs are visible to the owner(s) of the script or flow being
+										triggered</Tooltip
+									>
+								</div>
+							{/if}
+						</div>
+					</CollapseLink>
+				</div>
 			</div>
 		</div>
 	{:else if !topButton}
@@ -225,31 +228,25 @@
 			disabled={!isValid}
 			on:click={() => runAction(undefined, args, invisible_to_owner)}
 		>
+			{#if viewKeybinding}
+				<div>
+					<Kbd small>{getModifierKey()}</Kbd>+<Kbd small>Enter</Kbd>
+				</div>{/if}
 			{buttonText}
 		</Button>
 	{/if}
 
 	{#if viewCliRun}
 		<div>
-			<div class="my-20" />
+			<div class="mt-4" />
 			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
-				<div class="flex">
-					<Button
-						color="light"
-						size="xs"
-						endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
-						on:click={() => (viewCliOptions = !viewCliOptions)}
-					>
-						Run it from the CLI
-					</Button>
-				</div>
-			{/if}
-			{#if viewCliOptions}
-				<div transition:slide|local class="mt-2 px-4 pt-2">
+				<CollapseLink small text="Run it from CLI">
+					<div class="mt-2" />
 					<InlineCodeCopy content={cliCommand} />
 					<CliHelpBox />
-				</div>
+				</CollapseLink>
 			{/if}
+			<div class="mb-20" />
 		</div>
 	{/if}
 </div>

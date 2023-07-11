@@ -13,9 +13,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import AlwaysMountedModal, {
-		getModal
-	} from '$lib/components/common/modal/AlwaysMountedModal.svelte'
+	import AlwaysMountedModal from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -34,7 +32,7 @@
 
 	$componentControl[id] = {
 		onDelete: () => {
-			getModal().close()
+			modal?.close()
 		}
 	}
 
@@ -58,13 +56,10 @@
 	$: noInputs =
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
 
-	$: if (outputs?.loading != undefined) {
-		outputs.loading.set(false, true)
-	}
-
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 	let runnableWrapper: RunnableWrapper
 	let loading = false
+	let modal: AlwaysMountedModal
 </script>
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
@@ -76,43 +71,37 @@
 	/>
 {/each}
 
-<AlwaysMountedModal
-	title={resolvedConfig.label ?? ''}
-	class={css?.popup?.class}
-	style={css?.popup?.style}
->
-	<RunnableWrapper
-		bind:this={runnableWrapper}
-		{recomputeIds}
-		{render}
-		bind:runnableComponent
-		{componentInput}
-		{id}
-		{extraQueryParams}
-		autoRefresh={false}
-		forceSchemaDisplay={true}
-		runnableClass="!block"
-		{outputs}
-		doOnSuccess={resolvedConfig.onSuccess}
-		doOnError={resolvedConfig.onError}
-		{errorHandledByComponent}
-		triggerable
-	>
-		<div class="flex flex-col gap-2 px-4 w-full">
-			<div>
-				{#if noInputs}
-					<div class="text-gray-600 italic text-sm my-4">
-						Run forms are associated with a runnable that has user inputs.
-						<br />
-						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
-						<strong>
-							User Input
-							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
-						</strong>
-					</div>
-				{/if}
-			</div>
-			<div class="flex justify-end">
+<AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
+	<div class="flex flex-col gap-2 px-4 w-full pt-2">
+		<RunnableWrapper
+			bind:this={runnableWrapper}
+			bind:loading
+			{recomputeIds}
+			{render}
+			bind:runnableComponent
+			{componentInput}
+			{id}
+			{extraQueryParams}
+			autoRefresh={false}
+			forceSchemaDisplay={true}
+			runnableClass="!block"
+			{outputs}
+			doOnSuccess={resolvedConfig.onSuccess}
+			doOnError={resolvedConfig.onError}
+			{errorHandledByComponent}
+		>
+			{#if noInputs}
+				<div class="text-gray-600 italic text-sm my-4">
+					Run forms are associated with a runnable that has user inputs.
+					<br />
+					Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
+					<strong>
+						User Input
+						<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+					</strong>
+				</div>
+			{/if}
+			<div class="flex justify-end gap-3 p-2">
 				<Button
 					{loading}
 					btnClasses="my-1"
@@ -121,11 +110,11 @@
 					}}
 					on:click={async () => {
 						if (!runnableComponent) {
-							runnableWrapper.onSuccess()
+							runnableWrapper?.handleSideEffect(true)
 						} else {
 							await runnableComponent?.runComponent()
 						}
-						getModal().close()
+						modal?.close()
 					}}
 					size="xs"
 					color="dark"
@@ -133,11 +122,11 @@
 					Submit
 				</Button>
 			</div>
-		</div>
-	</RunnableWrapper>
+		</RunnableWrapper>
+	</div>
 </AlwaysMountedModal>
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	{#if errorsMessage}
 		<div class="text-red-500 text-xs">{errorsMessage}</div>
 	{/if}
@@ -148,7 +137,7 @@
 		btnClasses={css?.button?.class ?? ''}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
-			getModal().open()
+			modal?.open()
 		}}
 	>
 		{resolvedConfig.label}

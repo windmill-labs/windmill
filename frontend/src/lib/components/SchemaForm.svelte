@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -9,7 +9,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 
-	export let schema: Schema
+	export let schema: Schema | any
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
@@ -25,6 +25,7 @@
 	export let flexWrap = false
 	export let noDelete = false
 	export let prettifyHeader = false
+	export let disablePortal = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -60,23 +61,32 @@
 			}
 		}
 	}
+
+	let resourceTypes: string[] | undefined = undefined
+
+	async function loadResourceTypes() {
+		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+	}
+	loadResourceTypes()
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
-			{#if Object.keys(schema.properties ?? {}).includes(argName)}
+			{#if Object.keys(schema?.properties ?? {}).includes(argName)}
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
 							<ArgInput
+								{disablePortal}
+								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}
 								bind:description={schema.properties[argName].description}
 								bind:value={args[argName]}
 								type={schema.properties[argName].type}
-								required={schema.required.includes(argName)}
+								required={schema.required?.includes(argName) ?? false}
 								bind:pattern={schema.properties[argName].pattern}
 								bind:valid={inputCheck[argName]}
 								defaultValue={schema.properties[argName].default}
@@ -96,6 +106,8 @@
 							/>
 						{:else}
 							<ArgInput
+								{disablePortal}
+								{resourceTypes}
 								{prettifyHeader}
 								autofocus={i == 0 && autofocus}
 								label={argName}
@@ -140,7 +152,7 @@
 		}}
 		itemName="Variable"
 		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		extraField="path"
 		loadItems={async () =>
 			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({

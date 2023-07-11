@@ -1,4 +1,4 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use tokio::{
@@ -17,8 +17,8 @@ use windmill_parser_go::parse_go_imports;
 use crate::{
     common::{capitalize, read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GO_CACHE_DIR, HOME_ENV,
-    NETRC, NSJAIL_PATH, PATH_ENV,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_CACHE_DIR,
+    HOME_ENV, NETRC, NSJAIL_PATH, PATH_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -40,6 +40,7 @@ pub async fn handle_go_job(
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
+    envs: HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -196,6 +197,7 @@ func Run(req Req) (interface{{}}, error){{
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -207,16 +209,24 @@ func Run(req Req) (interface{{}}, error){{
         if let Some(ref netrc) = *NETRC {
             write_file(&HOME_ENV, ".netrc", netrc).await?;
         }
-        Command::new(GO_PATH.as_str())
-            .current_dir(job_dir)
+        let mut cmd = Command::new(GO_PATH.as_str());
+        cmd.current_dir(job_dir)
             .env_clear()
+            .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
-            .env("GOPRIVATE", GOPRIVATE.as_ref().unwrap_or(&String::new()))
-            .env("HOME", HOME_ENV.as_str())
-            .args(vec!["run", "main.go"])
+            .env("HOME", HOME_ENV.as_str());
+
+        if let Some(ref goprivate) = *GOPRIVATE {
+            cmd.env("GOPRIVATE", goprivate);
+        }
+        if let Some(ref goproxy) = *GOPROXY {
+            cmd.env("GOPROXY", goproxy);
+        }
+
+        cmd.args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
@@ -284,6 +294,7 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
+    let hash = format!("go-{}", hash);
 
     let mut skip_tidy = has_sum;
 
@@ -295,7 +306,7 @@ pub async fn install_go_dependencies(
         .fetch_optional(db)
         .await?
         {
-            logs.push_str(&format!("\nfound cached resolution"));
+            logs.push_str(&format!("\nfound cached resolution: {}", hash));
             gen_go_mod(code, job_dir, &cached).await?;
             skip_tidy = true;
             new_lockfile = false;
@@ -323,7 +334,7 @@ pub async fn install_go_dependencies(
         &format!("go {mod_command}"),
     )
     .await
-    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    .map_err(|e| Error::ExecutionErr(format!("Lockfile generation failed: {e:?}")))?;
 
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());

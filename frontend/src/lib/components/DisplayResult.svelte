@@ -4,8 +4,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
-	import autosize from 'svelte-autosize'
-	import { ClipboardCopy } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -14,6 +13,8 @@
 	export let requireHtmlApproval = false
 	export let filename: string | undefined = undefined
 	export let disableExpand = false
+	export let jobId: string | undefined = undefined
+	export let workspaceId: string | undefined = undefined
 
 	let resultKind:
 		| 'json'
@@ -106,9 +107,9 @@
 		}
 		return 'json'
 	}
-	let payload = ''
 
 	let jsonViewer: Drawer
+	$: jsonStr = JSON.stringify(result, null, 4)
 </script>
 
 <div class="inline-highlight">
@@ -117,11 +118,11 @@
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 w-full text-sm text-gray-700 relative"
+				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-gray-500 text-xs absolute top-5 right-0">
-						<button on:click={jsonViewer.openDrawer}>Expand</button>
+					<div class="text-gray-500 text-xs absolute top-5.5 right-0">
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
 				<Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
@@ -222,14 +223,14 @@
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
-		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
+		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button
 					color="green"
 					variant="border"
 					on:click={() =>
 						fetch(result['resume'], {
 							method: 'POST',
-							body: JSON.stringify(payload),
+							body: JSON.stringify({}),
 							headers: { 'Content-Type': 'application/json' }
 						})}
 				>
@@ -237,23 +238,18 @@
 				>
 				<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}>Cancel</Button
 				>
-				<div>
-					<h3>Payload</h3>
-					<div class="border border-black">
-						<input type="text" bind:value={payload} use:autosize />
-					</div>
-				</div>
 				<div class="center-center"
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>
 			</div>
 		{:else}
-			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 			{#if jsonStr.length > 10000}
 				<div class="text-sm mb-2 text-gray-600">
 					<a
 						download="{filename ?? 'result'}.json"
-						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}>Download</a
 					>
 					JSON is too large to be displayed in full.
 				</div>
@@ -263,7 +259,7 @@
 			{/if}
 		{/if}
 	{:else}
-		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>
+		<div class="text-gray-500 text-sm">No result: {jsonStr}</div>
 	{/if}
 </div>
 
@@ -272,25 +268,28 @@
 		<Drawer bind:this={jsonViewer} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-						color="light"
-						size="xs"
+					<a
+						class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+						download="{filename ?? 'result'}.json"
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
+						>Download <Download size={14} /></a
 					>
+					<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">
 						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
 					</Button>
 				</svelte:fragment>
-				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
-				{#if str.length > 100000}
+				{#if jsonStr.length > 100000}
 					<div class="text-sm mb-2 text-gray-600">
 						<a
 							download="{filename ?? 'result'}.json"
-							href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
 						>
 						JSON is too large to be displayed in full.
 					</div>
 				{:else}
-					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 				{/if}
 			</DrawerContent>
 		</Drawer>

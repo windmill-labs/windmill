@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource } from '$lib/gen'
-	import { canWrite, emptyString, isOwner, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, isOwner } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Alert, Button, Drawer, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -14,6 +14,8 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import TestConnection from './TestConnection.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -149,13 +151,13 @@
 					/>
 				</div>
 				<div class="flex w-full justify-between max-w-lg items-center mt-4">
-					<h3>Value</h3>
 					<Toggle
 						on:change={(e) => switchTab(e.detail)}
 						options={{
 							right: 'As JSON'
 						}}
 					/>
+					<TestConnection resource_type={resourceToEdit?.resource_type} {args} />
 				</div>
 				<div class="text-sm">
 					{#if loadingSchema}

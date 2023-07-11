@@ -1,0 +1,17 @@
+{
+  "name": "windmill-parser-wasm",
+  "collaborators": [
+    "Ruben Fiszel <ruben@windmill.dev>"
+  ],
+  "version": "1.123.2",
+  "files": [
+    "windmill_parser_wasm_bg.wasm",
+    "windmill_parser_wasm.js",
+    "windmill_parser_wasm.d.ts"
+  ],
+  "module": "windmill_parser_wasm.js",
+  "types": "windmill_parser_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

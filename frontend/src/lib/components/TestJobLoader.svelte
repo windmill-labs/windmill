@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
+	import type { SupportedLanguage } from '$lib/common'
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
@@ -83,7 +84,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: 'deno' | 'go' | 'python3' | 'bash',
+		lang: SupportedLanguage,
 		args: Record<string, any>,
 		tag: string | undefined
 	): Promise<string> {
@@ -166,6 +167,7 @@
 					//only CompletedJob has success property
 					isCompleted = true
 					if (currentId === id) {
+						await tick()
 						dispatch('done', job)
 						currentId = undefined
 					}

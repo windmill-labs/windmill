@@ -4,6 +4,7 @@ import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
 import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
 import PYTHON_INIT_CODE_TRIGGER from '$lib/init_scripts/python_init_code_trigger'
 import PYTHON_FAILURE_MODULE_CODE from '$lib/init_scripts/python_failure_module'
+import type { SupportedLanguage } from './common'
 
 export {
 	PYTHON_INIT_CODE,
@@ -12,20 +13,52 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
+export const NATIVETS_INIT_CODE = `// Fetch only script, no imports allowed but benefits from a dedicated highly efficient runtime
+
+export async function main() {
+  const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
 export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
+
 export async function main(
   a: number,
   b: "my" | "enum",
-  //c: wmill.Resource<'postgresql'>,
+  //c: Postgresql,
   d = "inferred type string from default arg",
   e = { nested: "object" },
   //e: wmill.Base64
 ) {
   // let x = await wmill.getVariable('u/user/foo')
+  return { foo: a };
+}
+`
+
+export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
+import { setClient, getVariable } from "windmill-client@0.3.15"
+
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
+
+export async function main(
+  a: number,
+  b: "my" | "enum",
+  //c: Postgresql,
+  d = "inferred type string from default arg",
+  e = { nested: "object" },
+) {
+  // setClient()
+  // let x = await getVariable('u/user/foo')
   return { foo: a };
 }
 `
@@ -85,39 +118,7 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `import {
-  pgSql,
-  type Resource,
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
-
-//PG parameterized statement. No SQL injection is possible.
-export async function main(
-  db: Resource<"postgresql"> = "$res:f/examples/demodb",
-  key: number,
-  value: string,
-) {
-  const query = await pgSql(
-    db,
-  )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
-  return query.rows;
-
-}
-	/**
-	// The following code accepts raw queries. The code above is recommended because it uses SQL prepared statement.
-	import { pgClient, type Resource, type Sql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
-
-	export async function main(
-		db: Resource<"postgresql">,
-		query: Sql = "SELECT * FROM demo;",
-	) {
-		if(!query) {
-			throw Error('Query must not be empty.')
-		}
-		const { rows } = await pgClient(db).queryObject(query);
-		return rows;
-	}
-   */
-	
+export const POSTGRES_INIT_CODE = `INSERT INTO demo VALUES (\$1::TEXT, \$2::INT) RETURNING *
 `
 
 export const MYSQL_INIT_CODE = `import {
@@ -125,9 +126,12 @@ export const MYSQL_INIT_CODE = `import {
   type Resource
 } from "https://deno.land/x/windmill@v${__pkg__.version}/mysql.ts";
 
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+type Mysql = object
+
 // MySQL parameterized statement. No SQL injection is possible.
 export async function main(
-  db: Resource<"mysql">,
+  db: Mysql,
   key: number,
   value: string,
 ) {
@@ -168,7 +172,8 @@ export const FETCH_INIT_CODE = `export async function main(
 		})
 }`
 
-export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
+export const BASH_INIT_CODE = `# shellcheck shell=bash
+# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
 
@@ -221,11 +226,24 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.99.0/mod.ts"
 
 export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
 }`
+
+export const DOCKER_INIT_CODE = `# shellcheck shell=bash
+# Bash script that calls docker as a client to the host daemon
+# See documentation: https://www.windmill.dev/docs/advanced/docker
+msg="\${1:-world}"
+
+IMAGE="alpine:latest"
+COMMAND="/bin/echo Hello $msg"
+
+# ensure that the image is up-to-date
+docker pull $IMAGE
+docker run --rm $IMAGE $COMMAND
+`
 
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
@@ -249,9 +267,9 @@ export function isInitialCode(content: string): boolean {
 }
 
 export function initialCode(
-	language: 'deno' | 'python3' | 'go' | 'bash',
+	language: SupportedLanguage,
 	kind: Script.kind | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | undefined
 ): string {
 	if (!kind) {
 		kind = Script.kind.SCRIPT
@@ -289,7 +307,17 @@ export function initialCode(
 			return PYTHON_INIT_CODE
 		}
 	} else if (language == 'bash') {
-		return BASH_INIT_CODE
+		if (subkind === 'docker') {
+			return DOCKER_INIT_CODE
+		} else {
+			return BASH_INIT_CODE
+		}
+	} else if (language == 'nativets') {
+		return NATIVETS_INIT_CODE
+	} else if (language == 'postgresql') {
+		return POSTGRES_INIT_CODE
+	} else if (language == 'bun') {
+		return BUN_INIT_CODE
 	} else {
 		if (kind === 'failure') {
 			return GO_FAILURE_MODULE_CODE

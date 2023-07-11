@@ -40,6 +40,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_variable))
         .route("/delete/*path", delete(delete_variable))
         .route("/create", post(create_variable))
+        .route("/encrypt", post(encrypt_value))
 }
 
 async fn list_contextual_variables(
@@ -255,6 +256,21 @@ async fn create_variable(
         StatusCode::CREATED,
         format!("variable {} created", variable.path),
     ))
+}
+
+async fn encrypt_value(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(variable): Json<String>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    let mc = build_crypt(&mut tx, &w_id).await?;
+    let value = encrypt(&mc, &variable);
+
+    tx.commit().await?;
+
+    Ok(value)
 }
 
 async fn delete_variable(

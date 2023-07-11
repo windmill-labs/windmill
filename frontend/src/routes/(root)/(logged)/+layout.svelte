@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { BROWSER } from 'esm-env'
 	import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
@@ -11,12 +12,18 @@
 		ScriptService,
 		UserService
 	} from '$lib/gen'
-	import { classNames, isCloudHosted } from '$lib/utils'
-	import { browser } from '$app/environment'
+	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
-	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		starStore,
+		superadmin,
+		usageStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -25,6 +32,8 @@
 	import { page } from '$app/stores'
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { isCloudHosted } from '$lib/cloud'
+	import MultiplayerMenu from '$lib/components/sidebar/MultiplayerMenu.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -53,7 +62,7 @@
 		menuOpen = false
 	})
 
-	let innerWidth = browser ? window.innerWidth : 2000
+	let innerWidth = BROWSER ? window.innerWidth : 2000
 
 	let favoriteLinks = [] as {
 		label: string
@@ -93,12 +102,12 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `/scripts/run/${s.hash}`,
+				href: `/scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `/flows/run/${f.path}`,
+				href: `/flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({
@@ -139,11 +148,12 @@
 			isCollapsed = false
 		}
 	}
+
+	let devOnly = $page.url.pathname.startsWith('/scripts/dev')
 </script>
 
 <svelte:window bind:innerWidth />
 <UserSettings bind:this={userSettings} />
-
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">
@@ -158,7 +168,11 @@
 	{/if}
 	<div>
 		<div
-			class={classNames('relative md:hidden', menuOpen ? 'z-40' : 'pointer-events-none')}
+			class={classNames(
+				'relative md:hidden',
+				menuOpen ? 'z-40' : 'pointer-events-none',
+				devOnly ? 'hidden' : ''
+			)}
 			role="dialog"
 			aria-modal="true"
 		>
@@ -215,6 +229,9 @@
 							<WorkspaceMenu />
 							<UserMenu />
 							<FavoriteMenu {favoriteLinks} />
+							{#if $enterpriseLicense}
+								<MultiplayerMenu />
+							{/if}
 						</div>
 
 						<SidebarContent {isCollapsed} />
@@ -226,7 +243,8 @@
 		<div
 			class={classNames(
 				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
-				isCollapsed ? 'md:w-12' : 'md:w-40'
+				isCollapsed ? 'md:w-12' : 'md:w-40',
+				devOnly ? '!hidden' : ''
 			)}
 		>
 			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]">
@@ -251,6 +269,9 @@
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu {isCollapsed} />
 					<FavoriteMenu {favoriteLinks} />
+					{#if $enterpriseLicense}
+						<MultiplayerMenu />
+					{/if}
 				</div>
 				<SidebarContent {isCollapsed} />
 
@@ -271,11 +292,19 @@
 				</div>
 			</div>
 		</div>
-		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-40')}>
+		<div
+			class={classNames(
+				'w-full flex flex-col flex-1',
+				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40'
+			)}
+		>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<div
-						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
+						class={classNames(
+							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden',
+							devOnly ? 'hidden' : ''
+						)}
 					>
 						<button
 							type="button"

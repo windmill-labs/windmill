@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { ScheduleService, type Schedule, JobService, type ScriptArgs } from '$lib/gen'
-	import { canWrite, displayDate, sendUserToast } from '$lib/utils'
+	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
+	import { canWrite, displayDate } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
@@ -10,33 +10,39 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faCircle,
 		faEdit,
+		faEye,
 		faList,
+		faPen,
 		faPlay,
 		faPlus,
 		faShare,
-		faToggleOff,
-		faToggleOn,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
 	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
 
-	type ScheduleW = Schedule & { canWrite: boolean }
+	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
 	let schedules: ScheduleW[] = []
 	let shareModal: ShareModal
 	let loading = true
 
 	async function loadSchedules(): Promise<void> {
-		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-		})
+		schedules = (await ScheduleService.listSchedulesWithJobs({ workspace: $workspaceStore! })).map(
+			(x) => {
+				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+			}
+		)
 		loading = false
 	}
 
@@ -85,178 +91,223 @@
 		}
 	}
 	let scheduleEditor: ScheduleEditor
+
+	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = []
+	let filter = ''
 </script>
 
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
+
+<SearchItems
+	{filter}
+	items={schedules}
+	bind:filteredItems
+	f={(x) => x.path + ' ' + x.script_path}
+/>
+
 <CenteredPage>
-	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule" documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling">
+	<PageHeader
+		title="Schedules"
+		tooltip="Trigger Scripts and Flows according to a cron schedule"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
+	>
 		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
 			New&nbsp;schedule
 		</Button>
 	</PageHeader>
-	<div class="mt-10 mb-40 overflow-auto">
+	<div class="w-full h-full flex flex-col">
+		<div class="w-12/12 pb-4 pt-6">
+			<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
+		</div>
 		{#if loading}
-			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}
-				<Skeleton layout={[[4], 0.7]} />
+				<Skeleton layout={[[6], 0.4]} />
 			{/each}
-		{:else}
-			<TableCustom>
-				<tr slot="header-row">
-					<th class="!px-0" />
-					<th>Schedule</th>
-					<th>Script/Flow</th>
-					<th>Schedule</th>
-					<th>Timezone</th>
-					<th />
-					<th>Enabled</th>
-					<th>Last Edit</th>
-					<th />
-				</tr>
-				<tbody slot="body">
-					{#each schedules as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args }}
-						<tr class={enabled ? '' : 'bg-gray-50'}>
-							<td class="!px-0 text-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</td>
-							<td class="max-w-sm min-w-[100px]">
-								<button
-									class="break-all text-left text-sm text-blue-600 font-normal"
-									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
-								>
-									{path}
-								</button>
-							</td>
-							<td class="">
-								<div class="inline-flex flex-row gap-x-2 align-middle w-full">
-									<div class="grow !min-w-[100px]">
-										<a
-											class="text-sm break-all"
-											href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
-										>
-											{script_path}
-										</a>
-									</div>
-									<Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}</Badge>
-								</div>
-							</td>
-							<td>
-								<Badge color="blue">{schedule}</Badge>
-							</td>
-							<td>
-								<Badge color="blue">{timezone}</Badge>
-							</td>
-							<td>
-								<div class="w-10">
-									{#if error}
-										<Popover notClickable>
-											<span class="flex h-4 w-4">
-												<Icon
-													class="text-red-600 animate-ping absolute inline-flex "
-													data={faCircle}
-													scale={0.7}
-													label="Error during last job scheduling"
-												/>
-												<Icon
-													class="text-red-600 relative inline-flex"
-													data={faCircle}
-													scale={0.7}
-													label="Error during last job scheduling"
-												/>
-											</span>
-											<div slot="text">
-												The schedule disabled itself because there was an error scheduling the next
-												job: {error}
-											</div>
-										</Popover>
+		{:else if !schedules?.length}
+			<div class="text-center text-sm text-gray-600 mt-2"> No schedules </div>
+		{:else if filteredItems?.length}
+			<div class="border rounded-md divide-y divide-gray-200">
+				{#each filteredItems as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs }}
+					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+					{@const avg_s = jobs
+						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
+						: undefined}
+
+					<div
+						class="hover:bg-gray-50 w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
+					>
+						<div class="w-full flex gap-5 items-center">
+							<RowIcon kind={is_flow ? 'flow' : 'script'} />
+
+							<a
+								href="#{path}"
+								on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+								class="min-w-0 grow hover:underline decoration-gray-400"
+							>
+								<div class="text-gray-900 flex-wrap text-left text-md font-semibold mb-1 truncate">
+									{#if marked}
+										<span class="text-xs">
+											{@html marked}
+										</span>
+									{:else}
+										{script_path}
 									{/if}
 								</div>
-							</td>
-							<td>
-								<Toggle
-									checked={enabled}
-									on:change={(e) => {
-										if (canWrite) {
-											setScheduleEnabled(path, e.detail)
-										} else {
-											sendUserToast('not enough permission', true)
-										}
-									}}
-								/>
-							</td>
-							<td class="min-w-[100px]">
-								<span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span>
-							</td>
-							<td>
-								<div class="inline-flex gap-2">
-									<Button
-										href={`/runs/${script_path}`}
-										size="xs"
-										startIcon={{ icon: faList }}
-										color="light"
-										variant="border"
-									>
-										Runs
-									</Button>
-									<Dropdown
-										placement="bottom-end"
-										dropdownItems={[
-											{
-												displayName: enabled ? 'Disable' : 'Enable',
-												icon: enabled ? faToggleOff : faToggleOn,
-												disabled: !canWrite,
-												action: () => {
-													setScheduleEnabled(path, enabled ? false : true)
-												}
-											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: faTrash,
-												disabled: !canWrite,
-												action: async () => {
-													await ScheduleService.deleteSchedule({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadSchedules()
-												}
-											},
-											{
-												displayName: 'Edit',
-												icon: faEdit,
-												disabled: !canWrite,
-												action: () => {
-													scheduleEditor?.openEdit(path, is_flow)
-												}
-											},
-											{
-												displayName: 'View Runs',
-												icon: faList,
-												href: '/runs/' + path
-											},
-											{
-												displayName: 'Run now',
-												icon: faPlay,
-												action: () => {
-													runScheduleNow(script_path, args, is_flow)
-												}
-											},
-											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: faShare,
-												action: () => {
-													shareModal.openDrawer(path, 'schedule')
-												}
-											}
-										]}
-									/>
+								<div class="text-gray-600 text-xs truncate text-left font-light">
+									schedule: {path}
 								</div>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</TableCustom>
+							</a>
+
+							<div class="gap-2 items-center hidden md:flex">
+								<Badge large color="blue">{schedule}</Badge>
+								<Badge small color="gray">{timezone}</Badge>
+							</div>
+
+							<div class="hidden lg:flex flex-row gap-1 items-center">
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</div>
+
+							<div class="w-10">
+								{#if error}
+									<Popover notClickable>
+										<span class="flex h-4 w-4">
+											<Icon
+												class="text-red-600 animate-ping absolute inline-flex "
+												data={faCircle}
+												scale={0.7}
+												label="Error during last job scheduling"
+											/>
+											<Icon
+												class="text-red-600 relative inline-flex"
+												data={faCircle}
+												scale={0.7}
+												label="Error during last job scheduling"
+											/>
+										</span>
+										<div slot="text">
+											The schedule disabled itself because there was an error scheduling the next
+											job: {error}
+										</div>
+									</Popover>
+								{/if}
+							</div>
+
+							<Toggle
+								checked={enabled}
+								on:change={(e) => {
+									if (canWrite) {
+										setScheduleEnabled(path, e.detail)
+									} else {
+										sendUserToast('not enough permission', true)
+									}
+								}}
+							/>
+							<div class="flex gap-2 items-center justify-end">
+								<Button
+									href={`/runs/?schedule_path=${path}`}
+									size="xs"
+									startIcon={{ icon: faList }}
+									color="light"
+									variant="border"
+								>
+									Runs
+								</Button>
+								<Button
+									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+									size="xs"
+									startIcon={{ icon: faPen }}
+									color="dark"
+								>
+									Edit
+								</Button>
+								<Dropdown
+									placement="bottom-end"
+									dropdownItems={[
+										{
+											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+											icon: faEye,
+											action: () => {
+												goto(href)
+											}
+										},
+										{
+											displayName: 'Delete',
+											type: 'delete',
+											icon: faTrash,
+											disabled: !canWrite,
+											action: async () => {
+												await ScheduleService.deleteSchedule({
+													workspace: $workspaceStore ?? '',
+													path
+												})
+												loadSchedules()
+											}
+										},
+										{
+											displayName: 'Edit',
+											icon: faEdit,
+											disabled: !canWrite,
+											action: () => {
+												scheduleEditor?.openEdit(path, is_flow)
+											}
+										},
+										{
+											displayName: 'View Runs',
+											icon: faList,
+											href: '/runs/?schedule_path=' + path
+										},
+										{
+											displayName: 'Run now',
+											icon: faPlay,
+											action: () => {
+												runScheduleNow(script_path, args, is_flow)
+											}
+										},
+										{
+											displayName: canWrite ? 'Share' : 'See Permissions',
+											icon: faShare,
+											action: () => {
+												shareModal.openDrawer(path, 'schedule')
+											}
+										}
+									]}
+								/>
+							</div>
+						</div>
+						<div class="w-full flex justify-between items-baseline">
+							<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+								{#if avg_s}
+									<div class="pl-2 text-gray-600 text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+								{/if}
+								{#each jobs ?? [] as job}
+									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
+									<a href="/run/{job.id}">
+										<JobPreview id={job.id}>
+											<div>
+												<div
+													class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
+													style="height: {h}px"
+												/>
+												<!-- <div class="text-[0.6em] mt-0.5 text-center text-gray-500"
+													>{(job.duration_ms / 1000).toFixed(2)}s</div
+												> -->
+											</div>
+										</JobPreview>
+									</a>
+								{/each}
+							</div>
+							<div class="flex flex-wrap text-[0.7em] text-gray-500 gap-1 justify-end truncate pr-2"
+								><div class="truncate">edited by {edited_by}</div><div class="truncate"
+									>the {displayDate(edited_at)}</div
+								></div
+							></div
+						>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<NoItemFound />
 		{/if}
 	</div>
 </CenteredPage>
@@ -267,9 +318,3 @@
 		loadSchedules()
 	}}
 />
-
-<style lang="postcss">
-	td {
-		@apply px-2;
-	}
-</style>

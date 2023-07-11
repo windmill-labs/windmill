@@ -2,13 +2,15 @@ import type { ComponentSet } from '../../types'
 
 const tabs: ComponentSet = {
 	title: 'Tabs',
-	components: ['tabscomponent', 'conditionalwrapper']
+	components: ['tabscomponent', 'conditionalwrapper'],
+	presets: ['sidebartabscomponent', 'invisibletabscomponent']
 } as const
 
 const layout: ComponentSet = {
 	title: 'Layout',
 	components: [
 		'containercomponent',
+		'listcomponent',
 		'horizontaldividercomponent',
 		'verticaldividercomponent',
 		'drawercomponent',
@@ -30,6 +32,7 @@ const inputs: ComponentSet = {
 		'schemaformcomponent',
 		'textinputcomponent',
 		'textareainputcomponent',
+		'quillcomponent',
 		'passwordinputcomponent',
 		'emailinputcomponent',
 		'numberinputcomponent',
@@ -42,7 +45,8 @@ const inputs: ComponentSet = {
 		'selectcomponent',
 		'resourceselectcomponent',
 		'multiselectcomponent',
-		'selecttabcomponent'
+		'selecttabcomponent',
+		'selectstepcomponent'
 	]
 } as const
 
@@ -55,7 +59,9 @@ const display: ComponentSet = {
 		'mapcomponent',
 		'htmlcomponent',
 		'pdfcomponent',
-		'displaycomponent'
+		'displaycomponent',
+		'logcomponent',
+		'flowstatuscomponent'
 	]
 } as const
 
@@ -72,8 +78,9 @@ const charts: ComponentSet = {
 		'vegalitecomponent',
 		'plotlycomponent',
 		'scatterchartcomponent',
-		'timeseriescomponent'
+		'timeseriescomponent',
+		'chartjscomponent'
 	]
 } as const
 
-export const COMPONENT_SETS = [tabs, layout, buttons, inputs, tables, display, charts] as const
+export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, charts] as const

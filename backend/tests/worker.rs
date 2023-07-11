@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc};
 
 use futures::{stream, Stream};
 use serde::Deserialize;
@@ -842,6 +842,7 @@ impl RunJob {
             /* schedule_path */ None,
             /* parent_job */ None,
             /* root job  */ None,
+            /* job_id */ None,
             /* is_flow_step */ false,
             /* running */ false,
             None,
@@ -1014,6 +1015,8 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1042,6 +1045,8 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             suspend: Default::default(),
                             retry: None,
                             sleep: None,
+                            cache_ttl: None,
+                            mock: None,
                         }],
                     },
                     stop_after_if: Default::default(),
@@ -1049,6 +1054,8 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
             ],
             same_worker: false,
@@ -1143,6 +1150,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1182,6 +1191,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 suspend: Default::default(),
                                 retry: None,
                                 sleep: None,
+                                cache_ttl: None,
+                                mock: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -1208,6 +1219,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 suspend: Default::default(),
                                 retry: None,
                                 sleep: None,
+                                cache_ttl: None,
+                                mock: None
                             },
                         ],
                     },
@@ -1216,7 +1229,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
-
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1251,6 +1265,9 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
+
                 },
             ],
             same_worker: true,

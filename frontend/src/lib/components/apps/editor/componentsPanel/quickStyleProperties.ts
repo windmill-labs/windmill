@@ -548,9 +548,6 @@ export const quickStyleProperties: Record<
 		map: [spacingGrouping, borderGrouping]
 	},
 	steppercomponent: {
-		stepsRow: containerDefaultProps,
-		allSteps: [typographyGrouping, sizeGrouping],
-		selectedStep: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
 	conditionalwrapper: {
@@ -635,6 +632,14 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	logcomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
+	flowstatuscomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
 	barchartcomponent: {
 		container: containerDefaultProps
 	},
@@ -647,8 +652,14 @@ export const quickStyleProperties: Record<
 	piechartcomponent: {
 		container: containerDefaultProps
 	},
+	chartjscomponent: {
+		container: containerDefaultProps
+	},
 	vegalitecomponent: {},
 	containercomponent: {
+		container: containerDefaultProps
+	},
+	listcomponent: {
 		container: containerDefaultProps
 	},
 	dateinputcomponent: {
@@ -658,6 +669,9 @@ export const quickStyleProperties: Record<
 		container: containerDefaultProps
 	},
 	textinputcomponent: {
+		input: inputDefaultProps
+	},
+	quillcomponent: {
 		input: inputDefaultProps
 	},
 	textareainputcomponent: {
@@ -710,5 +724,6 @@ export const quickStyleProperties: Record<
 		tabRow: containerDefaultProps,
 		allTabs: [typographyGrouping, sizeGrouping],
 		selectedTab: [typographyGrouping, sizeGrouping]
-	}
+	},
+	selectstepcomponent: {}
 }

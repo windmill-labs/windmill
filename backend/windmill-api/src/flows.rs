@@ -257,6 +257,7 @@ async fn create_flow(
         None,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -421,6 +422,7 @@ async fn update_flow(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        None,
         None,
         None,
         None,
@@ -650,6 +652,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -669,6 +673,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -686,6 +692,8 @@ mod tests {
                     suspend: Default::default(),
                     retry: None,
                     sleep: None,
+                    cache_ttl: None,
+                    mock: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -703,6 +711,8 @@ mod tests {
                 suspend: Default::default(),
                 retry: None,
                 sleep: None,
+                cache_ttl: None,
+                mock: None,
             }),
             same_worker: false,
         };

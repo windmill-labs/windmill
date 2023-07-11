@@ -21,12 +21,13 @@
 	import { writable } from 'svelte/store'
 	import { Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
-	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Folder, User } from 'lucide-svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -77,14 +78,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			if ($lastMetaUsed == undefined) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
 					ownerKind: 'user',
 					name: random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
-
-				meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+				if ($userStore?.username?.includes('@')) {
+					meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+				} else {
+					meta.owner = $userStore!.username!
+				}
 			} else {
 				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
 			}
@@ -206,6 +210,7 @@
 	function initPath() {
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path)
+			onMetaChange()
 			return
 		}
 		if (initialPath == undefined || initialPath == '') {
@@ -269,12 +274,12 @@
 </Drawer>
 
 <div>
-	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<div class="flex gap-4 shrink">
+			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<span class="text-gray-700 text-sm whitespace-nowrap">Owner</span>
+					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
 						class="mt-0.5"
@@ -283,7 +288,7 @@
 							const kind = e.detail
 							if (meta) {
 								if (kind === 'folder') {
-									meta.owner = $userStore?.folders?.[0] ?? ''
+									meta.owner = folders?.[0]?.name ?? ''
 								} else if (kind === 'group') {
 									meta.owner = 'all'
 								} else {
@@ -292,9 +297,25 @@
 							}
 						}}
 					>
-						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
+						<ToggleButton
+							icon={User}
+							{disabled}
+							light
+							size="xs"
+							value="user"
+							position="left"
+							label="User"
+						/>
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
+						<ToggleButton
+							icon={Folder}
+							{disabled}
+							light
+							size="xs"
+							value="folder"
+							position="right"
+							label="Folder"
+						/>
 					</ToggleButtonGroup>
 				</label>
 				{#if meta.ownerKind === 'user'}
@@ -305,14 +326,14 @@
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
-							disabled={!($superadmin || ($userStore?.is_admin ?? false))}
+							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
 						<span class="text-gray-700 text-sm"
 							>Folder <Tooltip
-								documentationLink="https://docs.windmill.dev/docs/core_concepts/groups_and_folders"
+								documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 								>Read and write permissions are given to groups and users at the folder level and
 								shared by all items inside the folder.</Tooltip
 							></span
@@ -320,6 +341,9 @@
 
 						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
+								{#if folders?.length == 0}
+									<option disabled>No folders</option>
+								{/if}
 								{#each folders as { name, write }}
 									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
 								{/each}
@@ -328,7 +352,9 @@
 								title="View folder"
 								btnClasses="!p-1.5"
 								variant="border"
+								color="light"
 								size="xs"
+								disabled={!meta.owner || meta.owner == ''}
 								on:click={viewFolder.openDrawer}
 							>
 								<Icon scale={0.8} data={faEye} /></Button
@@ -337,6 +363,7 @@
 								title="New folder"
 								btnClasses="!p-1.5"
 								variant="border"
+								color="light"
 								size="xs"
 								{disabled}
 								on:click={newFolder.openDrawer}

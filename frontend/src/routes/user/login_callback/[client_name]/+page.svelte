@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -10,6 +10,7 @@
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logout'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import { parseQueryParams } from '$lib/utils'
 
 	let error = $page.url.searchParams.get('error')
 	let clientName = $page.params.client_name
@@ -40,6 +41,13 @@
 				$userStore = await getUserExt($workspaceStore)
 				goto(rd ?? '/')
 			} else {
+				let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
+				if (rd && workspaceTarget) {
+					$workspaceStore = workspaceTarget
+					goto(rd)
+					return
+				}
+
 				if (!$usersWorkspaceStore) {
 					try {
 						usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())

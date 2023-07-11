@@ -1,9 +1,11 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
-	import { CompletedJob, Job, JobService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { BROWSER } from 'esm-env'
+
+	import type { Schema, SupportedLanguage } from '$lib/common'
+	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
+	import { faClipboard, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -13,13 +15,18 @@
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import * as Y from 'yjs'
+	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { WebsocketProvider } from 'y-websocket'
+	import Modal from './common/modal/Modal.svelte'
+	import { Icon } from 'svelte-awesome'
 
 	// Exported
-	export let schema: Schema = emptySchema()
+	export let schema: Schema | any = emptySchema()
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -29,8 +36,17 @@
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
 	export let editor: Editor | undefined = undefined
+	export let collabMode = false
+	export let edit = true
 
-	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+	let websocketAlive = {
+		pyright: false,
+		black: false,
+		deno: false,
+		go: false,
+		ruff: false,
+		shellcheck: false
+	}
 
 	let width = 1200
 
@@ -44,10 +60,22 @@
 	let testIsLoading = false
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
-	let lastSave: string | null
 	let validCode = true
 
-	$: lastSave = localStorage.getItem(path ?? 'last_save')
+	let wsProvider: WebsocketProvider | undefined = undefined
+	let yContent: Y.Text | undefined = undefined
+	let peers: { name: string }[] = []
+	let showCollabPopup = false
+
+	const url = new URL(window.location.toString())
+	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
+
+	if (initialCollab) {
+		setCollaborationMode()
+		url.searchParams.delete('collab')
+		url.searchParams.delete('path')
+		history.replaceState(null, '', url)
+	}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -57,6 +85,7 @@
 	}
 
 	function runTest() {
+		//@ts-ignore
 		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
 
@@ -69,31 +98,15 @@
 		})
 	}
 
-	export async function inferSchema(code: string, nlang?: 'go' | 'bash' | 'python3' | 'deno') {
-		schema = schema ?? emptySchema()
-		let isDefault: string[] = []
-		Object.entries(args).forEach(([k, v]) => {
-			if (schema.properties?.[k]?.default == v) {
-				isDefault.push(k)
-			}
-		})
+	export async function inferSchema(code: string, nlang?: SupportedLanguage) {
+		let nschema = schema ?? emptySchema()
 
 		try {
-			await inferArgs(nlang ?? lang, code, schema)
+			await inferArgs(nlang ?? lang, code, nschema)
 			validCode = true
+			schema = nschema
 		} catch (e) {
 			validCode = false
-		}
-
-		schema = schema
-
-		isDefault
-			.filter((key) => schema.properties[key] != undefined)
-			.forEach((key) => (args[key] = schema.properties[key].default))
-		for (const key of Object.keys(args)) {
-			if (schema.properties[key] == undefined) {
-				delete args[key]
-			}
 		}
 	}
 
@@ -102,10 +115,91 @@
 		loadPastTests()
 	})
 
+	export async function setCollaborationMode() {
+		if (!$enterpriseLicense) {
+			$enterpriseLicense = await SettingsService.getLicenseId()
+		}
+
+		if (!$enterpriseLicense) {
+			sendUserToast(`Multiplayer is an enterprise feature`, true, [
+				{
+					label: 'Upgrade',
+					callback: () => {
+						window.open('https://www.windmill.dev/pricing', '_blank')
+					}
+				}
+			])
+			return
+		}
+
+		const ydoc = new Y.Doc()
+		if (wsProvider) {
+			wsProvider.destroy()
+		}
+		let yContentInit = ydoc.getText('content')
+
+		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+
+		wsProvider = new WebsocketProvider(
+			`${wsProtocol}://${window.location.host}/ws_mp/`,
+			$workspaceStore + '/' + path ?? 'no-room-name',
+			ydoc,
+			{ connect: false }
+		)
+
+		wsProvider.on('sync', (isSynced: boolean) => {
+			if (isSynced && yContentInit?.toJSON() == '') {
+				showCollabPopup = true
+				yContentInit?.insert(0, code)
+			}
+			yContent = yContentInit
+		})
+
+		wsProvider.on('connection-error', (WSErrorEvent) => {
+			console.error(WSErrorEvent)
+			sendUserToast('Multiplayer server connection had an error', true)
+		})
+		wsProvider.connect()
+		const awareness = wsProvider.awareness
+
+		awareness.setLocalStateField('user', {
+			name: $userStore?.username
+		})
+
+		function setPeers() {
+			peers = Array.from(awareness.getStates().values()).map((x) => x.user)
+		}
+
+		setPeers()
+		// You can observe when a user updates their awareness information
+		awareness.on('change', (changes) => {
+			setPeers()
+		})
+	}
+
+	export function disableCollaboration() {
+		if (!wsProvider?.shouldConnect) return
+		peers = []
+		console.log('collab mode disabled')
+		wsProvider?.disconnect()
+		wsProvider.destroy()
+		wsProvider = undefined
+	}
+
+	onDestroy(() => {
+		disableCollaboration()
+	})
+
 	const dispatch = createEventDispatcher()
 
 	function asKind(str: string | undefined) {
 		return str as 'script' | 'approval' | 'trigger' | undefined
+	}
+
+	function collabUrl() {
+		let url = new URL(window.location.toString())
+		url.search = ''
+		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
 </script>
 
@@ -118,21 +212,42 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+<Modal title="Invite others" bind:open={showCollabPopup}>
+	<div>Have others join by sharing the following url:</div>
+	<div class="flex gap-2 pr-4">
+		<input type="text" disabled value={collabUrl()} />
+		<button on:click={() => copyToClipboard(collabUrl())} class="text-gray-700 ml-2">
+			<Icon data={faClipboard} />
+		</button>
+	</div>
+</Modal>
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
+			scriptPath={edit ? path : undefined}
+			on:toggleCollabMode={() => {
+				if (wsProvider?.shouldConnect) {
+					disableCollaboration()
+				} else {
+					setCollaborationMode()
+				}
+			}}
+			collabLive={wsProvider?.shouldConnect}
+			{collabMode}
 			{validCode}
 			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+			on:collabPopup={() => (showCollabPopup = true)}
 			{editor}
 			{lang}
 			{websocketAlive}
+			collabUsers={peers}
 			kind={asKind(kind)}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
 				<Button
 					target="_blank"
-					href="https://github.com/windmill-labs/windmill/tree/main/cli"
+					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
 					color="light"
 					size="xs"
 					btnClasses="mr-1 hidden lg:block"
@@ -140,7 +255,7 @@
 						icon: faGithub
 					}}
 				>
-					Sync from Github
+					Use VScode
 				</Button>
 			</div>
 		{/if}
@@ -152,10 +267,13 @@
 			<div class="pl-2 h-full !overflow-visible">
 				{#key lang}
 					<Editor
+						folding
 						{path}
 						bind:code
 						bind:websocketAlive
 						bind:this={editor}
+						{yContent}
+						awareness={wsProvider?.awareness}
 						on:change={(e) => {
 							inferSchema(e.detail)
 						}}
@@ -170,11 +288,11 @@
 							} catch (e) {
 								console.error('Could not save last_save to local storage', e)
 							}
-							lastSave = code
 							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
 						lang={scriptLangToEditorLang(lang)}
+						deno={lang == 'deno'}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 					/>
@@ -198,7 +316,9 @@
 					{:else}
 						<Button
 							color="dark"
-							on:click={runTest}
+							on:click={() => {
+								runTest()
+							}}
 							btnClasses="w-full"
 							size="xs"
 							startIcon={{
@@ -224,14 +344,7 @@
 						</div>
 					</Pane>
 					<Pane size={67}>
-						<LogPanel
-							{path}
-							{lang}
-							previewJob={testJob}
-							{pastPreviews}
-							previewIsLoading={testIsLoading}
-							bind:lastSave
-						/>
+						<LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
 					</Pane>
 				</Splitpanes>
 			</div>

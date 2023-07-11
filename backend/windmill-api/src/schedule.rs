@@ -16,20 +16,23 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    jobs::JobKind,
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath}, jobs::JobKind,
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_schedule))
+        .route("/list_with_jobs", get(list_schedule_with_jobs))
         .route("/get/*path", get(get_schedule))
         .route("/exists/*path", get(exists_schedule))
         .route("/create", post(create_schedule))
@@ -51,6 +54,7 @@ pub struct NewSchedule {
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
     pub enabled: Option<bool>,
+    pub on_failure: Option<String>,
 }
 
 async fn check_path_conflict<'c>(
@@ -100,7 +104,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+         is_flow, args, enabled, email, on_failure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -110,7 +114,8 @@ async fn create_schedule(
         ns.is_flow,
         ns.args,
         ns.enabled.unwrap_or(false),
-        &authed.email
+        &authed.email,
+        ns.on_failure
     )
     .fetch_one(&mut tx)
     .await
@@ -154,7 +159,7 @@ async fn edit_schedule(
     let path = path.to_path();
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-      let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -170,11 +175,12 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3 WHERE path \
-         = $4 AND workspace_id = $5 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4 WHERE path \
+         = $5 AND workspace_id = $6 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
+        es.on_failure,
         path,
         w_id,
     )
@@ -206,6 +212,14 @@ async fn edit_schedule(
     Ok(path.to_string())
 }
 
+#[derive(Deserialize)]
+pub struct ListScheduleQuery {
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+    pub path: Option<String>,
+    pub is_flow: Option<bool>,
+}
+
 async fn list_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -213,10 +227,54 @@ async fn list_schedule(
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<Schedule>> {
     let mut tx = user_db.begin(&authed).await?;
+    let (per_page, offset) =
+        paginate(Pagination { per_page: pagination.per_page, page: pagination.page });
+    let sqlb = SqlBuilder::select_from("schedule")
+        .field("*")
+        .order_by("edited_at", true)
+        .and_where("workspace_id = ?".bind(&w_id))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let rows = sqlx::query_as::<_, Schedule>(&sql)
+        .fetch_all(&mut tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ScheduleWJobs {
+    pub workspace_id: String,
+    pub path: String,
+    pub edited_by: String,
+    pub edited_at: DateTime<chrono::Utc>,
+    pub schedule: String,
+    pub timezone: String,
+    pub enabled: bool,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub args: Option<serde_json::Value>,
+    pub extra_perms: serde_json::Value,
+    pub email: String,
+    pub error: Option<String>,
+    pub on_failure: Option<String>,
+    pub jobs: Option<Vec<serde_json::Value>>,
+}
+
+async fn list_schedule_with_jobs(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
+) -> JsonResult<Vec<ScheduleWJobs>> {
+    let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(
-        Schedule,
-        "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3",
+    let rows = sqlx::query_as!(ScheduleWJobs,
+        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
+        completed_job.schedule_path = schedule.path AND schedule.workspace_id = completed_job.workspace_id AND parent_job IS NULL ORDER BY created_at DESC LIMIT 20) AS jobs ) t
+        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -226,6 +284,16 @@ async fn list_schedule(
     tx.commit().await?;
     Ok(Json(rows))
 }
+
+// SELECT id, title AS item_title, t.tag_array
+// FROM   items i, LATERAL (  -- this is an implicit CROSS JOIN
+//    SELECT ARRAY (
+//       SELECT t.title
+//       FROM   items_tags it
+//       JOIN   tags       t  ON t.id = it.tag_id
+//       WHERE  it.item_id = i.id
+//       ) AS tag_array
+//    ) t;
 
 async fn get_schedule(
     authed: Authed,
@@ -386,6 +454,7 @@ pub struct EditSchedule {
     pub schedule: String,
     pub timezone: String,
     pub args: Option<serde_json::Value>,
+    pub on_failure: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

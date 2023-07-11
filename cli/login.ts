@@ -1,9 +1,12 @@
 import { GlobalOptions } from "./types.ts";
-import { colors, getAvailablePort, log, Secret, Select } from "./deps.ts";
-import { open } from "https://deno.land/x/open/index.ts";
+import { colors, getAvailablePort, log, open, Secret, Select } from "./deps.ts";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
+  if (!Deno.isatty(Deno.stdin.rid)) {
+    log.info("Not a TTY, can't login interactively.");
+    return undefined;
+  }
   if (
     (await Select.prompt({
       message: "How do you want to login",

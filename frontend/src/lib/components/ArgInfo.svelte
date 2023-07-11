@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { truncate } from '$lib/utils'
-	import { DrawerContent } from './common'
+	import { copyToClipboard, truncate } from '$lib/utils'
+	import { ClipboardCopy, Expand } from 'lucide-svelte'
+	import { Button, DrawerContent } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -22,7 +23,16 @@
 </script>
 
 <Drawer bind:this={jsonViewer} size="800px">
-	<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer}>
+	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button
+				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
+				color="light"
+				size="xs"
+			>
+				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+			</Button>
+		</svelte:fragment>
 		{#if isString(jsonViewerContent)}
 			<pre>{jsonViewerContent}</pre>
 		{:else}
@@ -58,16 +68,18 @@
 		>
 	{/if}
 {:else}
-	<div class="max-h-40 overflow-auto">
-		<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+	<div class="relative">
+		{#if JSON.stringify(value).length > 120}
+			<button
+				class="text-xs absolute top-0 right-4 text-gray-500"
+				on:click={() => {
+					jsonViewerContent = value
+					jsonViewer.toggleDrawer()
+				}}><Expand size={18} /></button
+			>
+		{/if}
+		<div class="max-h-40 overflow-auto">
+			<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+		</div>
 	</div>
-	{#if JSON.stringify(value).length > 120}
-		<button
-			class="text-xs text-blue-500"
-			on:click={() => {
-				jsonViewerContent = value
-				jsonViewer.toggleDrawer()
-			}}>See JSON</button
-		>
-	{/if}
 {/if}

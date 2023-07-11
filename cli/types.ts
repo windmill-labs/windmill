@@ -1,14 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, log, path } from "./deps.ts";
+import { colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import { pushApp } from "./apps.ts";
-import {
-  parse as yamlParse,
-  stringify as yamlStringify,
-} from "https://deno.land/std@0.184.0/yaml/mod.ts";
-import { equal } from "https://deno.land/x/equal@v1.5.0/equal.ts";
 import { pushFolder } from "./folder.ts";
-import { pushScript } from "./script.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
 import { pushResourceType } from "./resource-type.ts";
@@ -16,6 +10,7 @@ import { pushVariable } from "./variable.ts";
 import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
+import { deepEqual } from "./utils.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -48,7 +43,7 @@ export function isSuperset(
   superset: Record<string, any>
 ): boolean {
   return Object.keys(subset).every((key) => {
-    const eq = equal(subset[key], superset[key]);
+    const eq = deepEqual(subset[key], superset[key]);
     if (!eq && showDiffs) {
       const sub = subset[key];
       const supers = superset[key];
@@ -111,13 +106,11 @@ export function pushObj(
     pushApp(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "folder") {
     pushFolder(workspace, p, befObj, newObj, checkForCreate);
-  } else if (typeEnding === "script") {
-    pushScript(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     pushVariable(workspace, p, befObj, newObj, plainSecrets, checkForCreate);
   } else if (typeEnding === "flow") {
     const flowName = p.split(".flow/")[0];
-    pushFlow(workspace, flowName, flowName + ".flow", workspace);
+    pushFlow(workspace, flowName, flowName + ".flow");
   } else if (typeEnding === "resource") {
     pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
@@ -161,7 +154,8 @@ export function getTypeStrFromPath(
     parsed.ext == ".go" ||
     parsed.ext == ".ts" ||
     parsed.ext == ".sh" ||
-    parsed.ext == ".py"
+    parsed.ext == ".py" ||
+    parsed.ext == ".sql"
   ) {
     return "script";
   }

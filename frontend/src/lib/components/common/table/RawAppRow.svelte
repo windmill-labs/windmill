@@ -5,13 +5,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faEdit,
-		faEye,
-		faFileExport,
-		faShare,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faFileExport, faShare, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -19,6 +13,7 @@
 	import DrawerContent from '../drawer/DrawerContent.svelte'
 	import FileInput from '../fileInput/FileInput.svelte'
 	import { goto } from '$app/navigation'
+	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -26,6 +21,7 @@
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let deploymentDrawer: DeployWorkspaceDrawer
 
 	let updateAppDrawer: Drawer
 
@@ -85,24 +81,18 @@
 					</div>
 				{/if}
 			{/if}
-			<Button
-				href="/apps/get_raw/{version}/{path}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				View
-			</Button>
 		</span>
 		<Dropdown
 			placement="bottom-end"
 			dropdownItems={() => {
 				return [
 					{
-						displayName: 'View',
-						icon: faEye,
-						href: `/apps/get/${path}`
+						displayName: 'Move/Rename',
+						icon: faFileExport,
+						action: () => {
+							moveDrawer.openDrawer(path, summary, 'raw_app')
+						},
+						disabled: !canWrite
 					},
 					{
 						displayName: 'Move/Rename',
@@ -111,6 +101,13 @@
 							moveDrawer.openDrawer(path, summary, 'raw_app')
 						},
 						disabled: !canWrite
+					},
+					{
+						displayName: 'Deploy to prod/staging',
+						icon: faFileExport,
+						action: () => {
+							deploymentDrawer.openDrawer(path, 'raw_app')
+						}
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',

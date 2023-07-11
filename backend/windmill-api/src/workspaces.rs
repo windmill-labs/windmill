@@ -9,17 +9,16 @@
 #[cfg(feature = "enterprise")]
 use std::str::FromStr;
 
-#[cfg(feature = "enterprise")]
 use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{Authed, WorkspaceInvite, VALID_USERNAME},
+    users::{Authed, WorkspaceInvite, VALID_USERNAME, send_email_if_possible},
     utils::require_super_admin,
     variables::build_crypt,
-    webhook_util::{InstanceEvent, WebhookShared},
+    webhook_util::{InstanceEvent, WebhookShared}
 };
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;
@@ -35,6 +34,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
@@ -59,11 +59,14 @@ pub fn workspaced_service() -> Router {
         .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
+        .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
+        .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
-        .route("/premium_info", get(premium_info));
+        .route("/premium_info", get(premium_info))
+        .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
     tracing::info!("stripe enabled");
@@ -109,6 +112,8 @@ pub struct WorkspaceSettings {
     pub customer_id: Option<String>,
     pub plan: Option<String>,
     pub webhook: Option<String>,
+    pub deploy_to: Option<String>,
+    pub error_handler: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -129,6 +134,13 @@ pub enum WorkspaceKeyKind {
 #[derive(Deserialize)]
 struct EditCommandScript {
     slack_command_script: Option<String>,
+}
+
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+struct EditDeployTo {
+    deploy_to: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -191,6 +203,11 @@ pub struct NewWorkspaceUser {
     pub username: String,
     pub is_admin: bool,
     pub operator: bool,
+}
+
+#[derive(Deserialize)]
+pub struct EditErrorHandler {
+    pub error_handler: Option<String>,
 }
 
 async fn list_pending_invites(
@@ -259,37 +276,15 @@ async fn stripe_checkout(
                 "team" => Some(vec![
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: Some(1),
-                        price: Some("price_1MUlrWGU3NdFi9eLE9GBZhoY".to_string()),
+                        price: Some("price_1NCNOgGU3NdFi9eLuG4fZuEP".to_string()),
                         ..Default::default()
                     },
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: None,
-                        price: Some("price_1MUlreGU3NdFi9eLi6sOyvVa".to_string()),
-                        ..Default::default()
-                    },
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1MUlrlGU3NdFi9eLFLggSXZV".to_string()),
-                        ..Default::default()
-                    },
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1MUlr3GU3NdFi9eLbZYFjR9p".to_string()),
+                        price: Some("price_1NCNCpGU3NdFi9eLbiE6Ca42".to_string()),
                         ..Default::default()
                     },
                 ]),
-                // "enterprise" => Some(vec![
-                //     stripe::CreateCheckoutSessionLineItems {
-                //         quantity: None,
-                //         price: Some("price_1MSdf6GU3NdFi9eLJFRkntlx".to_string()),
-                //         ..Default::default()
-                //     },
-                //     stripe::CreateCheckoutSessionLineItems {
-                //         quantity: None,
-                //         price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
-                //         ..Default::default()
-                //     },
-                // ]),
                 _ => Err(Error::BadRequest("invalid plan".to_string()))?,
             };
             params.customer_email = Some(&authed.email);
@@ -429,6 +424,29 @@ async fn get_settings(
     Ok(Json(settings))
 }
 
+#[derive(Serialize)]
+struct DeployTo {
+    deploy_to: Option<String>,
+}
+async fn get_deploy_to(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<DeployTo> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        DeployTo,
+        "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
+
+    tx.commit().await?;
+    Ok(Json(settings))
+}
+
 async fn edit_slack_command(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -467,6 +485,54 @@ async fn edit_slack_command(
     tx.commit().await?;
 
     Ok(format!("Edit command script {}", &w_id))
+}
+
+
+#[cfg(feature = "enterprise")]
+async fn edit_deploy_to(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(es): Json<EditDeployTo>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        es.deploy_to,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_deploy_to",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some(
+            [(
+                "script",
+                es.deploy_to.unwrap_or("NO_DEPLOY_TO".to_string()).as_str(),
+            )]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit deploy to for {}", &w_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn edit_deploy_to() -> Result<String> {
+    return Err(Error::BadRequest(
+        "Deploy to is only available on enterprise".to_string(),
+    ));
 }
 
 const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
@@ -586,6 +652,62 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
+
+async fn edit_error_handler(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(ee): Json<EditErrorHandler>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+    
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "error_handler",
+        "The group the error handler acts on belhalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut tx)
+    .await?;
+
+    if let Some(error_handler) = &ee.error_handler {
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
+            error_handler,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_error_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit error_handler for workspace {}", &w_id))
+
+}
+
 async fn list_workspaces_as_super_admin(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -640,15 +762,22 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
     return Ok(());
 }
 
+lazy_static::lazy_static! {
+
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(false));
+
+}
+
 async fn create_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
-    if &nw.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()));
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+        require_super_admin(&mut tx, &authed.email).await?;
     }
-    let mut tx = db.begin().await?;
     check_name_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
@@ -967,6 +1096,17 @@ async fn invite_user(
 
     tx.commit().await?;
 
+    send_email_if_possible(
+        &format!("Invited to Windmill's workspace: {w_id}"),
+        &format!(
+            "You have been granted access to Windmill's workspace {w_id}
+
+If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            *BASE_URL
+        ),
+        &nu.email,
+    );
+    
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
         workspace: w_id,
@@ -979,7 +1119,7 @@ async fn invite_user(
 }
 
 async fn add_user(
-    Authed { username, is_admin, .. }: Authed,
+    Authed { username, email, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -1019,6 +1159,17 @@ async fn add_user(
     .await?;
 
     tx.commit().await?;
+
+    send_email_if_possible(
+        &format!("Added to Windmill's workspace: {w_id}"),
+        &format!(
+            "You have been granted access to Windmill's workspace {w_id} by {email}
+
+If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
+            *BASE_URL
+        ),
+        &nu.email,
+    );
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),
@@ -1140,6 +1291,10 @@ impl ArchiveImpl {
 struct ArchiveQueryParams {
     archive_type: Option<String>,
     plain_secret: Option<bool>,
+    plain_secrets: Option<bool>,
+    skip_secrets: Option<bool>,
+    skip_variables: Option<bool>,
+    skip_resources: Option<bool>,
 }
 
 #[inline]
@@ -1187,7 +1342,14 @@ async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Query(ArchiveQueryParams { archive_type, plain_secret }): Query<ArchiveQueryParams>,
+    Query(ArchiveQueryParams {
+        archive_type,
+        plain_secret,
+        plain_secrets,
+        skip_resources,
+        skip_secrets,
+        skip_variables,
+    }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1237,6 +1399,10 @@ async fn tarball_workspace(
                 ScriptLang::Deno => "ts",
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
+                ScriptLang::Postgresql => "pg.sql",
+                ScriptLang::Mysql => "my.sql",
+                ScriptLang::Nativets => "fetch.ts",
+                ScriptLang::Bun => "bun.ts",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -1263,7 +1429,7 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
             "SELECT * FROM resource WHERE workspace_id = $1",
@@ -1280,7 +1446,7 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_resources.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
             "SELECT * FROM resource_type WHERE workspace_id = $1",
@@ -1316,9 +1482,13 @@ async fn tarball_workspace(
         }
     }
 
-    {
+    if !skip_variables.unwrap_or(false) {
         let variables = sqlx::query_as::<_, ExportableListableVariable>(
-            "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1",
+            if !skip_secrets.unwrap_or(false) { 
+                "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1" 
+            } else {
+                "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1 AND is_secret = false" 
+            }
         )
         .bind(&w_id)
         .fetch_all(&db)
@@ -1327,7 +1497,10 @@ async fn tarball_workspace(
         let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
 
         for mut var in variables {
-            if plain_secret.unwrap_or(false) && var.value.is_some() && var.is_secret {
+            if plain_secret.or(plain_secrets).unwrap_or(false)
+                && var.value.is_some()
+                && var.is_secret
+            {
                 var.value = Some(
                     mc.decrypt_base64_to_string(var.value.unwrap())
                         .map_err(|e| Error::InternalErr(e.to_string()))?,

@@ -2,7 +2,9 @@
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getModifierKey, getScriptByPath } from '$lib/utils'
+	import { getModifierKey } from '$lib/utils'
+	import { getScriptByPath } from '$lib/scripts'
+
 	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -100,12 +102,18 @@
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10}>
-				<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
+				<LogViewer
+					jobId={testJob?.id}
+					duration={testJob?.['duration_ms']}
+					mem={testJob?.['mem_peak']}
+					content={testJob?.logs}
+					isLoading={testIsLoading}
+				/>
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-gray-600">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
-						<DisplayResult result={testJob.result} />
+						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result} />
 					</pre>
 				{:else}
 					<div class="p-2">

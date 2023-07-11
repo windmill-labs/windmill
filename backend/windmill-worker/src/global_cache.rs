@@ -153,6 +153,8 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--filter",
             "+ deno/**",
             "--filter",
+            "+ bun/**",
+            "--filter",
             "+ go/**",
             "--filter",
             "+ tar/**",
@@ -195,6 +197,8 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--filter",
             "+ deno/**",
             "--filter",
+            "+ bun/**",
+            "--filter",
             "+ go/**",
             "--filter",
             "- *",
@@ -226,6 +230,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "go",
             "deno",
+            "bun",
         ],
     )
     .await
@@ -277,7 +282,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
 pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     use tokio::fs::metadata;
 
-    tracing::info!("Copying denogo cache from bucket {bucket} as tar");
+    tracing::info!("Copying deno,go,bun cache from bucket {bucket} as tar");
 
     let start: Instant = Instant::now();
 
@@ -295,7 +300,7 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     )
     .await
     {
-        tracing::info!("Failed copying denogo tar from cache. Error: {:?}", e);
+        tracing::info!("Failed copying deno,go,bun tar from cache. Error: {:?}", e);
         return;
     }
 
@@ -309,7 +314,7 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     )
     .await
     {
-        tracing::info!("Failed to untar denogo. Error: {:?}", e);
+        tracing::info!("Failed to untar denogobun tar. Error: {:?}", e);
         return;
     }
 
@@ -321,12 +326,12 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     if let Err(e) =
         tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
     {
-        tracing::info!("Failed to remove denotar cache. Error: {:?}", e);
+        tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
         return;
     };
 
     tracing::info!(
-        "Finished copying denogotar from bucket {bucket} as tar, took: {:?}s",
+        "Finished copying denogobuntar from bucket {bucket} as tar, took: {:?}s",
         start.elapsed().as_secs()
     );
 }
@@ -389,6 +394,8 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             "- deno/gen/file/**",
             "--filter",
             "+ deno/**",
+            "--filter",
+            "+ bun/**",
             "--filter",
             "+ go/**",
             "--filter",
@@ -479,6 +486,8 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             "- deno/gen/file/**",
             "--filter",
             "+ deno/**",
+            "--filter",
+            "+ bun/**",
             "--filter",
             "+ go/**",
             "--filter",

@@ -4,7 +4,7 @@
 	import { getContext } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
-	import { getAllScriptNames } from '../../utils'
+	import { BG_PREFIX, getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
 
@@ -15,7 +15,7 @@
 
 	function selectScript(id: string) {
 		$selectedComponentInEditor = id
-		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
+		if (!id.startsWith('unused-') || !id.startsWith(BG_PREFIX)) {
 			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
@@ -39,7 +39,7 @@
 			if (script.hidden) {
 				delete script.hidden
 				$app.hiddenInlineScripts = $app.hiddenInlineScripts
-				selectScript(`bg_${index}`)
+				selectScript(BG_PREFIX + index)
 				return
 			}
 		}
@@ -66,7 +66,7 @@
 			recomputeIds: undefined
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
-		selectScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
+		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
 </script>
 
@@ -159,10 +159,10 @@
 					Background runnables
 					<Tooltip
 						class="mb-0.5"
-						documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#background-runnable"
+						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>
-						Background runnables are triggered upon global refresh or when their input changes. The
-						result of a background runnable can be shared among many components.
+						Background runnables can be triggered on app refresh or when their input changes. The
+						result can be shared among many components.
 					</Tooltip>
 				</div>
 				<Button
@@ -181,7 +181,7 @@
 				{#if $app.hiddenInlineScripts?.length > 0}
 					{#each $app.hiddenInlineScripts as { name, hidden }, index (index)}
 						{#if !hidden}
-							{@const id = `bg_${index}`}
+							{@const id = BG_PREFIX + index}
 							<button
 								id={PREFIX + id}
 								class="panel-item

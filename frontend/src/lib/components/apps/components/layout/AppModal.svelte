@@ -8,7 +8,6 @@
 	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { getModal } from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
 	import { X } from 'lucide-svelte'
@@ -52,32 +51,9 @@
 	)
 </script>
 
-<div class="h-full w-full">
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
-		<Button
-			btnClasses={twMerge(
-				css?.button?.class,
-				resolvedConfig.buttonFillContainer ? 'w-full h-full' : ''
-			)}
-			disabled={resolvedConfig.buttonDisabled}
-			on:pointerdown={(e) => {
-				e?.stopPropagation()
-			}}
-			on:click={async (e) => {
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: 0
-				}
-				getModal(id)?.open()
-				open = true
-			}}
-			size={resolvedConfig.buttonSize}
-			color={resolvedConfig.buttonColor}
-		>
-			<div>{resolvedConfig.buttonLabel}</div>
-		</Button>
-	</AlignWrapper>
-</div>
+<svelte:window on:keyup={handleKeyUp} />
+
+<InitializeComponent {id} />
 
 {#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -87,34 +63,59 @@
 		configuration={configuration[key]}
 	/>
 {/each}
-
-<InitializeComponent {id} />
-
-<svelte:window on:keyup={handleKeyUp} />
+{#if render}
+	<div class="h-full w-full">
+		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+			<Button
+				btnClasses={css?.button?.class}
+				wrapperClasses={twMerge(
+					resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
+					css?.buttonContainer?.class
+				)}
+				wrapperStyle={css?.buttonContainer?.style}
+				disabled={resolvedConfig.buttonDisabled}
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+				}}
+				on:click={async (e) => {
+					$focusedGrid = {
+						parentComponentId: id,
+						subGridIndex: 0
+					}
+					open = true
+				}}
+				size={resolvedConfig.buttonSize}
+				color={resolvedConfig.buttonColor}
+			>
+				<div>{resolvedConfig.buttonLabel}</div>
+			</Button>
+		</AlignWrapper>
+	</div>
+{/if}
 
 <Portal target="#app-editor-top-level-drawer">
 	<div
 		class={twMerge(
 			`${
 				$mode == 'dnd' ? 'absolute' : 'fixed'
-			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
-			open ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
+			} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
+			open ? 'z-[1100] bg-black bg-opacity-60' : 'h-0 overflow-hidden'
 		)}
 	>
 		<div
 			style={css?.popup?.style}
 			class={twMerge(
-				'm-24 h-[80%] bg-white overflow-y-auto rounded-lg relative',
+				'm-24 max-h-[80%] bg-white overflow-y-auto rounded-lg relative',
 				css?.popup?.class
 			)}
-			use:clickOutside
+			use:clickOutside={false}
 			on:click_outside={() => {
 				if ($mode !== 'dnd') {
 					closeDrawer()
 				}
 			}}
 		>
-			<div class="p-4 border-b flex justify-between items-center">
+			<div class="px-4 py-2 border-b flex justify-between items-center">
 				<div>{resolvedConfig.modalTitle}</div>
 				<div class="w-8">
 					<button
@@ -129,6 +130,7 @@
 				</div>
 			</div>
 			<div
+				class=""
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {
@@ -145,7 +147,6 @@
 						visible={open && render}
 						{id}
 						noPadding
-						noYPadding
 						subGridId={`${id}-0`}
 						on:focus={() => {
 							if (!$connectingInput.opened) {

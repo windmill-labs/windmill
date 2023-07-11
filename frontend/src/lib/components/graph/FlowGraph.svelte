@@ -21,6 +21,8 @@
 	import MapItem from '../flows/map/MapItem.svelte'
 	import VirtualItem from '../flows/map/VirtualItem.svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+	import { deepEqual } from 'fast-equals'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -49,18 +51,41 @@
 	let fullWidth: number
 	let errorHandlers: Record<string, string> = {}
 
+	$: showDataflow =
+		$selectedId != undefined &&
+		!$selectedId.startsWith('constants') &&
+		!$selectedId.startsWith('settings') &&
+		$selectedId !== 'failure' &&
+		$selectedId !== 'Result'
+	let dataflow = false
+
 	let dispatch = createEventDispatcher()
 
 	$: {
-		rebuildOnChange
+		dataflow
 		moving
 		width && height && minHeight && $selectedId && flowModuleStates
-		nodes = edges = []
-		errorHandlers = {}
 		createGraph()
 	}
 
+	$: rebuildOnChange && triggerRebuild()
+
+	let oldRebuildOnChange = rebuildOnChange ? JSON.parse(JSON.stringify(rebuildOnChange)) : undefined
+
+	function triggerRebuild() {
+		if (!deepEqual(oldRebuildOnChange, rebuildOnChange)) {
+			oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
+			createGraph()
+		}
+	}
+
 	async function createGraph() {
+		// console.log(JSON.stringify(modules))
+		// return
+		nodes = []
+		edges = []
+		errorHandlers = {}
+
 		if (modules) {
 			idGenerator = createIdGenerator()
 		} else {
@@ -80,7 +105,9 @@
 				0,
 				0,
 				true,
-				undefined
+				undefined,
+				undefined,
+				'Input'
 			)
 		)
 
@@ -106,6 +133,8 @@
 				0,
 				modules.length,
 				true,
+				undefined,
+				undefined,
 				undefined
 			)
 		)
@@ -127,7 +156,46 @@
 		let hfull = Math.max(layered.height, minHeight)
 		fullWidth = layered.width
 		height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight - 100)
-		edges = createEdges(nodes)
+
+		let useDataflow = dataflow && showDataflow
+		edges = useDataflow ? [] : createEdges(nodes)
+
+		if (useDataflow && $selectedId) {
+			let deps = getDependeeAndDependentComponents($selectedId, modules ?? [], failureModule)
+			if (deps) {
+				Object.entries(deps.dependees).forEach((x, i) => {
+					let pid = x[0]
+					edges.push({
+						id: `dep-${pid}-${$selectedId}`,
+						source: pid,
+						target: $selectedId!,
+						labelBgColor: 'white',
+						arrow: false,
+						animate: true,
+						noHandle: true,
+						label: pid,
+						type: 'bezier',
+						offset: i * 20
+					})
+				})
+
+				Object.entries(deps.dependents).forEach((x, i) => {
+					let pid = x[0]
+					edges.push({
+						id: `dep-${pid}-${$selectedId}`,
+						source: $selectedId!,
+						target: pid,
+						labelBgColor: 'white',
+						arrow: false,
+						animate: true,
+						noHandle: true,
+						label: pid,
+						type: 'bezier',
+						offset: i * 10
+					})
+				})
+			}
+		}
 	}
 
 	function getConvertedFlowModule(
@@ -250,7 +318,7 @@
 						insertableEnd,
 						branchable,
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
-						// annotation,
+						annotation,
 						modules,
 						moving
 					},
@@ -261,8 +329,8 @@
 							if (!notSelectable) {
 								if ($selectedId != mod.id) {
 									$selectedId = mod.id
-									dispatch('select', mod)
 								}
+								dispatch('select', mod)
 							}
 						} else if (e == 'insert') {
 							dispatch('insert', detail)
@@ -320,6 +388,7 @@
 				0,
 				true,
 				undefined,
+				undefined,
 				undefined
 			)
 		)
@@ -346,7 +415,8 @@
 				modules.findIndex((m) => m.id == module.id) + 1,
 				true,
 				undefined,
-				module.id
+				module.id,
+				undefined
 			)
 		)
 		return loop
@@ -385,6 +455,8 @@
 					loopDepth,
 					0,
 					false,
+					undefined,
+					undefined,
 					undefined
 				)
 			])
@@ -403,7 +475,9 @@
 					loopDepth,
 					0,
 					false,
-					removable ? { module, index: i } : undefined
+					removable ? { module, index: i } : undefined,
+					undefined,
+					undefined
 				)
 			)
 			if (modules.length) {
@@ -436,7 +510,8 @@
 				modules.findIndex((m) => m.id == module.id) + 1,
 				true,
 				undefined,
-				module.id
+				module.id,
+				undefined
 			),
 			items: bitems
 		}
@@ -560,9 +635,10 @@
 		index: number,
 		selectable: boolean,
 		deleteBranch: { module: FlowModule; index: number } | undefined,
-		mid: string | undefined = undefined
+		mid: string | undefined,
+		fixed_id: string | undefined
 	): Node {
-		const id = -idGenerator.next().value - 2 + (offset ?? 0)
+		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 		return {
 			type: 'node',
 			id: id.toString(),
@@ -634,7 +710,6 @@
 						id: mod.id
 					},
 					cb: (e: string, detail: any) => {
-						console.log(detail)
 						if (e == 'select') {
 							$selectedId = detail
 							dispatch('select', detail)
@@ -662,11 +737,13 @@
 			{download}
 			highlightEdges={false}
 			locked
+			bind:dataflow
 			{nodes}
 			width={fullSize ? fullWidth : width}
 			{edges}
 			{height}
 			{scroll}
+			nodeSelected={showDataflow}
 			background={false}
 			bgColor="rgb(249 250 251)"
 		/>

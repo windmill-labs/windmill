@@ -5,13 +5,52 @@
 	import { fade } from 'svelte/transition'
 	import { Badge } from '../common'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
+	import { onDestroy, onMount } from 'svelte'
 
 	export let filters: string[]
 	export let selectedFilter: string | undefined = undefined
 	export let resourceType = false
+	export let queryName = 'filter'
+	export let syncQuery = false
+
+	const queryChange: (value: URL) => void = (url: URL) => {
+		if (syncQuery) {
+			window.history.pushState(history.state, '', `?${url?.searchParams.toString()}`)
+		}
+	}
+
+	const eventListener = (e: PopStateEvent) => {
+		if (syncQuery) {
+			loadFilterFromUrl()
+		}
+	}
+
+	onMount(() => {
+		window.addEventListener('popstate', eventListener)
+	})
+
+	onDestroy(() => {
+		window.removeEventListener('popstate', (e) => eventListener(e))
+	})
+
+	loadFilterFromUrl()
+
+	function loadFilterFromUrl() {
+		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
+		selectedFilter = queryValue
+	}
 
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+	}
+
+	export async function setQuery(url: URL, key: string, value: string | undefined): Promise<void> {
+		if (value != undefined) {
+			url.searchParams.set(key, value)
+		} else {
+			url.searchParams.delete(key)
+		}
+		queryChange(url)
 	}
 
 	$: filtersAndSelected = selectedFilter
@@ -32,6 +71,11 @@
 					)}
 					on:click={() => {
 						selectedFilter = selectedFilter == filter ? undefined : filter
+						if (selectedFilter) {
+							setQuery(new URL(window.location.href), queryName, selectedFilter)
+						} else {
+							setQuery(new URL(window.location.href), queryName, undefined)
+						}
 					}}
 					color={filter === selectedFilter ? 'blue' : 'gray'}
 					baseClass={filter === selectedFilter ? 'border border-blue-500' : 'border'}

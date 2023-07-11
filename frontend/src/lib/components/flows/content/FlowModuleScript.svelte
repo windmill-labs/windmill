@@ -1,14 +1,15 @@
 <script lang="ts">
+	import type { SupportedLanguage } from '$lib/common'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { ScriptService } from '$lib/gen'
+	import { getScriptByPath } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
-	import { getScriptByPath } from '$lib/utils'
 
 	export let path: string
 	export let hash: string | undefined = undefined
 
 	let code: string
-	let language: 'deno' | 'python3' | 'go' | 'bash'
+	let language: SupportedLanguage
 
 	async function loadCode(path: string, hash: string | undefined) {
 		const script = hash

@@ -10,7 +10,7 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
+	import type { AppViewerContext, CancelablePromise, InlineScript, ListContext } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -57,6 +57,7 @@
 		app,
 		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -160,12 +161,16 @@
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		console.debug(`Executing ${id}`)
+		if (iterContext && $iterContext.disabled) {
+			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
+			return
+		}
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, {}),
+					computeGlobalContext($worldStore, iterContext ? { iter: $iterContext } : {}),
 					false,
 					$state,
 					$mode == 'dnd',
@@ -176,6 +181,8 @@
 				await setResult(r, undefined)
 
 				$state = $state
+				const job = generateNextFrontendJobId()
+				$jobs = [{ job, component: id, result: r }, ...$jobs]
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 
@@ -210,25 +217,26 @@
 			return
 		}
 
-		loading = true
-
 		try {
-			let njob = await resultJobLoader?.abstractRun(() => {
+			let njob = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
-				Object.keys(fields ?? {}).forEach((k) => {
+				for (const k of Object.keys(fields ?? {})) {
 					let field = fields[k]
 					if (field?.type == 'static' && fields[k]) {
 						staticRunnableInputs[k] = field.value
 					} else if (field?.type == 'user') {
 						nonStaticRunnableInputs[k] = args?.[k]
+					} else if (field?.type == 'eval' && inputValues[k]) {
+						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 					} else {
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
-				})
+				}
 
 				const requestBody = {
 					args: nonStaticRunnableInputs,
+					component: id,
 					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 				}
 
@@ -266,7 +274,11 @@
 
 	export async function runComponent() {
 		try {
-			await executeComponent()
+			if (cancellableRun) {
+				await cancellableRun()
+			} else {
+				executeComponent()
+			}
 		} catch (e) {
 			setResult({ error: e.body ?? e.message }, undefined)
 		}
@@ -280,6 +292,7 @@
 	}
 
 	async function setResult(res: any, jobId: string | undefined) {
+		dispatch('done')
 		const hasRes = res !== undefined && res !== null
 
 		if (transformer) {
@@ -287,7 +300,10 @@
 				$worldStore.newOutput(id, 'raw', res)
 				res = await eval_like(
 					transformer.content,
-					computeGlobalContext($worldStore, { result: res }),
+					computeGlobalContext(
+						$worldStore,
+						iterContext ? { iter: $iterContext, result: res } : { result: res }
+					),
 					false,
 					$state,
 					$mode == 'dnd',
@@ -345,10 +361,13 @@
 		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
 	}
 
+	let cancellableRun: ((inlineScript?: InlineScript) => CancelablePromise<void>) | undefined =
+		undefined
+
 	onMount(() => {
-		const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
-			inlineScript?: InlineScript
-		) => {
+		console.log('create', id)
+
+		cancellableRun = (inlineScript?: InlineScript) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
@@ -367,7 +386,7 @@
 		$runnableComponents[id] = {
 			autoRefresh: autoRefresh && recomputableByRefreshButton,
 			refreshOnStart: refreshOnStart,
-			cb: cancellableRun
+			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}
 
 		if (!$initialized.initializedComponents.includes(id)) {
@@ -378,16 +397,24 @@
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
-		delete $runnableComponents[id]
-		$runnableComponents = $runnableComponents
+		if ($runnableComponents[id]) {
+			$runnableComponents[id] = {
+				...$runnableComponents[id],
+				cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
+			}
+			$runnableComponents = $runnableComponents
+		}
 	})
 
 	let lastJobId: string | undefined = undefined
+
+	let inputValues: Record<string, InputValue> = {}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
 		<InputValue
+			bind:this={inputValues[key]}
 			key={key + extraKey}
 			{id}
 			input={fields[key]}
@@ -409,6 +436,10 @@
 {/if}
 
 <ResultJobLoader
+	on:started={(e) => {
+		loading = true
+		dispatch('started', e.detail)
+	}}
 	workspaceOverride={workspace}
 	on:done={(e) => {
 		lastJobId = e.detail.id

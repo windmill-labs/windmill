@@ -3,7 +3,6 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
 	import IconedPath from './IconedPath.svelte'
-	import { scriptPathToHref } from '../utils'
 	import type { FlowModule, FlowValue } from '$lib/gen'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import { Highlight } from 'svelte-highlight'
@@ -12,6 +11,7 @@
 	import { cleanExpr } from './flows/utils'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
+	import { scriptPathToHref } from '$lib/scripts'
 	export let flow: {
 		summary: string
 		description?: string
@@ -73,7 +73,7 @@
 	<div
 		class="{noSide
 			? 'col-span-3'
-			: 'sm:col-span-2 col-span-3'} w-full border border-gray-400 max-h-full"
+			: 'sm:col-span-2 col-span-3'} w-full border border-gray-200 max-h-full"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph
@@ -209,6 +209,10 @@
 				{:else if stepDetail.value.type == 'flow'}
 					<FlowPathViewer noSide path={stepDetail.value.path} />
 				{/if}
+			{:else}
+				<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					Step {stepDetail} selected
+				</p>
 			{/if}
 		</div>
 	{/if}

@@ -14,7 +14,6 @@
 		RawAppService
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
 
@@ -35,6 +34,10 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import RawAppRow from '../common/table/RawAppRow.svelte'
+	import { canWrite } from '$lib/utils'
+	import { page } from '$app/stores'
+	import { setQuery } from '$lib/navigation'
+	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -42,6 +45,7 @@
 		type?: U
 		time?: number
 		starred?: boolean
+		has_draft?: boolean
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -56,10 +60,11 @@
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = []
 
-	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
+	let itemKind = ($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
 
 	let shareModal: ShareModal
 	let moveDrawer: MoveDrawer
+	let deploymentDrawer: DeployWorkspaceDrawer
 
 	let loading = true
 
@@ -268,6 +273,7 @@
 	}}
 />
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={() => {
@@ -279,9 +285,15 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
+	<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 		<div class="flex justify-start">
-			<ToggleButtonGroup bind:selected={itemKind} class="h-10">
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				on:selected={() => {
+					setQuery($page.url, 'kind', itemKind)
+				}}
+				class="h-10"
+			>
 				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" />
 				<ToggleButton value="script" icon={Code2} label="Scripts" class="text-sm px-4 py-2" />
 				{#if HOME_SEARCH_SHOW_FLOW}
@@ -334,7 +346,7 @@
 		</div>
 	</div>
 	<div class="relative">
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 		{#if filteredItems?.length == 0}
 			<div class="mt-10" />
 		{/if}
@@ -354,52 +366,58 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md divide-y divide-gray-200">
+			<div class="border rounded-md divide-y divide-gray-100">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#key item.summary}
 						{#key item.starred}
-							{#if item.type == 'script'}
-								<ScriptRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadScripts}
-									script={item}
-									{shareModal}
-									{moveDrawer}
-								/>
-							{:else if item.type == 'flow'}
-								<FlowRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadFlows}
-									flow={item}
-									{shareModal}
-									{moveDrawer}
-								/>
-							{:else if item.type == 'app'}
-								<AppRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadApps}
-									app={item}
-									{moveDrawer}
-									{shareModal}
-								/>
-							{:else if item.type == 'raw_app'}
-								<RawAppRow
-									bind:deleteConfirmedCallback
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadRawApps}
-									app={item}
-									{moveDrawer}
-									{shareModal}
-								/>
-							{/if}
+							{#key item.has_draft}
+								{#if item.type == 'script'}
+									<ScriptRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadScripts}
+										script={item}
+										{shareModal}
+										{moveDrawer}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'flow'}
+									<FlowRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadFlows}
+										flow={item}
+										{shareModal}
+										{moveDrawer}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'app'}
+									<AppRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadApps}
+										app={item}
+										{moveDrawer}
+										{shareModal}
+										{deploymentDrawer}
+									/>
+								{:else if item.type == 'raw_app'}
+									<RawAppRow
+										bind:deleteConfirmedCallback
+										starred={item.starred ?? false}
+										marked={item.marked}
+										on:change={loadRawApps}
+										app={item}
+										{moveDrawer}
+										{shareModal}
+										{deploymentDrawer}
+									/>
+								{/if}
+							{/key}
 						{/key}
 					{/key}
 				{/each}
@@ -411,7 +429,6 @@
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
 				>
 			{/if}
-			<div class="pb-80" />
 		{/if}
 	</div>
 </CenteredPage>

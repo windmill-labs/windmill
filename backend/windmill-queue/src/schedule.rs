@@ -11,6 +11,7 @@ use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::str::FromStr;
 use windmill_common::jobs::JobPayload;
+use windmill_common::schedule::schedule_to_user;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
@@ -102,6 +103,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Some(schedule.path.clone()),
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -145,8 +147,4 @@ pub async fn exists_schedule(
     .unwrap_or(false);
 
     Ok(exists)
-}
-
-fn schedule_to_user(path: &str) -> String {
-    format!("schedule-{}", path.replace('/', "-"))
 }

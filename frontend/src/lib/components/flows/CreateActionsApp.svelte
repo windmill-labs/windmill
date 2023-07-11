@@ -11,6 +11,7 @@
 	import { RawAppService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Path from '../Path.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	let drawer: Drawer | undefined = undefined
 	let rawAppDrawer: Drawer | undefined = undefined
@@ -89,7 +90,16 @@
 			placeholder="Short summary to be displayed when listed"
 		/>
 
-		<h2 class="border-b pb-1 mt-10 mb-4">IIFE JS code</h2>
+		<h2 class="border-b pb-1 mt-10 mb-4"
+			>IIFE JS code <Tooltip
+				documentationLink="https://www.windmill.dev/docs/react_vue_svelte_apps/react"
+				>Bundle that contains an IIFE code that will mount itself to a "root" element. Any framework
+				or vanilla JS can be used to create an app and templates are provided for the major
+				frameworks: React/Vue/Svelte. In those frontend apps, it is possible to inline scripts
+				directly to be executed by windmill backend which makes it a convenient way of building apps
+				with both frontend and backend all-in-one.</Tooltip
+			></h2
+		>
 		<FileInput
 			accept={'.js'}
 			multiple={false}

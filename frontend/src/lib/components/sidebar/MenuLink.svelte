@@ -33,6 +33,7 @@
 			$$props.class
 		)}
 		target={href.includes('http') ? '_blank' : null}
+		title={label}
 	>
 		<Icon
 			data={icon}

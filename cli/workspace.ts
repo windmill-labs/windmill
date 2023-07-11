@@ -175,8 +175,10 @@ export async function add(
     return;
   }
 
-  if (!workspaceName) {
-    workspaceName = await Input.prompt("Name this workspace:");
+  while (workspaceName === undefined) {
+    if (!workspaceName) {
+      workspaceName = await Input.prompt("Name this workspace:");
+    }
   }
 
   if (!workspaceId) {
@@ -208,6 +210,10 @@ export async function add(
   remote = new URL(remote).toString(); // add trailing slash in all cases!
 
   let token = await tryGetLoginInfo(opts);
+  if (!token && !Deno.isatty(Deno.stdin.rid)) {
+    log.info("Not a TTY, can't login interactively. Pass the token in --token");
+    return;
+  }
   while (!token) {
     token = await loginInteractive(remote);
   }
@@ -237,7 +243,7 @@ export async function add(
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,
-          name: opts.createWorkspaceName ?? workspaceId,
+          name: opts.createWorkspaceName ?? workspaceName,
           username: opts.createUsername,
         },
       });

@@ -10,17 +10,19 @@
 	export let noBorder = false
 	export let loading
 	export let filename: string | undefined = undefined
+	export let jobId: string | undefined = undefined
+	export let workspaceId: string | undefined = undefined
 </script>
 
 <div
 	class:border={!noBorder}
-	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow  border-gray-400 h-full max-h-screen"
+	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow border-gray-400 h-full max-h-screen"
 >
 	<div class="bg-white {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
 		<span class="text-gray-500">Result <Tooltip documentationLink="https://docs.windmill.dev/docs/reference#rich-display-rendering">Display images, tables and more
 		</Tooltip></span>
 		{#if result}
-			<DisplayResult {filename} {result} />
+			<DisplayResult {workspaceId} {jobId} {filename} {result} />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}
@@ -28,6 +30,6 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
-		<LogViewer content={logs ?? ''} isLoading={false} />
+		<LogViewer content={logs ?? ''} {jobId} isLoading={false} />
 	</div>
 </div>
