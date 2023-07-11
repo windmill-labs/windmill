@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
-    let parsed = parse_pg_file(&code)?;
+    let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
@@ -28,9 +28,47 @@ pub fn parse_pgsql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(::(\w+))?"#).unwrap();
-    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^--\s+\$(\d+)\s+(\w+)\s+\((\w+)\)(?:\s*\:\s*(.*))?(\=)$"#).unwrap();
+    static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+))?"#).unwrap();
 
+    // -- $1 name (type) = default
+    static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+
+    static ref RE_ARG_PGSQL: Regex = Regex::new(r#"(?m)^-- \$(\d+) (\w+)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
+
+}
+
+fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let mut args: Vec<Arg> = vec![];
+
+    for cap in RE_ARG_PGSQL.captures_iter(code) {
+        let i = cap.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
+        if i.is_none() || i.unwrap() as usize > args.len() {
+            continue;
+        }
+        let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap
+            .get(3)
+            .map(|x| x.as_str().to_string().to_lowercase())
+            .unwrap();
+        let default = cap.get(4).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let parsed_typ = parse_pg_typ(typ.as_str());
+
+        let parsed_default = default.and_then(|x| match parsed_typ {
+            Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
+            Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
+            _ => Some(json!(x)),
+        });
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(typ),
+            has_default,
+        });
+    }
+
+    Ok(Some(args))
 }
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -46,7 +84,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         );
     }
     let mut args = vec![];
-    for i in 1..20 {
+    for i in 1..50 {
         if hm.contains_key(&i) {
             let typ = hm.get(&i).unwrap().to_lowercase();
             args.push(Arg {
@@ -61,27 +99,21 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         }
     }
     for cap in RE_ARG_PGSQL.captures_iter(code) {
-        let i = cap
-            .get(1)
-            .and_then(|x| x.as_str().parse::<i32>().ok())
-            .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?;
+        let i = cap.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
+        if i.is_none() || i.unwrap() as usize > args.len() {
+            continue;
+        }
         let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
-        let typ = cap.get(3).map(|x| x.as_str().to_string()).unwrap();
-        let default = cap.get(4).map(|x| x.as_str().to_string());
+        let default = cap.get(3).map(|x| x.as_str().to_string());
         let has_default = default.is_some();
-        let parsed_typ = parse_pg_typ(typ.as_str());
-        let parsed_default = default.and_then(|x| match parsed_typ {
+        let oarg = args[(i.unwrap() - 1) as usize].clone();
+        let parsed_default = default.and_then(|x| match oarg.typ {
             Typ::Int => x.parse::<i64>().ok().map(|x| json!(x)),
             Typ::Float => x.parse::<f64>().ok().map(|x| json!(x)),
             _ => Some(json!(x)),
         });
-        args.push(Arg {
-            name,
-            typ: parsed_typ,
-            default: parsed_default,
-            otyp: Some(typ),
-            has_default,
-        });
+        args[(i.unwrap() - 1) as usize] =
+            Arg { name, typ: oarg.typ, default: parsed_default, otyp: oarg.otyp, has_default };
     }
 
     Ok(Some(args))

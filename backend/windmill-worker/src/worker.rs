@@ -6,17 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use anyhow::{Result};
+use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
-use windmill_api_client::{Client};
+use windmill_api_client::Client;
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration},
+    process::Stdio, time::Duration,
     sync::{Arc, atomic::{Ordering, AtomicUsize}},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
@@ -67,7 +67,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql,
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql,
 };
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
@@ -353,6 +353,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Bash),
         Some(ScriptLang::Nativets),
         Some(ScriptLang::Postgresql),
+        Some(ScriptLang::Mysql),
         Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
@@ -1088,7 +1089,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     let db: Pool<Postgres> = db.clone();
 
                     tokio::task::spawn(async move {
-                        let jc = do_postgresql(job.clone(), &client, &db).await;
+                        let jc = do_mysql(job.clone(), &client, &db).await;
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
 
                         match jc {
@@ -1222,6 +1223,9 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             unreachable!()     
                         } else if job.language == Some(ScriptLang::Postgresql) {
                             let jc = do_postgresql(job.clone(), &client.get_authed().await, &db).await?;
+                            Ok(jc.result)
+                        } else if job.language == Some(ScriptLang::Mysql) {
+                            let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
                             Ok(jc.result)
                         } else if job.language == Some(ScriptLang::Nativets) {
                             logs.push_str("\n--- FETCH TS EXECUTION ---\n");
