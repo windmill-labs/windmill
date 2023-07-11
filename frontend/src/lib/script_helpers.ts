@@ -118,16 +118,14 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `
--- $1 name1 = default arg
+export const POSTGRES_INIT_CODE = `-- $1 name1 = default arg
 -- $2 name2
 INSERT INTO demo VALUES (\$1::TEXT, \$2::INT) RETURNING *
 `
 
-export const MYSQL_INIT_CODE = `
--- ? name1 (text) = default arg
+export const MYSQL_INIT_CODE = `-- ? name1 (text) = default arg
 -- ? name2 (int)
-INSERT INTO demo VALUES (?, ?) RETURNING *
+INSERT INTO demo VALUES (?, ?)
 `
 
 export const FETCH_INIT_CODE = `export async function main(

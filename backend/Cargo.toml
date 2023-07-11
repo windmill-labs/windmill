@@ -180,6 +180,6 @@ wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1"]}
-mysql_async = { version = "*", default-features = false, features = ["minimal", "native-tls-tls"]}
+mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
