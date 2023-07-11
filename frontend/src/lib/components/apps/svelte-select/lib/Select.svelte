@@ -13,6 +13,7 @@
 	import ClearIcon from './ClearIcon.svelte'
 	import LoadingIcon from './LoadingIcon.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
+	import { extractCustomProperties } from '$lib/utils'
 
 	export let portal = true
 
@@ -608,7 +609,7 @@
 	{#if listOpen}
 		<ConditionalPortal condition={portal}>
 			<div
-				style={containerStyles}
+				style={extractCustomProperties(containerStyles)}
 				use:floatingContent
 				bind:this={list}
 				class="svelte-select-list"
