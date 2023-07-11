@@ -430,7 +430,7 @@
 																{controls}
 															/>
 														{:else if actionButton.type == 'selectcomponent'}
-															<div class="w-32">
+															<div class="w-40">
 																<AppSelect
 																	extraKey={'idx' + rowIndex}
 																	{render}
@@ -473,8 +473,9 @@
 															}}
 														/>
 													{:else if actionButton.type == 'selectcomponent'}
-														<div class="w-32">
+														<div class="w-40">
 															<AppSelect
+																--font-size="10px"
 																extraKey={'idx' + rowIndex}
 																{render}
 																id={actionButton.id}
