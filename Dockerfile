@@ -85,7 +85,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM python:3.11.3-slim-buster
+FROM python:3.11.4-slim-buster
 ARG TARGETPLATFORM
 
 ARG APP=/usr/src/app
