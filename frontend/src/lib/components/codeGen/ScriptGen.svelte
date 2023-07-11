@@ -116,7 +116,7 @@
 	{#if generatedCode}
 		<div class="flex gap-1 px-2">
 			<Button
-				title="Generate code from prompt"
+				title="Discard generated code"
 				btnClasses="!font-medium"
 				size="xs"
 				color="red"
@@ -128,7 +128,7 @@
 			>
 				Discard
 			</Button><Button
-				title="Generate code from prompt"
+				title="Accept generated code"
 				btnClasses="!font-medium"
 				size="xs"
 				color="green"

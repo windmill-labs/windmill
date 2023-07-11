@@ -353,7 +353,14 @@
 						</div>
 					</Pane>
 					<Pane size={67}>
-						<LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
+						<LogPanel
+							{lang}
+							previewJob={testJob}
+							{pastPreviews}
+							previewIsLoading={testIsLoading}
+							{editor}
+							{diffEditor}
+						/>
 					</Pane>
 				</Splitpanes>
 			</div>

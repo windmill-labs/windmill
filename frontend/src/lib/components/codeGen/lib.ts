@@ -46,7 +46,14 @@ const SYSTEM_PROMPT =
 
 const EDIT_SYSTEM_PROMPT =
 	'You edit the code as queried by the user. Only output code. Wrap the code like that: ```language\n{code}\n```. Put any explanation directly in the code as comments.'
+
 const EDIT_PROMPT = "Here's my code: ```{lang}\n{code}\n```\n{description}"
+
+const FIX_PROMPT =
+	"Here's my code: ```{lang}\n{code}\n```\nI get the following error: {error}\nFix it for me."
+
+const FIX_SYSTEM_PROMPT =
+	'You fix the code shared by the user. Only output code. Wrap the code like that: ```language\n{code}\n```. Put explanations directly in the code as comments.'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(PROMPTS))
 
@@ -56,13 +63,22 @@ workspaceStore.subscribe((value) => {
 	workspace = value
 })
 
-interface ScriptGenerationOptions {
+interface BaseOptions {
+	language: SupportedLanguage
+}
+
+interface ScriptGenerationOptions extends BaseOptions {
 	language: SupportedLanguage
 	description: string
 }
 
 interface EditScriptOptions extends ScriptGenerationOptions {
 	selectedCode: string
+}
+
+interface FixScriptOpions extends BaseOptions {
+	code: string
+	error: string
 }
 
 export async function generateScript(scriptOptions: ScriptGenerationOptions): Promise<string> {
@@ -167,6 +183,56 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 			{
 				role: 'system',
 				content: EDIT_SYSTEM_PROMPT
+			},
+			{
+				role: 'user',
+				content: prompt
+			}
+		]
+	})
+
+	let result = completion.choices[0]?.message?.content
+
+	if (!result) {
+		throw new Error('No result from OpenAI')
+	}
+
+	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+
+	if (!match || match.length < 2) {
+		throw new Error('No code block found')
+	}
+
+	result = match[1]
+
+	return result
+}
+
+export async function fixScript(scriptOptions: FixScriptOpions) {
+	if (!workspace) {
+		throw new Error('No workspace selected')
+	}
+
+	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
+	const openai = new OpenAI({
+		baseURL,
+		apiKey: 'fakekey',
+		defaultHeaders: {
+			Authorization: ''
+		}
+	})
+
+	let prompt = FIX_PROMPT.replace('{lang}', scriptLangToEditorLang(scriptOptions.language))
+		.replace('{code}', scriptOptions.code)
+		.replace('{error}', scriptOptions.error)
+
+	const completion = await openai.chat.completions.create({
+		model: 'gpt-4',
+		max_tokens: 512,
+		messages: [
+			{
+				role: 'system',
+				content: FIX_SYSTEM_PROMPT
 			},
 			{
 				role: 'user',
