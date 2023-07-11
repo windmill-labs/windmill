@@ -664,6 +664,8 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
