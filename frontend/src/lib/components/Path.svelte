@@ -210,6 +210,7 @@
 	function initPath() {
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path)
+			onMetaChange()
 			return
 		}
 		if (initialPath == undefined || initialPath == '') {
@@ -273,9 +274,9 @@
 </Drawer>
 
 <div>
-	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<div class="flex gap-4 shrink">
+			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
 					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
@@ -287,7 +288,6 @@
 							const kind = e.detail
 							if (meta) {
 								if (kind === 'folder') {
-									console.log($userStore?.folders)
 									meta.owner = folders?.[0]?.name ?? ''
 								} else if (kind === 'group') {
 									meta.owner = 'all'

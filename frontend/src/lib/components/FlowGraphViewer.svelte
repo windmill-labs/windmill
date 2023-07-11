@@ -73,7 +73,7 @@
 	<div
 		class="{noSide
 			? 'col-span-3'
-			: 'sm:col-span-2 col-span-3'} w-full border border-gray-400 max-h-full"
+			: 'sm:col-span-2 col-span-3'} w-full border border-gray-200 max-h-full"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph

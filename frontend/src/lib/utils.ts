@@ -571,3 +571,11 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	}
 	return false
 }
+
+export function extractCustomProperties(styleStr: string): string {
+	let properties = styleStr.split(';')
+	let customProperties = properties.filter((property) => property.trim().startsWith('--'))
+	let customStyleStr = customProperties.join(';')
+
+	return customStyleStr
+}

@@ -133,9 +133,14 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     } else if std::path::Path::new(path).exists() {
         fs::read_to_string(path).map_err(to_anyhow)?
     } else {
-        "{}".to_string()
+        tracing::warn!("oauth.json not found, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
     };
 
+    if content.is_empty() {
+        tracing::warn!("oauth.json is empty, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
+    };
     let oauths: HashMap<String, OAuthClient> =
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,

@@ -90,6 +90,7 @@
 				appDrawer?.toggleDrawer()
 				$focusedGrid = undefined
 			}}
+			fullScreen={$mode !== 'dnd'}
 		>
 			<div
 				class="h-full"
@@ -109,7 +110,6 @@
 						visible={open && render}
 						{id}
 						subGridId={`${id}-0`}
-						containerHeight={1200}
 						on:focus={() => {
 							if (!$connectingInput.opened) {
 								$selectedComponent = [id]
