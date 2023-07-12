@@ -166,7 +166,7 @@ COPY --from=frontend /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 
-COPY --from=downloader /deno /bin/deno
+COPY --from=downloader /deno /usr/bin/deno
 RUN chmod 755 /bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
