@@ -15,6 +15,7 @@ const COMMENT_TYPES = {
 	[Script.language.GO]: '//',
 	[Script.language.BASH]: '#',
 	[Script.language.POSTGRESQL]: '--',
+	[Script.language.MYSQL]: '--',
 	[Script.language.NATIVETS]: '//',
 	[Script.language.BUN]: '//'
 }
@@ -32,7 +33,9 @@ If the type name conflicts with the imported object, rename the imported object 
 	[Script.language.BASH]:
 		'Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.',
 	[Script.language.POSTGRESQL]:
-		'Write SQL code that should {description}. Arguments can be obtained with $1::{type}, $2::{type}, etc...',
+		'Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with $1::{type}, $2::{type}, etc... Name the parameters by adding comments before the command like that: -- $1 name1 (one per row, do not include the type)',
+	[Script.language.MYSQL]:
+		'Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)',
 	[Script.language
 		.NATIVETS]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export function main(...)". Do not call the main function.
 You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
@@ -204,7 +207,8 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 				role: 'user',
 				content: prompt
 			}
-		]
+		],
+		temperature: 0.5
 	})
 
 	let result = completion.choices[0]?.message?.content
