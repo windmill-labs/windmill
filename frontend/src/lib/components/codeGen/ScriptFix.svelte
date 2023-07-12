@@ -60,8 +60,8 @@
 
 	async function checkIfOpenAIAvailable(lang: SupportedLanguage) {
 		try {
-			const resp = await WorkspaceService.openaiKeyExists({ workspace: $workspaceStore! })
-			openAIAvailable = resp.exists && SUPPORTED_LANGUAGES.has(lang)
+			const exists = await WorkspaceService.existsOpenaiKey({ workspace: $workspaceStore! })
+			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
 		} catch (err) {
 			console.error(err)
 			sendUserToast('Failed to check if OpenAI is available', true)

@@ -67,7 +67,7 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
         .route("/edit_openai_key", post(edit_openai_key))
-        .route("/openai_key_exists", get(openai_key_exists) )
+        .route("/exists_openai_key", get(exists_openai_key) )
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
@@ -703,23 +703,15 @@ async fn edit_openai_key(
 }
 
 
-struct OpenAIKey {
-    openai_key: Option<String>,
-}
-# [derive (Serialize)]
-struct OpenAIKeyExists {
-    exists: bool,
-}
-async fn openai_key_exists(
+async fn exists_openai_key(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Authed { is_admin, username, .. }: Authed,
-) -> JsonResult<OpenAIKeyExists> {
+) -> JsonResult<bool> {
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
-    let settings = sqlx::query_as!(
-        OpenAIKey,
+    let openai_key = sqlx::query_scalar!(
         "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
@@ -728,12 +720,9 @@ async fn openai_key_exists(
     .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
     tx.commit().await?;
 
-    let exists = match settings.openai_key {
-        Some(_) => true,
-        None => false,
-    };
+    let exists = openai_key.is_some();
 
-    Ok(Json(OpenAIKeyExists { exists }))
+    Ok(Json(exists))
 }
 
 

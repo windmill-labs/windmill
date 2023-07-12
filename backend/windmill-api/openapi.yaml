@@ -1153,10 +1153,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/openai_key_exists:
+  /w/{workspace}/workspaces/exists_openai_key:
     get:
       summary: OpenAI key exists
-      operationId: openaiKeyExists
+      operationId: existsOpenaiKey
       tags:
         - workspace
       parameters:
@@ -1166,12 +1166,9 @@ paths:
         "200":
           description: status
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                properties:
-                  exists:
-                    type: boolean
+                type: boolean
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
