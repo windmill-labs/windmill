@@ -1,5 +1,4 @@
 import { OpenAI } from 'openai'
-import type { SupportedLanguage } from '../../common'
 import { OpenAPI } from '../../gen/core/OpenAPI'
 import { ResourceService, Script } from '../../gen'
 
@@ -25,8 +24,9 @@ const PROMPTS = {
 		.PYTHON3]: `Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
 You have access to the following resource types, if you need them, you have to define a TypedDict with the name specified (DO NOT CAPITALIZE) and add them as parameters: {resourceTypes}`,
 	[Script.language
-		.DENO]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import cowsay from "npm:cowsay@1.5.0";". Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}`,
+		.DENO]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export function main(...)". Do not call the main function.
+You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
 	[Script.language.GO]:
 		'Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".',
 	[Script.language.BASH]:
@@ -35,10 +35,24 @@ You have access to the following resource types, if you need them, you have to d
 		'Write SQL code that should {description}. Arguments can be obtained with $1::{type}, $2::{type}, etc...',
 	[Script.language
 		.NATIVETS]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}`,
+You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
 	[Script.language
 		.BUN]: `Write a function in typescript called "main".  The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}`
+You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`
+}
+
+function scriptLangToEnvironment(lang: Script.language) {
+	if (lang === Script.language.DENO) {
+		return 'typescript in a deno running environment'
+	} else if (lang === Script.language.BUN) {
+		return 'typescript in a node.js running environment'
+	} else if (lang === Script.language.NATIVETS) {
+		return 'typescript where you should use fetch and are not allowed to import any libraries'
+	} else {
+		return lang
+	}
 }
 
 const SYSTEM_PROMPT =
@@ -47,10 +61,11 @@ const SYSTEM_PROMPT =
 const EDIT_SYSTEM_PROMPT =
 	'You edit the code as queried by the user. Only output code. Wrap the code like that: ```language\n{code}\n```. Put any explanation directly in the code as comments.'
 
-const EDIT_PROMPT = "Here's my code: ```{lang}\n{code}\n```\n{description}"
+const EDIT_PROMPT =
+	"Here's my environement: {environment}\nHere's my code: ```{lang}\n{code}\n```\nMy instructions: {description}"
 
 const FIX_PROMPT =
-	"Here's my code: ```{lang}\n{code}\n```\nI get the following error: {error}\nFix it for me."
+	"Here's my environement: {environment}\nHere's my code: ```{lang}\n{code}\n```\nI get the following error: {error}\nFix it for me."
 
 const FIX_SYSTEM_PROMPT =
 	'You fix the code shared by the user. Only output code. Wrap the code like that: ```language\n{code}\n```. Put explanations directly in the code as comments.'
@@ -64,11 +79,11 @@ workspaceStore.subscribe((value) => {
 })
 
 interface BaseOptions {
-	language: SupportedLanguage
+	language: Script.language
 }
 
 interface ScriptGenerationOptions extends BaseOptions {
-	language: SupportedLanguage
+	language: Script.language
 	description: string
 }
 
@@ -113,7 +128,7 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',
-		max_tokens: 512,
+		max_tokens: 2048,
 		messages: [
 			{
 				role: 'system',
@@ -175,6 +190,7 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 	let prompt = EDIT_PROMPT.replace('{lang}', scriptLangToEditorLang(scriptOptions.language))
 		.replace('{code}', scriptOptions.selectedCode)
 		.replace('{description}', scriptOptions.description)
+		.replace('{environment}', scriptLangToEnvironment(scriptOptions.language))
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',
@@ -225,6 +241,7 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 	let prompt = FIX_PROMPT.replace('{lang}', scriptLangToEditorLang(scriptOptions.language))
 		.replace('{code}', scriptOptions.code)
 		.replace('{error}', scriptOptions.error)
+		.replace('{environment}', scriptLangToEnvironment(scriptOptions.language))
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',

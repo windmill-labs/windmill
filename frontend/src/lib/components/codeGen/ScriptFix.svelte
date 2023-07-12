@@ -49,6 +49,7 @@
 
 	function acceptDiff() {
 		editor?.setCode(diffEditor?.getModified() || '')
+		editor?.format()
 		generatedCode = ''
 		error = ''
 	}

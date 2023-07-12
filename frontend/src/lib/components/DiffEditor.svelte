@@ -51,7 +51,7 @@
 	export function setDiff(
 		original: string,
 		modified: string,
-		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql'
+		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql'
 	): void {
 		diffEditor.setModel({
 			original: meditor.createModel(original, lang),
