@@ -110,7 +110,7 @@ RUN apt-get update \
 
 RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
     dpkg --install 'pwsh.deb' && \
-    rm 'pwsh.deb' 
+    rm 'pwsh.deb' || true
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
