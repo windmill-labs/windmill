@@ -1,4 +1,4 @@
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use futures::{stream, Stream};
 use serde::Deserialize;
@@ -92,8 +92,15 @@ impl ApiServer {
 
         let addr = sock.local_addr().unwrap();
         drop(sock);
+        let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<u16>();
 
-        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), None, addr, rx));
+        let task = tokio::task::spawn(windmill_api::run_server(
+            db.clone(),
+            None,
+            addr,
+            rx,
+            port_tx,
+        ));
 
         return Self { addr, tx, task };
     }
