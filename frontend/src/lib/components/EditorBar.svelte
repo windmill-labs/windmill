@@ -37,6 +37,8 @@
 	import { capitalize } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
+	import { ScriptGen } from './codeGen'
+	import type DiffEditor from './DiffEditor.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -55,6 +57,7 @@
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -461,6 +464,8 @@
 					{/if}
 				</div>
 			{/if}
+
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} />
 
 			<!-- <Popover
 				notClickable
