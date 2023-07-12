@@ -102,12 +102,12 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `/scripts/run/${s.hash}`,
+				href: `/scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `/flows/run/${f.path}`,
+				href: `/flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({

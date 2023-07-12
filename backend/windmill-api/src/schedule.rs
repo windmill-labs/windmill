@@ -17,6 +17,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
@@ -211,23 +212,39 @@ async fn edit_schedule(
     Ok(path.to_string())
 }
 
+#[derive(Deserialize)]
+pub struct ListScheduleQuery {
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+    pub path: Option<String>,
+    pub is_flow: Option<bool>,
+}
+
 async fn list_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Query(pagination): Query<Pagination>,
+    Query(lsq): Query<ListScheduleQuery>,
 ) -> JsonResult<Vec<Schedule>> {
     let mut tx = user_db.begin(&authed).await?;
-    let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(
-        Schedule,
-        "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3",
-        w_id,
-        per_page as i64,
-        offset as i64
-    )
-    .fetch_all(&mut tx)
-    .await?;
+    let (per_page, offset) = paginate(Pagination { per_page: lsq.per_page, page: lsq.page });
+    let mut sqlb = SqlBuilder::select_from("schedule")
+        .field("*")
+        .order_by("edited_at", true)
+        .and_where("workspace_id = ?".bind(&w_id))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+    if let Some(path) = lsq.path {
+        sqlb.and_where_eq("script_path", "?".bind(&path));
+    }
+    if let Some(is_flow) = lsq.is_flow {
+        sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
+    }
+    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let rows = sqlx::query_as::<_, Schedule>(&sql)
+        .fetch_all(&mut tx)
+        .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }

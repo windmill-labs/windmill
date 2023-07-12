@@ -1,6 +1,62 @@
 # Changelog
 
 
+## [1.128.0](https://github.com/windmill-labs/windmill/compare/v1.127.1...v1.128.0) (2023-07-11)
+
+
+### Features
+
+* add mysql as native integration ([#1859](https://github.com/windmill-labs/windmill/issues/1859)) ([a048e0d](https://github.com/windmill-labs/windmill/commit/a048e0d7e221aa0162d33197566bcd4036da1b67))
+
+
+### Bug Fixes
+
+* **frontend:** App errors array ([#1851](https://github.com/windmill-labs/windmill/issues/1851)) ([06a8772](https://github.com/windmill-labs/windmill/commit/06a8772dde84a872982e6a1e7d16170c6dc906fe))
+* **frontend:** Fix app drawer display + add missing flattent ([#1853](https://github.com/windmill-labs/windmill/issues/1853)) ([4093939](https://github.com/windmill-labs/windmill/commit/4093939936203f2603bb999618f4810d33c3ecb7))
+* **frontend:** Fix select width in app table to avoid content jump ([#1850](https://github.com/windmill-labs/windmill/issues/1850)) ([1ebc86c](https://github.com/windmill-labs/windmill/commit/1ebc86c2a7edfb182d1723bf06cbca0058154622))
+* **frontend:** only forward css variable ([#1856](https://github.com/windmill-labs/windmill/issues/1856)) ([4034ab0](https://github.com/windmill-labs/windmill/commit/4034ab07df47f1eee5772144879858f64cd7b116))
+* **frontend:** Support both copying the key and the value in the ObjectViewer ([#1854](https://github.com/windmill-labs/windmill/issues/1854)) ([f2101c0](https://github.com/windmill-labs/windmill/commit/f2101c05efa5f691f3b3e6d0abcbe1f78082e90f))
+
+## [1.127.1](https://github.com/windmill-labs/windmill/compare/v1.127.0...v1.127.1) (2023-07-10)
+
+
+### Bug Fixes
+
+* **frontend:** Fix debug runs zIndex ([#1822](https://github.com/windmill-labs/windmill/issues/1822)) ([ce9088e](https://github.com/windmill-labs/windmill/commit/ce9088e7a847834522890ed53c96794773ced491))
+* **frontend:** Fix graph view when mulitple graphs are displayed ([#1821](https://github.com/windmill-labs/windmill/issues/1821)) ([5e4e52a](https://github.com/windmill-labs/windmill/commit/5e4e52a10941c83b54da730ed51fc982f44f8ac8))
+
+## [1.127.0](https://github.com/windmill-labs/windmill/compare/v1.126.0...v1.127.0) (2023-07-10)
+
+
+### Features
+
+* add test connection to resource editor ([9d5cfaf](https://github.com/windmill-labs/windmill/commit/9d5cfafb281c1cc7dd3eb18e5eb7bf9f7423957c))
+* **frontend:** add mobile view ([#1819](https://github.com/windmill-labs/windmill/issues/1819)) ([47d211b](https://github.com/windmill-labs/windmill/commit/47d211b21807d688fe631be8c4027285a2932cfc))
+
+
+### Bug Fixes
+
+* **frontend:** support special chars in postgresql client [[#1775](https://github.com/windmill-labs/windmill/issues/1775)] ([#1818](https://github.com/windmill-labs/windmill/issues/1818)) ([9e385d9](https://github.com/windmill-labs/windmill/commit/9e385d9467a554070e375fc406a6762879a582cb))
+
+## [1.126.0](https://github.com/windmill-labs/windmill/compare/v1.125.1...v1.126.0) (2023-07-09)
+
+
+### Features
+
+* add support for pg uuid ([79bc1da](https://github.com/windmill-labs/windmill/commit/79bc1da5ea8f0ae0985612515ef99279f93634ff))
+* bun support ([#1800](https://github.com/windmill-labs/windmill/issues/1800)) ([2921649](https://github.com/windmill-labs/windmill/commit/2921649c3cc68e4f388c2b81e3707613bc737d1e))
+* **frontend:** Fix App Select styles ([#1811](https://github.com/windmill-labs/windmill/issues/1811)) ([5af82e4](https://github.com/windmill-labs/windmill/commit/5af82e4afd2bec68607969eab09510581eda5aeb))
+* workspace error handler ([#1799](https://github.com/windmill-labs/windmill/issues/1799)) ([54cd5ce](https://github.com/windmill-labs/windmill/commit/54cd5ce569823df8a4dd391a7267c7aec7435f11))
+
+
+### Bug Fixes
+
+* **frontend:** add missing required argument to correctly compute isValue ([#1807](https://github.com/windmill-labs/windmill/issues/1807)) ([94a0820](https://github.com/windmill-labs/windmill/commit/94a08209c71899c7ae447bc92ac0f4137cd13f51))
+* **frontend:** Fix multi select custom css ([#1813](https://github.com/windmill-labs/windmill/issues/1813)) ([518bf23](https://github.com/windmill-labs/windmill/commit/518bf23005c2d52db6c0dc89ec1356635bbdf32b))
+* **frontend:** isValid when no properties ([#1806](https://github.com/windmill-labs/windmill/issues/1806)) ([8e7db51](https://github.com/windmill-labs/windmill/commit/8e7db51cff5ea6f604f52d22db4e0ea0f514b95c))
+* **frontend:** unselect ScriptPicker + slack script ([#1802](https://github.com/windmill-labs/windmill/issues/1802)) ([ec6fbab](https://github.com/windmill-labs/windmill/commit/ec6fbabe888d937416030485f8de533ffab908f8))
+* update deno to 1.35.0 ([18f4dc0](https://github.com/windmill-labs/windmill/commit/18f4dc079933f160e729586379cc2a55191d0d65))
+
 ## [1.125.1](https://github.com/windmill-labs/windmill/compare/v1.125.0...v1.125.1) (2023-07-05)
 
 

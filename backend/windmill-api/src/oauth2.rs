@@ -133,9 +133,14 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     } else if std::path::Path::new(path).exists() {
         fs::read_to_string(path).map_err(to_anyhow)?
     } else {
-        "{}".to_string()
+        tracing::warn!("oauth.json not found, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
     };
 
+    if content.is_empty() {
+        tracing::warn!("oauth.json is empty, no OAuth clients loaded");
+        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
+    };
     let oauths: HashMap<String, OAuthClient> =
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,
@@ -779,14 +784,14 @@ async fn slack_command(
                 (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let (script_hash, tag) = windmill_common::get_latest_deployed_hash_for_path(
+                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) = windmill_common::get_latest_deployed_hash_for_path(
                     tx.transaction_mut(),
                     &settings.workspace_id,
                     path,
                 )
                 .await?;
                 (
-                    JobPayload::ScriptHash { hash: script_hash, path: path.to_owned() },
+                    JobPayload::ScriptHash { hash: script_hash, path: path.to_owned(), concurrent_limit, concurrency_time_window_s },
                     tag,
                 )
             };

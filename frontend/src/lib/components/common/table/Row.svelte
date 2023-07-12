@@ -22,34 +22,37 @@
 </script>
 
 <div
-	class="hover:bg-gray-50 w-full inline-flex items-center px-4 py-4 gap-4 first-of-type:!border-t-0
+	class="hover:bg-gray-50 w-full inline-flex items-center gap-4 first-of-type:!border-t-0
 first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 >
-	<RowIcon {href} {kind} />
-
-	<a {href} class="min-w-0 grow hover:underline decoration-gray-400">
-		<div class="text-gray-900 flex-wrap text-left text-sm font-semibold mb-1 truncate">
-			{#if marked}
-				{@html marked}
-			{:else}
-				{!summary || summary.length == 0 ? path : summary}
-			{/if}
+	<a
+		{href}
+		class="min-w-0 grow hover:underline decoration-gray-400 px-4 py-2.5 inline-flex items-center gap-4"
+	>
+		<div class="shrink">
+			<RowIcon {href} {kind} />
 		</div>
-		<div class="text-gray-600 text-2xs truncate text-left font-light">
-			{path}
+		<div class="grow">
+			<div class="text-gray-900 flex-wrap text-left text-sm font-semibold">
+				{#if marked}
+					{@html marked}
+				{:else}
+					{!summary || summary.length == 0 ? path : summary}
+				{/if}
+			</div>
+			<div class="text-gray-600 text-2xs truncate text-left font-light">
+				{path}
+			</div>
 		</div>
 	</a>
 	{#if $$slots.badges}
-		<div class="hidden lg:flex flex-row gap-1 items-center">
+		<div class="hidden lg:flex flex-row gap-4 items-center">
 			<slot name="badges" />
 		</div>
 	{/if}
 
-	<div class="flex gap-1 items-center justify-end">
-		<slot name="actions" />
-	</div>
 	{#if canFavorite}
-		<div class="center-center h-full text-sm font-semibold text-gray-900">
+		<div class="center-center h-full text-sm font-semibold text-gray-700">
 			<Star
 				{kind}
 				{path}
@@ -63,4 +66,8 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 	{:else}
 		<div class="w-9" />
 	{/if}
+
+	<div class="flex gap-1 items-center justify-end pr-2">
+		<slot name="actions" />
+	</div>
 </div>

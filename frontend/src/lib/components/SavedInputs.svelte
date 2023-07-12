@@ -7,7 +7,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { ArrowLeftIcon, Edit, X } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, ExternalLink, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -154,7 +154,7 @@
 						disabled={!isValid}
 						loading={savingInputs}
 						startIcon={{ icon: faSave }}
-						color="blue"
+						color="light"
 						size="xs"
 					>
 						<span>Save Current Input</span>
@@ -257,7 +257,7 @@
 
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-extrabold">Previous Inputs</span>
+				<span class="text-sm font-extrabold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
@@ -275,17 +275,35 @@
 									}
 								}}
 							>
-								<div class="w-full h-full items-center flex gap-4 min-w-0">
-									<small
-										class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
+								<div
+									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
+								>
+									<div class="">
+										<div class="rounded-full w-2 h-2 {i.success ? 'bg-green-400' : 'bg-red-400'}" />
+									</div>
+									<div class="col-span-2">
+										{i.created_by}
+									</div>
+									<div
+										class="whitespace-nowrap col-span-3 font-normal overflow-hidden text-ellipsis flex-shrink text-center"
 									>
-										{displayDaysAgo(i.created_at)} by {i.created_by}
-									</small>
+										{displayDaysAgo(i.created_at)}
+									</div>
+									<div class="col-span-2">
+										<a
+											target="_blank"
+											href="/runs/{i.id}"
+											class="text-right float-right text-gray-600"
+											title="See run detail in a new tab"
+										>
+											<ExternalLink size={16} />
+										</a>
+									</div>
 								</div>
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-gray-500">No previous Inputs</div>
+						<div class="text-center text-gray-500">No previous Runs</div>
 					{/if}
 				</div>
 			</div>

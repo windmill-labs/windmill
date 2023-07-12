@@ -6,17 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use anyhow::{Result};
+use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::{Pool, Postgres};
-use windmill_api_client::{Client};
+use windmill_api_client::Client;
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration},
+    process::Stdio, time::Duration,
     sync::{Arc, atomic::{Ordering, AtomicUsize}},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
@@ -62,16 +62,13 @@ use rand::Rng;
 #[cfg(feature = "enterprise")]
 use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache, copy_denogo_cache_from_bucket_as_tar, copy_all_piptars_from_bucket};
 
-use windmill_queue::{add_completed_job, add_completed_job_error};
+use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql,
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql,
 };
-
-
-
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
@@ -259,7 +256,6 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
-
 }
 
 //only matter if CLOUD_HOSTED
@@ -357,6 +353,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Bash),
         Some(ScriptLang::Nativets),
         Some(ScriptLang::Postgresql),
+        Some(ScriptLang::Mysql),
         Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
@@ -563,6 +560,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             } else {
                 // println!("2: {:?}",  instant.elapsed());
                 async {
+                    if IDLE_WORKERS.load(Ordering::Relaxed) {
+                        // TODO: Need to sleep for a little time before re-checking, maybe?
+                        // tracing::warn!("Worker is marked as idle. Not pulling any job for now");
+                        return (false, Ok(None));
+                    }
                     tokio::select! {
                         biased;
                         _ = rx.recv() => {
@@ -1031,6 +1033,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
+                logs.push_str("\n");
             }
 
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
@@ -1065,6 +1068,29 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
                     tokio::task::spawn(async move {
                         let jc = do_postgresql(job.clone(), &client, &db).await;
+                        parallel_count.fetch_sub(1, Ordering::SeqCst);
+
+                        match jc {
+                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                            Err(e) => job_completed_tx.send(JobCompleted {
+                                job: job,
+                                result: json!({"error": {
+                                    "name": "ExecutionError",
+                                    "message": e.to_string()
+                                }}),
+                                logs: "".to_string(),
+                                success: false
+                            }).await.expect("send job completed"),
+                        };
+                    });
+                    return Ok(());     
+                } else if job.language == Some(ScriptLang::Mysql) {
+                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                    let client = client.get_authed().await;
+                    let db: Pool<Postgres> = db.clone();
+
+                    tokio::task::spawn(async move {
+                        let jc = do_mysql(job.clone(), &client, &db).await;
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
 
                         match jc {
@@ -1198,6 +1224,9 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             unreachable!()     
                         } else if job.language == Some(ScriptLang::Postgresql) {
                             let jc = do_postgresql(job.clone(), &client.get_authed().await, &db).await?;
+                            Ok(jc.result)
+                        } else if job.language == Some(ScriptLang::Mysql) {
+                            let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
                             Ok(jc.result)
                         } else if job.language == Some(ScriptLang::Nativets) {
                             logs.push_str("\n--- FETCH TS EXECUTION ---\n");
@@ -1613,7 +1642,7 @@ async fn handle_bash_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", &format!("set -e\n{content}\nsleep 0.02")).await?;
+    write_file(job_dir, "main.sh", &format!("set -e\n{content}\necho \"\"\nsleep 0.02")).await?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -2125,7 +2154,7 @@ async fn handle_flow_dependency_job(
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
     let mut new_flow_modules = Vec::new();
     for mut e in flow.modules.into_iter() {
-        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag} = e.value else {
+        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             new_flow_modules.push(e);
             continue;
         };
@@ -2150,11 +2179,13 @@ async fn handle_flow_dependency_job(
             Ok(new_lock) => {
                 e.value = FlowModuleValue::RawScript {
                     lock: Some(new_lock),
-                    path: path,
+                    path,
                     input_transforms,
                     content,
                     language,
-                    tag
+                    tag,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 };
                 new_flow_modules.push(e);
                 continue;
@@ -2170,11 +2201,13 @@ async fn handle_flow_dependency_job(
                 );
                 e.value = FlowModuleValue::RawScript {
                     lock: None,
-                    path: path,
+                    path,
                     input_transforms,
                     content,
                     language,
-                    tag
+                    tag,
+                    concurrent_limit,
+                    concurrency_time_window_s,
                 };
                 new_flow_modules.push(e);
                 continue;

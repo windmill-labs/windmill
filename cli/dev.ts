@@ -49,14 +49,16 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
           : ext == "ts"
           ? splitted.length > 2 && splitted[splitted.length - 2] == "fetch"
             ? "nativets"
+            : splitted.length > 2 && splitted[splitted.length - 2] == "bun"
+            ? "bun"
             : "deno"
           : ext == "go"
           ? "go"
           : ext == "sh"
           ? "bash"
           : ext == "sql"
-          ? splitted.length > 2 && splitted[splitted.length - 2] == "pg"
-            ? "postgresql"
+          ? splitted.length > 2 && splitted[splitted.length - 2] == "my"
+            ? "mysql"
             : "postgresql"
           : "unknown";
       currentLastEdit = {

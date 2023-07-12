@@ -1,19 +1,21 @@
+use anyhow::Context;
+use chrono::Utc;
 use futures::TryStreamExt;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use serde::Deserialize;
+use serde_json::Map;
 use serde_json::{json, Value};
 use tokio_postgres::{types::ToSql, NoTls, Row};
-use windmill_common::{
-    error::{to_anyhow, Error},
-    jobs::QueuedJob,
+use tokio_postgres::{
+    types::{FromSql, Type},
+    Column,
 };
-use windmill_parser_sql::parse_sql_sig;
+use windmill_common::error::Error;
+use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::{
-    common::postgres_row_to_json_value, get_content, transform_json_value, AuthedClient,
-    JobCompleted,
-};
+use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
 struct PgDatabase {
@@ -90,21 +92,17 @@ pub async fn do_postgresql(
         .as_object()
         .map(|x| x.to_owned())
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
-    let mut i = 1;
     let mut statement_values: Vec<serde_json::Value> = vec![];
 
-    loop {
-        if args.get(&format!("${}", i)).is_none() {
-            break;
-        }
-        statement_values.push(args.get(&format!("${}", i)).unwrap().to_owned());
-        i += 1;
-    }
-    let query = get_content(&job, db).await?;
+    let query: String = get_content(&job, db).await?;
 
-    let sig = parse_sql_sig(&query)
+    let sig = parse_pgsql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    for arg in &sig {
+        statement_values.push(args.get(&arg.name).unwrap_or(&json!(null)).clone());
+    }
 
     let query_params = statement_values
         .iter()
@@ -170,4 +168,163 @@ pub async fn do_postgresql(
     handle.abort();
     // And then check that we got back the same string we sent over.
     return Ok(JobCompleted { job: job, result, logs: "".to_string(), success: true });
+}
+
+pub fn pg_cell_to_json_value(
+    row: &Row,
+    column: &Column,
+    column_i: usize,
+) -> Result<JSONValue, Error> {
+    let f64_to_json_number = |raw_val: f64| -> Result<JSONValue, Error> {
+        let temp = serde_json::Number::from_f64(raw_val.into())
+            .ok_or(anyhow::anyhow!("invalid json-float"))?;
+        Ok(JSONValue::Number(temp))
+    };
+    Ok(match *column.type_() {
+        // for rust-postgres <> postgres type-mappings: https://docs.rs/postgres/latest/postgres/types/trait.FromSql.html#types
+        // for postgres types: https://www.postgresql.org/docs/7.4/datatype.html#DATATYPE-TABLE
+
+        // single types
+        Type::BOOL => get_basic(row, column, column_i, |a: bool| Ok(JSONValue::Bool(a)))?,
+        Type::INT2 => get_basic(row, column, column_i, |a: i16| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::INT4 => get_basic(row, column, column_i, |a: i32| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::INT8 => get_basic(row, column, column_i, |a: i64| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::TEXT | Type::VARCHAR => {
+            get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?
+        }
+        Type::TIMESTAMP => get_basic(row, column, column_i, |a: chrono::NaiveDateTime| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::UUID => get_basic(row, column, column_i, |a: uuid::Uuid| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
+        // Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
+        //     Ok(JSONValue::String(a.to_string()))
+        // })?,
+        Type::JSON | Type::JSONB => get_basic(row, column, column_i, |a: JSONValue| Ok(a))?,
+        Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
+            Ok(f64_to_json_number(a.into())?)
+        })?,
+        Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| Ok(f64_to_json_number(a)?))?,
+        // these types require a custom StringCollector struct as an intermediary (see struct at bottom)
+        Type::TS_VECTOR => get_basic(row, column, column_i, |a: StringCollector| {
+            Ok(JSONValue::String(a.0))
+        })?,
+
+        // array types
+        Type::BOOL_ARRAY => get_array(row, column, column_i, |a: bool| Ok(JSONValue::Bool(a)))?,
+        Type::INT2_ARRAY => get_array(row, column, column_i, |a: i16| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::INT4_ARRAY => get_array(row, column, column_i, |a: i32| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::INT8_ARRAY => get_array(row, column, column_i, |a: i64| {
+            Ok(JSONValue::Number(serde_json::Number::from(a)))
+        })?,
+        Type::TEXT_ARRAY | Type::VARCHAR_ARRAY => {
+            get_array(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?
+        }
+        Type::JSON_ARRAY | Type::JSONB_ARRAY => {
+            get_array(row, column, column_i, |a: JSONValue| Ok(a))?
+        }
+        Type::FLOAT4_ARRAY => get_array(row, column, column_i, |a: f32| {
+            Ok(f64_to_json_number(a.into())?)
+        })?,
+        Type::FLOAT8_ARRAY => {
+            get_array(row, column, column_i, |a: f64| Ok(f64_to_json_number(a)?))?
+        }
+        // these types require a custom StringCollector struct as an intermediary (see struct at bottom)
+        Type::TS_VECTOR_ARRAY => get_array(row, column, column_i, |a: StringCollector| {
+            Ok(JSONValue::String(a.0))
+        })?,
+        _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
+    })
+}
+
+pub fn postgres_row_to_json_value(row: Row) -> Result<JSONValue, Error> {
+    let row_data = postgres_row_to_row_data(row)?;
+    Ok(JSONValue::Object(row_data))
+}
+
+// some type-aliases I use in my project
+pub type JSONValue = serde_json::Value;
+pub type RowData = Map<String, JSONValue>;
+
+pub fn postgres_row_to_row_data(row: Row) -> Result<RowData, Error> {
+    let mut result: Map<String, JSONValue> = Map::new();
+    for (i, column) in row.columns().iter().enumerate() {
+        let name = column.name();
+        let json_value = pg_cell_to_json_value(&row, column, i)?;
+        result.insert(name.to_string(), json_value);
+    }
+    Ok(result)
+}
+
+fn get_basic<'a, T: FromSql<'a>>(
+    row: &'a Row,
+    column: &Column,
+    column_i: usize,
+    val_to_json_val: impl Fn(T) -> Result<JSONValue, Error>,
+) -> Result<JSONValue, Error> {
+    let raw_val = row.try_get::<_, Option<T>>(column_i).with_context(|| {
+        format!(
+            "conversion issue for value at column_name:{} with type {:?}",
+            column.name(),
+            column.type_()
+        )
+    })?;
+    raw_val.map_or(Ok(JSONValue::Null), val_to_json_val)
+}
+fn get_array<'a, T: FromSql<'a>>(
+    row: &'a Row,
+    column: &Column,
+    column_i: usize,
+    val_to_json_val: impl Fn(T) -> Result<JSONValue, Error>,
+) -> Result<JSONValue, Error> {
+    let raw_val_array = row
+        .try_get::<_, Option<Vec<T>>>(column_i)
+        .with_context(|| {
+            format!(
+                "conversion issue for array at column_name:{}",
+                column.name()
+            )
+        })?;
+    Ok(match raw_val_array {
+        Some(val_array) => {
+            let mut result = vec![];
+            for val in val_array {
+                result.push(val_to_json_val(val)?);
+            }
+            JSONValue::Array(result)
+        }
+        None => JSONValue::Null,
+    })
+}
+
+// you can remove this section if not using TS_VECTOR (or other types requiring an intermediary `FromSQL` struct)
+struct StringCollector(String);
+impl FromSql<'_> for StringCollector {
+    fn from_sql(
+        _: &Type,
+        raw: &[u8],
+    ) -> Result<StringCollector, Box<dyn std::error::Error + Sync + Send>> {
+        let result = std::str::from_utf8(raw)?;
+        Ok(StringCollector(result.to_owned()))
+    }
+    fn accepts(_ty: &Type) -> bool {
+        true
+    }
 }

@@ -2,6 +2,9 @@ version: "3.7"
 
 services:
   db:
+    deploy:
+      # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
+      replicas: 1
     image: postgres:14
     restart: unless-stopped
     volumes:
@@ -18,8 +21,7 @@ services:
       retries: 5
 
   windmill_server:
-    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
-    image: ghcr.io/windmill-labs/windmill:main
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 1
@@ -27,32 +29,31 @@ services:
     expose:
       - 8000
     environment:
-      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       ## You can set the number of workers to > 0 and not need any separate worker service but not recommended
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false
-      - REQUEST_SIZE_LIMIT=2097152 # 2MB (The size limit for any requests, including script/flow args inputs)
+      - REQUEST_SIZE_LIMIT=${WM_REQUEST_SIZE_LIMIT}
       # LICENSE_KEY is only needed for the enterprise edition
-      # - LICENSE_KEY=${WM_LICENSE_KEY}
+      - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
-    # volumes:
-    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
-    # - ./oauth.json/:/usr/src/app/oauth.json
+    volumes:
+      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
+      - ./oauth.json:/usr/src/app/oauth.json
 
   windmill_worker:
-    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
-    image: ghcr.io/windmill-labs/windmill:main
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 3
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       - DISABLE_SERVER=true
@@ -61,42 +62,42 @@ services:
       # To handle all tags, remove the env variable altogether. If you do so, you can remove the windmill_worker_native containers.
       - WORKER_TAGS=deno,python3,go,bash,dependency,flow,hub,other,bun
       # LICENSE_KEY is only needed for the enterprise edition
-      # - LICENSE_KEY=${WM_LICENSE_KEY}
+      - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
-    # mount the docker socket to allow to run docker containers from within the workers
-    - /var/run/docker.sock:/var/run/docker.sock
-    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
-    # - ./oauth.json/:/usr/src/app/oauth.json
+      # mount the docker socket to allow to run docker containers from within the workers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
+      - ./oauth.json:/usr/src/app/oauth.json
 
   ## This worker is specialized for "native" jobs. Jobs that are lightweight and run "in-process" and can thus be parallelized to more than 1 at a time on a given worker
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
-    image: ghcr.io/windmill-labs/windmill:main
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 1
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
       - PARALLEL_NATIVE_JOBS=12
-      - WORKER_TAGS=nativets,postgresql
+      - WORKER_TAGS=nativets,postgresql,mysql,graphql
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
-    # volumes:
-    # uncomment if using OAuth (https://docs.windmill.dev/docs/misc/setup_oauth)
-    # - ./oauth.json/:/usr/src/app/oauth.json
+    volumes:
+      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
+      - ./oauth.json:/usr/src/app/oauth.json
 
 
   lsp:
@@ -106,12 +107,14 @@ services:
       - 3001
     volumes:
       - lsp_cache:/root/.cache
-  # Uncomment to enable multiplayer on the enterprise edition
-  # multiplayer:
-  #   image: ghcr.io/windmill-labs/windmill-multiplayer:latest
-  #   restart: unless-stopped
-  #   expose:
-  #     - 3002
+
+  multiplayer:
+    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
+    deploy:
+      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
+    restart: unless-stopped
+    expose:
+      - 3002
 
   caddy:
     image: caddy:2.5.2-alpine
@@ -123,8 +126,10 @@ services:
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
+      #- 443:443 # Uncomment to enable HTTPS handling by Caddy
     environment:
       - BASE_URL=":80"
+      #- BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
 
 volumes:
   db_data: null
