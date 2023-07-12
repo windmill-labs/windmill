@@ -105,7 +105,7 @@ ARG TARGETPLATFORM
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc \
     && rm -rf /var/lib/apt/lists/*
 
 
