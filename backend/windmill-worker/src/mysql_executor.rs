@@ -1,5 +1,4 @@
 use base64::Engine;
-use deno_ast::swc::ast::Param;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
