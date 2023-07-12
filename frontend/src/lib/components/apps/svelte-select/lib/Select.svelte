@@ -572,8 +572,8 @@
 	let _floatingConfig = {
 		strategy: 'absolute',
 		placement: 'bottom-start',
-		middleware: [offset(listOffset), flip(), shift()],
-		autoUpdate: false
+		//middleware: [offset(listOffset), flip(), shift()],
+		autoUpdate: true
 	}
 
 	const [floatingRef, floatingContent, floatingUpdate] = createFloatingActions(_floatingConfig)
@@ -613,7 +613,6 @@
 				use:floatingContent
 				bind:this={list}
 				class="svelte-select-list"
-				class:prefloat
 				on:scroll={handleListScroll}
 				on:pointerup|preventDefault|stopPropagation
 				on:pointerdown|preventDefault|stopPropagation
