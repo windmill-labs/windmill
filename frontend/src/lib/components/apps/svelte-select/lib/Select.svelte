@@ -572,8 +572,8 @@
 	let _floatingConfig = {
 		strategy: 'absolute',
 		placement: 'bottom-start',
-		//middleware: [offset(listOffset), flip(), shift()],
-		autoUpdate: true
+		middleware: [offset(listOffset), flip(), shift()],
+		autoUpdate: false
 	}
 
 	const [floatingRef, floatingContent, floatingUpdate] = createFloatingActions(_floatingConfig)
