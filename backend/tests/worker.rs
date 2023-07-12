@@ -102,6 +102,8 @@ impl ApiServer {
             port_tx,
         ));
 
+        port_tx.await.unwrap();
+
         return Self { addr, tx, task };
     }
 
