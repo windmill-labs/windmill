@@ -8,7 +8,8 @@ import init, {
 	parse_bash,
 	parse_go,
 	parse_python,
-	parse_sql
+	parse_sql,
+	parse_mysql
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 
@@ -44,6 +45,9 @@ export async function inferArgs(
 				{ name: 'database', typ: { resource: 'postgresql' } },
 				...inferedSchema.args
 			]
+		} else if (language == 'mysql') {
+			inferedSchema = JSON.parse(parse_mysql(code))
+			inferedSchema.args = [{ name: 'database', typ: { resource: 'mysql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {

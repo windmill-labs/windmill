@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.128.0](https://github.com/windmill-labs/windmill/compare/v1.127.1...v1.128.0) (2023-07-11)
+
+
+### Features
+
+* add mysql as native integration ([#1859](https://github.com/windmill-labs/windmill/issues/1859)) ([a048e0d](https://github.com/windmill-labs/windmill/commit/a048e0d7e221aa0162d33197566bcd4036da1b67))
+
+
+### Bug Fixes
+
+* **frontend:** App errors array ([#1851](https://github.com/windmill-labs/windmill/issues/1851)) ([06a8772](https://github.com/windmill-labs/windmill/commit/06a8772dde84a872982e6a1e7d16170c6dc906fe))
+* **frontend:** Fix app drawer display + add missing flattent ([#1853](https://github.com/windmill-labs/windmill/issues/1853)) ([4093939](https://github.com/windmill-labs/windmill/commit/4093939936203f2603bb999618f4810d33c3ecb7))
+* **frontend:** Fix select width in app table to avoid content jump ([#1850](https://github.com/windmill-labs/windmill/issues/1850)) ([1ebc86c](https://github.com/windmill-labs/windmill/commit/1ebc86c2a7edfb182d1723bf06cbca0058154622))
+* **frontend:** only forward css variable ([#1856](https://github.com/windmill-labs/windmill/issues/1856)) ([4034ab0](https://github.com/windmill-labs/windmill/commit/4034ab07df47f1eee5772144879858f64cd7b116))
+* **frontend:** Support both copying the key and the value in the ObjectViewer ([#1854](https://github.com/windmill-labs/windmill/issues/1854)) ([f2101c0](https://github.com/windmill-labs/windmill/commit/f2101c05efa5f691f3b3e6d0abcbe1f78082e90f))
+
 ## [1.127.1](https://github.com/windmill-labs/windmill/compare/v1.127.0...v1.127.1) (2023-07-10)
 
 

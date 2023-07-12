@@ -1,4 +1,4 @@
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use futures::{stream, Stream};
 use serde::Deserialize;
@@ -92,8 +92,15 @@ impl ApiServer {
 
         let addr = sock.local_addr().unwrap();
         drop(sock);
+        let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<u16>();
 
-        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), None, addr, rx));
+        let task = tokio::task::spawn(windmill_api::run_server(
+            db.clone(),
+            None,
+            addr,
+            rx,
+            port_tx,
+        ));
 
         return Self { addr, tx, task };
     }
@@ -1009,6 +1016,8 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
                     },
                     stop_after_if: Default::default(),
                     summary: Default::default(),
@@ -1039,6 +1048,8 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 path: None,
                                 lock: None,
                                 tag: None,
+                                concurrent_limit: None,
+                                concurrency_time_window_s: None,
                             },
                             stop_after_if: Default::default(),
                             summary: Default::default(),
@@ -1144,6 +1155,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
                     },
                     stop_after_if: Default::default(),
                     summary: Default::default(),
@@ -1185,6 +1198,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                     tag: None,
+                                    concurrent_limit: None,
+                                    concurrency_time_window_s: None,
                                 },
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
@@ -1213,6 +1228,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                     tag: None,
+                                    concurrent_limit: None,
+                                    concurrency_time_window_s: None,
                                 },
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
@@ -1259,6 +1276,8 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                         tag: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
                     },
                     stop_after_if: Default::default(),
                     summary: Default::default(),
@@ -1564,6 +1583,8 @@ func main(derp string) (string, error) {
         path: None,
         lock: None,
         language: ScriptLang::Go,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, port)
@@ -1591,6 +1612,8 @@ echo "hello $msg"
         path: None,
         lock: None,
         language: ScriptLang::Bash,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
@@ -1616,6 +1639,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1646,6 +1671,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1675,6 +1702,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)

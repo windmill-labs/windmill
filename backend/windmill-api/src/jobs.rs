@@ -248,13 +248,13 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_and_tag_for_hash<'c>(
+pub async fn get_path_tag_and_limits_for_hash<'c>(
     db: &mut Transaction<'c, Postgres>,
     w_id: &str,
     hash: i64,
-) -> error::Result<(String, Option<String>)> {
+) -> error::Result<(String, Option<String>, Option<i32>, Option<i32>)> {
     let script = sqlx::query!(
-        "select path, tag from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -265,7 +265,7 @@ pub async fn get_path_and_tag_for_hash<'c>(
             "querying getting path for hash {hash} in {w_id}: {e}"
         ))
     })?;
-    Ok((script.path, script.tag))
+    Ok((script.path, script.tag, script.concurrent_limit, script.concurrency_time_window_s))
 }
 
 async fn get_job(
@@ -651,6 +651,8 @@ async fn list_jobs(
             "suspend",
             "mem_peak",
             "tag",
+            "concurrent_limit",
+            "concurrency_time_window_s",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -687,6 +689,8 @@ async fn list_jobs(
             "null as suspend",
             "mem_peak",
             "tag",
+            "null as concurrent_limit",
+            "null as concurrency_time_window_s",
         ],
     );
     let sql = format!(
@@ -1154,6 +1158,8 @@ struct UnifiedJob {
     suspend: Option<i32>,
     mem_peak: Option<i32>,
     tag: String,
+    concurrent_limit: Option<i32>,
+    concurrency_time_window_s: Option<i32>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1226,6 +1232,8 @@ impl From<UnifiedJob> for Job {
                 root_job: None,
                 leaf_jobs: None,
                 tag: uj.tag,
+                concurrent_limit: uj.concurrent_limit,
+                concurrency_time_window_s: uj.concurrency_time_window_s,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1824,7 +1832,7 @@ pub async fn run_wait_result_script_by_hash(
 
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) = get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -1833,7 +1841,7 @@ pub async fn run_wait_result_script_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
+        JobPayload::ScriptHash { hash: ScriptHash(hash), path: path, concurrent_limit: concurrent_limit, concurrency_time_window_s: concurrency_time_window_s},
         args,
         &authed.username,
         &authed.email,
@@ -1983,6 +1991,8 @@ async fn run_preview_job(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: None,
+                concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                concurrency_time_window_s: None, // TODO(gbouv): same as above
             }),
         },
         args,
@@ -2094,7 +2104,7 @@ pub async fn run_job_by_hash(
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) = get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
@@ -2104,7 +2114,7 @@ pub async fn run_job_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
+        JobPayload::ScriptHash { hash: ScriptHash(hash), path: path, concurrent_limit: concurrent_limit, concurrency_time_window_s: concurrency_time_window_s },
         args,
         &authed.username,
         &authed.email,

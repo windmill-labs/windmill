@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.127.1
+  version: 1.128.0
   title: Windmill API
 
   contact:
@@ -5636,7 +5636,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5691,7 +5691,7 @@ components:
             type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5853,7 +5853,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         email:
           type: string
         visible_to_owner:
@@ -5943,7 +5943,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         is_skipped:
           type: boolean
         email:
@@ -6371,7 +6371,7 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         tag:
           type: string
         kind:

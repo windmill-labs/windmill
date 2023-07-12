@@ -141,6 +141,7 @@ pub async fn run_server(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
+    port_tx: tokio::sync::oneshot::Sender<u16>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -245,12 +246,22 @@ pub async fn run_server(
     let instance_name = rd_string(5);
 
     tracing::info!(addr = %addr.to_string(), instance = %instance_name, "server started listening");
-    let server = axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .with_graceful_shutdown(async {
-            rx.recv().await.ok();
-            println!("Graceful shutdown of server");
-        });
+    let server = axum::Server::bind(&addr).serve(app.into_make_service());
+
+    let port = server.local_addr().port();
+    tracing::info!(
+        "server started on port={} and addr={}",
+        port,
+        server.local_addr().ip()
+    );
+    port_tx
+        .send(server.local_addr().port())
+        .expect("Failed to send port");
+
+    let server = server.with_graceful_shutdown(async {
+        rx.recv().await.ok();
+        println!("Graceful shutdown of server");
+    });
 
     tokio::spawn(async move { auth_cache.monitor().await });
 

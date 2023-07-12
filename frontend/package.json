@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.127.1",
+	"version": "1.128.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -101,7 +101,7 @@
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
-		"windmill-parser-wasm": "^1.123.2",
+		"windmill-parser-wasm": "^1.127.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yjs": "^13.6.4"
