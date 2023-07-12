@@ -2,7 +2,7 @@ import type { Schema, SchemaProperty } from '../../common'
 
 import type { ResourceType } from '../../gen'
 
-import { capitalize } from '$lib/utils'
+import { capitalize, toCamel } from '$lib/utils'
 
 function compile(schema: Schema) {
 	function rec(x: { [name: string]: SchemaProperty }, root = false) {
@@ -33,12 +33,6 @@ function compile(schema: Schema) {
 		return res
 	}
 	return rec(schema.properties, true)
-}
-
-function toCamel(s) {
-	return s.replace(/([-_][a-z])/gi, ($1) => {
-		return $1.toUpperCase().replace('-', '').replace('_', '')
-	})
 }
 
 export function formatResourceTypes(resourceTypes: ResourceType[], camel = false) {

@@ -579,3 +579,9 @@ export function extractCustomProperties(styleStr: string): string {
 
 	return customStyleStr
 }
+
+export function toCamel(s: string) {
+	return s.replace(/([-_][a-z])/gi, ($1) => {
+		return $1.toUpperCase().replace('-', '').replace('_', '')
+	})
+}
