@@ -613,6 +613,7 @@
 				use:floatingContent
 				bind:this={list}
 				class="svelte-select-list"
+				class:prefloat
 				on:scroll={handleListScroll}
 				on:pointerup|preventDefault|stopPropagation
 				on:pointerdown|preventDefault|stopPropagation
