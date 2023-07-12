@@ -160,7 +160,7 @@
 					tag: script.tag,
 					envs: script.envs,
 					concurrent_limit: script.concurrent_limit,
-					concurrency_time_window_s: convertDurationToSecs(concurrency_time_window, concurrency_time_window_unit)
+					concurrency_time_window_s: script.concurrency_time_window_s
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -202,7 +202,7 @@
 						draft_only: true,
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: convertDurationToSecs(concurrency_time_window, concurrency_time_window_unit)
+						concurrency_time_window_s: script.concurrency_time_window_s
 					}
 				})
 			}

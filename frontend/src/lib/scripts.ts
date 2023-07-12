@@ -86,8 +86,8 @@ export async function getScriptByPath(path: string): Promise<{
 	schema: any
 	description: string
 	tag: string | undefined
-	concurrent_limit: number | undefined
-	concurrency_time_window_s: number | undefined
+	concurrent_limit: number[] | undefined
+	concurrency_time_window_s: number[] | undefined
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
