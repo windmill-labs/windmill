@@ -178,6 +178,7 @@
 			on:filter={handleFilter}
 			on:clear={onClear}
 			on:change={onChange}
+			inAppEditor={true}
 			items={listItems}
 			listAutoWidth={resolvedConfig.fullWidth}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
