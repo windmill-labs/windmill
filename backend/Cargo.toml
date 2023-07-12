@@ -144,8 +144,7 @@ swc_ecma_ast = "0.106.2"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "0.6", features = [
-    "offline",
+sqlx = { version = "^0", features = [
     "macros",
     "migrate",
     "uuid",
