@@ -23,6 +23,7 @@
 	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
 	import { setQuery } from '$lib/navigation'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Calendar } from 'lucide-svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -195,6 +196,72 @@
 
 	let argError = ''
 	let resultError = ''
+
+	function openDatePicker(id: string) {
+		const dateInput = document.getElementById(id) as HTMLInputElement
+		try {
+			dateInput?.showPicker()
+		} catch (error) {
+			console.log(error)
+		}
+	}
+
+	const manualDates = [
+		{
+			label: 'Last 30 seconds',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		},
+		{
+			label: 'Last minute',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		},
+		{
+			label: 'Last 5 minutes',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		},
+		{
+			label: 'Last 30 minutes',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		},
+		{
+			label: 'Last 24 hours',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		}
+	]
+
+	let selectedManualDate = 0
+
+	async function setValue(
+		event: Event & {
+			currentTarget: EventTarget & HTMLInputElement
+		},
+		min: boolean = true
+	) {
+		const target = event.target as HTMLInputElement
+
+		if (min) {
+			minTs = new Date(target.value).toISOString()
+		} else {
+			maxTs = new Date(target.value).toISOString()
+		}
+
+		jobs = await fetchJobs(maxTs, minTs)
+	}
 </script>
 
 <CenteredPage>
@@ -251,15 +318,73 @@
 					}}
 				/>
 			</div>
-			<div class="flex flex-row gap-x-2 w-full mb-2 mt-4">
-				<div class="relative w-full"
-					><span class="text-xs absolute -top-4">min datetime</span>
-					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
+			<div class="flex flex-row gap-x-2 w-full mb-2 mt-8">
+				<div class="relative w-full">
+					<div class="flex gap-1 relative w-full">
+						<span class="text-xs absolute -top-4">Min datetime</span>
+
+						<input
+							type="text"
+							value={minTs ?? 'zoom x axis to set min (drag with ctrl)'}
+							disabled
+						/>
+
+						<button
+							class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
+							on:click={() => openDatePicker('min_ts')}
+							title="Use a Variable"
+						>
+							<Calendar size={14} />
+						</button>
+						<input
+							type="date"
+							value={minTs}
+							id="min_ts"
+							class="invisible absolute top-0 bottom-0 left-0 right-0"
+							max={new Date().toISOString().slice(0, 16)}
+							on:input={async (e) => setValue(e, true)}
+						/>
+					</div>
 				</div>
-				<div class="relative w-full"
-					><span class="text-xs absolute -top-4">max datetime</span>
+				<div class="relative w-full">
+					<span class="text-xs absolute -top-4">Max datetime</span>
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+					<button
+						class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
+						on:click={() => openDatePicker('max_ts')}
+						title="Use a Variable"
+					>
+						<Calendar size={14} />
+					</button>
+					<input
+						type="date"
+						value={maxTs}
+						id="max_ts"
+						class="invisible absolute top-0 bottom-0 left-0 right-0"
+						max={new Date().toISOString().slice(0, 16)}
+						on:input={async (e) => setValue(e, false)}
+					/>
 				</div>
+				<Button
+					color="dark"
+					size="xs2"
+					on:click={() => {
+						manualDates[selectedManualDate].setMinMax()
+						loadJobs()
+					}}
+					dropdownItems={[
+						...manualDates.map((d, i) => ({
+							label: d.label,
+							onClick: () => {
+								selectedManualDate = i
+								d.setMinMax()
+								loadJobs()
+							}
+						}))
+					]}
+				>
+					{manualDates[selectedManualDate].label}
+				</Button>
 			</div>
 			<div class="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
 				<div>
