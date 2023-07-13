@@ -26,12 +26,19 @@
 	}))
 
 	$: if (outputs?.selectedTabIndex) {
-		outputs.selectedTabIndex.subscribe({
-			id: 'subgridoutput-' + parentId,
-			next: (value) => {
-				selected = value
-			}
-		})
+		subscribeToOutput()
+	}
+
+	function subscribeToOutput() {
+		outputs.selectedTabIndex.subscribe(
+			{
+				id: 'subgridoutput-' + parentId,
+				next: (value) => {
+					selected = value
+				}
+			},
+			selected
+		)
 	}
 </script>
 
