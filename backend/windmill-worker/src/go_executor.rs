@@ -73,7 +73,7 @@ pub async fn handle_go_job(
     create_args_and_out_file(client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
-s
+
         const WRAPPER_CONTENT: &str = r#"package main
 
 import (
