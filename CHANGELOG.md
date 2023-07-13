@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.130.0](https://github.com/windmill-labs/windmill/compare/v1.129.1...v1.130.0) (2023-07-13)
+
+
+### Features
+
+* add transformer to background scripts ([8547125](https://github.com/windmill-labs/windmill/commit/85471252a5ec136f240048b71e94427bfcacd846))
+
 ## [1.129.1](https://github.com/windmill-labs/windmill/compare/v1.129.0...v1.129.1) (2023-07-13)
 
 
