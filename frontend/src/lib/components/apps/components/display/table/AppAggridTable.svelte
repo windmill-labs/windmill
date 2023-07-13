@@ -1,8 +1,7 @@
 <script lang="ts">
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
-	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
-
+	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -28,14 +27,10 @@
 
 	$: result && setValues()
 
-	let timeout: any
 	async function setValues() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			value = Array.isArray(result)
-				? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-				: [{ error: 'input was not an array' }]
-		}, 25)
+		value = Array.isArray(result)
+			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+			: [{ error: 'input was not an array' }]
 	}
 
 	const { worldStore, selectedComponent, componentControl } =
