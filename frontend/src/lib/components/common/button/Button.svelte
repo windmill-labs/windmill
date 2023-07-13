@@ -91,7 +91,7 @@
 				'border border-gray-300 bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
 			contained:
 				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300',
-			divider: 'divide-x divide-gray-100'
+			divider: 'divide-x divide-gray-200'
 		}
 	}
 
@@ -200,7 +200,7 @@
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}
-						<MenuItem on:click={item.onClick} href={item.href}>
+						<MenuItem on:click={item.onClick} href={item.href} class=" bg-red-400">
 							<div
 								class={classNames(
 									'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'

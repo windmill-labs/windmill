@@ -23,7 +23,8 @@
 	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
 	import { setQuery } from '$lib/navigation'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Calendar } from 'lucide-svelte'
+	import { RefreshCcw } from 'lucide-svelte'
+	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -197,15 +198,6 @@
 	let argError = ''
 	let resultError = ''
 
-	function openDatePicker(id: string) {
-		const dateInput = document.getElementById(id) as HTMLInputElement
-		try {
-			dateInput?.showPicker()
-		} catch (error) {
-			console.log(error)
-		}
-	}
-
 	const manualDates = [
 		{
 			label: 'Last 30 seconds',
@@ -245,23 +237,6 @@
 	]
 
 	let selectedManualDate = 0
-
-	async function setValue(
-		event: Event & {
-			currentTarget: EventTarget & HTMLInputElement
-		},
-		min: boolean = true
-	) {
-		const target = event.target as HTMLInputElement
-
-		if (min) {
-			minTs = new Date(target.value).toISOString()
-		} else {
-			maxTs = new Date(target.value).toISOString()
-		}
-
-		jobs = await fetchJobs(maxTs, minTs)
-	}
 </script>
 
 <CenteredPage>
@@ -329,45 +304,32 @@
 							disabled
 						/>
 
-						<button
-							class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
-							on:click={() => openDatePicker('min_ts')}
-							title="Use a Variable"
-						>
-							<Calendar size={14} />
-						</button>
-						<input
-							type="date"
-							value={minTs}
-							id="min_ts"
-							class="invisible absolute top-0 bottom-0 left-0 right-0"
-							max={new Date().toISOString().slice(0, 16)}
-							on:input={async (e) => setValue(e, true)}
+						<CalendarPicker
+							date={minTs}
+							label="Min datetimes"
+							on:change={async ({ detail }) => {
+								minTs = new Date(detail).toISOString()
+								jobs = await fetchJobs(maxTs, minTs)
+							}}
 						/>
 					</div>
 				</div>
 				<div class="relative w-full">
 					<span class="text-xs absolute -top-4">Max datetime</span>
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
-					<button
-						class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
-						on:click={() => openDatePicker('max_ts')}
-						title="Use a Variable"
-					>
-						<Calendar size={14} />
-					</button>
-					<input
-						type="date"
-						value={maxTs}
-						id="max_ts"
-						class="invisible absolute top-0 bottom-0 left-0 right-0"
-						max={new Date().toISOString().slice(0, 16)}
-						on:input={async (e) => setValue(e, false)}
+					<CalendarPicker
+						date={maxTs}
+						label="Max datetimes"
+						on:change={async ({ detail }) => {
+							maxTs = new Date(detail).toISOString()
+							jobs = await fetchJobs(maxTs, minTs)
+						}}
 					/>
 				</div>
 				<Button
-					color="dark"
+					color="light"
 					size="xs2"
+					wrapperClasses="border-gray-200 border rounded-md"
 					on:click={() => {
 						manualDates[selectedManualDate].setMinMax()
 						loadJobs()
@@ -383,7 +345,10 @@
 						}))
 					]}
 				>
-					{manualDates[selectedManualDate].label}
+					<div class="flex flex-row items-center gap-2">
+						<RefreshCcw size={14} />
+						{manualDates[selectedManualDate].label}
+					</div>
 				</Button>
 			</div>
 			<div class="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
