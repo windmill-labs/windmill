@@ -1,8 +1,8 @@
 import { OpenAI } from 'openai'
 import { OpenAPI } from '../../gen/core/OpenAPI'
-import { ResourceService, Script } from '../../gen'
+import { ResourceService, Script, WorkspaceService } from '../../gen'
 
-import { workspaceStore } from '$lib/stores'
+import { existsOpenaiKeyStore, workspaceStore } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 import { scriptLangToEditorLang } from '$lib/scripts'
 
@@ -77,8 +77,16 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(PROMPTS))
 
 let workspace: string | undefined = undefined
 
-workspaceStore.subscribe((value) => {
+workspaceStore.subscribe(async (value) => {
 	workspace = value
+	if (workspace) {
+		try {
+			existsOpenaiKeyStore.set(await WorkspaceService.existsOpenaiKey({ workspace }))
+		} catch (err) {
+			existsOpenaiKeyStore.set(false)
+			console.error('Could not get if openai key exists')
+		}
+	}
 })
 
 interface BaseOptions {
