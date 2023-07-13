@@ -23,10 +23,11 @@ const COMMENT_TYPES = {
 const PROMPTS = {
 	[Script.language
 		.PYTHON3]: `Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
-You have access to the following resource types, if you need them, you have to define a TypedDict with the name specified (DO NOT CAPITALIZE) and add them as parameters: {resourceTypes}`,
+You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
 	[Script.language
 		.DENO]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
 If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
 	[Script.language.GO]:
 		'Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".',
@@ -38,11 +39,11 @@ If the type name conflicts with the imported object, rename the imported object 
 		'Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)',
 	[Script.language
 		.NATIVETS]: `Write a function in typescript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
 If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
 	[Script.language
 		.BUN]: `Write a function in typescript called "main".  The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export function main(...)". Do not call the main function.
-You have access to the following resource types, if you need them, you have to define the type with the name specified and add them as parameters: {resourceTypes}
+You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
 If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`
 }
 
@@ -129,11 +130,12 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		)
 	) {
 		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, true)
+		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
+
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	} else if (scriptOptions.language == Script.language.PYTHON3) {
 		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, false)
+		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	}
 
