@@ -734,6 +734,11 @@
           "name": "error_handler",
           "ordinal": 11,
           "type_info": "Varchar"
+        },
+        {
+          "name": "openai_key",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -742,6 +747,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -1257,7 +1263,8 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "bun"
+                  "bun",
+                  "mysql"
                 ]
               },
               "name": "script_lang"
@@ -2449,6 +2456,11 @@
           "name": "error_handler",
           "ordinal": 11,
           "type_info": "Varchar"
+        },
+        {
+          "name": "openai_key",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -2457,6 +2469,7 @@
         true,
         true,
         false,
+        true,
         true,
         true,
         true,
@@ -2550,7 +2563,8 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "bun"
+                  "bun",
+                  "mysql"
                 ]
               },
               "name": "script_lang"
@@ -2615,6 +2629,18 @@
       }
     },
     "query": "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2"
+  },
+  "57ab0eabaaef495e12c4f04cb8e3073772f611283c0a424fd8c8f1368742d310": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET openai_key = NULL WHERE workspace_id = $1"
   },
   "5850e0c1f7dee98455027a4c0db6ccea0af2c58aee656ef43964b515de054888": {
     "describe": {
@@ -2794,7 +2820,8 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "bun"
+                  "bun",
+                  "mysql"
                 ]
               },
               "name": "script_lang"
@@ -3832,6 +3859,26 @@
     },
     "query": "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path"
   },
+  "87874d29c44f03ff4d7d9cb9dc92900fb5eb6ce38408fe7f8e0f3455c77c3590": {
+    "describe": {
+      "columns": [
+        {
+          "name": "openai_key",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1"
+  },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
       "columns": [],
@@ -3895,7 +3942,8 @@
                   "bash",
                   "postgresql",
                   "nativets",
-                  "bun"
+                  "bun",
+                  "mysql"
                 ]
               },
               "name": "script_lang"
@@ -6165,6 +6213,19 @@
       }
     },
     "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
+  },
+  "d2fefff37e6e0d1c8061f3215cb740b9af6798bf1605e79be0786b1f08b55f02": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2"
   },
   "d4bf68b4c2bfd11db84787e41e92c13612fda7352e841f3cdef45ea762588f04": {
     "describe": {

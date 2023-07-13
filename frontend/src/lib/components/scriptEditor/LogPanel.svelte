@@ -19,11 +19,15 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import type Editor from '../Editor.svelte'
+	import type DiffEditor from '../DiffEditor.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
+	export let editor: Editor | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
 
 	type DrawerContent = {
 		mode: 'json' | Preview.language | 'plain'
@@ -92,6 +96,9 @@
 									workspaceId={previewJob?.workspace_id}
 									jobId={previewJob?.id}
 									result={previewJob.result}
+									{editor}
+									{diffEditor}
+									{lang}
 								/>
 							</div>
 						{:else}

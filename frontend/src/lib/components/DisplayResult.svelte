@@ -7,6 +7,10 @@
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import ScriptFix from './codeGen/ScriptFix.svelte'
+	import type { Preview } from '$lib/gen'
+	import type Editor from './Editor.svelte'
+	import type DiffEditor from './DiffEditor.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -14,6 +18,9 @@
 	export let disableExpand = false
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
+	export let editor: Editor | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
+	export let lang: Preview.language | undefined = undefined
 
 	let resultKind:
 		| 'json'
@@ -223,12 +230,15 @@
 					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div>
+		{:else if !forceJson && resultKind == 'error'}<div class="flex flex-col items-start">
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
+				{#if lang && editor && diffEditor}
+					<ScriptFix error={JSON.stringify(result.error)} {lang} {editor} {diffEditor} />
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button

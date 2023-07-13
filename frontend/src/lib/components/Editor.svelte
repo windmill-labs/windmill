@@ -13,7 +13,8 @@
 		KeyCode,
 		KeyMod,
 		Uri as mUri,
-		languages
+		languages,
+		type IRange
 	} from 'monaco-editor/esm/vs/editor/editor.api'
 	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
@@ -143,6 +144,35 @@
 			const op = { range: range, text: code, forceMoveMarkers: true }
 			editor.executeEdits('external', [op])
 		}
+	}
+
+	export function getSelectedLines(): string | undefined {
+		if (editor) {
+			const selection = editor.getSelection()
+			if (selection) {
+				const range: IRange = {
+					startLineNumber: selection.startLineNumber,
+					startColumn: 1,
+					endLineNumber: selection.endLineNumber + 1,
+					endColumn: 1
+				}
+				return editor.getModel()?.getValueInRange(range)
+			}
+		}
+	}
+
+	export function onDidChangeCursorSelection(f: (e: meditor.ICursorSelectionChangedEvent) => void) {
+		if (editor) {
+			return editor.onDidChangeCursorSelection(f)
+		}
+	}
+
+	export function show(): void {
+		divEl?.classList.remove('hidden')
+	}
+
+	export function hide(): void {
+		divEl?.classList.add('hidden')
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
