@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.129.0](https://github.com/windmill-labs/windmill/compare/v1.128.0...v1.129.0) (2023-07-13)
+
+
+### Features
+
+* add jumpcloud support for sso ([9fcd37c](https://github.com/windmill-labs/windmill/commit/9fcd37cf436f40e719059843aa27d8bb9d2d70da))
+* add powershell to base image ([06d15bf](https://github.com/windmill-labs/windmill/commit/06d15bfa45a78aad5af3cfe874cc445e816982ee))
+* **frontend:** Add manual calendar button + add shortcuts ([#1866](https://github.com/windmill-labs/windmill/issues/1866)) ([4017407](https://github.com/windmill-labs/windmill/commit/4017407df545092921c4ef231e90583bac84327b))
+* **frontend:** use typed dict for resource types in python ([#1869](https://github.com/windmill-labs/windmill/issues/1869)) ([da70133](https://github.com/windmill-labs/windmill/commit/da701336577049d72375e72e603313114534a63f))
+* generate and fix scripts using Autopilot powered by OpenAI [#1827](https://github.com/windmill-labs/windmill/issues/1827)) ([012ea2d](https://github.com/windmill-labs/windmill/commit/012ea2dc0a3ce4685a50d5250b37003f40bfd0c8))
+* Per script concurrency limit with time window ([#1816](https://github.com/windmill-labs/windmill/issues/1816)) ([e2fb35a](https://github.com/windmill-labs/windmill/commit/e2fb35a487608c6d5a35896f1fb17a8698d2d552))
+
+
+### Bug Fixes
+
+* fix initial reactivity double trigger ([dfcb6eb](https://github.com/windmill-labs/windmill/commit/dfcb6eb28467e890664b8f6dc09754a811031ad2))
+* **frontend:** Fix App multi select render ([#1867](https://github.com/windmill-labs/windmill/issues/1867)) ([9f1d630](https://github.com/windmill-labs/windmill/commit/9f1d63059be8e744b67d60a0d984591636140528))
+* **frontend:** fix conditional portal ([#1868](https://github.com/windmill-labs/windmill/issues/1868)) ([8345b38](https://github.com/windmill-labs/windmill/commit/8345b389a65a86cec296e6544df264b167dfaeab))
+* **frontend:** store exists openai key ([#1870](https://github.com/windmill-labs/windmill/issues/1870)) ([16b0e28](https://github.com/windmill-labs/windmill/commit/16b0e281cb785a3820ec6256873c8423449610f3))
+* improve bash flushing ([1fc36c9](https://github.com/windmill-labs/windmill/commit/1fc36c9b074d66d615906b6e3bf0b5cd71dde97b))
+* make workers bind their http servers on any available port for OCI compliance ([08e3502](https://github.com/windmill-labs/windmill/commit/08e3502126f9727301fc2609740ecfa30beb3e9e))
+* Other schedules only display schedules related to script/flow ([2be0714](https://github.com/windmill-labs/windmill/commit/2be071482202ecf295e713339be442f0d0d45b58))
+
 ## [1.128.0](https://github.com/windmill-labs/windmill/compare/v1.127.1...v1.128.0) (2023-07-11)
 
 
