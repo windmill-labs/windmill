@@ -29,7 +29,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.129.0";
+export const VERSION = "v1.130.0";
 
 let command: any = new Command()
   .name("wmill")
