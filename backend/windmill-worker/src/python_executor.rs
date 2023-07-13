@@ -232,6 +232,9 @@ pub async fn handle_python_job(
         .replace("-", "_");
     let dirs = if dirs_full.len() > 0 {
         dirs_full
+            .strip_prefix("/")
+            .unwrap_or(&dirs_full)
+            .to_string()
     } else {
         "tmp".to_string()
     };
