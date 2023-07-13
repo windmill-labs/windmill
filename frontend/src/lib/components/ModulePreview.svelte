@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
@@ -17,10 +17,15 @@
 	import { Kbd } from './common'
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
+	import type DiffEditor from './DiffEditor.svelte'
+	import type Editor from './Editor.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
 	export let pickableProperties: PickableProperties | undefined
+	export let lang: Script.language
+	export let editor: Editor
+	export let diffEditor: DiffEditor
 
 	const { flowStore, flowStateStore, testStepStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -112,7 +117,14 @@
 			<Pane size={50} minSize={10} class="text-sm text-gray-600">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
-						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result} />
+						<DisplayResult
+							workspaceId={testJob?.workspace_id}
+							jobId={testJob?.id}
+							result={testJob.result}
+							{editor}
+							{diffEditor}
+							{lang}
+						/>
 					</pre>
 				{:else}
 					<div class="p-2">

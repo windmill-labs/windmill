@@ -10,7 +10,6 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import { Breakpoints } from './apps/gridUtils'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -23,9 +22,11 @@
 	})
 	meditor.setTheme('myTheme')
 
+	const SIDE_BY_SIDE_MIN_WIDTH = 650
+
 	export let automaticLayout = true
 	export let fixedOverflowWidgets = true
-	export let sideBySideMinWidth = Breakpoints.lg
+	export let width: number
 
 	let diffEditor: meditor.IStandaloneDiffEditor
 	let diffDivEl: HTMLDivElement | null = null
@@ -33,7 +34,7 @@
 	function loadDiffEditor() {
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: window.innerWidth >= sideBySideMinWidth,
+			renderSideBySide: width >= SIDE_BY_SIDE_MIN_WIDTH,
 			domReadOnly: true,
 			readOnly: true,
 			minimap: {
@@ -78,17 +79,17 @@
 		diffDivEl?.classList.add('hidden')
 	}
 
-	function onResize() {
-		diffEditor.updateOptions({ renderSideBySide: window.innerWidth >= sideBySideMinWidth })
+	function onWidthChange(width) {
+		diffEditor?.updateOptions({ renderSideBySide: width >= SIDE_BY_SIDE_MIN_WIDTH })
 	}
+
+	$: onWidthChange(width)
 
 	onMount(() => {
 		if (BROWSER) {
 			loadDiffEditor()
-			window.addEventListener('resize', onResize)
 			return () => {
 				diffEditor?.dispose()
-				window.removeEventListener('resize', onResize)
 			}
 		}
 	})

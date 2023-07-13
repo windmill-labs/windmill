@@ -51,6 +51,7 @@
 	}
 
 	let width = 1200
+	let editorWidth = 720
 
 	let testJobLoader: TestJobLoader
 
@@ -267,7 +268,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div class="pl-2 h-full !overflow-visible">
+			<div class="pl-2 h-full !overflow-visible" bind:clientWidth={editorWidth}>
 				{#key lang}
 					<Editor
 						folding
@@ -304,6 +305,7 @@
 						automaticLayout
 						{fixedOverflowWidgets}
 						class="hidden flex-1 h-full !overflow-visible"
+						width={editorWidth}
 					/>
 				{/key}
 			</div>
