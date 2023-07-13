@@ -7,6 +7,7 @@
 
 	export let runnable: HiddenRunnable
 	export let id: string
+	export let transformer: boolean
 
 	async function fork(nrunnable: Runnable) {
 		runnable = { ...runnable, ...nrunnable, autoRefresh: true, recomputeOnInputChanged: true }
@@ -22,7 +23,26 @@
 	}
 </script>
 
-{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
+{#if transformer}
+	{#if runnable.transformer}
+		<InlineScriptEditor
+			transformer
+			defaultUserInput={false}
+			{id}
+			componentType={undefined}
+			bind:inlineScript={runnable.transformer}
+			name="Transformer"
+			on:delete={() => {
+				runnable.transformer = undefined
+				runnable = runnable
+			}}
+		/>
+	{:else}
+		<span class="px-2 text-gray-600">
+			Selected editor component is a transformer but component has no transformer
+		</span>
+	{/if}
+{:else if runnable?.type === 'runnableByName' && runnable.inlineScript}
 	<InlineScriptEditor
 		{id}
 		bind:inlineScript={runnable.inlineScript}

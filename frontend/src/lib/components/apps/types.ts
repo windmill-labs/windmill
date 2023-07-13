@@ -112,6 +112,7 @@ export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
 
 export type HiddenRunnable = {
 	name: string
+	transformer?: InlineScript & { language: 'frontend' }
 	// inlineScript?: InlineScript | undefined
 	// type?: 'runnableByName' | 'runnableByPath'
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>

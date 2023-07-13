@@ -66,7 +66,7 @@
 		</div>
 	{/if}
 	{#if hasScript}
-		<ScriptTransformer bind:appInput bind:appComponent />
+		<ScriptTransformer bind:appInput id={appComponent.id} />
 		<ScriptRunConfiguration
 			canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type) &&
 				!isFrontend(appInput.runnable)}
