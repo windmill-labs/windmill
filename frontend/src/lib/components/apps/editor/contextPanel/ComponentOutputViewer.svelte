@@ -17,15 +17,18 @@
 		if (observableOutputs) {
 			Object.entries(observableOutputs).forEach(([k, output]) => {
 				object[k] = undefined
-				output?.subscribe({
-					id: 'alloutputs' + componentId + '-' + k,
-					next: (value) => {
-						if (!hasContent) {
-							hasContent = true
+				output?.subscribe(
+					{
+						id: 'alloutputs' + componentId + '-' + k,
+						next: (value) => {
+							if (!hasContent) {
+								hasContent = true
+							}
+							object[k] = value
 						}
-						object[k] = value
-					}
-				})
+					},
+					object[k]
+				)
 			})
 		}
 	}
