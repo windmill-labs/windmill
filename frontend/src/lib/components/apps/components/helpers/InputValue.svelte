@@ -119,7 +119,7 @@
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
-			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`)
+			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`, value)
 		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
 			value = await getValue(lastInput)
 		} else if (lastInput?.type == 'eval') {
