@@ -65,6 +65,7 @@ export const hubScripts = writable<
 	  }>
 	| undefined
 >(undefined)
+export const existsOpenaiKeyStore = writable<boolean>(false)
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')
