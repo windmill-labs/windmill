@@ -12,6 +12,10 @@
 	let button: HTMLButtonElement
 	let input: HTMLInputElement
 
+	$: if (date && input) {
+		input.value = new Date(date).toISOString().slice(0, 16)
+	}
+
 	function save() {
 		dispatch('change', value)
 		input.blur()
