@@ -182,7 +182,8 @@
 
 				$state = $state
 				const job = generateNextFrontendJobId()
-				$jobs = [{ job, component: id, result: r }, ...$jobs]
+				const njobs = [{ job, component: id, result: r }, ...$jobs]
+				$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 
@@ -264,7 +265,8 @@
 				})
 			})
 			if (njob) {
-				$jobs = [{ job: njob, component: id }, ...$jobs]
+				const njobs = [{ job: njob, component: id }, ...$jobs]
+				$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
 			}
 		} catch (e) {
 			setResult({ error: e.body ?? e.message }, undefined)
@@ -428,7 +430,7 @@
 	{#if v.type != 'static' && v.type != 'user'}
 		<InputValue
 			bind:this={inputValues[key]}
-			key={key + extraKey}
+			key={key + extraKey + (iterContext ? $iterContext?.index : '')}
 			{id}
 			input={fields[key]}
 			bind:value={runnableInputValues[key]}
@@ -438,7 +440,7 @@
 
 {#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
-		{@const fkey = `${tid}-${key}${extraKey}`}
+		{@const fkey = `${tid}-${key}${extraKey}${iterContext ? $iterContext?.index : ''}}`}
 		<InputValue
 			{id}
 			key={fkey}
