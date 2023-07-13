@@ -203,6 +203,7 @@ compiling from source or using without a postgres super user, see
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compose.yml -o docker-compose.yml
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
+curl https://raw.githubusercontent.com/windmill-labs/windmill/main/oauth.json -o oauth.json 
 
 docker compose up -d
 ```
