@@ -1,16 +1,14 @@
 <script lang="ts">
-	import type { ResultAppInput } from '$lib/components/apps/inputType'
-	import type { AppEditorContext } from '$lib/components/apps/types'
+	import type { AppEditorContext, InlineScript } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
-	import type { AppComponent } from '../../../component'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Plus, X } from 'lucide-svelte'
 
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
-	export let appInput: ResultAppInput
-	export let appComponent: AppComponent
+	export let appInput: { transformer?: InlineScript & { language: 'frontend' } }
+	export let id: string
 
 	$: checked = Boolean(appInput.transformer)
 </script>
@@ -36,7 +34,7 @@
 						language: 'frontend',
 						content: 'return result'
 					}
-					$selectedComponentInEditor = appComponent.id + '_transformer'
+					$selectedComponentInEditor = id + '_transformer'
 				}
 			}}
 		>

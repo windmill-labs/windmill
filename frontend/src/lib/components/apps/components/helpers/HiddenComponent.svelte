@@ -39,7 +39,7 @@
 		fields={runnable.fields}
 		autoRefresh={true}
 		bind:result
-		transformer={undefined}
+		transformer={runnable?.transformer}
 		recomputeOnInputChanged={runnable.recomputeOnInputChanged ?? true}
 		{runnable}
 		wrapperClass="hidden"

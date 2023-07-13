@@ -299,7 +299,7 @@
 
 		if (transformer) {
 			try {
-				$worldStore.newOutput(id, 'raw', res)
+				let raw = $worldStore.newOutput(id, 'raw', res)
 				res = await eval_like(
 					transformer.content,
 					computeGlobalContext(
@@ -313,6 +313,7 @@
 					$worldStore,
 					$runnableComponents
 				)
+				raw.set(res)
 			} catch (err) {
 				res = {
 					error: {
