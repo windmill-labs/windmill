@@ -206,6 +206,10 @@ components:
             - rawscript
         tag:
           type: string
+        concurrent_limit:
+          type: number
+        concurrency_time_window_s:
+          type: number
       required:
         - type
         - content

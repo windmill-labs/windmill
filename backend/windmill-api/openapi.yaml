@@ -5649,6 +5649,15 @@ components:
           type: array
           items:
             type: string
+        concurrent_limit:
+          type: array
+          items:
+            type: integer
+        concurrency_time_window_s:
+          type: array
+          items:
+            type: integer
+        
       required:
         - hash
         - path
@@ -5700,6 +5709,14 @@ components:
           type: array
           items:
             type: string
+        concurrent_limit:
+          type: array
+          items:
+            type: integer
+        concurrency_time_window_s:
+          type: array
+          items:
+            type: integer
       required:
         - path
         - summary
