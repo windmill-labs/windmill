@@ -260,7 +260,6 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-
 <UnsavedConfirmationModal />
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
@@ -378,12 +377,7 @@
 			<div class="flex gap-x-4 shrink">
 				<label class="block shrink min-w-0">
 					<span class="text-gray-700 text-sm">Maximum number of runs</span>
-					<input
-						class="!w-55"
-						type="number"
-						bind:value={script.concurrent_limit}
-						placeholder="5"
-					/>
+					<input class="!w-55" type="number" bind:value={script.concurrent_limit} placeholder="5" />
 				</label>
 				<label class="block shrink min-w-0">
 					<span class="text-gray-700 text-sm">Per time window (seconds)</span>
@@ -395,7 +389,6 @@
 					/>
 				</label>
 			</div>
-
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip
