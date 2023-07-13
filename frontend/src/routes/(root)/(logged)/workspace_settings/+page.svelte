@@ -27,6 +27,7 @@
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
+		existsOpenaiKeyStore,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
@@ -133,12 +134,14 @@
 				workspace: $workspaceStore!,
 				requestBody: { openai_key: openAIKey }
 			})
+			existsOpenaiKeyStore.set(true)
 			sendUserToast('OpenAI key set')
 		} else {
 			await WorkspaceService.editOpenaiKey({
 				workspace: $workspaceStore!,
 				requestBody: { openai_key: undefined }
 			})
+			existsOpenaiKeyStore.set(false)
 			sendUserToast(`OpenAI key removed`)
 		}
 	}

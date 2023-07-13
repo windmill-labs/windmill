@@ -6,8 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { existsOpenaiKeyStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
@@ -60,7 +59,7 @@
 
 	async function checkIfOpenAIAvailable(lang: SupportedLanguage) {
 		try {
-			const exists = await WorkspaceService.existsOpenaiKey({ workspace: $workspaceStore! })
+			const exists = $existsOpenaiKeyStore
 			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
 		} catch (err) {
 			console.error(err)

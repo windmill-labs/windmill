@@ -9,8 +9,7 @@
 	import Popup from '../common/popup/Popup.svelte'
 	import { fade } from 'svelte/transition'
 	import { Icon } from 'svelte-awesome'
-	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { existsOpenaiKeyStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
@@ -76,7 +75,7 @@
 
 	async function checkIfOpenAIAvailable(lang: SupportedLanguage) {
 		try {
-			const exists = await WorkspaceService.existsOpenaiKey({ workspace: $workspaceStore! })
+			const exists = $existsOpenaiKeyStore
 			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
 		} catch (err) {
 			console.error(err)
