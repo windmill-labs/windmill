@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.129.1](https://github.com/windmill-labs/windmill/compare/v1.129.0...v1.129.1) (2023-07-13)
+
+
+### Bug Fixes
+
+* add configurable HEADERS for CLI ([53f57e0](https://github.com/windmill-labs/windmill/commit/53f57e027235f36f7678594a9f869072e8439fca))
+
 ## [1.129.0](https://github.com/windmill-labs/windmill/compare/v1.128.0...v1.129.0) (2023-07-13)
 
 
