@@ -799,7 +799,9 @@
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
 					<div> Debug runs</div>
-					<div class="text-2xs text-gray-500">({$jobs?.length ?? 0})</div>
+					<div class="text-2xs text-gray-500"
+						>({$jobs?.length > 99 ? '99+' : $jobs?.length ?? 0})</div
+					>
 					{#if hasErrors}
 						<Button
 							size="xs"
