@@ -83,6 +83,7 @@ workspaceStore.subscribe(async (value) => {
 		try {
 			existsOpenaiKeyStore.set(await WorkspaceService.existsOpenaiKey({ workspace }))
 		} catch (err) {
+			existsOpenaiKeyStore.set(false)
 			console.error('Could not get if openai key exists')
 		}
 	}
