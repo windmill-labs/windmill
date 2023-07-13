@@ -27,8 +27,9 @@
 <div class="border-b p-2 shadow-md">
 	<div class="mx-auto">
 		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 h-8 items-center">
-			<div class="grow text-lg font-bold truncate px-2 w-24 sm:w-full">
-				{title}
+			<div class="grow px-2 sm:w-full inline-flex items-center gap-4">
+				<div class="text-lg min-w-24 font-bold truncate">{title}</div>
+				<slot />
 			</div>
 			<div class="flex gap-1 md:gap-2 items-center">
 				<Menu>

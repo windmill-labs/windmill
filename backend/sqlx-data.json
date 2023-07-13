@@ -3914,63 +3914,6 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)"
   },
-  "88a5f7d43e2775cdbc121e4f39f7d881af75c24740446ca86f26ba8b2e9e5405": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash",
-                  "postgresql",
-                  "nativets",
-                  "bun",
-                  "mysql"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "trigger",
-                  "failure",
-                  "command",
-                  "approval"
-                ]
-              },
-              "name": "script_kind"
-            }
-          },
-          "Varchar",
-          "Bool",
-          "VarcharArray"
-        ]
-      }
-    },
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17)"
-  },
   "88b7589a6416da8be4b26af3bf30fcfcd6aeae7bc5a37e9a735cabbe2691c570": {
     "describe": {
       "columns": [
@@ -4805,6 +4748,65 @@
       }
     },
     "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL WHERE path = $7 AND workspace_id = $8"
+  },
+  "9ee1423945740c17dedc2fc7ea7e7183380c43d0feeb615c651aa486eef3bd53": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash",
+                  "postgresql",
+                  "nativets",
+                  "bun",
+                  "mysql"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "trigger",
+                  "failure",
+                  "command",
+                  "approval"
+                ]
+              },
+              "name": "script_kind"
+            }
+          },
+          "Varchar",
+          "Bool",
+          "VarcharArray",
+          "Int4",
+          "Int4"
+        ]
+      }
+    },
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs, concurrent_limit, concurrency_time_window_s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)"
   },
   "a17260a1f1ee02e786690994d98c84ddf81e2eeb883f895c9cfc47e144d422cb": {
     "describe": {
