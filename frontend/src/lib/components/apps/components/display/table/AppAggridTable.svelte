@@ -12,6 +12,7 @@
 	import { components } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -100,6 +101,11 @@
 			outputs?.selectedRow?.set(data)
 		}
 	}
+
+	let extraConfig = resolvedConfig.extraConfig
+	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
+		extraConfig = resolvedConfig.extraConfig
+	}
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -127,8 +133,8 @@
 					style:width="{clientWidth}px"
 					class="ag-theme-alpine"
 				>
-					{#key resolvedConfig?.pagination}
-						{#key resolvedConfig?.extraConfig}
+					{#key extraConfig}
+						{#key resolvedConfig?.pagination}
 							<AgGridSvelte
 								rowData={value}
 								columnDefs={resolvedConfig?.columnDefs}
