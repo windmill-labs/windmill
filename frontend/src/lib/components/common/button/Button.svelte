@@ -200,7 +200,7 @@
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}
-						<MenuItem on:click={item.onClick} href={item.href} class=" bg-red-400">
+						<MenuItem on:click={item.onClick} href={item.href}>
 							<div
 								class={classNames(
 									'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
