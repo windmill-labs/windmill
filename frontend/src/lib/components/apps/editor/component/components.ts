@@ -1997,7 +1997,7 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'text',
 					value: 'Drawer title',
-					onlyStatic: true
+					onlyStatic: false
 				},
 				label: {
 					type: 'static',
