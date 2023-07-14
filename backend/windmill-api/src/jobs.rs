@@ -265,7 +265,12 @@ pub async fn get_path_tag_and_limits_for_hash<'c>(
             "querying getting path for hash {hash} in {w_id}: {e}"
         ))
     })?;
-    Ok((script.path, script.tag, script.concurrent_limit, script.concurrency_time_window_s))
+    Ok((
+        script.path,
+        script.tag,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+    ))
 }
 
 async fn get_job(
@@ -1832,7 +1837,8 @@ pub async fn run_wait_result_script_by_hash(
 
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let (path, tag, concurrent_limit, concurrency_time_window_s) = get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) =
+        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -1841,7 +1847,12 @@ pub async fn run_wait_result_script_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path: path, concurrent_limit: concurrent_limit, concurrency_time_window_s: concurrency_time_window_s},
+        JobPayload::ScriptHash {
+            hash: ScriptHash(hash),
+            path: path,
+            concurrent_limit: concurrent_limit,
+            concurrency_time_window_s: concurrency_time_window_s,
+        },
         args,
         &authed.username,
         &authed.email,
@@ -2104,7 +2115,8 @@ pub async fn run_job_by_hash(
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let (path, tag, concurrent_limit, concurrency_time_window_s) = get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) =
+        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
@@ -2114,7 +2126,12 @@ pub async fn run_job_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path: path, concurrent_limit: concurrent_limit, concurrency_time_window_s: concurrency_time_window_s },
+        JobPayload::ScriptHash {
+            hash: ScriptHash(hash),
+            path: path,
+            concurrent_limit: concurrent_limit,
+            concurrency_time_window_s: concurrency_time_window_s,
+        },
         args,
         &authed.username,
         &authed.email,
