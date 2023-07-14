@@ -22,8 +22,15 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		focusedGrid,
+		selectedComponent,
+		worldStore,
+		connectingInput,
+		mode,
+		componentControl
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
@@ -49,6 +56,15 @@
 		components['modalcomponent'].initialData.configuration,
 		configuration
 	)
+
+	$componentControl[id] = {
+		openModal: () => {
+			open = true
+		},
+		closeModal: () => {
+			open = false
+		}
+	}
 </script>
 
 <svelte:window on:keyup={handleKeyUp} />
