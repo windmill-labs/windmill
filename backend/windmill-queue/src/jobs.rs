@@ -124,7 +124,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
         id,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     } else {
         let reason = reason
@@ -158,7 +158,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             p_job,
             w_id
         )
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
         jobs.extend(new_jobs.clone());
         jobs_to_cancel.extend(new_jobs);
@@ -485,7 +485,7 @@ pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clo
         "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await
     .context("sending error to global handler")?
     .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
@@ -991,7 +991,7 @@ pub async fn get_queued_job<'c>(
     )
     .bind(id)
     .bind(w_id)
-    .fetch_optional(tx)
+    .fetch_optional(&mut **tx)
     .await?;
     Ok(r)
 }

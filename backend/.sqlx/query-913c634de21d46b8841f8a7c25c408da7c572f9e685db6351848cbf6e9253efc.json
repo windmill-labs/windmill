@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canceled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "913c634de21d46b8841f8a7c25c408da7c572f9e685db6351848cbf6e9253efc"
+}

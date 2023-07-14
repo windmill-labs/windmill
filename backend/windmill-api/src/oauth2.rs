@@ -348,7 +348,7 @@ async fn create_account(
         payload.expires_in.to_string(),
         payload.refresh_token
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("creating account in {w_id}: {e}")))?;
     tx.commit().await?;
@@ -367,14 +367,14 @@ async fn delete_account(
         w_id,
         id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let id_str = id.to_string();
     not_found_if_none(exists, "Account", &id_str)?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "account.delete",
         ActionKind::Delete,
@@ -452,7 +452,7 @@ async fn disconnect(
         id,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -471,7 +471,7 @@ async fn disconnect_slack(
             SET slack_team_id = null, slack_name = null WHERE workspace_id = $1",
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -511,7 +511,7 @@ pub async fn _refresh_token<'c>(
         w_id,
         id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     let account = not_found_if_none(account, "Account", &id.to_string())?;
     let client = (&OAUTH_CLIENTS
@@ -530,7 +530,7 @@ pub async fn _refresh_token<'c>(
             w_id,
             id,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         return Err(error::Error::BadRequest(format!(
@@ -541,7 +541,7 @@ pub async fn _refresh_token<'c>(
 
     let token = token.unwrap();
 
-    let expires_at = now_from_db(&mut tx).await?
+    let expires_at = now_from_db(&mut *tx).await?
         + chrono::Duration::seconds(
             token
                 .expires_in
@@ -560,7 +560,7 @@ pub async fn _refresh_token<'c>(
         w_id,
         id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     let token_str = token.access_token.to_string();
@@ -573,7 +573,7 @@ pub async fn _refresh_token<'c>(
         w_id,
         path
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(token_str)
@@ -651,7 +651,7 @@ async fn connect_slack_callback(
         token.team_name,
         authed.email
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query_as!(
         Group,
@@ -661,7 +661,7 @@ async fn connect_slack_callback(
         "The group slack commands act on belhalf of",
         serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -674,7 +674,7 @@ async fn connect_slack_callback(
         &["g/slack".to_string()],
         serde_json::json!({"g/slack": true})
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     let token_path = "f/slack_bot/bot_token";
@@ -693,7 +693,7 @@ async fn connect_slack_callback(
         None::<i32>,
         true,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -706,7 +706,7 @@ async fn connect_slack_callback(
         "The slack bot token to act on behalf of the installed app of the connected workspace",
         "slack",
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok("slack workspace connected".to_string())
@@ -901,7 +901,7 @@ async fn login_callback(
         let login: Option<(String, String, bool)> =
             sqlx::query_as("SELECT email, login_type, super_admin FROM password WHERE email = $1")
                 .bind(&email)
-                .fetch_optional(&mut tx)
+                .fetch_optional(&mut *tx)
                 .await?;
 
         if let Some((email, login_type, super_admin)) = login {
@@ -915,7 +915,7 @@ async fn login_callback(
                 )));
             }
             audit_log(
-                &mut tx,
+                &mut *tx,
                 &email,
                 "oauth.login",
                 ActionKind::Create,
@@ -937,14 +937,14 @@ async fn login_callback(
             .bind(&email)
             .bind(&name)
             .bind(user.company)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
             tx.commit().await?;
             invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
             tx = db.begin().await?;
             crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
             audit_log(
-                &mut tx,
+                &mut *tx,
                 &email,
                 "oauth.signup",
                 ActionKind::Create,
@@ -956,7 +956,7 @@ async fn login_callback(
 
             let demo_exists =
                 sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
-                    .fetch_one(&mut tx)
+                    .fetch_one(&mut *tx)
                     .await?
                     .unwrap_or(false);
             if demo_exists {
@@ -967,7 +967,7 @@ async fn login_callback(
                 ON CONFLICT DO NOTHING",
                     &email
                 )
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await
                 {
                     tracing::error!("error inserting invite: {:#?}", e);

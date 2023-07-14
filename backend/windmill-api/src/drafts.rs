@@ -66,7 +66,7 @@ async fn create_draft(
         serde_json::to_string(&draft.value).unwrap(),
         draft.typ: DraftType,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -87,7 +87,7 @@ async fn delete_draft(
         kind: DraftType,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     tx.commit().await?;
 

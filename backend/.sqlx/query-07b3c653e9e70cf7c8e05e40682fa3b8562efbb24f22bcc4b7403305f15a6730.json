@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3) ON CONFLICT (worker) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07b3c653e9e70cf7c8e05e40682fa3b8562efbb24f22bcc4b7403305f15a6730"
+}
