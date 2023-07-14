@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.131.0](https://github.com/windmill-labs/windmill/compare/v1.130.0...v1.131.0) (2023-07-14)
+
+
+### Features
+
+* **frontend:** add missing link to job run page ([#1878](https://github.com/windmill-labs/windmill/issues/1878)) ([b3d61ad](https://github.com/windmill-labs/windmill/commit/b3d61ad67865128114f2c58491aa99f87189dc8c))
+* **frontend:** add modal component controls ([#1877](https://github.com/windmill-labs/windmill/issues/1877)) ([c0e1852](https://github.com/windmill-labs/windmill/commit/c0e18526987b07373e73566118cb7edf2a27ab15))
+
+
+### Bug Fixes
+
+* fix REST job potential double execution ([70bc56a](https://github.com/windmill-labs/windmill/commit/70bc56a68bdf8d53b5ae6bb8995572509bea954d))
+* global cache now cache symlinks ([da9c634](https://github.com/windmill-labs/windmill/commit/da9c6340a2ba4a8aaf1ae5d6c16b05583da6860d))
+
 ## [1.130.0](https://github.com/windmill-labs/windmill/compare/v1.129.1...v1.130.0) (2023-07-13)
 
 
