@@ -267,9 +267,7 @@
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="cache">Cache</Tab>
-										{#if flowModule.value.type == 'rawscript'}
-											<Tab value="concurrency">Concurrency</Tab>
-										{/if}
+										<Tab value="concurrency">Concurrency</Tab>
 										<Tab value="early-stop">Early Stop/Break</Tab>
 										<Tab value="suspend">Suspend/Approval</Tab>
 										<Tab value="sleep">Sleep</Tab>
@@ -299,13 +297,13 @@
 											<FlowModuleMock bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'concurrency'}
+										<div>
+											<h2 class="pb-4">
+												Concurrency Limits
+												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
+											</h2>
+										</div>
 										{#if flowModule.value.type == 'rawscript'}
-											<div>
-												<h2 class="pb-4">
-													Concurrency Limits
-													<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-												</h2>
-											</div>
 											<div>
 												<div class="text-xs font-bold !mt-2"
 													>Max number of executions within the time window</div
@@ -326,6 +324,9 @@
 												<div class="text-xs font-bold !mt-2">Time window in seconds</div>
 												<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
 											</div>
+										{:else}
+											The concurrency limit of a workspace script is only settable in the script
+											metadata itself. For hub scripts, this feature is non available yet.
 										{/if}
 									{:else if advancedSelected === 'same_worker'}
 										<div>
