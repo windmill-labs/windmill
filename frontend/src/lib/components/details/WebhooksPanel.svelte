@@ -129,7 +129,17 @@
 				<div class="flex flex-col gap-2">
 					<ClipboardPanel
 						title="Url"
-						content={tokenType === 'query' ? `${url}?token=${token}` : url}
+						content={tokenType === 'query'
+							? `${url}?token=${token}${
+									requestType === 'get_path'
+										? `?paylod=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+										: ''
+							  }`
+							: `${url}${
+									requestType === 'get_path'
+										? `?paylod=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+										: ''
+							  }`}
 					/>
 
 					{#if requestType !== 'get_path'}
