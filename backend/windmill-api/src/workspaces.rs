@@ -677,18 +677,18 @@ async fn edit_openai_key(
             openai_key,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
             "UPDATE workspace_settings SET openai_key = NULL WHERE workspace_id = $1",
             &w_id,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_openai_key",
         ActionKind::Update,
@@ -715,7 +715,7 @@ async fn exists_openai_key(
         "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
     tx.commit().await?;
