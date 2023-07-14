@@ -13,7 +13,15 @@
 
 	type SideEffectAction =
 		| {
-				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast' | 'sendErrorToast' | 'errorOverlay'
+				selected:
+					| 'gotoUrl'
+					| 'none'
+					| 'setTab'
+					| 'sendToast'
+					| 'sendErrorToast'
+					| 'errorOverlay'
+					| 'openModal'
+					| 'closeModal'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -25,6 +33,12 @@
 					sendErrorToast?: {
 						message: string | undefined
 						appendError: boolean | undefined
+					}
+					openModal?: {
+						modalId: string | undefined
+					}
+					closeModal?: {
+						modalId: string | undefined
 					}
 				}
 		  }
@@ -128,6 +142,20 @@
 				[],
 				sideEffect.configuration.sendErrorToast.appendError ? errorMessage : undefined
 			)
+		} else if (
+			sideEffect.selected === 'openModal' &&
+			sideEffect.configuration.openModal &&
+			sideEffect.configuration.openModal.modalId &&
+			sideEffect.configuration.openModal.modalId != ''
+		) {
+			$componentControl[sideEffect.configuration.openModal.modalId].openModal?.()
+		} else if (
+			sideEffect.selected === 'closeModal' &&
+			sideEffect.configuration.closeModal &&
+			sideEffect.configuration.closeModal.modalId &&
+			sideEffect.configuration.closeModal.modalId != ''
+		) {
+			$componentControl[sideEffect.configuration.closeModal.modalId].closeModal?.()
 		}
 	}
 </script>
