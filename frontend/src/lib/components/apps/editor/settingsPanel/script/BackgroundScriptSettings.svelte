@@ -5,6 +5,7 @@
 	import BackgroundScriptTriggerBy from './shared/BackgroundScriptTriggerBy.svelte'
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
+	import ScriptTransformer from './shared/ScriptTransformer.svelte'
 
 	export let runnable: HiddenRunnable
 	export let id: string
@@ -26,6 +27,7 @@
 
 <div class={'border-y border-gray-200 divide-y'}>
 	<ScriptSettingHeader name={runnable.name} />
+	<ScriptTransformer bind:appInput={runnable} {id} />
 	{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
 		<ScriptRunConfiguration
 			bind:autoRefresh={runnable.autoRefresh}

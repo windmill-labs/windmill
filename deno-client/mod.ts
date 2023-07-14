@@ -121,8 +121,8 @@ export function getStatePath(): string {
 
 /**
  * Set a resource value by path
- * @param path path of the resource to set, default to state path
  * @param value new value of the resource to set
+ * @param path path of the resource to set, default to state path
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
 export async function setResource(

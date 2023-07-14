@@ -376,7 +376,15 @@
 				{mainButtons}
 				menuItems={getMenuItems(script)}
 				title={defaultIfEmptyString(script.summary, script.path)}
-			/>
+			>
+				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<Badge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
+						</Badge>
+					</div>
+				{/if}
+			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">

@@ -71,6 +71,10 @@ pub struct ScriptWDraft {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_time_window_s: Option<i32>,
 }
 
 pub fn global_service() -> Router {
@@ -367,8 +371,9 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only, envs) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17)",
+         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+         draft_only, envs, concurrent_limit, concurrency_time_window_s) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
         &w_id,
         &hash.0,
         ns.path,
@@ -385,7 +390,9 @@ async fn create_script(
         ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
         ns.tag,
         ns.draft_only,
-        envs
+        envs,
+        ns.concurrent_limit,
+        ns.concurrency_time_window_s
     )
     .execute(&mut tx)
     .await?;
@@ -565,7 +572,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, draft.value as draft FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, draft.value as draft FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.127.0
+  version: 1.130.0
   title: Windmill API
 
   contact:
@@ -971,6 +971,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
+                  openai_key:
+                    type: string
                   error_handler:
                     type: string
 
@@ -1124,6 +1126,49 @@ paths:
             text/plain:
               schema:
                 type: string
+  
+  /w/{workspace}/workspaces/edit_openai_key:
+    post:
+      summary: edit OpenAI key
+      operationId: editOpenaiKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceOpenAIKey
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                openai_key:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/exists_openai_key:
+    get:
+      summary: OpenAI key exists
+      operationId: existsOpenaiKey
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: boolean
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -5588,7 +5633,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5604,6 +5649,15 @@ components:
           type: array
           items:
             type: string
+        concurrent_limit:
+          type: array
+          items:
+            type: integer
+        concurrency_time_window_s:
+          type: array
+          items:
+            type: integer
+        
       required:
         - hash
         - path
@@ -5643,7 +5697,7 @@ components:
             type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5655,6 +5709,14 @@ components:
           type: array
           items:
             type: string
+        concurrent_limit:
+          type: array
+          items:
+            type: integer
+        concurrency_time_window_s:
+          type: array
+          items:
+            type: integer
       required:
         - path
         - summary
@@ -5805,7 +5867,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         email:
           type: string
         visible_to_owner:
@@ -5895,7 +5957,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         is_skipped:
           type: boolean
         email:
@@ -6323,7 +6385,7 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, nativets, bun]
+          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         tag:
           type: string
         kind:

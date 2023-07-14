@@ -20,6 +20,7 @@ import sync from "./sync.ts";
 import dev from "./dev.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
+import { OpenAPI } from "./deps.ts";
 
 addEventListener("error", (event) => {
   if (event.error) {
@@ -28,7 +29,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.127.0";
+export const VERSION = "v1.130.0";
 
 let command: any = new Command()
   .name("wmill")
@@ -37,7 +38,7 @@ let command: any = new Command()
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace."
   )
-  .globalOption("--debug", "Show debug logs")
+  .globalOption("-d --debug", "Show debug logs")
   .globalOption(
     "--show-diffs",
     "Show diff informations when syncing (may show sensitive informations)"
@@ -45,6 +46,10 @@ let command: any = new Command()
   .globalOption(
     "--token <token:string>",
     "Specify an API token. This will override any stored token."
+  )
+  .env(
+    "HEADERS <headers:string>",
+    "Specify headers to use for all requests. e.g: \"HEADERS='h1: v1, h2: v2'\""
   )
   .version(VERSION)
   .command("app", app)
@@ -90,7 +95,10 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
 
 export let showDiffs = false;
 try {
-  const LOG_LEVEL = Deno.args.includes("--debug") ? "DEBUG" : "INFO";
+  const LOG_LEVEL =
+    Deno.args.includes("--debug") || Deno.args.includes("-d")
+      ? "DEBUG"
+      : "INFO";
   // const NO_COLORS = Deno.args.includes("--no-colors");
   showDiffs = Deno.args.includes("--show-diffs");
 
@@ -108,6 +116,17 @@ try {
     },
   });
   log.debug("Debug logging enabled. CLI build against " + VERSION);
+
+  const headers = Deno.env.get("HEADERS");
+  if (headers) {
+    const parsedHeaders = Object.fromEntries(
+      headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
+    );
+    log.debug(
+      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders))
+    );
+    OpenAPI.HEADERS = parsedHeaders;
+  }
   await command.parse(Deno.args);
 } catch (e) {
   if (e.name === "ApiError") {

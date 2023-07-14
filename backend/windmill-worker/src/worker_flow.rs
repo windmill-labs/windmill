@@ -19,7 +19,7 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
 use windmill_common::jobs::{
-    script_hash_to_tag, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
+    script_hash_to_tag_and_limits, script_path_to_payload, JobPayload, Metrics, QueuedJob, RawCode,
 };
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -1364,7 +1364,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                             failure_module: fm.clone(),
                             same_worker: flow.same_worker,
                         },
-                        path: Some(format!("{}/loop-{}", flow_job.script_path(), i)),
+                        path: Some(format!("{}/forloop", flow_job.script_path())),
                     },
                     tag: None,
                 }
@@ -1708,9 +1708,15 @@ async fn compute_next_flow_transform(
             } else {
                 let hash = script_hash.clone().unwrap();
                 let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
-                let tag = script_hash_to_tag(&hash, &mut tx, &flow_job.workspace_id).await?;
+                let (tag, concurrent_limit, concurrency_time_window_s) =
+                    script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
                 (
-                    JobPayload::ScriptHash { hash, path: script_path.to_owned() },
+                    JobPayload::ScriptHash {
+                        hash,
+                        path: script_path.to_owned(),
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    },
                     tag,
                 )
             };
@@ -1719,7 +1725,16 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::RawScript { path, content, language, lock, tag, .. } => {
+        FlowModuleValue::RawScript {
+            path,
+            content,
+            language,
+            lock,
+            tag,
+            concurrent_limit,
+            concurrency_time_window_s,
+            ..
+        } => {
             let path = path
                 .clone()
                 .or_else(|| Some(format!("{}/step-{}", flow_job.script_path(), status.step)));
@@ -1730,6 +1745,8 @@ async fn compute_next_flow_transform(
                         content: content.clone(),
                         language: language.clone(),
                         lock: lock.clone(),
+                        concurrent_limit: *concurrent_limit,
+                        concurrency_time_window_s: *concurrency_time_window_s,
                     }),
                     tag: tag.clone(),
                 }),

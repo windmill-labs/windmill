@@ -68,6 +68,7 @@
 		langs.push(['Bash', Script.language.BASH])
 	}
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
@@ -157,7 +158,9 @@
 					language: script.language,
 					kind: script.kind,
 					tag: script.tag,
-					envs: script.envs
+					envs: script.envs,
+					concurrent_limit: script.concurrent_limit,
+					concurrency_time_window_s: script.concurrency_time_window_s
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -197,7 +200,9 @@
 						kind: script.kind,
 						tag: script.tag,
 						draft_only: true,
-						envs: script.envs
+						envs: script.envs,
+						concurrent_limit: script.concurrent_limit,
+						concurrency_time_window_s: script.concurrency_time_window_s
 					}
 				})
 			}
@@ -255,7 +260,6 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-
 <UnsavedConfirmationModal />
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
@@ -368,6 +372,23 @@
 				placeholder="Description displayed in the details page"
 				class="text-sm"
 			/>
+
+			<h2 class="border-b pb-1 mt-10 mb-4">Concurrency limits</h2>
+			<div class="flex gap-x-4 shrink">
+				<label class="block shrink min-w-0">
+					<span class="text-gray-700 text-sm">Maximum number of runs</span>
+					<input class="!w-55" type="number" bind:value={script.concurrent_limit} placeholder="5" />
+				</label>
+				<label class="block shrink min-w-0">
+					<span class="text-gray-700 text-sm">Per time window (seconds)</span>
+					<input
+						class="!w-18"
+						type="number"
+						bind:value={script.concurrency_time_window_s}
+						placeholder="60"
+					/>
+				</label>
+			</div>
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip

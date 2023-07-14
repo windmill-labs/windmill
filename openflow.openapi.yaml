@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.127.0
+  version: 1.130.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -193,6 +193,8 @@ components:
             - go
             - bash
             - postgresql
+            - mysql
+            - graphql
             - nativets
         path:
           type: string
@@ -204,6 +206,10 @@ components:
             - rawscript
         tag:
           type: string
+        concurrent_limit:
+          type: number
+        concurrency_time_window_s:
+          type: number
       required:
         - type
         - content

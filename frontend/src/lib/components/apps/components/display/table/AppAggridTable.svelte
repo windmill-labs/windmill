@@ -1,8 +1,7 @@
 <script lang="ts">
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
-	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
-
+	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -13,6 +12,7 @@
 	import { components } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -28,14 +28,10 @@
 
 	$: result && setValues()
 
-	let timeout: any
 	async function setValues() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			value = Array.isArray(result)
-				? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-				: [{ error: 'input was not an array' }]
-		}, 25)
+		value = Array.isArray(result)
+			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
+			: [{ error: 'input was not an array' }]
 	}
 
 	const { worldStore, selectedComponent, componentControl } =
@@ -105,6 +101,11 @@
 			outputs?.selectedRow?.set(data)
 		}
 	}
+
+	let extraConfig = resolvedConfig.extraConfig
+	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
+		extraConfig = resolvedConfig.extraConfig
+	}
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -132,8 +133,8 @@
 					style:width="{clientWidth}px"
 					class="ag-theme-alpine"
 				>
-					{#key resolvedConfig?.pagination}
-						{#key resolvedConfig?.extraConfig}
+					{#key extraConfig}
+						{#key resolvedConfig?.pagination}
 							<AgGridSvelte
 								rowData={value}
 								columnDefs={resolvedConfig?.columnDefs}

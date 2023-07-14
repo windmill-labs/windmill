@@ -12,7 +12,7 @@ use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::{Arc},
+    sync::Arc,
 };
 use tokio::{
     fs::{metadata, DirBuilder},
@@ -64,17 +64,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
-
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|x| x.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_PORT as u16);
-
-    if std::env::var("BASE_INTERNAL_URL").is_ok() {
-        tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
-    }
-
-    let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
     let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
         let url = x.parse::<url::Url>().unwrap();
@@ -202,15 +191,31 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
     if server_mode || num_workers > 0 {
+        let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
+
+        let port = if server_mode {
+            port_var.unwrap_or(DEFAULT_PORT as u16)
+        } else {
+            port_var.unwrap_or(0)
+        };
+
+        if std::env::var("BASE_INTERNAL_URL").is_ok() {
+            tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
+        }
+
         let addr = SocketAddr::from((server_bind_address, port));
 
         let rsmq2 = rsmq.clone();
+        let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
+
         let server_f = async {
-            windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
+            windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe(), port_tx).await?;
             Ok(()) as anyhow::Result<()>
         };
 
         let workers_f = async {
+            let port = port_rx.await?;
+            let base_internal_url: String = format!("http://localhost:{}", port.to_string());
             if num_workers > 0 {
                 run_workers(
                     db.clone(),
@@ -229,7 +234,9 @@ Windmill Community Edition {GIT_VERSION}
         let rsmq2 = rsmq.clone();
         let monitor_f = async {
             if server_mode {
-                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2);
+                // since it's only on server mode, the port is statically defined
+                let base_internal_url: String = format!("http://localhost:{}", port.to_string());
+                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2).await;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -269,12 +276,12 @@ fn display_config(envs: Vec<&str>) {
     )
 }
 
-pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
-) {
+) -> tokio::task::JoinHandle<()> {
     let db1 = db.clone();
     let db2 = db.clone();
 
@@ -285,7 +292,7 @@ pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>
             handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq),
             windmill_api::delete_expired_items_perdiodically(&db2, rx2)
         );
-    });
+    })
 }
 
 pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(

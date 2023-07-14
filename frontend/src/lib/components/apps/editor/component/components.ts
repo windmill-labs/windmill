@@ -281,7 +281,9 @@ const labels = {
 	gotoUrl: 'Go to an url',
 	setTab: 'Set the tab of a tabs component',
 	sendToast: 'Display a toast notification',
-	sendErrorToast: 'Display an error toast notification'
+	sendErrorToast: 'Display an error toast notification',
+	openModal: 'Open a modal',
+	closeModal: 'Close a modal'
 }
 
 const onSuccessClick = {
@@ -322,6 +324,24 @@ const onSuccessClick = {
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there',
+				noVariablePicker: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				noVariablePicker: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
 				noVariablePicker: true
 			}
 		}
@@ -372,6 +392,24 @@ const onErrorClick = {
 				fieldType: 'boolean',
 				type: 'static',
 				value: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				noVariablePicker: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				noVariablePicker: true
 			}
 		}
 	}
