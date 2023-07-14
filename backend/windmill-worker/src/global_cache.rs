@@ -443,7 +443,10 @@ pub async fn untar_all_piptars() -> error::Result<()> {
                     .last()
                     .unwrap()
                     .strip_suffix(".tar")
-                    .unwrap()
+                    .ok_or_else(|| error::Error::InternalErr(format!(
+                        "Unexpected path file not ending in .tar for: {}",
+                        path
+                    )))?
             );
             if metadata(&folder).await.is_ok() {
                 continue;
