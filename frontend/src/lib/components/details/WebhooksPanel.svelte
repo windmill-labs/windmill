@@ -80,33 +80,33 @@
 				/>
 			</ToggleButtonGroup>
 		</div>
-		{#if !isFlow}
-			<div class="flex flex-row justify-between">
-				<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
-					<ToggleButton
-						label="POST by path"
-						value="path"
-						icon={ArrowUpRight}
-						selectedColor="#fb923c"
-					/>
+		<div class="flex flex-row justify-between">
+			<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+				<ToggleButton
+					label="POST by path"
+					value="path"
+					icon={ArrowUpRight}
+					selectedColor="#fb923c"
+				/>
+				{#if !isFlow}
 					<ToggleButton
 						label="POST by hash"
 						value="hash"
 						icon={ArrowUpRight}
 						selectedColor="#fb923c"
 					/>
+				{/if}
 
-					<ToggleButton
-						label="GET by path"
-						value="get_path"
-						icon={ArrowDownRight}
-						disabled={webhookType !== 'sync'}
-						selectedColor="#14b8a6"
-					/>
-				</ToggleButtonGroup>
-			</div>
-		{/if}
+				<ToggleButton
+					label="GET by path"
+					value="get_path"
+					icon={ArrowDownRight}
+					disabled={webhookType !== 'sync'}
+					selectedColor="#14b8a6"
+				/>
+			</ToggleButtonGroup>
+		</div>
 		<div class="flex flex-row justify-between">
 			<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
