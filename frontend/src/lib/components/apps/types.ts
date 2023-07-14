@@ -206,6 +206,8 @@ export type AppViewerContext = {
 				onDelete?: () => void
 				setValue?: (value: any) => void
 				setSelectedIndex?: (index: number) => void
+				openModal?: () => void
+				closeModal?: () => void
 			}
 		>
 	>
