@@ -53,7 +53,6 @@
 
 	export let args: Record<string, any> = {}
 
-	let schemaForm: SchemaForm | undefined = undefined
 	let reloadArgs = 0
 
 	export async function setArgs(nargs: Record<string, any>) {
@@ -138,7 +137,6 @@
 					{noVariablePicker}
 					{autofocus}
 					schema={runnable.schema}
-					bind:this={schemaForm}
 					bind:isValid
 					bind:args
 				/>
