@@ -64,22 +64,32 @@ export async function pushFolder(
       return;
     }
     log.debug(`Folder ${name} is not up-to-date, updating...`);
-    await FolderService.updateFolder({
-      workspace: workspace,
-      name: name,
-      requestBody: {
-        ...localFolder,
-      },
-    });
+    try {
+      await FolderService.updateFolder({
+        workspace: workspace,
+        name: name,
+        requestBody: {
+          ...localFolder,
+        },
+      });
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
   } else {
     console.log(colors.bold.yellow("Creating new folder: " + name));
-    await FolderService.createFolder({
-      workspace: workspace,
-      requestBody: {
-        name: name,
-        ...localFolder,
-      },
-    });
+    try {
+      await FolderService.createFolder({
+        workspace: workspace,
+        requestBody: {
+          name: name,
+          ...localFolder,
+        },
+      });
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
   }
 }
 

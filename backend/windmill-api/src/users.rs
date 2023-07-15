@@ -136,17 +136,24 @@ impl AuthCache {
                             (Some(owner), email, super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
-                                        let is_admin = super_admin
-                                            || sqlx::query_scalar!(
-                                                "SELECT is_admin FROM usr where username = $1 AND \
+                                        let (is_admin, is_operator) = if super_admin {
+                                            (true, false)
+                                        } else {
+                                            let r = sqlx::query!(
+                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
                                             )
                                             .fetch_one(&self.db)
                                             .await
-                                            .ok()
-                                            .unwrap_or(false);
+                                            .ok();
+                                            if let Some(r) = r {
+                                                (r.is_admin, r.operator)
+                                            } else {
+                                                (false, true)
+                                            }
+                                        };
 
                                         let w_id = &w_id.unwrap();
                                         let groups = get_groups_for_user(w_id, &name, &self.db)
@@ -165,6 +172,7 @@ impl AuthCache {
                                                 .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                             username: name.to_string(),
                                             is_admin,
+                                            is_operator,
                                             groups,
                                             folders,
                                             scopes: None,
@@ -186,6 +194,7 @@ impl AuthCache {
                                             username: format!("group-{name}"),
                                             is_admin: false,
                                             groups,
+                                            is_operator: false,
                                             folders,
                                             scopes: None,
                                         })
@@ -198,6 +207,7 @@ impl AuthCache {
                                             .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                         username: owner,
                                         is_admin: super_admin,
+                                        is_operator: true,
                                         groups,
                                         folders,
                                         scopes: None,
@@ -206,18 +216,18 @@ impl AuthCache {
                             }
                             (_, Some(email), super_admin, scopes) => {
                                 if w_id.is_some() {
-                                    let row_o = sqlx::query_as::<_, (String, bool)>(
-                                        "SELECT username, is_admin FROM usr where email = $1 AND \
+                                    let row_o = sqlx::query_as::<_, (String, bool, bool)>(
+                                        "SELECT username, is_admin, operator FROM usr where email = $1 AND \
                                          workspace_id = $2 AND disabled = false",
                                     )
                                     .bind(&email)
                                     .bind(&w_id.as_ref().unwrap())
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false)));
 
                                     match row_o {
-                                        Some((username, is_admin)) => {
+                                        Some((username, is_admin, is_operator)) => {
                                             let groups = get_groups_for_user(
                                                 &w_id.as_ref().unwrap(),
                                                 &username,
@@ -240,6 +250,7 @@ impl AuthCache {
                                                 email,
                                                 username,
                                                 is_admin: is_admin || super_admin,
+                                                is_operator,
                                                 groups,
                                                 folders,
                                                 scopes,
@@ -249,6 +260,7 @@ impl AuthCache {
                                             email: email.clone(),
                                             username: email,
                                             is_admin: super_admin,
+                                            is_operator: false,
                                             groups: vec![],
                                             folders: vec![],
                                             scopes,
@@ -260,6 +272,7 @@ impl AuthCache {
                                         email: email.to_string(),
                                         username: email,
                                         is_admin: super_admin,
+                                        is_operator: true,
                                         groups: Vec::new(),
                                         folders: Vec::new(),
                                         scopes,
@@ -285,6 +298,7 @@ impl AuthCache {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
+                        is_operator: false,
                         groups: Vec::new(),
                         folders: Vec::new(),
                         scopes: None,
@@ -366,6 +380,7 @@ pub struct Authed {
     pub email: String,
     pub username: String,
     pub is_admin: bool,
+    pub is_operator: bool,
     pub groups: Vec<String>,
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
