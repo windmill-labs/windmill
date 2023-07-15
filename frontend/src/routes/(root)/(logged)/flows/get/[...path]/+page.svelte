@@ -279,7 +279,8 @@
 						path: urlAsync
 					},
 					sync: {
-						path: urlSync
+						path: urlSync,
+						get_path: urlSync
 					}
 				}}
 				isFlow={true}
