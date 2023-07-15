@@ -144,7 +144,7 @@ swc_ecma_ast = "0.106.2"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { git = "https://github.com/mrl5/sqlx", rev = "16e4c9a8f380214ad61b1744d3e1f5fa866ffbcc", features = [
+sqlx = { version = "^0", features = [
     "macros",
     "migrate",
     "uuid",
