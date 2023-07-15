@@ -64,7 +64,7 @@ async fn create_draft(
         draft.path,
         //to preserve key orders
         serde_json::to_string(&draft.value).unwrap(),
-        draft.typ: DraftType,
+        draft.typ as DraftType,
     )
     .execute(&mut *tx)
     .await?;
@@ -84,7 +84,7 @@ async fn delete_draft(
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND typ = $2 AND workspace_id = $3",
         path.to_path(),
-        kind: DraftType,
+        kind as DraftType,
         w_id
     )
     .execute(&mut *tx)

@@ -475,7 +475,7 @@ pub async fn clear_schedule<'c>(
     sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2",
         path,
-        job_kind: JobKind
+        job_kind as JobKind
     )
     .execute(&mut **db)
     .await?;

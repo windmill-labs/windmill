@@ -6,11 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, vec, sync::atomic::AtomicBool};
+use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
-use chrono::{Duration, DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
@@ -315,15 +315,15 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         queued_job.canceled,
         queued_job.canceled_by,
         queued_job.canceled_reason,
-        queued_job.job_kind: JobKind,
+        queued_job.job_kind.clone() as JobKind,
         queued_job.schedule_path,
         queued_job.permissioned_as,
         queued_job.flow_status,
         queued_job.raw_flow,
         queued_job.is_flow_step,
         skipped,
-        queued_job.language: ScriptLang,
-        duration: Option<i64>,
+        queued_job.language.clone() as Option<ScriptLang>,
+        duration as Option<i64>,
         queued_job.email,
         queued_job.visible_to_owner,
         mem_peak,
@@ -697,7 +697,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
     loop {
         let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
-        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(tx, workspaces_filter.as_str(), rsmq.clone()).await?;
+        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(
+            tx,
+            workspaces_filter.as_str(),
+            rsmq.clone(),
+        )
+        .await?;
 
         if job.is_none() {
             return Ok(None);
@@ -705,12 +710,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job.unwrap();
-        if pulled_job.script_path.is_none() || pulled_job.concurrent_limit.is_none()  {
+        if pulled_job.script_path.is_none() || pulled_job.concurrent_limit.is_none() {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
-            return Ok(Option::Some(pulled_job))
+            return Ok(Option::Some(pulled_job));
         }
 
         // Else the job is subject to concurrency limits
@@ -718,9 +723,14 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
-        let job_custom_concurrency_time_window_s = pulled_job.concurrency_time_window_s.unwrap_or(0);
-        tracing::debug!("Job concurrency limit is {} per {}s", job_custom_concurrent_limit, job_custom_concurrency_time_window_s);
-        
+        let job_custom_concurrency_time_window_s =
+            pulled_job.concurrency_time_window_s.unwrap_or(0);
+        tracing::debug!(
+            "Job concurrency limit is {} per {}s",
+            job_custom_concurrent_limit,
+            job_custom_concurrency_time_window_s
+        );
+
         let script_path_live_stats = sqlx::query!(
             "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count
             FROM
@@ -746,8 +756,13 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         })?;
 
         let concurrent_jobs_for_this_script: Option<i64> = script_path_live_stats.total_count;
-        tracing::debug!("Current concurrent jobs for this script: {}", concurrent_jobs_for_this_script.unwrap_or(-1));
-        if concurrent_jobs_for_this_script.is_none() || concurrent_jobs_for_this_script.unwrap() < i64::from(job_custom_concurrent_limit) {
+        tracing::debug!(
+            "Current concurrent jobs for this script: {}",
+            concurrent_jobs_for_this_script.unwrap_or(-1)
+        );
+        if concurrent_jobs_for_this_script.is_none()
+            || concurrent_jobs_for_this_script.unwrap() < i64::from(job_custom_concurrent_limit)
+        {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
@@ -762,19 +777,24 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 (SELECT duration_ms FROM completed_job WHERE script_path = $1
                 ORDER BY started_at
                 DESC LIMIT 10) AS t",
-            job_script_path)
-            .fetch_one(&mut tx)
-            .await?;
+            job_script_path
+        )
+        .fetch_one(&mut tx)
+        .await?;
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for) + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0)) + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
+        let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
+            + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0))
+            + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
         tracing::info!("Job '{}' from path '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
         let job_log_line_break = '\n';
-        let job_log_event = format!("Re-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits");
+        let job_log_event = format!(
+            "Re-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits"
+        );
         if rsmq.is_some() {
-        // if let Some(ref mut rsmq) = tx.rsmq {
+            // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
             // In this case, the job might be a job from the same script path, but we can't optimise this further
             // if using posgtres, then we're able to re-queue the entire batch of scheduled job for this script_path, so we do it
@@ -790,9 +810,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             .fetch_one(&mut tx)
             .await
             .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
-            
+
             if let Some(ref mut rsmq) = tx.rsmq {
-                rsmq.send_message(job_uuid.to_bytes_le().to_vec(), Option::Some(estimated_next_schedule_timestamp));
+                rsmq.send_message(
+                    job_uuid.to_bytes_le().to_vec(),
+                    Option::Some(estimated_next_schedule_timestamp),
+                );
             }
             tx.commit().await?;
         } else {
@@ -814,7 +837,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     }
 }
 
-async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c, R: rsmq_async::RsmqConnection + Send + Clone>(
+async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
+    'c,
+    R: rsmq_async::RsmqConnection + Send + Clone,
+>(
     mut tx: QueueTransaction<'c, R>,
     workspaces_filter: &str,
     rsmq: Option<R>,
@@ -1124,10 +1150,18 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     }
 
-    let (script_hash, script_path, raw_code_tuple, job_kind, mut raw_flow, language, concurrent_limit, concurrency_time_window_s) =
-        match job_payload {
-            JobPayload::ScriptHash { hash, path , concurrent_limit, concurrency_time_window_s} => {
-                let language = sqlx::query_scalar!(
+    let (
+        script_hash,
+        script_path,
+        raw_code_tuple,
+        job_kind,
+        mut raw_flow,
+        language,
+        concurrent_limit,
+        concurrency_time_window_s,
+    ) = match job_payload {
+        JobPayload::ScriptHash { hash, path, concurrent_limit, concurrency_time_window_s } => {
+            let language = sqlx::query_scalar!(
                     "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
                     hash.0,
                     workspace_id
@@ -1139,98 +1173,121 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                         "fetching language for hash {hash} in {workspace_id}: {e}"
                     ))
                 })?;
-                (
-                    Some(hash.0),
-                    Some(path),
-                    None,
-                    JobKind::Script,
-                    None,
-                    Some(language),
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                )
-            }
-            JobPayload::ScriptHub { path } => {
-                (
-                    None,
-                    Some(path),
-                    None,
-                    // Some((script.content, script.lockfile)),
-                    JobKind::Script_Hub,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-            }
-            JobPayload::Code(RawCode { content, path, language, lock , concurrent_limit, concurrency_time_window_s}) => (
+            (
+                Some(hash.0),
+                Some(path),
                 None,
-                path,
-                Some((content, lock)),
-                JobKind::Preview,
+                JobKind::Script,
                 None,
                 Some(language),
                 concurrent_limit,
                 concurrency_time_window_s,
-            ),
-            JobPayload::Dependencies { hash, dependencies, language } => (
-                Some(hash.0),
+            )
+        }
+        JobPayload::ScriptHub { path } => {
+            (
                 None,
-                Some((dependencies, None)),
-                JobKind::Dependencies,
+                Some(path),
                 None,
-                Some(language),
+                // Some((script.content, script.lockfile)),
+                JobKind::Script_Hub,
                 None,
                 None,
-            ),
-            JobPayload::FlowDependencies { path } => {
-                let value_json = sqlx::query_scalar!(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    workspace_id
-                )
-                .fetch_optional(&mut tx)
-                .await?
-                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-                let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {path}: {err:?}"
-                    ))
-                })?;
-                (
-                    None,
-                    Some(path),
-                    None,
-                    JobKind::FlowDependencies,
-                    Some(value),
-                    None,
-                    None,
-                    None,
-                )
-            }
-            JobPayload::RawFlow { value, path } => {
-                (None, path, None, JobKind::FlowPreview, Some(value), None, None, None)
-            }
-            JobPayload::Flow(flow) => {
-                let value_json = sqlx::query_scalar!(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    flow,
-                    workspace_id
-                )
-                .fetch_optional(&mut tx)
-                .await?
-                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
-                let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                    Error::InternalErr(format!(
-                        "could not convert json to flow for {flow}: {err:?}"
-                    ))
-                })?;
-                (None, Some(flow), None, JobKind::Flow, Some(value), None, None, None)
-            }
-            JobPayload::Identity => (None, None, None, JobKind::Identity, None, None, None, None),
-            JobPayload::Http => (None, None, None, JobKind::Http, None, None, None, None),
-            JobPayload::Noop => (None, None, None, JobKind::Noop, None, None, None, None),
-        };
+                None,
+                None,
+            )
+        }
+        JobPayload::Code(RawCode {
+            content,
+            path,
+            language,
+            lock,
+            concurrent_limit,
+            concurrency_time_window_s,
+        }) => (
+            None,
+            path,
+            Some((content, lock)),
+            JobKind::Preview,
+            None,
+            Some(language),
+            concurrent_limit,
+            concurrency_time_window_s,
+        ),
+        JobPayload::Dependencies { hash, dependencies, language } => (
+            Some(hash.0),
+            None,
+            Some((dependencies, None)),
+            JobKind::Dependencies,
+            None,
+            Some(language),
+            None,
+            None,
+        ),
+        JobPayload::FlowDependencies { path } => {
+            let value_json = sqlx::query_scalar!(
+                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                path,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
+            (
+                None,
+                Some(path),
+                None,
+                JobKind::FlowDependencies,
+                Some(value),
+                None,
+                None,
+                None,
+            )
+        }
+        JobPayload::RawFlow { value, path } => (
+            None,
+            path,
+            None,
+            JobKind::FlowPreview,
+            Some(value),
+            None,
+            None,
+            None,
+        ),
+        JobPayload::Flow(flow) => {
+            let value_json = sqlx::query_scalar!(
+                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                flow,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
+            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {flow}: {err:?}"
+                ))
+            })?;
+            (
+                None,
+                Some(flow),
+                None,
+                JobKind::Flow,
+                Some(value),
+                None,
+                None,
+                None,
+            )
+        }
+        JobPayload::Identity => (None, None, None, JobKind::Identity, None, None, None, None),
+        JobPayload::Http => (None, None, None, JobKind::Http, None, None, None, None),
+        JobPayload::Noop => (None, None, None, JobKind::Noop, None, None, None, None),
+    };
 
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
@@ -1323,12 +1380,12 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         raw_code,
         raw_lock,
         args_json,
-        job_kind: JobKind,
+        job_kind.clone() as JobKind,
         schedule_path,
         raw_flow.map(|f| serde_json::json!(f)),
         flow_status.map(|f| serde_json::json!(f)),
         is_flow_step,
-        language: ScriptLang,
+        language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
         email,

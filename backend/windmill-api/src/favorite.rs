@@ -49,7 +49,7 @@ async fn star(
         &w_id,
         authed.username,
         path,
-        favorite_kind: FavoriteKind,
+        favorite_kind as FavoriteKind,
     )
     .execute(&db)
     .await?;
@@ -68,7 +68,7 @@ async fn unstar(
         &w_id,
         authed.username,
         path,
-        favorite_kind: FavoriteKind,
+        favorite_kind as FavoriteKind,
     )
     .execute(&db)
     .await?;
