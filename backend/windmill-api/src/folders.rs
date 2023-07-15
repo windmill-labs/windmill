@@ -89,7 +89,7 @@ async fn list_folders(
         per_page as i64,
         offset as i64
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -110,7 +110,7 @@ async fn list_foldernames(
         per_page as i64,
         offset as i64
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -128,7 +128,7 @@ async fn check_name_conflict<'c>(
         name,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -197,11 +197,11 @@ async fn create_folder(
         owners,
         extra_perms,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "folder.create",
         ActionKind::Create,
@@ -288,7 +288,7 @@ async fn update_folder(
     let sql = sqlb
         .sql()
         .map_err(|e| error::Error::InternalErr(e.to_string()))?;
-    let nfolder = sqlx::query_as::<_, Folder>(&sql).fetch_one(&mut tx).await?;
+    let nfolder = sqlx::query_as::<_, Folder>(&sql).fetch_one(&mut *tx).await?;
 
     if let Some(extra_perms) = nfolder.extra_perms.as_object() {
         for o in nfolder.owners {
@@ -306,7 +306,7 @@ async fn update_folder(
     }
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "folder.update",
         ActionKind::Update,
@@ -335,7 +335,7 @@ pub async fn get_folderopt<'c>(
         name,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **db)
     .await?;
     Ok(folderopt)
 }
@@ -374,7 +374,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -383,7 +383,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -392,7 +392,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -401,7 +401,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -410,7 +410,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -419,7 +419,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -428,7 +428,7 @@ async fn get_folder_usage(
         name,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(0);
 
@@ -458,10 +458,10 @@ async fn delete_folder(
         name,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "folder.delete",
         ActionKind::Delete,
@@ -498,11 +498,11 @@ async fn add_owner(
         name,
         &w_id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "folder.add_owner",
         ActionKind::Update,
@@ -565,11 +565,11 @@ async fn remove_owner(
         name,
         &w_id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "folder.remove_owner",
         ActionKind::Update,

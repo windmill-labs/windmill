@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logs",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "mem_peak",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "b69f747eae8b13a0a8d6914a3a7ad322554fcfe62cd28c5f0a475f18dd770d61"
+}

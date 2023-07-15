@@ -161,7 +161,7 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableResource>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -191,7 +191,7 @@ async fn get_resource(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -230,7 +230,7 @@ async fn get_resource_value(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -248,7 +248,7 @@ async fn check_path_conflict<'c>(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -293,10 +293,10 @@ async fn create_resource(
         resource.description,
         resource.resource_type,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resources.create",
         ActionKind::Create,
@@ -332,17 +332,17 @@ async fn delete_resource(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resources.delete",
         ActionKind::Delete,
@@ -404,18 +404,18 @@ async fn update_resource(
                 path,
                 w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
         }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resources.update",
         ActionKind::Update,
@@ -459,10 +459,10 @@ async fn update_resource_value(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resources.update",
         ActionKind::Update,
@@ -528,7 +528,7 @@ async fn get_resource_type(
         &name,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -572,10 +572,10 @@ async fn create_resource_type(
         resource_type.schema,
         resource_type.description,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resource_types.create",
         ActionKind::Create,
@@ -607,7 +607,7 @@ async fn check_rt_path_conflict<'c>(
         name,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -634,10 +634,10 @@ async fn delete_resource_type(
         name,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resource_types.delete",
         ActionKind::Delete,
@@ -676,9 +676,9 @@ async fn update_resource_type(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query(&sql).execute(&mut tx).await?;
+    sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "resource_types.update",
         ActionKind::Update,

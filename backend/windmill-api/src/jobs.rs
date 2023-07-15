@@ -161,7 +161,7 @@ async fn cancel_job_api(
 
     if let Some(id) = job_option {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &username,
             "jobs.cancel",
             ActionKind::Delete,
@@ -204,7 +204,7 @@ async fn force_cancel(
 
     if let Some(id) = job_option {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &username,
             "jobs.force_cancel",
             ActionKind::Delete,
@@ -238,7 +238,7 @@ pub async fn get_path_for_hash<'c>(
         hash,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
@@ -258,7 +258,7 @@ pub async fn get_path_tag_and_limits_for_hash<'c>(
         hash,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
@@ -310,7 +310,7 @@ pub async fn get_job_by_id<'c>(
     )
     .bind(id)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     let job_option = match cjob_option {
         Some(job) => Some(Job::CompletedJob(job)),
@@ -325,7 +325,7 @@ pub async fn get_job_by_id<'c>(
         )
         .bind(id)
         .bind(w_id)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         Ok((cjob_option.map(Job::CompletedJob), tx))
     }
@@ -406,7 +406,7 @@ impl RunJobQuery {
         if let Some(scheduled_for) = self.scheduled_for {
             Ok(Some(scheduled_for))
         } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
-            let now = now_from_db(db).await?;
+            let now = now_from_db(&mut **db).await?;
             Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
         } else {
             Ok(None)
@@ -706,7 +706,7 @@ async fn list_jobs(
         offset
     );
     let mut tx = user_db.begin(&authed).await?;
-    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut tx).await?;
+    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
@@ -762,7 +762,7 @@ pub async fn resume_suspended_job(
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -804,7 +804,7 @@ async fn resume_immediately_if_relevant<'c>(
                     suspend,
                     flow.id,
                 )
-                .execute(tx)
+                .execute(&mut **tx)
                 .await?;
             }
         },
@@ -832,7 +832,7 @@ async fn insert_resume_job<'c>(
         value,
         approver
     )
-    .execute(tx)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -859,7 +859,7 @@ async fn get_suspended_parent_flow_info<'c>(
         "#,
         job_id,
     )
-    .fetch_optional(tx)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
     Ok(flow)
@@ -878,7 +878,7 @@ async fn get_suspended_flow_info<'c>(
         "#,
         job_id,
     )
-    .fetch_optional(tx)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
     let job_id = flow
@@ -931,7 +931,7 @@ pub async fn cancel_suspended_job(
     .await?;
     if cjob.is_some() {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &whom,
             "jobs.disapproval",
             ActionKind::Delete,
@@ -990,7 +990,7 @@ pub async fn get_suspended_job_flow(
         job,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
@@ -1019,7 +1019,7 @@ pub async fn get_suspended_job_flow(
             "#,
             job,
         )
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .map(|x| Approval {
@@ -1513,7 +1513,7 @@ impl Drop for Guard {
                 id,
                 w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await;
                     let _ = tx.commit().await;
                 }
@@ -1553,7 +1553,7 @@ async fn run_wait_result<T>(
             uuid,
             &w_id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?
         .flatten();
         drop(tx);
@@ -2180,7 +2180,7 @@ async fn get_job_update(
         &w_id,
         &id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     if let Some(record) = record {
@@ -2199,7 +2199,7 @@ async fn get_job_update(
             &w_id,
             &id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         let logs = not_found_if_none(logs, "Job", id.to_string())?;
         tx.commit().await?;
@@ -2434,13 +2434,13 @@ async fn delete_completed_job(
     )
     .bind(id)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "jobs.delete",
         ActionKind::Delete,

@@ -78,7 +78,7 @@ async fn list_worker_pings(
         per_page as i64,
         offset as i64
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))

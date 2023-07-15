@@ -167,7 +167,7 @@ pub async fn get_latest_deployed_hash_for_path<'c>(
         script_path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **db)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
@@ -187,7 +187,7 @@ pub async fn get_latest_hash_for_path<'c>(
         script_path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **db)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;

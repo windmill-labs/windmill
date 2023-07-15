@@ -83,7 +83,7 @@ async fn list_variables(
          WHERE variable.workspace_id = $1 ORDER BY path",
     )
     .bind(&w_id)
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -116,7 +116,7 @@ async fn get_variable(
     )
     .bind(&path)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let variable = not_found_if_none(variable_o, "Variable", &path)?;
@@ -125,7 +125,7 @@ async fn get_variable(
 
     let r = if variable.is_secret {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &authed.username,
             "variables.decrypt_secret",
             ActionKind::Execute,
@@ -186,7 +186,7 @@ async fn check_path_conflict<'c>(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -231,11 +231,11 @@ async fn create_variable(
         variable.account,
         variable.is_oauth.unwrap_or(false),
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "variables.create",
         ActionKind::Create,
@@ -287,17 +287,17 @@ async fn delete_variable(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "variables.delete",
         ActionKind::Delete,
@@ -363,7 +363,7 @@ async fn update_variable(
                 &path,
                 &w_id
             )
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?
             .unwrap_or(false)
         };
@@ -387,7 +387,7 @@ async fn update_variable(
             &path,
             &w_id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?
         .unwrap_or(false);
         if old_secret != nbool && ns_value_is_none {
@@ -409,7 +409,7 @@ async fn update_variable(
                 path,
                 w_id
             )
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?
             .flatten();
 
@@ -428,19 +428,19 @@ async fn update_variable(
                 path,
                 w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
         }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
 
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "variables.update",
         ActionKind::Update,
@@ -496,7 +496,7 @@ pub async fn get_workspace_key<'c>(
         "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| Error::InternalErr(format!("fetching workspace key: {e}")))?;
     Ok(key)

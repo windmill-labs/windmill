@@ -57,7 +57,7 @@ pub struct ScriptHash(pub i64);
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[cfg_attr(feature = "sqlx", sqlx(transparent, no_pg_array))]
 pub struct ScriptHashes(pub Vec<i64>);
 
 impl Display for ScriptHash {

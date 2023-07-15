@@ -193,7 +193,7 @@ async fn list_scripts(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -233,7 +233,7 @@ async fn create_script(
         hash.0,
         &w_id
     )
-    .fetch_optional(tx.transaction_mut())
+    .fetch_optional(&mut tx)
     .await?
     .is_some()
     {
@@ -386,8 +386,8 @@ async fn create_script(
         ns.is_template.unwrap_or(false),
         extra_perms,
         lock,
-        ns.language: ScriptLang,
-        ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
+        ns.language.clone() as ScriptLang,
+        ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
         ns.draft_only,
         envs,
@@ -555,7 +555,7 @@ async fn get_script_by_path(
     )
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -580,7 +580,7 @@ async fn get_script_by_path_w_draft(
     )
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -599,7 +599,7 @@ async fn list_paths(
         "SELECT distinct(path) FROM script WHERE  workspace_id = $1",
         w_id
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -649,7 +649,7 @@ async fn raw_script_by_path(
         path,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -685,7 +685,7 @@ async fn get_script_by_hash_internal<'c>(
         sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
             .bind(hash)
             .bind(workspace_id)
-            .fetch_optional(db)
+            .fetch_optional(&mut **db)
             .await?;
 
     let script = not_found_if_none(script_o, "Script", hash.to_string())?;
@@ -733,7 +733,7 @@ async fn get_deployment_status(
         hash.0,
         w_id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
@@ -763,7 +763,7 @@ async fn archive_script_by_path(
     .await
     .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "scripts.archive",
         ActionKind::Delete,
@@ -793,12 +793,12 @@ async fn archive_script_by_hash(
         "UPDATE script SET archived = true WHERE hash = $1 RETURNING *",
     )
     .bind(&hash.0)
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "scripts.archive",
         ActionKind::Delete,
@@ -838,7 +838,7 @@ async fn delete_script_by_hash(
     .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e}")))?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "scripts.delete",
         ActionKind::Delete,
@@ -896,7 +896,7 @@ async fn delete_script_by_path(
     .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e}")))?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "scripts.delete",
         ActionKind::Delete,
