@@ -35,7 +35,7 @@ async fn proxy(
         "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
     tx.commit().await?;
@@ -60,7 +60,7 @@ async fn proxy(
 
     let mut tx = db.begin().await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "openai.request",
         ActionKind::Update,

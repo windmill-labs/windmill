@@ -73,7 +73,7 @@ async fn add_granular_acl(
     .bind(write.unwrap_or(false))
     .bind(path)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
@@ -125,7 +125,7 @@ async fn remove_granular_acl(
     .bind(owner)
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
@@ -152,7 +152,7 @@ async fn get_granular_acls(
     ))
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let obj = not_found_if_none(obj_o, &kind, &path)?;
