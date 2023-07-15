@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "502781c4e2fc692db7a66b850450a1934b2403a5cff0421fe9609f9b99d8ee95"
+}

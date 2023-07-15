@@ -409,9 +409,9 @@ See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
 1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup. The easiest way to get a working postgres is running
-   `cargo install sqlx-cli && sqlx migrate run`. This will also avoid compile
-   time issue with sqlx's `query!` macro
+   Postgres setup. The easiest way to get a working postgres is running `cargo
+   install --version ^0.7 sqlx-cli && sqlx migrate run`. This will also avoid
+   compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
 3. Install deno and python3, have the bins at `/usr/bin/deno` and

@@ -646,7 +646,7 @@ async fn compute_skip_loop_failures<'c>(
     )
     .bind(step)
     .bind(flow)
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await
     .map(|(v,)| v)
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
@@ -668,7 +668,7 @@ async fn compute_skip_branchall_failure<'c>(
     .bind(step)
     .bind(branch as i32)
     .bind(flow)
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await
     .map(|(v,)| v)
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
@@ -686,7 +686,7 @@ async fn has_failure_module<'c>(
         ",
     )
     .bind(flow)
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e}")))
     .map(|v| v.unwrap_or(false))
@@ -1029,7 +1029,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
                 flow_job.id
             )
-            .fetch_one(&mut tx)
+            .fetch_one(&mut *tx)
             .await
             .context("lock flow in queue")?;
 
@@ -1037,7 +1037,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
-            .fetch_all(&mut tx)
+            .fetch_all(&mut *tx)
             .await?;
 
             resume_messages.extend(resumes.iter().map(|r| r.value.clone()));
@@ -1067,7 +1067,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     })
                     .collect::<Vec<_>>()))
                 .bind(flow_job.id)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
 
                 /* If we are woken up after suspending, last_result will be the flow args, but we
@@ -1075,7 +1075,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
                     last_result =
                         sqlx::query_scalar!("SELECT result FROM completed_job WHERE id = $1", last)
-                            .fetch_one(&mut tx)
+                            .fetch_one(&mut *tx)
                             .await?
                             .context("previous job result")?;
                 }
@@ -1101,7 +1101,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .bind((required_events - resume_messages.len() as u16) as i32)
                 .bind(Duration::from_secs(suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)))
                 .bind(flow_job.id)
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
 
                 tx.commit().await?;

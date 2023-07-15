@@ -114,7 +114,7 @@ async fn list_flows(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableFlow>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -141,7 +141,7 @@ async fn list_paths(
         "SELECT distinct(path) FROM flow WHERE  workspace_id = $1",
         w_id
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -175,7 +175,7 @@ async fn check_path_conflict<'c>(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -290,7 +290,7 @@ async fn check_schedule_conflict<'c>(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists_flow {
@@ -466,7 +466,7 @@ async fn get_flow_by_path(
         sqlx::query_as::<_, Flow>("SELECT * FROM flow WHERE path = $1 AND workspace_id = $2")
             .bind(path)
             .bind(w_id)
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?;
     tx.commit().await?;
 
@@ -504,7 +504,7 @@ async fn get_flow_by_path_w_draft(
     )
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -551,11 +551,11 @@ async fn archive_flow_by_path(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "flows.archive",
         ActionKind::Delete,
@@ -587,7 +587,7 @@ async fn delete_flow_by_path(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -595,11 +595,11 @@ async fn delete_flow_by_path(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "flows.delete",
         ActionKind::Delete,

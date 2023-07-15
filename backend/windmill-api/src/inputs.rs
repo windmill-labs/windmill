@@ -131,7 +131,7 @@ async fn get_input_history(
         .bind(&w_id)
         .bind(per_page as i32)
         .bind(offset as i32)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -180,7 +180,7 @@ async fn list_saved_inputs(
     .bind(&authed.username)
     .bind(per_page as i32)
     .bind(offset as i32)
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -229,7 +229,7 @@ async fn create_input(
     .bind(&input.name)
     .bind(&input.args)
     .bind(&authed.username)
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -257,7 +257,7 @@ async fn update_input(
         .bind(&input.is_public)
         .bind(&input.id)
         .bind(&w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -275,7 +275,7 @@ async fn delete_input(
     sqlx::query("DELETE FROM input WHERE id = $1 and workspace_id = $2")
         .bind(&i_id)
         .bind(&w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     tx.commit().await?;

@@ -18,5 +18,5 @@ contains files used to build the "root" binary.
 ### Compile sqlx for offline ci
 
 ```
-cargo sqlx prepare --merged -- --bin windmill --features enterprise
+cargo sqlx prepare --workspace -- --bin windmill --features enterprise
 ```
