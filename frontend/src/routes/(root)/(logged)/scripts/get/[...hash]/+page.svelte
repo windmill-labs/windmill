@@ -12,7 +12,7 @@
 	import { faEdit, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -185,6 +185,12 @@
 	}
 
 	let args = undefined
+
+	if ($runFormStore) {
+		args = $runFormStore
+		$runFormStore = undefined
+	}
+
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 

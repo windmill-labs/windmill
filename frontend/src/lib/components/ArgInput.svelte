@@ -38,7 +38,7 @@
 	export let type: string | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
-	export let valid = required ? false : true
+	export let valid = true
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
 	export let editableSchema = false
@@ -141,14 +141,14 @@
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
-			valid = false
+			valid && (valid = false)
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
 				error = `Should match ${pattern}`
-				valid = false
+				valid && (valid = false)
 			} else {
 				error = ''
-				valid = true
+				!valid && (valid = true)
 			}
 		}
 	}
