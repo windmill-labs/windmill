@@ -500,7 +500,10 @@
 							<Alert type="error" title="Error during execution">
 								<div class="flex flex-col gap-2">
 									An error occured, please contact the app author.
-									<span class="font-semibold">Job id: {lastJobId}</span>
+									<a
+										href={`/run/${lastJobId}?workspace=${workspace}`}
+										class="font-semibold text-red-800 underline">Job id: {lastJobId}</a
+									>
 								</div>
 							</Alert>
 						</div>
