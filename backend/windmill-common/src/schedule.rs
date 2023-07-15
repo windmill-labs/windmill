@@ -24,6 +24,7 @@ pub struct Schedule {
     pub args: Option<serde_json::Value>,
     pub extra_perms: serde_json::Value,
     pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub on_failure: Option<String>,
 }

@@ -1986,6 +1986,11 @@ async fn run_preview_job(
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("runscript"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
@@ -2075,6 +2080,11 @@ async fn run_preview_flow_job(
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("runflow"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
