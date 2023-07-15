@@ -9,8 +9,17 @@
 	import DockerIcon from '$lib/components/icons/DockerIcon.svelte'
 	import RestIcon from '$lib/components/icons/RestIcon.svelte'
 	import { Script } from '$lib/gen'
+	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
 
-	export let lang: SupportedLanguage | 'mysql' | 'bun' | 'pgsql' | 'javascript' | 'fetch' | 'docker'
+	export let lang:
+		| SupportedLanguage
+		| 'mysql'
+		| 'bun'
+		| 'pgsql'
+		| 'javascript'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
 	export let width = 30
 	export let height = 30
 	export let scale = 1
@@ -26,7 +35,7 @@
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell',
 		typeof SvelteComponent
 	> = {
 		go: GoIcon,
@@ -40,6 +49,7 @@
 		javascript: JavaScript,
 		fetch: FetchIcon,
 		docker: DockerIcon,
+		powershell: PowershellIcon,
 		postgresql: PostgresIcon,
 		nativets: RestIcon,
 		graphql: RestIcon
