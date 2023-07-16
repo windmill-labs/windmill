@@ -39,9 +39,13 @@
 			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
 			: undefined
 
-	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex((k_, index) =>
-		$selectedComponentInEditor?.startsWith(BG_PREFIX + index)
-	)
+	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex((k_, index) => {
+		const [prefix, id] = $selectedComponentInEditor?.split('_') || []
+
+		if (prefix !== 'bg') return false
+
+		return Number(id) === index
+	})
 
 	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
 		(k_, index) => `unused-${index}` === $selectedComponentInEditor
