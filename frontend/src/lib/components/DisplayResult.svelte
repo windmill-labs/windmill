@@ -155,6 +155,10 @@
 									{typeof item === 'string' ? item : JSON.stringify(item)}
 								</div>
 							{/each}
+						{:else}
+							<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
+								{typeof result[col] === 'string' ? result[col] : JSON.stringify(result[col])}
+							</div>
 						{/if}
 					</div>
 				{/each}
