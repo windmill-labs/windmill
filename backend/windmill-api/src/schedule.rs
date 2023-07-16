@@ -169,8 +169,10 @@ async fn edit_schedule(
         path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_optional(&mut tx)
     .await?;
+
+    let is_flow = not_found_if_none(is_flow, "Schedule", &path)?;
 
     clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(

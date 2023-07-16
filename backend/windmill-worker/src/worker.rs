@@ -208,6 +208,10 @@ lazy_static::lazy_static! {
         
 
 
+    pub static ref WHITELIST_ENVS: Option<Vec<(String, String)>> = std::env::var("WHITELIST_ENVS")
+        .ok()
+        .map(|x| x.split(',').map(|x| (x.to_string(), std::env::var(x).unwrap_or("".to_string()))).collect());
+
     static ref WHITELIST_WORKSPACES: Option<Vec<String>> = std::env::var("WHITELIST_WORKSPACES")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
@@ -2333,11 +2337,20 @@ pub async fn get_reserved_variables(
         job.parent_job.map(|x| x.to_string()),
         flow_path,
         job.schedule_path.clone()
-    );
-    Ok(variables
-        .into_iter()
-        .map(|rv| (rv.name, rv.value))
-        .collect())
+    ).to_vec();
+
+    let mut r: HashMap<String, String>  = variables
+    .into_iter()
+    .map(|rv| (rv.name, rv.value))
+    .collect();
+
+    if let Some(ref envs) = *WHITELIST_ENVS {
+        for e in envs {
+            r.insert(e.0.clone(), e.1.clone());
+        }
+    }
+    
+    Ok(r)
 }
 
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {

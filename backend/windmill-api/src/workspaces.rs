@@ -34,6 +34,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
@@ -1368,6 +1369,7 @@ struct ArchiveQueryParams {
     skip_secrets: Option<bool>,
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
+    include_schedules: Option<bool>,
 }
 
 #[inline]
@@ -1395,6 +1397,7 @@ where
                 "archived",
                 "has_draft",
                 "draft_only",
+                "error"
             ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
@@ -1422,6 +1425,7 @@ async fn tarball_workspace(
         skip_resources,
         skip_secrets,
         skip_variables,
+        include_schedules,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
@@ -1605,6 +1609,25 @@ async fn tarball_workspace(
                 .await?;
         }
     }
+
+    if include_schedules.unwrap_or(false) {
+        let schedules = sqlx::query_as!(
+            Schedule,
+            "SELECT * FROM schedule
+            WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for schedule in schedules {
+            let app_str = &to_string_without_metadata(&schedule, false).unwrap();
+            archive
+                .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
+                .await?;
+        }
+    }
+
     archive.finish().await?;
 
     let file = tokio::fs::File::open(file_path).await?;

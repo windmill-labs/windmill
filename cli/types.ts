@@ -11,6 +11,7 @@ import * as Diff from "npm:diff";
 import { yamlOptions } from "./sync.ts";
 import { showDiffs } from "./main.ts";
 import { deepEqual } from "./utils.ts";
+import { pushSchedule } from "./schedule.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -115,6 +116,8 @@ export function pushObj(
     pushResource(workspace, p, befObj, newObj, checkForCreate);
   } else if (typeEnding === "resource-type") {
     pushResourceType(workspace, p, befObj, newObj, checkForCreate);
+  } else if (typeEnding === "schedule") {
+    pushSchedule(workspace, p, befObj, newObj, checkForCreate);
   } else {
     throw new Error("infer type unreachable");
   }
@@ -145,7 +148,8 @@ export function getTypeStrFromPath(
   | "resource"
   | "resource-type"
   | "folder"
-  | "app" {
+  | "app"
+  | "schedule" {
   if (p.includes(".flow/")) {
     return "flow";
   }
@@ -170,7 +174,8 @@ export function getTypeStrFromPath(
     typeEnding === "variable" ||
     typeEnding === "resource" ||
     typeEnding === "resource-type" ||
-    typeEnding === "app"
+    typeEnding === "app" ||
+    typeEnding === "schedule"
   ) {
     return typeEnding;
   } else {
