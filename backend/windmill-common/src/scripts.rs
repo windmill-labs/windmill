@@ -57,7 +57,6 @@ pub struct ScriptHash(pub i64);
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent, no_pg_array))]
 pub struct ScriptHashes(pub Vec<i64>);
 
 impl Display for ScriptHash {
@@ -91,7 +90,7 @@ impl Serialize for ScriptHashes {
     {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for element in &self.0 {
-            seq.serialize_element(&ScriptHash(*element))?;
+            seq.serialize_element(element)?;
         }
         seq.end()
     }
