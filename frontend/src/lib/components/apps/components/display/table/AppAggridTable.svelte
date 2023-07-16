@@ -170,6 +170,7 @@
 								{...resolvedConfig.extraConfig}
 								onGridReady={(e) => {
 									outputs?.ready.set(true)
+									value = value
 									if (result && result.length > 0) {
 										e.api.getRowNode('0')?.setSelected(true)
 									}
