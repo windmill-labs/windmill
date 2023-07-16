@@ -713,8 +713,8 @@
 
 		<div>
 			<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-				<ToggleButton icon={Smartphone} value="sm" />
-				<ToggleButton icon={Laptop2} value="lg" />
+				<ToggleButton tooltip="Mobile View" icon={Smartphone} value="sm" />
+				<ToggleButton tooltip="Computer View" icon={Laptop2} value="lg" />
 			</ToggleButtonGroup>
 		</div>
 		{#if $app}
@@ -724,7 +724,11 @@
 					value={false}
 					tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 				/>
-				<ToggleButton icon={Expand} value={true} />
+				<ToggleButton
+					tooltip="The width is of the app if the full width of its container"
+					icon={Expand}
+					value={true}
+				/>
 			</ToggleButtonGroup>
 		{/if}
 	</div>

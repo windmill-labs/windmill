@@ -64,14 +64,8 @@
 		return obj as ArrayLike<ArrayLike<any>>
 	}
 
-	function isArrayofObjects(array: any[]): boolean {
-		if (!Array.isArray(array)) {
-			return false
-		}
-
-		return array.every((item) => {
-			return typeof item === 'object' && item !== null && !Array.isArray(item)
-		})
+	function isObjectOfArray(result: any[], keys: string[]): boolean {
+		return keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
 	}
 
 	function inferResultKind(result: any) {
@@ -80,7 +74,7 @@
 				let keys = Object.keys(result)
 				if (isRectangularArray(result)) {
 					return 'table-row'
-				} else if (isArrayofObjects(result)) {
+				} else if (isObjectOfArray(result, keys)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
@@ -151,14 +145,10 @@
 						</div>
 						{#if Array.isArray(result[col])}
 							{#each result[col] as item}
-								<div class="px-12 text-left text-xs whitespace-nowrap">
+								<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
 									{typeof item === 'string' ? item : JSON.stringify(item)}
 								</div>
 							{/each}
-						{:else}
-							<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
-								{typeof result[col] === 'string' ? result[col] : JSON.stringify(result[col])}
-							</div>
 						{/if}
 					</div>
 				{/each}
