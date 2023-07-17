@@ -203,6 +203,7 @@ compiling from source or using without a postgres super user, see
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compose.yml -o docker-compose.yml
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
 curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
+curl https://raw.githubusercontent.com/windmill-labs/windmill/main/oauth.json -o oauth.json
 
 docker compose up -d
 ```
@@ -388,6 +389,7 @@ it being synced automatically everyday.
 | SMTP_TLS_IMPLICIT                             | false                                      | https://docs.rs/mail-send/latest/mail_send/struct.SmtpClientBuilder.html#method.implicit_tlsemails                                                                                                 | Server                |
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | false                                      | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
 | GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE | None                                       | Path to a script to run when a root job fails. The script will be run in and from the admins workspace                                                                                             | Server                |
+| WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
 
 ## Run a local dev setup
 
@@ -408,9 +410,9 @@ See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
 1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup. The easiest way to get a working postgres is running
-   `cargo install sqlx-cli && sqlx migrate run`. This will also avoid compile
-   time issue with sqlx's `query!` macro
+   Postgres setup. The easiest way to get a working postgres is running `cargo
+   install --version ^0.7 sqlx-cli && sqlx migrate run`. This will also avoid
+   compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
 3. Install deno and python3, have the bins at `/usr/bin/deno` and

@@ -44,21 +44,21 @@ impl UserDB {
         };
 
         sqlx::query(&format!("SET LOCAL ROLE {}", user))
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         sqlx::query!(
             "SELECT set_config('session.user', $1, true)",
             authed.username
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         sqlx::query!(
             "SELECT set_config('session.groups', $1, true)",
             &authed.groups.join(",")
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -70,7 +70,7 @@ impl UserDB {
                 .collect::<Vec<_>>()
                 .join(",")
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
@@ -86,7 +86,7 @@ impl UserDB {
                 .collect::<Vec<_>>()
                 .join(",")
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -97,7 +97,7 @@ impl UserDB {
                 .collect::<Vec<_>>()
                 .join(",")
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
         Ok(tx)

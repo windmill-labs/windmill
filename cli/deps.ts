@@ -3,18 +3,18 @@ export { setClient } from "https://deno.land/x/windmill@v1.95.1/mod.ts";
 export * from "https://deno.land/x/windmill@v1.95.1/windmill-api/index.ts";
 
 // cliffy
-export { Command } from "https://deno.land/x/cliffy@v0.25.7/command/command.ts";
-export { Table } from "https://deno.land/x/cliffy@v0.25.7/table/table.ts";
-export { colors } from "https://deno.land/x/cliffy@v0.25.7/ansi/colors.ts";
-export { Secret } from "https://deno.land/x/cliffy@v0.25.7/prompt/secret.ts";
-export { Select } from "https://deno.land/x/cliffy@v0.25.7/prompt/select.ts";
-export { Confirm } from "https://deno.land/x/cliffy@v0.25.7/prompt/confirm.ts";
-export { Input } from "https://deno.land/x/cliffy@v0.25.7/prompt/input.ts";
+export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/command.ts";
+export { Table } from "https://deno.land/x/cliffy@v1.0.0-rc.2/table/table.ts";
+export { colors } from "https://deno.land/x/cliffy@v1.0.0-rc.2/ansi/colors.ts";
+export { Secret } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/secret.ts";
+export { Select } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/select.ts";
+export { Confirm } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/confirm.ts";
+export { Input } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/input.ts";
 export {
   DenoLandProvider,
   UpgradeCommand,
-} from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
-export { CompletionsCommand } from "https://deno.land/x/cliffy@v0.25.7/command/completions/mod.ts";
+} from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/upgrade/mod.ts";
+export { CompletionsCommand } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/completions/mod.ts";
 // std
 export * as path from "https://deno.land/std@0.184.0/path/mod.ts";
 export { ensureDir } from "https://deno.land/std@0.184.0/fs/ensure_dir.ts";

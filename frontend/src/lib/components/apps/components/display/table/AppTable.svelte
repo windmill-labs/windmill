@@ -4,6 +4,8 @@
 		AppViewerContext,
 		BaseAppComponent,
 		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
 		RichConfigurations
 	} from '../../../types'
 	import type { AppInput } from '../../../inputType'
@@ -38,6 +40,9 @@
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	type T = Record<string, any>
 
@@ -87,6 +92,9 @@
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original, force)
 			outputs?.selectedRowIndex.set(rowIndex, force)
+			if (iterContext && listInputs) {
+				listInputs(id, { selectedRow: row.original, selectedRowIndex: rowIndex })
+			}
 		}
 	}
 

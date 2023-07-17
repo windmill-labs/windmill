@@ -56,7 +56,7 @@
 	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
 		{#if hasInlineEditor}
 			<button
-				title="Expand"
+				title="Edit"
 				class={classNames(
 					'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
 					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'

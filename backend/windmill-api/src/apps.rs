@@ -211,7 +211,7 @@ async fn list_apps(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -236,7 +236,7 @@ async fn get_app(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -267,7 +267,7 @@ async fn get_app_w_draft(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -291,7 +291,7 @@ async fn get_app_by_id(
         id,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -323,7 +323,7 @@ async fn get_public_app_by_secret(
         id,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -354,7 +354,7 @@ async fn get_secret_id(
         path,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let id = not_found_if_none(id_o, "App", path.to_string())?;
@@ -389,7 +389,7 @@ async fn create_app(
         &app.path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -405,7 +405,7 @@ async fn create_app(
         &app.path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     let id = sqlx::query_scalar!(
@@ -418,7 +418,7 @@ async fn create_app(
         json!(app.policy),
         app.draft_only,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     let v_id = sqlx::query_scalar!(
@@ -430,7 +430,7 @@ async fn create_app(
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -438,11 +438,11 @@ async fn create_app(
         v_id,
         id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.create",
         ActionKind::Create,
@@ -509,7 +509,7 @@ async fn delete_app(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -517,10 +517,10 @@ async fn delete_app(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.delete",
         ActionKind::Delete,
@@ -566,7 +566,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false);
 
@@ -601,7 +601,7 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
         "".to_string()
@@ -612,7 +612,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         let v_id = sqlx::query_scalar!(
@@ -624,7 +624,7 @@ async fn update_app(
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -633,7 +633,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -642,11 +642,11 @@ async fn update_app(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.update",
         ActionKind::Update,

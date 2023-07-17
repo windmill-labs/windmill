@@ -57,7 +57,7 @@ pub async fn get_job_by_id<'c>(
     )
     .bind(id)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     let job_option = match cjob_option {
         Some(job) => Some(Job::CompletedJob(job)),
@@ -72,7 +72,7 @@ pub async fn get_job_by_id<'c>(
         )
         .bind(id)
         .bind(w_id)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         Ok((cjob_option.map(Job::CompletedJob), tx))
     }

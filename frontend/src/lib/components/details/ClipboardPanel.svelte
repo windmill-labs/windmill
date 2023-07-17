@@ -16,6 +16,6 @@
 		copyToClipboard(content)
 	}}
 >
-	<div class="text-xs whitespace-pre-wrap">{content}</div>
-	<Clipboard size={14} />
+	<div class="text-xs truncate whitespace-pre-wrap w-11/12">{content}</div>
+	<Clipboard size={14} class="w-1/12" />
 </div>

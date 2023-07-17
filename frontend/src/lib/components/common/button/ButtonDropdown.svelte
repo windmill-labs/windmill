@@ -24,7 +24,7 @@
 	}
 </script>
 
-<Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
+<Menu let:open as="div" class="relative hover:z-50 flex w-full h-full ">
 	<span use:popperRef>
 		<MenuButton
 			class={twMerge('h-full w-full flex flex-row gap-2 items-center', hasPadding ? 'px-2' : '')}

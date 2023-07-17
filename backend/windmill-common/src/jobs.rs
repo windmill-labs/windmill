@@ -207,7 +207,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script_hash.0,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(

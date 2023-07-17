@@ -136,17 +136,24 @@ impl AuthCache {
                             (Some(owner), email, super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
-                                        let is_admin = super_admin
-                                            || sqlx::query_scalar!(
-                                                "SELECT is_admin FROM usr where username = $1 AND \
+                                        let (is_admin, is_operator) = if super_admin {
+                                            (true, false)
+                                        } else {
+                                            let r = sqlx::query!(
+                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
                                             )
                                             .fetch_one(&self.db)
                                             .await
-                                            .ok()
-                                            .unwrap_or(false);
+                                            .ok();
+                                            if let Some(r) = r {
+                                                (r.is_admin, r.operator)
+                                            } else {
+                                                (false, true)
+                                            }
+                                        };
 
                                         let w_id = &w_id.unwrap();
                                         let groups = get_groups_for_user(w_id, &name, &self.db)
@@ -165,6 +172,7 @@ impl AuthCache {
                                                 .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                             username: name.to_string(),
                                             is_admin,
+                                            is_operator,
                                             groups,
                                             folders,
                                             scopes: None,
@@ -186,6 +194,7 @@ impl AuthCache {
                                             username: format!("group-{name}"),
                                             is_admin: false,
                                             groups,
+                                            is_operator: false,
                                             folders,
                                             scopes: None,
                                         })
@@ -198,6 +207,7 @@ impl AuthCache {
                                             .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                         username: owner,
                                         is_admin: super_admin,
+                                        is_operator: true,
                                         groups,
                                         folders,
                                         scopes: None,
@@ -206,18 +216,18 @@ impl AuthCache {
                             }
                             (_, Some(email), super_admin, scopes) => {
                                 if w_id.is_some() {
-                                    let row_o = sqlx::query_as::<_, (String, bool)>(
-                                        "SELECT username, is_admin FROM usr where email = $1 AND \
+                                    let row_o = sqlx::query_as::<_, (String, bool, bool)>(
+                                        "SELECT username, is_admin, operator FROM usr where email = $1 AND \
                                          workspace_id = $2 AND disabled = false",
                                     )
                                     .bind(&email)
                                     .bind(&w_id.as_ref().unwrap())
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false)));
 
                                     match row_o {
-                                        Some((username, is_admin)) => {
+                                        Some((username, is_admin, is_operator)) => {
                                             let groups = get_groups_for_user(
                                                 &w_id.as_ref().unwrap(),
                                                 &username,
@@ -240,6 +250,7 @@ impl AuthCache {
                                                 email,
                                                 username,
                                                 is_admin: is_admin || super_admin,
+                                                is_operator,
                                                 groups,
                                                 folders,
                                                 scopes,
@@ -249,6 +260,7 @@ impl AuthCache {
                                             email: email.clone(),
                                             username: email,
                                             is_admin: super_admin,
+                                            is_operator: false,
                                             groups: vec![],
                                             folders: vec![],
                                             scopes,
@@ -260,6 +272,7 @@ impl AuthCache {
                                         email: email.to_string(),
                                         username: email,
                                         is_admin: super_admin,
+                                        is_operator: true,
                                         groups: Vec::new(),
                                         folders: Vec::new(),
                                         scopes,
@@ -285,6 +298,7 @@ impl AuthCache {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
+                        is_operator: false,
                         groups: Vec::new(),
                         folders: Vec::new(),
                         scopes: None,
@@ -366,6 +380,7 @@ pub struct Authed {
     pub email: String,
     pub username: String,
     pub is_admin: bool,
+    pub is_operator: bool,
     pub groups: Vec<String>,
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
@@ -667,7 +682,7 @@ async fn exists_username(
         &w_id,
         &username
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     tx.commit().await?;
@@ -700,7 +715,7 @@ async fn list_users(
         // flatten not released yet https://github.com/launchbadge/sqlx/pull/1959
         Ok(UserWithUsage { user: FromRow::from_row(&row)?, usage: FromRow::from_row(&row)? })
     })
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -723,7 +738,7 @@ async fn list_users_as_super_admin(
         per_page as i32,
         offset as i32
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -758,7 +773,7 @@ async fn list_usernames(
     }
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -774,7 +789,7 @@ async fn list_invites(
         "SELECT * from workspace_invite WHERE email = $1",
         authed.email
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -798,11 +813,11 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
     let email = sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
     if let Some(email) = email {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &email.unwrap_or("noemail".to_string()),
             "users.logout",
             ActionKind::Delete,
@@ -1056,11 +1071,11 @@ async fn decline_invite(
         nu.workspace_id,
         email,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.decline_invite",
         ActionKind::Delete,
@@ -1113,7 +1128,7 @@ async fn accept_invite(
         nu.workspace_id,
         email,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let is_some = r.is_some();
@@ -1129,7 +1144,7 @@ async fn accept_invite(
         .await?;
 
         audit_log(
-            &mut tx,
+            &mut *tx,
             &nu.username,
             "users.accept_invite",
             ActionKind::Create,
@@ -1172,7 +1187,7 @@ async fn add_user_to_workspace<'c>(
         &w_id,
         username,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -1194,7 +1209,7 @@ async fn add_user_to_workspace<'c>(
         &w_id,
         username,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -1215,7 +1230,7 @@ async fn add_user_to_workspace<'c>(
         is_admin,
         operator
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query_as!(
         Group,
@@ -1224,10 +1239,10 @@ async fn add_user_to_workspace<'c>(
         username,
         "all",
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         username,
         "users.add_to_workspace",
         ActionKind::Create,
@@ -1256,7 +1271,7 @@ async fn update_workspace_user(
             &username_to_update,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -1267,7 +1282,7 @@ async fn update_workspace_user(
             &username_to_update,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -1278,12 +1293,12 @@ async fn update_workspace_user(
             &username_to_update,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "users.update",
         ActionKind::Update,
@@ -1312,12 +1327,12 @@ async fn update_user(
             sa,
             &email_to_update
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.update",
         ActionKind::Update,
@@ -1340,34 +1355,34 @@ async fn delete_user(
     require_super_admin(&mut tx, &email).await?;
 
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     let usernames = sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 RETURNING username",
         &email_to_delete
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     for username in usernames {
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",
             &email_to_delete
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.delete",
         ActionKind::Delete,
@@ -1414,11 +1429,11 @@ async fn create_user(
         nu.name,
         nu.company
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.add_global",
         ActionKind::Create,
@@ -1499,7 +1514,7 @@ async fn delete_workspace_user(
         email_to_delete,
         &w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -1507,11 +1522,11 @@ async fn delete_workspace_user(
         &username,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "users.delete",
         ActionKind::Delete,
@@ -1536,7 +1551,7 @@ async fn set_password(
         "SELECT login_type::TEXT FROM password WHERE email = $1",
         &email
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("setting password: {e}")))?
     .unwrap_or("".to_string());
@@ -1552,11 +1567,11 @@ async fn set_password(
         &hash_password(argon2, password)?,
         &email,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "users.setpassword",
         ActionKind::Update,
@@ -1728,7 +1743,7 @@ async fn login(
          'password'",
     )
     .bind(&email)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
@@ -1745,7 +1760,7 @@ async fn login(
                     "UPDATE password SET first_time_user = false WHERE email = $1",
                     &email
                 )
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await?;
                 let mut c = Cookie::new("first_time", "1");
                 if let Some(domain) = COOKIE_DOMAIN.as_ref() {
@@ -1786,7 +1801,7 @@ pub async fn create_session_token<'c>(
         TTL_TOKEN_DB_H.to_string(),
         super_admin
     )
-    .execute(tx)
+    .execute(&mut **tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(*IS_SECURE);
@@ -1813,7 +1828,7 @@ async fn create_token(
 
     let is_super_admin =
         sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?
             .unwrap_or(false);
     sqlx::query!(
@@ -1827,11 +1842,11 @@ async fn create_token(
         is_super_admin,
         new_token.scopes.as_ref().map(|x| x.as_slice())
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.token.create",
         ActionKind::Delete,
@@ -1866,7 +1881,7 @@ async fn impersonate(
         "SELECT super_admin FROM password WHERE email = $1",
         impersonated
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
     sqlx::query!(
@@ -1879,11 +1894,11 @@ async fn impersonate(
         new_token.expiration,
         is_super_admin
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "users.impersonate",
         ActionKind::Delete,
@@ -1928,11 +1943,11 @@ async fn delete_token(
     )
     .bind(&email)
     .bind(&token_prefix)
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &email,
         "users.token.delete",
         ActionKind::Delete,
@@ -1962,11 +1977,11 @@ async fn leave_workspace(
         &w_id,
         username
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "users.leave_workspace",
         ActionKind::Delete,
@@ -2006,7 +2021,7 @@ async fn get_all_runnables(
          usr.email = $1 AND deleted = false",
         authed.email
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -2021,7 +2036,7 @@ async fn get_all_runnables(
         let flows = sqlx::query!(
             "SELECT workspace_id as workspace, path, summary, description, schema FROM flow WHERE workspace_id = $1", workspace
         )
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
         runnables.extend(
             flows
@@ -2048,7 +2063,7 @@ async fn get_all_runnables(
         let scripts = sqlx::query!(
         "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1) and workspace_id = $1", workspace
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
         runnables.extend(
             scripts

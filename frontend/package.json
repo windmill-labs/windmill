@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.128.0",
+	"version": "1.132.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -79,7 +79,7 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.2",
-		"ag-grid-svelte": "^0.1.4",
+		"ag-grid-svelte": "^0.3.0",
 		"ansi_up": "^5.2.1",
 		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
