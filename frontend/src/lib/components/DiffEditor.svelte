@@ -26,15 +26,15 @@
 
 	export let automaticLayout = true
 	export let fixedOverflowWidgets = true
-	export let width: number
 
-	let diffEditor: meditor.IStandaloneDiffEditor
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
+	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
 
 	function loadDiffEditor() {
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: width >= SIDE_BY_SIDE_MIN_WIDTH,
+			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			domReadOnly: true,
 			readOnly: true,
 			minimap: {
@@ -52,9 +52,9 @@
 	export function setDiff(
 		original: string,
 		modified: string,
-		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql'
+		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript'
 	): void {
-		diffEditor.setModel({
+		diffEditor?.setModel({
 			original: meditor.createModel(original, lang),
 			modified: meditor.createModel(modified, lang)
 		})
@@ -65,11 +65,11 @@
 	}
 
 	export function getOriginal(): string {
-		return diffEditor.getModel()?.original.getValue() ?? ''
+		return diffEditor?.getModel()?.original.getValue() ?? ''
 	}
 
 	export function getModified(): string {
-		return diffEditor.getModel()?.modified.getValue() ?? ''
+		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}
 
 	export function show(): void {
@@ -79,11 +79,11 @@
 		diffDivEl?.classList.add('hidden')
 	}
 
-	function onWidthChange(width) {
-		diffEditor?.updateOptions({ renderSideBySide: width >= SIDE_BY_SIDE_MIN_WIDTH })
+	function onWidthChange(editorWidth) {
+		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
 	}
 
-	$: onWidthChange(width)
+	$: onWidthChange(editorWidth)
 
 	onMount(() => {
 		if (BROWSER) {
@@ -95,4 +95,4 @@
 	})
 </script>
 
-<div bind:this={diffDivEl} class="{$$props.class} editor" />
+<div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />

@@ -226,8 +226,7 @@
 									bind:this={diffEditor}
 									automaticLayout
 									fixedOverflowWidgets
-									class="hidden flex-1 h-full !overflow-visible"
-									{width}
+									class="hidden h-full"
 								/>
 							{/key}
 						{:else if flowModule.value.type === 'script'}
