@@ -34,6 +34,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
@@ -66,6 +67,8 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
+        .route("/edit_openai_key", post(edit_openai_key))
+        .route("/exists_openai_key", get(exists_openai_key) )
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
@@ -113,6 +116,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
+    pub openai_key: Option<String>,
     pub error_handler: Option<String>,
 }
 
@@ -151,6 +155,11 @@ struct EditAutoInvite {
 #[derive(Deserialize)]
 struct EditWebhook {
     webhook: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EditOpenAIKey {
+    openai_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -222,7 +231,7 @@ async fn list_pending_invites(
         "SELECT * from workspace_invite WHERE workspace_id = $1",
         w_id
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -244,7 +253,7 @@ async fn premium_info(
         "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = usage.id AND usage.is_workspace IS true WHERE workspace.id = $1",
     )
     .bind(w_id)
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(row))
@@ -381,7 +390,7 @@ async fn exists_workspace(
         "SELECT EXISTS(SELECT 1 FROM workspace WHERE workspace.id = $1)",
         id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     tx.commit().await?;
@@ -399,7 +408,7 @@ async fn list_workspaces(
          usr.email = $1 AND deleted = false",
         authed.email
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(workspaces))
@@ -416,7 +425,7 @@ async fn get_settings(
         "SELECT * FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
 
@@ -439,7 +448,7 @@ async fn get_deploy_to(
         "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
 
@@ -461,11 +470,11 @@ async fn edit_slack_command(
         es.slack_command_script,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_command_script",
         ActionKind::Update,
@@ -504,11 +513,11 @@ async fn edit_deploy_to(
         es.deploy_to,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_deploy_to",
         ActionKind::Update,
@@ -568,7 +577,7 @@ async fn edit_auto_invite(
             operator,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -582,18 +591,18 @@ async fn edit_auto_invite(
             &domain,
             operator
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
             "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL WHERE workspace_id = $1",
             &w_id,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_auto_invite_domain",
         ActionKind::Update,
@@ -627,18 +636,18 @@ async fn edit_webhook(
             webhook,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
             "UPDATE workspace_settings SET webhook = NULL WHERE workspace_id = $1",
             &w_id,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_webhook",
         ActionKind::Update,
@@ -650,6 +659,71 @@ async fn edit_webhook(
     tx.commit().await?;
 
     Ok(format!("Edit webhook for workspace {}", &w_id))
+}
+
+async fn edit_openai_key(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(eo): Json<EditOpenAIKey>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    if let Some(openai_key) = &eo.openai_key {
+        sqlx::query!(
+            "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2",
+            openai_key,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET openai_key = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_openai_key",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("openai_key", &format!("{:?}", eo.openai_key)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit openai_key for workspace {}", &w_id))
+}
+
+
+async fn exists_openai_key(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+) -> JsonResult<bool> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+    let openai_key = sqlx::query_scalar!(
+        "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
+    tx.commit().await?;
+
+    let exists = openai_key.is_some();
+
+    Ok(Json(exists))
 }
 
 
@@ -672,7 +746,7 @@ async fn edit_error_handler(
         "The group the error handler acts on belhalf of",
         serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
@@ -682,18 +756,18 @@ async fn edit_error_handler(
             error_handler,
             &w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
             "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
             &w_id,
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.edit_error_handler",
         ActionKind::Update,
@@ -724,7 +798,7 @@ async fn list_workspaces_as_super_admin(
         per_page as i32,
         offset as i32
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(workspaces))
@@ -742,7 +816,7 @@ async fn user_workspaces(
          false",
         email
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(WorkspaceList { email, workspaces }))
@@ -750,7 +824,7 @@ async fn user_workspaces(
 
 async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
     let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", w_id)
-        .fetch_one(tx)
+        .fetch_one(&mut **tx)
         .await?
         .unwrap_or(false);
     if exists {
@@ -787,7 +861,7 @@ async fn create_workspace(
         nw.name,
         authed.email,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "INSERT INTO workspace_settings
@@ -795,7 +869,7 @@ async fn create_workspace(
             VALUES ($1)",
         nw.id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     let key = rd_string(64);
     sqlx::query!(
@@ -805,7 +879,7 @@ async fn create_workspace(
         nw.id,
         &key
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     // let mc = magic_crypt::new_magic_crypt!(key, 256);
@@ -830,7 +904,7 @@ async fn create_workspace(
         authed.email,
         nw.username,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -838,7 +912,7 @@ async fn create_workspace(
             VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
         nw.id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -847,11 +921,11 @@ async fn create_workspace(
         nw.id,
         nw.username
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.create",
         ActionKind::Create,
@@ -879,11 +953,11 @@ async fn edit_workspace(
         ew.owner,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "workspaces.update",
         ActionKind::Update,
@@ -905,11 +979,11 @@ async fn archive_workspace(
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "workspaces.archive",
         ActionKind::Update,
@@ -931,11 +1005,11 @@ async fn unarchive_workspace(
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "workspaces.unarchive",
         ActionKind::Update,
@@ -967,69 +1041,69 @@ async fn delete_workspace(
     require_super_admin(&mut tx, &email).await?;
 
     sqlx::query!("DELETE FROM script WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM app WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM resource WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM schedule WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM completed_job WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1",
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!("DELETE FROM usr_to_group WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM folder WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     sqlx::query!(
         "DELETE FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &username,
         "workspaces.delete",
         ActionKind::Delete,
@@ -1050,7 +1124,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
         "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1",
         domain
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     for r in workspaces {
         sqlx::query!(
@@ -1062,7 +1136,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
             email,
             r.auto_invite_operator
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
@@ -1091,7 +1165,7 @@ async fn invite_user(
         nu.is_admin,
         nu.operator
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -1145,7 +1219,7 @@ async fn add_user(
         nu.is_admin,
         nu.operator
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query_as!(
@@ -1155,7 +1229,7 @@ async fn add_user(
         nu.username,
         "all",
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -1200,7 +1274,7 @@ async fn delete_invite(
         nu.is_admin,
         nu.operator
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -1295,6 +1369,7 @@ struct ArchiveQueryParams {
     skip_secrets: Option<bool>,
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
+    include_schedules: Option<bool>,
 }
 
 #[inline]
@@ -1322,6 +1397,7 @@ where
                 "archived",
                 "has_draft",
                 "draft_only",
+                "error"
             ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
@@ -1349,6 +1425,7 @@ async fn tarball_workspace(
         skip_resources,
         skip_secrets,
         skip_variables,
+        include_schedules,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
@@ -1532,6 +1609,25 @@ async fn tarball_workspace(
                 .await?;
         }
     }
+
+    if include_schedules.unwrap_or(false) {
+        let schedules = sqlx::query_as!(
+            Schedule,
+            "SELECT * FROM schedule
+            WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for schedule in schedules {
+            let app_str = &to_string_without_metadata(&schedule, false).unwrap();
+            archive
+                .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
+                .await?;
+        }
+    }
+
     archive.finish().await?;
 
     let file = tokio::fs::File::open(file_path).await?;

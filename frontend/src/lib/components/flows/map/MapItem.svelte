@@ -43,7 +43,8 @@
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
-		mock: Boolean(mod.mock?.enabled)
+		mock: Boolean(mod.mock?.enabled),
+		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	}
 
 	function onDelete(event: CustomEvent<MouseEvent>) {

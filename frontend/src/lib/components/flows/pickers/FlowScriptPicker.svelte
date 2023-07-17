@@ -13,6 +13,7 @@
 		| 'javascript'
 		| 'fetch'
 		| 'docker'
+		| 'powershell'
 		| undefined = undefined
 	export let icon: IconDefinition | undefined = undefined
 	export let iconColor: string | undefined = undefined

@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM workspace_settings WHERE slack_team_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_team_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "slack_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "slack_command_script",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "slack_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "auto_invite_domain",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "auto_invite_operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "customer_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "plan",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "webhook",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "deploy_to",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "error_handler",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "openai_key",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e"
+}

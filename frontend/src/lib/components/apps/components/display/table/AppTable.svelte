@@ -4,6 +4,8 @@
 		AppViewerContext,
 		BaseAppComponent,
 		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
 		RichConfigurations
 	} from '../../../types'
 	import type { AppInput } from '../../../inputType'
@@ -38,6 +40,9 @@
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	type T = Record<string, any>
 
@@ -87,6 +92,9 @@
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original, force)
 			outputs?.selectedRowIndex.set(rowIndex, force)
+			if (iterContext && listInputs) {
+				listInputs(id, { selectedRow: row.original, selectedRowIndex: rowIndex })
+			}
 		}
 	}
 
@@ -351,11 +359,13 @@
 															$hoverStore = undefined
 														}
 													}}
-													class={($selectedComponent?.includes(actionButton.id) ||
-														$hoverStore === actionButton.id) &&
-													$mode !== 'preview'
-														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
-														: ''}
+													class={classNames(
+														($selectedComponent?.includes(actionButton.id) ||
+															$hoverStore === actionButton.id) &&
+															$mode !== 'preview'
+															? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
+															: ''
+													)}
 												>
 													{#if $mode !== 'preview'}
 														<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -428,18 +438,20 @@
 																{controls}
 															/>
 														{:else if actionButton.type == 'selectcomponent'}
-															<AppSelect
-																extraKey={'idx' + rowIndex}
-																{render}
-																id={actionButton.id}
-																customCss={actionButton.customCss}
-																configuration={actionButton.configuration}
-																recomputeIds={actionButton.recomputeIds}
-																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
-																}}
-																{controls}
-															/>
+															<div class="w-40">
+																<AppSelect
+																	extraKey={'idx' + rowIndex}
+																	{render}
+																	id={actionButton.id}
+																	customCss={actionButton.customCss}
+																	configuration={actionButton.configuration}
+																	recomputeIds={actionButton.recomputeIds}
+																	preclickAction={async () => {
+																		toggleRow(row, rowIndex)
+																	}}
+																	{controls}
+																/>
+															</div>
 														{/if}
 													{:else if actionButton.type == 'buttoncomponent'}
 														<AppButton
@@ -469,17 +481,20 @@
 															}}
 														/>
 													{:else if actionButton.type == 'selectcomponent'}
-														<AppSelect
-															extraKey={'idx' + rowIndex}
-															{render}
-															id={actionButton.id}
-															customCss={actionButton.customCss}
-															configuration={actionButton.configuration}
-															recomputeIds={actionButton.recomputeIds}
-															preclickAction={async () => {
-																toggleRow(row, rowIndex)
-															}}
-														/>
+														<div class="w-40">
+															<AppSelect
+																--font-size="10px"
+																extraKey={'idx' + rowIndex}
+																{render}
+																id={actionButton.id}
+																customCss={actionButton.customCss}
+																configuration={actionButton.configuration}
+																recomputeIds={actionButton.recomputeIds}
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
+															/>
+														</div>
 													{/if}
 												</div>
 											{/each}

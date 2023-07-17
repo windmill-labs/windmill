@@ -20,8 +20,23 @@ use windmill_common::{
     utils::{paginate, Pagination},
 };
 
+#[cfg(feature = "benchmark")]
+use windmill_queue::IDLE_WORKERS;
+#[cfg(feature = "benchmark")]
+use std::sync::atomic::Ordering;
+
+
+#[cfg(not(feature = "benchmark"))]
 pub fn global_service() -> Router {
     Router::new()
+        .route("/list", get(list_worker_pings))
+        .route("/custom_tags", get(get_custom_tags))
+}
+
+#[cfg(feature = "benchmark")]
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/toggle", get(toggle))
         .route("/list", get(list_worker_pings))
         .route("/custom_tags", get(get_custom_tags))
 }
@@ -43,6 +58,11 @@ struct WorkerPing {
     jobs_executed: i32,
 }
 
+#[derive(Serialize, Deserialize)]
+struct EnableWorkerQuery {
+    disable: bool,
+}
+
 async fn list_worker_pings(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -58,10 +78,18 @@ async fn list_worker_pings(
         per_page as i64,
         offset as i64
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+#[cfg(feature = "benchmark")]
+async fn toggle(
+    Query(query): Query<EnableWorkerQuery>,
+) -> JsonResult<bool> {
+    IDLE_WORKERS.store(query.disable, Ordering::Relaxed);
+    Ok(Json(IDLE_WORKERS.load(Ordering::Relaxed)))
 }
 
 async fn get_custom_tags() -> Json<Vec<String>> {

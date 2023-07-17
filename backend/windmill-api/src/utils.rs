@@ -20,7 +20,7 @@ pub async fn require_super_admin<'c>(
         return Ok(());
     }
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(db)
+        .fetch_optional(&mut **db)
         .await
         .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
         .unwrap_or(false);

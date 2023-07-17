@@ -8,7 +8,7 @@ export interface Subscriber<T> {
 }
 
 export interface Observable<T> {
-	subscribe(x: Subscriber<T>): void
+	subscribe(x: Subscriber<T>, previousValue: T): void
 }
 export interface Output<T> extends Observable<T> {
 	set(x: T, force?: boolean): void
@@ -21,7 +21,12 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: AppInput, next: (x: T) => void, id?: string) => Input<T>
+	connect: <T>(
+		inputSpec: AppInput,
+		next: (x: T) => void,
+		id: string,
+		previousValue: any
+	) => Input<T>
 	stateId: Writable<number>
 	newOutput: <T>(id: string, name: string, previousValue: T) => Output<T>
 }
@@ -64,7 +69,12 @@ export function buildWorld(context: Record<string, any>): Writable<World> {
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInput, next: (x: T) => void, id?: string): Input<T> {
+	function connect<T>(
+		inputSpec: AppInput,
+		next: (x: T) => void,
+		id: string,
+		previousValue: T
+	): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
 				id,
@@ -97,8 +107,7 @@ export function buildObservableWorld() {
 				}
 			}
 
-			obs.subscribe(input)
-			input.next(obs.peak())
+			obs.subscribe(input, previousValue)
 			return input
 		} else if (inputSpec.type === 'user') {
 			return {
@@ -150,7 +159,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	let value: T | undefined = previousValue
 	const subscribers: Subscriber<T>[] = []
 
-	function subscribe(x: Subscriber<T>) {
+	function subscribe(x: Subscriber<T>, npreviousValue: any) {
 		let currentSubscriber = subscribers.findIndex((y) => y === x || (y.id && y.id === x.id))
 		if (currentSubscriber == -1) {
 			subscribers.push(x)
@@ -159,7 +168,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 		}
 
 		// Send the current value to the new subscriber if it already exists
-		if (value !== undefined) {
+		if (value !== undefined && !deepEqual(value, npreviousValue)) {
 			x.next(value)
 		}
 	}

@@ -30,7 +30,6 @@ jobs:
           cd python-client
           ./publish.sh
 
-
   publish_lsp:
     runs-on: ubuntu-latest
     steps:
@@ -38,7 +37,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: sleep 300
         shell: bash
-        
+
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -75,7 +74,6 @@ jobs:
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
 
-
   publish_lsp_private:
     needs: [publish_lsp]
     runs-on: ubuntu-latest
@@ -92,7 +90,6 @@ jobs:
           registry: ${{ env.ECR_REGISTRY }}
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
 
       - name: Push image to ECR
         run: |

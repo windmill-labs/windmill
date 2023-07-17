@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, getModifierKey } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, getModifierKey } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -53,7 +53,7 @@
 		return schema
 	}
 
-	$: inlineScript && (inlineScript.path = `${appPath}/${name}`)
+	$: inlineScript && (inlineScript.path = `${defaultIfEmptyString(appPath, '')}/${name}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {

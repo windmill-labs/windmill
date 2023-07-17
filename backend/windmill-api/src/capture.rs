@@ -55,7 +55,7 @@ pub async fn new_payload(
         &path.to_path(),
         &authed.username,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     /* Retain only KEEP_LAST most recent captures by this user in this workspace. */
@@ -77,7 +77,7 @@ pub async fn new_payload(
         &authed.username,
         KEEP_LAST,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -111,7 +111,7 @@ pub async fn update_payload(
         &path.to_path(),
         serde_json::json!(args),
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -136,7 +136,7 @@ pub async fn get_payload(
         &w_id,
         &path.to_path(),
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     tx.commit().await?;

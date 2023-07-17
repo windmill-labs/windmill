@@ -85,15 +85,57 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM python:3.11.3-slim-buster
+FROM debian:buster-slim as downloader
+
+ARG TARGETPLATFORM
+
+SHELL ["/bin/bash", "-c"]
+
+RUN apt update -y
+RUN apt install -y unzip curl
+
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.35.0/deno-linux-arm64.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.35.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+
+RUN unzip deno.zip && rm deno.zip
+
+FROM python:3.11.4-slim-buster
 ARG TARGETPLATFORM
 
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc \
     && rm -rf /var/lib/apt/lists/*
+
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
+    dpkg --install 'pwsh.deb' && \
+    rm 'pwsh.deb' || true
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
+    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
+    mv linux-$arch/helm /usr/local/bin/helm &&\
+    chmod +x /usr/local/bin/helm
+
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    case "$arch" in \
+    'amd64') \
+    zip='awscli-exe-linux-x86_64.zip'; \
+    ;; \
+    'arm64') \
+    zip='awscli-exe-linux-aarch64.zip'; \
+    ;; \
+    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
+    esac; \
+    apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && rm awscliv2.zip
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
@@ -102,7 +144,6 @@ RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    url=; \
     case "$arch" in \
     'amd64') \
     targz='go1.19.3.linux-amd64.tar.gz'; \
@@ -127,15 +168,13 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=frontend /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
+
+COPY --from=downloader /deno /usr/bin/deno
+RUN chmod 755 /usr/bin/deno
+
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=denoland/deno:1.35.0 /usr/bin/deno /usr/bin/deno
-
-COPY --from=oven/bun:0.6.13 /usr/local/bin/bun /usr/bin/bun
-
-# docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
-COPY --from=lukechannings/deno:v1.35.0 /usr/bin/deno /usr/bin/deno-arm
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
+COPY --from=oven/bun:0.6.14 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

@@ -89,7 +89,7 @@ services:
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
       - PARALLEL_NATIVE_JOBS=12
-      - WORKER_TAGS=nativets,postgresql
+      - WORKER_TAGS=nativets,postgresql,mysql,graphql
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:

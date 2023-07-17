@@ -22,5 +22,11 @@
     "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     "userinfo_url": "https://graph.microsoft.com/oidc/userinfo",
     "scopes": ["openid", "profile", "email"]
+  },
+  "jumpcloud": {
+    "auth_url": "https://oauth.id.jumpcloud.com/oauth2/auth",
+    "token_url": "https://oauth.id.jumpcloud.com/oauth2/token",
+    "userinfo_url": "https://oauth.id.jumpcloud.com/userinfo",
+    "scopes": ["email"]
   }
 }

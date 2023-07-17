@@ -161,7 +161,7 @@ async fn cancel_job_api(
 
     if let Some(id) = job_option {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &username,
             "jobs.cancel",
             ActionKind::Delete,
@@ -204,7 +204,7 @@ async fn force_cancel(
 
     if let Some(id) = job_option {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &username,
             "jobs.force_cancel",
             ActionKind::Delete,
@@ -238,7 +238,7 @@ pub async fn get_path_for_hash<'c>(
         hash,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
@@ -248,24 +248,29 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_and_tag_for_hash<'c>(
+pub async fn get_path_tag_and_limits_for_hash<'c>(
     db: &mut Transaction<'c, Postgres>,
     w_id: &str,
     hash: i64,
-) -> error::Result<(String, Option<String>)> {
+) -> error::Result<(String, Option<String>, Option<i32>, Option<i32>)> {
     let script = sqlx::query!(
-        "select path, tag from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut **db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
             "querying getting path for hash {hash} in {w_id}: {e}"
         ))
     })?;
-    Ok((script.path, script.tag))
+    Ok((
+        script.path,
+        script.tag,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+    ))
 }
 
 async fn get_job(
@@ -305,7 +310,7 @@ pub async fn get_job_by_id<'c>(
     )
     .bind(id)
     .bind(w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     let job_option = match cjob_option {
         Some(job) => Some(Job::CompletedJob(job)),
@@ -320,7 +325,7 @@ pub async fn get_job_by_id<'c>(
         )
         .bind(id)
         .bind(w_id)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         Ok((cjob_option.map(Job::CompletedJob), tx))
     }
@@ -401,7 +406,7 @@ impl RunJobQuery {
         if let Some(scheduled_for) = self.scheduled_for {
             Ok(Some(scheduled_for))
         } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
-            let now = now_from_db(db).await?;
+            let now = now_from_db(&mut **db).await?;
             Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
         } else {
             Ok(None)
@@ -651,6 +656,8 @@ async fn list_jobs(
             "suspend",
             "mem_peak",
             "tag",
+            "concurrent_limit",
+            "concurrency_time_window_s",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -687,6 +694,8 @@ async fn list_jobs(
             "null as suspend",
             "mem_peak",
             "tag",
+            "null as concurrent_limit",
+            "null as concurrency_time_window_s",
         ],
     );
     let sql = format!(
@@ -697,7 +706,7 @@ async fn list_jobs(
         offset
     );
     let mut tx = user_db.begin(&authed).await?;
-    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut tx).await?;
+    let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
@@ -753,7 +762,7 @@ pub async fn resume_suspended_job(
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -795,7 +804,7 @@ async fn resume_immediately_if_relevant<'c>(
                     suspend,
                     flow.id,
                 )
-                .execute(tx)
+                .execute(&mut **tx)
                 .await?;
             }
         },
@@ -823,7 +832,7 @@ async fn insert_resume_job<'c>(
         value,
         approver
     )
-    .execute(tx)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -850,7 +859,7 @@ async fn get_suspended_parent_flow_info<'c>(
         "#,
         job_id,
     )
-    .fetch_optional(tx)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
     Ok(flow)
@@ -869,7 +878,7 @@ async fn get_suspended_flow_info<'c>(
         "#,
         job_id,
     )
-    .fetch_optional(tx)
+    .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
     let job_id = flow
@@ -922,7 +931,7 @@ pub async fn cancel_suspended_job(
     .await?;
     if cjob.is_some() {
         audit_log(
-            &mut tx,
+            &mut *tx,
             &whom,
             "jobs.disapproval",
             ActionKind::Delete,
@@ -981,7 +990,7 @@ pub async fn get_suspended_job_flow(
         job,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
@@ -1010,7 +1019,7 @@ pub async fn get_suspended_job_flow(
             "#,
             job,
         )
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .map(|x| Approval {
@@ -1154,6 +1163,8 @@ struct UnifiedJob {
     suspend: Option<i32>,
     mem_peak: Option<i32>,
     tag: String,
+    concurrent_limit: Option<i32>,
+    concurrency_time_window_s: Option<i32>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1226,6 +1237,8 @@ impl From<UnifiedJob> for Job {
                 root_job: None,
                 leaf_jobs: None,
                 tag: uj.tag,
+                concurrent_limit: uj.concurrent_limit,
+                concurrency_time_window_s: uj.concurrency_time_window_s,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1500,7 +1513,7 @@ impl Drop for Guard {
                 id,
                 w_id
             )
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await;
                     let _ = tx.commit().await;
                 }
@@ -1540,7 +1553,7 @@ async fn run_wait_result<T>(
             uuid,
             &w_id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?
         .flatten();
         drop(tx);
@@ -1824,7 +1837,8 @@ pub async fn run_wait_result_script_by_hash(
 
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) =
+        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -1833,7 +1847,12 @@ pub async fn run_wait_result_script_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
+        JobPayload::ScriptHash {
+            hash: ScriptHash(hash),
+            path: path,
+            concurrent_limit: concurrent_limit,
+            concurrency_time_window_s: concurrency_time_window_s,
+        },
         args,
         &authed.username,
         &authed.email,
@@ -1967,6 +1986,11 @@ async fn run_preview_job(
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("runscript"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
@@ -1983,6 +2007,8 @@ async fn run_preview_job(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: None,
+                concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                concurrency_time_window_s: None, // TODO(gbouv): same as above
             }),
         },
         args,
@@ -2054,6 +2080,11 @@ async fn run_preview_flow_job(
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("runflow"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
@@ -2094,7 +2125,8 @@ pub async fn run_job_by_hash(
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s) =
+        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
@@ -2104,7 +2136,12 @@ pub async fn run_job_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
+        JobPayload::ScriptHash {
+            hash: ScriptHash(hash),
+            path: path,
+            concurrent_limit: concurrent_limit,
+            concurrency_time_window_s: concurrency_time_window_s,
+        },
         args,
         &authed.username,
         &authed.email,
@@ -2153,7 +2190,7 @@ async fn get_job_update(
         &w_id,
         &id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     if let Some(record) = record {
@@ -2172,7 +2209,7 @@ async fn get_job_update(
             &w_id,
             &id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         let logs = not_found_if_none(logs, "Job", id.to_string())?;
         tx.commit().await?;
@@ -2407,13 +2444,13 @@ async fn delete_completed_job(
     )
     .bind(id)
     .bind(&w_id)
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "jobs.delete",
         ActionKind::Delete,

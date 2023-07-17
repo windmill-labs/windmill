@@ -29,7 +29,7 @@
 
 	export let script: NewScript
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let topHash: string | undefined = undefined
@@ -61,13 +61,14 @@
 		['Typescript (Deno)', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
-	if (SCRIPT_SHOW_GO) {
-		langs.push(['Go', Script.language.GO])
-	}
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
+	langs.push(['MySQL', Script.language.MYSQL])
+	if (SCRIPT_SHOW_GO) {
+		langs.push(['Go', Script.language.GO])
+	}
 	langs.push(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
@@ -119,7 +120,7 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script.kind | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 	) {
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
@@ -157,7 +158,9 @@
 					language: script.language,
 					kind: script.kind,
 					tag: script.tag,
-					envs: script.envs
+					envs: script.envs,
+					concurrent_limit: script.concurrent_limit,
+					concurrency_time_window_s: script.concurrency_time_window_s
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -197,7 +200,9 @@
 						kind: script.kind,
 						tag: script.tag,
 						draft_only: true,
-						envs: script.envs
+						envs: script.envs,
+						concurrent_limit: script.concurrent_limit,
+						concurrency_time_window_s: script.concurrency_time_window_s
 					}
 				})
 			}
@@ -255,7 +260,6 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-
 <UnsavedConfirmationModal />
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
@@ -282,13 +286,13 @@
 					As a forked script, the language '{script.language}' cannot be modified.
 				</div>
 			{/if}
-			<div class="flex flex-row gap-2 flex-wrap">
+			<div class=" grid grid-cols-3 gap-2">
 				{#each langs as [label, lang]}
 					{@const isPicked = script.language == lang && template == 'script'}
 					<Button
 						size="sm"
 						variant="border"
-						color={isPicked ? 'blue' : 'dark'}
+						color={isPicked ? 'blue' : 'light'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
 							template = 'script'
@@ -298,13 +302,13 @@
 						disabled={lockedLanguage}
 					>
 						<LanguageIcon {lang} />
-						<span class="ml-2 py-2">{label}</span>
+						<span class="ml-2 py-2 truncate">{label}</span>
 					</Button>
 				{/each}
 				<Button
 					size="sm"
 					variant="border"
-					color={template == 'docker' ? 'blue' : 'dark'}
+					color={template == 'docker' ? 'blue' : 'light'}
 					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
@@ -331,9 +335,23 @@
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
 				</Button>
 				<Button
+					size="sm"
+					variant="border"
+					color={template == 'powershell' ? 'blue' : 'light'}
+					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						template = 'powershell'
+						initContent(Script.language.BASH, script.kind, template)
+						script.language = Script.language.BASH
+					}}
+				>
+					<LanguageIcon lang="powershell" /><span class="ml-2 py-2">Powershell</span>
+				</Button>
+				<Button
 					size="xs"
 					variant="border"
-					color={script.language == 'bun' ? 'blue' : 'dark'}
+					color={script.language == 'bun' ? 'blue' : 'light'}
 					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
@@ -341,7 +359,7 @@
 						script.language = Script.language.BUN
 					}}
 				>
-					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2">
+					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2 truncate">
 						Typescript (Bun, experimental)
 					</span>
 				</Button>
@@ -368,6 +386,23 @@
 				placeholder="Description displayed in the details page"
 				class="text-sm"
 			/>
+
+			<h2 class="border-b pb-1 mt-10 mb-4">Concurrency limits</h2>
+			<div class="flex gap-x-4 shrink">
+				<label class="block shrink min-w-0">
+					<span class="text-gray-700 text-sm">Maximum number of runs</span>
+					<input class="!w-55" type="number" bind:value={script.concurrent_limit} placeholder="5" />
+				</label>
+				<label class="block shrink min-w-0">
+					<span class="text-gray-700 text-sm">Per time window (seconds)</span>
+					<input
+						class="!w-18"
+						type="number"
+						bind:value={script.concurrency_time_window_s}
+						placeholder="60"
+					/>
+				</label>
+			</div>
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip

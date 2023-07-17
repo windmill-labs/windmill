@@ -31,7 +31,6 @@
 	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
-	$: isValid = allTrue(inputCheck) ?? false
 
 	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
@@ -61,6 +60,8 @@
 			}
 		}
 	}
+
+	$: isValid = allTrue(inputCheck ?? {})
 
 	let resourceTypes: string[] | undefined = undefined
 

@@ -505,20 +505,12 @@ pub async fn eval_fetch_timeout(
 }
 
 async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<serde_json::Value> {
-    let code = format!(
-        r#"
-{expr}
-main()
-        "#
-    );
-
-    let mod_id = js_runtime
-        .load_main_module(
+    let _ = js_runtime
+        .load_side_module(
             &deno_core::resolve_url("file:///eval.ts")?,
-            Some(code.into()),
+            Some(expr.to_string().into()),
         )
         .await?;
-    let _ = js_runtime.mod_evaluate(mod_id);
 
     let global = js_runtime.execute_script(
         "<anon>",

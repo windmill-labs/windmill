@@ -12,7 +12,7 @@
 	import { faEdit, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -185,6 +185,12 @@
 	}
 
 	let args = undefined
+
+	if ($runFormStore) {
+		args = $runFormStore
+		$runFormStore = undefined
+	}
+
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 
@@ -376,7 +382,15 @@
 				{mainButtons}
 				menuItems={getMenuItems(script)}
 				title={defaultIfEmptyString(script.summary, script.path)}
-			/>
+			>
+				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<Badge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
+						</Badge>
+					</div>
+				{/if}
+			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
 			<div class="p-8 w-full max-w-3xl mx-auto">

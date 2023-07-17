@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count\n            FROM\n                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count\n                FROM completed_job\n                WHERE script_path = $1 AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2)\n                GROUP BY script_path) as j\n            FULL OUTER JOIN\n                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as running_count\n                FROM queue\n                WHERE script_path = $1 AND running = true\n                GROUP BY script_path) as q\n            ON q.script_path = j.script_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min_started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "077b925c0a9f19a3859ca7eb0bc9049fc7c303daf469c049cf03570d22310d74"
+}

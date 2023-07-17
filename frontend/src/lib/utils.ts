@@ -571,3 +571,17 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	}
 	return false
 }
+
+export function extractCustomProperties(styleStr: string): string {
+	let properties = styleStr.split(';')
+	let customProperties = properties.filter((property) => property.trim().startsWith('--'))
+	let customStyleStr = customProperties.join(';')
+
+	return customStyleStr
+}
+
+export function toCamel(s: string) {
+	return s.replace(/([-_][a-z])/gi, ($1) => {
+		return $1.toUpperCase().replace('-', '').replace('_', '')
+	})
+}

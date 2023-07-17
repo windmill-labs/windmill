@@ -118,28 +118,15 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `INSERT INTO demo VALUES (\$1::TEXT, \$2::INT) RETURNING *
+export const POSTGRES_INIT_CODE = `-- $1 name1 = default arg
+-- $2 name2
+INSERT INTO demo VALUES (\$1::TEXT, \$2::INT) RETURNING *
 `
 
-export const MYSQL_INIT_CODE = `import {
-  mySql,
-  type Resource
-} from "https://deno.land/x/windmill@v${__pkg__.version}/mysql.ts";
-
-// fill the type, or use the +Resource type to get a type-safe reference to a resource
-type Mysql = object
-
-// MySQL parameterized statement. No SQL injection is possible.
-export async function main(
-  db: Mysql,
-  key: number,
-  value: string,
-) {
-  const query = await mySql(
-    db
-  )\`INSERT INTO demo VALUES (\${key}, \${value})\`;
-  return query.rows;
-}`
+export const MYSQL_INIT_CODE = `-- ? name1 (text) = default arg
+-- ? name2 (int)
+INSERT INTO demo VALUES (?, ?)
+`
 
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
@@ -245,6 +232,18 @@ docker pull $IMAGE
 docker run --rm $IMAGE $COMMAND
 `
 
+export const POWERSHELL_INIT_CODE = `# shellcheck shell=bash
+name="\${1:-Bill}"
+
+cat > script.ps1 << EOF
+Write-Host -Object 'Hello'
+Write-Host -Object 'From'
+Write-Host -Object 'PowerShell, '
+Write-Host -Object '$name!'
+EOF
+
+pwsh -File script.ps1`
+
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
 	PYTHON_INIT_CODE_TRIGGER,
@@ -269,7 +268,7 @@ export function isInitialCode(content: string): boolean {
 export function initialCode(
 	language: SupportedLanguage,
 	kind: Script.kind | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
 ): string {
 	if (!kind) {
 		kind = Script.kind.SCRIPT
@@ -309,6 +308,8 @@ export function initialCode(
 	} else if (language == 'bash') {
 		if (subkind === 'docker') {
 			return DOCKER_INIT_CODE
+		} else if (subkind === 'powershell') {
+			return POWERSHELL_INIT_CODE
 		} else {
 			return BASH_INIT_CODE
 		}
@@ -316,6 +317,8 @@ export function initialCode(
 		return NATIVETS_INIT_CODE
 	} else if (language == 'postgresql') {
 		return POSTGRES_INIT_CODE
+	} else if (language == 'mysql') {
+		return MYSQL_INIT_CODE
 	} else if (language == 'bun') {
 		return BUN_INIT_CODE
 	} else {

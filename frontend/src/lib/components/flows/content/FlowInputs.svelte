@@ -163,6 +163,17 @@
 								})
 							}}
 						/>
+						<FlowScriptPicker
+							label="MySQL"
+							lang={Script.language.MYSQL}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.MYSQL,
+									kind,
+									subkind: 'flow'
+								})
+							}}
+						/>
 
 						<FlowScriptPicker
 							label={`Docker`}
@@ -184,6 +195,14 @@
 									return
 								}
 								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'docker' })
+							}}
+						/>
+
+						<FlowScriptPicker
+							label={`Powershell`}
+							lang="powershell"
+							on:click={() => {
+								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'powershell' })
 							}}
 						/>
 
