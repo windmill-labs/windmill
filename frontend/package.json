@@ -21,7 +21,7 @@
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
 		"@sveltejs/kit": "^1.20.1",
-		"@sveltejs/package": "^2.0.0",
+		"@sveltejs/package": "^2.2.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
