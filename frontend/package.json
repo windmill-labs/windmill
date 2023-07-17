@@ -104,7 +104,7 @@
 		"windmill-parser-wasm": "^1.127.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
-		"yjs": "^13.6.4"
+		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
 		"@sveltejs/kit": "^1.20.1",
