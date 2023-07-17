@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.132.0](https://github.com/windmill-labs/windmill/compare/v1.131.0...v1.132.0) (2023-07-16)
+
+
+### Features
+
+* add powershell as a template ([b71362f](https://github.com/windmill-labs/windmill/commit/b71362fc7f9eb8a4506d231eb6687eb26696da24))
+* add schedule to syncable resources ([1956c43](https://github.com/windmill-labs/windmill/commit/1956c43705f11e809abf113f7af8deb708e5ccd2))
+* add whitelist envs to passthrough the workers ([ff0048a](https://github.com/windmill-labs/windmill/commit/ff0048afabad865898cda4be3a599f8d9ef569e8))
+* **frontend:** Eval for Drawer titles ([#1882](https://github.com/windmill-labs/windmill/issues/1882)) ([fee2b47](https://github.com/windmill-labs/windmill/commit/fee2b47ebe47a625e0f2b0672f232b54b544200e))
+
+
+### Bug Fixes
+
+* **frontend:** fix bg script selection ([#1881](https://github.com/windmill-labs/windmill/issues/1881)) ([df5a4db](https://github.com/windmill-labs/windmill/commit/df5a4dbdc877ef4f8fd0c105d8bbc8a5d601eeb3))
+* **frontend:** fix payload query parameter in get by path webhook ([#1875](https://github.com/windmill-labs/windmill/issues/1875)) ([e5027cd](https://github.com/windmill-labs/windmill/commit/e5027cd9a38685cd7ee9ac8f67514524dda2cffc))
+
 ## [1.131.0](https://github.com/windmill-labs/windmill/compare/v1.130.0...v1.131.0) (2023-07-14)
 
 
