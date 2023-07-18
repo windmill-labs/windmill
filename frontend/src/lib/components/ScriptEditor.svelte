@@ -303,7 +303,7 @@
 						bind:this={diffEditor}
 						automaticLayout
 						{fixedOverflowWidgets}
-						class="hidden flex-1 h-full !overflow-visible"
+						class="hidden h-full"
 					/>
 				{/key}
 			</div>

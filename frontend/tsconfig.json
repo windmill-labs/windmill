@@ -35,7 +35,8 @@
 		"paths": {
 			"$lib": ["src/lib"],
 			"$lib/*": ["src/lib/*"]
-		}
+		},
+		"types": ["@modyfi/vite-plugin-yaml/modules"]
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
 	"extends": "./.svelte-kit/tsconfig.json"
