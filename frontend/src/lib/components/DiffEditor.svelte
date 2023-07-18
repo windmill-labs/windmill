@@ -79,7 +79,7 @@
 		diffDivEl?.classList.add('hidden')
 	}
 
-	function onWidthChange(editorWidth) {
+	function onWidthChange(editorWidth: number) {
 		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
 	}
 
