@@ -625,7 +625,7 @@
 					</div>
 				{/if}
 				<h2 class="border-b pb-1 mt-10 mb-4"
-					>Arguments &nbsp;<Tooltip
+					>Arguments &nbsp;<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
 						>The arguments are synced with the main signature but you may refine the parts that
 						cannot be inferred from the type directly.</Tooltip
 					></h2

@@ -308,7 +308,11 @@
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
-			<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
+			<PageHeader
+				title="Members ({users?.length ?? ''})"
+				primary={false}
+				tooltip="Manage users manually or enable SSO authentication."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"/>
 
 			<AddUser on:new={listUsers} />
 
@@ -375,16 +379,19 @@
 												<ToggleButton position="left" value="operator" size="xs"
 													>Operator <Tooltip
 														>An operator can only execute and view scripts/flows/apps from your
-														workspace, and only those that he has visibility on</Tooltip
+														workspace, and only those that he has visibility on.</Tooltip
 													></ToggleButton
 												>
 												<ToggleButton position="center" value="author" size="xs"
 													>Author <Tooltip
 														>An Author can execute and view scripts/flows/apps, but he can also
-														create new ones</Tooltip
+														create new ones.</Tooltip
 													></ToggleButton
 												>
-												<ToggleButton position="right" value="admin" size="xs">Admin</ToggleButton>
+												<ToggleButton position="right" value="admin" size="xs">Admin<Tooltip
+														>An admin has full control over a specific Windmill workspace, including the ability to manage users, edit
+														entities, and control permissions within the workspace.</Tooltip
+													></ToggleButton>
 											</ToggleButtonGroup>
 										</div>
 									</td>
@@ -440,7 +447,7 @@
 					</tbody>
 				</TableCustom>
 			</div>
-			<PageHeader title="Pending Invites ({invites.length ?? ''})" primary={false}>
+			<PageHeader title="Invites ({invites.length ?? ''})" primary={false} tooltip="Manage invites on your workspace." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace">
 				<InviteUser on:new={listInvites} />
 			</PageHeader>
 
@@ -481,7 +488,7 @@
 			</div>
 
 			<div class="mt-10" />
-			<PageHeader title="Auto Invite" primary={false} />
+			<PageHeader title="Auto Invite" tooltip="Auto invite to the workspace users from your domain." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite" primary={false} />
 			<div class="flex gap-2">
 				{#if auto_invite_domain != domain}
 					<div>
@@ -705,7 +712,7 @@
 			<div class="mt-2"
 				><Alert type="info" title="Send commands from slack"
 					>Connect your windmill workspace to your slack workspace to trigger a script or a flow
-					with a '/windmill' command</Alert
+					with a '/windmill' command.</Alert
 				></div
 			>
 			<p class="text-xs text-gray-700 my-1 mt-2">
@@ -826,7 +833,7 @@
 			<div class="mt-2"
 				><Alert type="info" title="Send events to an external service"
 					>Connect your windmill workspace to an external service to sync or get notified about any
-					changes</Alert
+					changes.</Alert
 				></div
 			>
 
@@ -853,17 +860,17 @@
 				on:select={editErrorHandler}
 				canRefresh
 			/>
-			<div class="flex gap-20 items-start mt-3">
+			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
-					<div class="text-gray-600 italic text-sm"
-						>The following args will be passed to the error handler:
+					<div class="text-gray-600 text-sm">
+						The following args will be passed to the error handler:
 						<ul class="mt-1 ml-2">
-							<li><b>path</b>: The path of the script or flow that errored</li>
-							<li><b>email</b>: The email of the user who ran the script or flow that errored</li>
-							<li><b>error</b>: The error details</li>
-							<li><b>job_id</b>: The job id</li>
-							<li><b>is_flow</b>: Whether the error comes from a flow</li>
-							<li><b>workspace_id</b>: The workspace id of the failed script or flow</li>
+							<li><b>path</b>: The path of the script or flow that errored.</li>
+							<li><b>email</b>: The email of the user who ran the script or flow that errored.</li>
+							<li><b>error</b>: The error details.</li>
+							<li><b>job_id</b>: The job id.</li>
+							<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+							<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
 						</ul>
 						<br />
 						The error handler will be executed by the automatically created group g/error_handler. If
@@ -871,22 +878,24 @@
 					</div>
 				</div>
 				<div class="w-1/3 flex items-start">
-					<Button
-						wrapperClasses="mt-6"
-						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
-						target="_blank">Use template</Button
-					></div
-				>
+					<div class="mt-2">
+						<!-- Adjusted margin class -->
+						<Button
+							href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+							target="_blank">Use template</Button
+						>
+					</div>
+				</div>
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="OpenAI Credentials" primary={false} />
 			<div class="mt-2"
 				><Alert type="info" title="Experimental feature"
 					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
-				></div
-			>
+				>
+			</div>
 			<div class="flex gap-2 mt-5">
-				<input type="text" placeholder="Secret API key" bind:value={openAIKey} />
+				<input type="text" placeholder="Secret GPT-4 API key" bind:value={openAIKey} />
 				<Button size="md" on:click={editOpenAIKey}>Save</Button>
 			</div>
 		{/if}

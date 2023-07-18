@@ -140,7 +140,7 @@
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
 				<DollarSign size={18} />
-				Contextual <Tooltip>
+				Contextual <Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables">
 					Contextual variables are passed as environment variables when running a script and depends
 					on the execution context.</Tooltip
 				>

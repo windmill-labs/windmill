@@ -1,0 +1,45 @@
+- lang: python3
+  type: gen
+  description: Connect to postgres and list the rows in the orders table
+- lang: python3
+  type: fix
+  code: |-
+    def main(num: int) -> int:
+      return 3 / num
+  error: division by zero
+- lang: python3
+  type: edit
+  code: |-
+    def main(num: int) -> int:
+      return num / 16
+  description: Comment my code
+- lang: go
+  type: gen
+  description: Divide a number by 16
+- lang: deno
+  type: gen
+  description: Convert a number to a word
+- lang: deno
+  type: gen
+  description: Connect to postgres and list the rows in the orders table
+- lang: bun
+  type: gen
+  description: Convert a number to a word
+- lang: postgresql
+  type: gen
+  description: Insert an email and a name in the users table
+- lang: mysql
+  type: gen
+  description: Insert an email and a name in the users table
+- lang: bash
+  type: gen
+  description: Divide a number by 16
+- lang: bash
+  type: gen
+  description: Write a docker image for a python app
+- lang: nativets
+  type: gen
+  description: Query the github api and return the number of stars of a repo
+- lang: frontend
+  type: gen
+  description: set the value of the input with id 'my_field' to the context variable email

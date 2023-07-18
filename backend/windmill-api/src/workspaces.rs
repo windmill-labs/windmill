@@ -707,9 +707,7 @@ async fn edit_openai_key(
 async fn exists_openai_key(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
 ) -> JsonResult<bool> {
-    require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
     let openai_key = sqlx::query_scalar!(
