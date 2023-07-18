@@ -90,6 +90,7 @@
 
 		d3.select(`#zoom_in_${canvasId}`).on('click', function () {
 			try {
+				// @ts-ignore
 				d3Zoom.scaleBy(nodes.transition().duration(250), 1.4)
 			} catch (e) {
 				console.log('error', e)
@@ -97,6 +98,7 @@
 		})
 		d3.select(`#zoom_out_${canvasId}`).on('click', function () {
 			try {
+				// @ts-ignore
 				d3Zoom.scaleBy(nodes.transition().duration(250), 0.714)
 			} catch (e) {
 				console.log('error', e)
