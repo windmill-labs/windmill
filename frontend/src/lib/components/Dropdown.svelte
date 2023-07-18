@@ -54,9 +54,9 @@
 							dispatch('click', { item: item?.eventName })
 						}
 					}}
-					class="block w-full whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
-					 px-4 py-2 text-sm text-gray-700 text-left
-					 {item.disabled ? 'bg-gray-200' : ''}
+					class="block w-full whitespace-nowrap hover:drop-shadow-sm hover:bg-surface-hover hover:bg-opacity-30
+					 px-4 py-2 text-sm text-primary text-left
+					 {item.disabled ? 'bg-surface-disabled' : ''}
 					 {item.separatorTop ? 'border-t' : ''} {item.separatorBottom ? 'border-b' : ''} {item.type ==
 					'delete'
 						? 'text-red-500'
@@ -70,7 +70,7 @@
 						<Icon
 							data={item.icon}
 							scale={0.6}
-							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
+							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-primary'}"
 						/>
 					{/if}
 					{item.displayName}

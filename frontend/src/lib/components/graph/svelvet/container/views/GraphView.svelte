@@ -240,13 +240,13 @@
 
 	#buttons > button {
 		border-radius: 4px;
-		background-color: white;
+		@apply bg-surface;
 		border: #bbb solid 1px;
 		transition: all;
 	}
 
 	#buttons > button:hover {
-		background-color: #eee;
+		@apply bg-surface-hover;
 	}
 
 	.Nodes {

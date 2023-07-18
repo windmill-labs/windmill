@@ -23,12 +23,9 @@
 
 <div
 	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
-first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [&>*:not(:last-child)]:border-b"
+first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [*:not(:last-child)]:border-b px-4 py-2.5"
 >
-	<a
-		{href}
-		class="min-w-0 grow hover:underline decoration-gray-400 px-4 py-2.5 inline-flex items-center gap-4"
-	>
+	<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
 		<div class="shrink">
 			<RowIcon {href} {kind} />
 		</div>
@@ -52,7 +49,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [&>*:not(:last-chil
 	{/if}
 
 	{#if canFavorite}
-		<div class="center-center h-full text-sm font-semibold text-gray-700">
+		<div class="center-center h-full text-sm font-semibold text-secondary">
 			<Star
 				{kind}
 				{path}

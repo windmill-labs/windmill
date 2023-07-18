@@ -503,7 +503,6 @@ const config = {
 					fontSize: '20px',
 					fontWeight: theme('fontWeight.extrabold'),
 					lineHeight: '1.1',
-					color: theme('colors.gray.700'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
 						fontSize: '22px'
 					},

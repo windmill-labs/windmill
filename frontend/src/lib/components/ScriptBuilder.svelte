@@ -607,7 +607,7 @@
 								size="sm"
 								variant="border"
 								color={isPicked ? 'blue' : 'dark'}
-								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
+								btnClasses="font-medium {isPicked ? '!bg-blue-50/75 !dark:bg-blue-900/75' : ''}"
 								on:click={() => {
 									template = 'script'
 									script.kind = value
