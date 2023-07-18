@@ -279,7 +279,7 @@
 										>
 										<ToggleButton position="center" value="writer" size="xs"
 											>Writer&nbsp;<Tooltip
-												>A viewer of a folder has read AND write access to all the elements
+												>A writer of a folder has read AND write access to all the elements
 												(scripts/flows/apps/schedules/resources/variables) inside the folder</Tooltip
 											></ToggleButton
 										>
