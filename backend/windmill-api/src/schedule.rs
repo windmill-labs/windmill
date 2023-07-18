@@ -67,7 +67,7 @@ async fn check_path_conflict<'c>(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -169,8 +169,10 @@ async fn edit_schedule(
         path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_optional(&mut tx)
     .await?;
+
+    let is_flow = not_found_if_none(is_flow, "Schedule", &path)?;
 
     clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(
@@ -243,7 +245,7 @@ async fn list_schedule(
     }
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, Schedule>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -284,7 +286,7 @@ async fn list_schedule_with_jobs(
         per_page as i64,
         offset as i64
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
@@ -409,11 +411,11 @@ async fn delete_schedule(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "schedule.delete",
         ActionKind::Delete,
@@ -441,7 +443,7 @@ async fn check_flow_conflict<'c>(
             path,
             w_id
         )
-        .fetch_one(tx)
+        .fetch_one(&mut **tx)
         .await?
         .unwrap_or(false);
         if exists_flow {
@@ -475,9 +477,9 @@ pub async fn clear_schedule<'c>(
     sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2",
         path,
-        job_kind: JobKind
+        job_kind as JobKind
     )
-    .execute(db)
+    .execute(&mut **db)
     .await?;
     Ok(())
 }

@@ -9,7 +9,7 @@
 	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
-	import { runFormStore, userStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button, Kbd } from './common'
 	import InlineCodeCopy from './InlineCodeCopy.svelte'
@@ -53,10 +53,7 @@
 
 	export let args: Record<string, any> = {}
 
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
-	}
+	let reloadArgs = 0
 
 	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
@@ -75,7 +72,6 @@
 	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
 		args
 	)}'`
-	let reloadArgs = 0
 </script>
 
 <div class="max-w-3xl">

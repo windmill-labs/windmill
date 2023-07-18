@@ -104,7 +104,7 @@ async fn list_apps(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -126,7 +126,7 @@ async fn get_data(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -155,7 +155,7 @@ async fn create_app(
         app.path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -175,11 +175,11 @@ async fn create_app(
         app.summary,
         app.value,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.create",
         ActionKind::Create,
@@ -212,10 +212,10 @@ async fn delete_app(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.delete",
         ActionKind::Delete,
@@ -260,7 +260,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false);
 
@@ -287,12 +287,12 @@ async fn update_app(
     sqlb.returning("path");
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
     not_found_if_none(npath_o, "Raw App", path)?;
 
     let npath = app.path.clone().unwrap_or_else(|| path.to_owned());
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.update",
         ActionKind::Update,

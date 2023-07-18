@@ -30,6 +30,8 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { SecondsInput } from '$lib/components/common'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -136,6 +138,7 @@
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
 					on:toggleRetry={() => selectAdvanced('retries')}
+					on:toggleConcurrency={() => selectAdvanced('concurrency')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
@@ -264,6 +267,7 @@
 									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="cache">Cache</Tab>
+										<Tab value="concurrency">Concurrency</Tab>
 										<Tab value="early-stop">Early Stop/Break</Tab>
 										<Tab value="suspend">Suspend/Approval</Tab>
 										<Tab value="sleep">Sleep</Tab>
@@ -292,6 +296,38 @@
 										<div>
 											<FlowModuleMock bind:flowModule />
 										</div>
+									{:else if advancedSelected === 'concurrency'}
+										<div>
+											<h2 class="pb-4">
+												Concurrency Limits
+												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
+											</h2>
+										</div>
+										{#if flowModule.value.type == 'rawscript'}
+											<div>
+												<div class="text-xs font-bold !mt-2"
+													>Max number of executions within the time window</div
+												>
+												<div class="flex flex-row gap-2 max-w-sm"
+													><input bind:value={flowModule.value.concurrent_limit} type="number" />
+													<Button
+														size="sm"
+														color="light"
+														on:click={() => {
+															if (flowModule.value.type == 'rawscript') {
+																flowModule.value.concurrent_limit = undefined
+															}
+														}}
+														variant="border">Remove Limits</Button
+													></div
+												>
+												<div class="text-xs font-bold !mt-2">Time window in seconds</div>
+												<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
+											</div>
+										{:else}
+											The concurrency limit of a workspace script is only settable in the script
+											metadata itself. For hub scripts, this feature is non available yet.
+										{/if}
 									{:else if advancedSelected === 'same_worker'}
 										<div>
 											<Alert type="info" title="Share a directory between steps">

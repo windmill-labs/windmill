@@ -57,7 +57,7 @@ pub struct ScriptHash(pub i64);
 
 #[derive(PartialEq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[cfg_attr(feature = "sqlx", sqlx(transparent, no_pg_array))]
 pub struct ScriptHashes(pub Vec<i64>);
 
 impl Display for ScriptHash {
@@ -149,6 +149,10 @@ pub struct Script {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_time_window_s: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -200,6 +204,8 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
 }
 
 #[derive(Deserialize)]

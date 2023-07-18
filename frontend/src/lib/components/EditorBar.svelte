@@ -31,12 +31,14 @@
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { getScriptByPath } from '$lib/scripts'
+	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
 	import { Link, Users } from 'lucide-svelte'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
+	import { ScriptGen } from './codeGen'
+	import type DiffEditor from './DiffEditor.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -55,6 +57,7 @@
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -62,6 +65,15 @@
 	let resourceTypePicker: ItemPicker
 	let variableEditor: VariableEditor
 	let resourceEditor: ResourceEditor
+	let showContextVarPicker = false
+	let showVarPicker = false
+	let showResourcePicker = false
+	let showResourceTypePicker = false
+
+	$: showContextVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
+	$: showVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
+	$: showResourcePicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
+	$: showResourceTypePicker = scriptLangToEditorLang(lang) === 'typescript' || lang === 'python3'
 
 	let codeViewer: Drawer
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
@@ -134,6 +146,35 @@
 		return rec(schema.properties, true)
 	}
 
+	function pythonCompile(schema: Schema) {
+		let res = ''
+		const entries = Object.entries(schema.properties)
+		if (entries.length === 0) {
+			return 'dict'
+		}
+		let i = 0
+		for (let [name, prop] of entries) {
+			let typ = 'dict'
+			if (prop.type === 'array') {
+				typ = 'list'
+			} else if (prop.type === 'string') {
+				typ = 'str'
+			} else if (prop.type === 'number') {
+				typ = 'float'
+			} else if (prop.type === 'integer') {
+				typ = 'int'
+			} else if (prop.type === 'boolean') {
+				typ = 'bool'
+			}
+			res += `${name}: ${typ}`
+			i++
+			if (i < entries.length) {
+				res += '\n'
+			}
+		}
+		return res
+	}
+
 	let historyBrowserDrawerOpen = false
 </script>
 
@@ -168,13 +209,14 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
-
 <ItemPicker
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
+		} else if (lang === 'bun') {
+			editor.insertAtCursor(`Bun.env["${name}"]`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import os')) {
 				editor.insertAtBeginning('import os\n')
@@ -209,6 +251,18 @@
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
+		} else if (lang === 'bun') {
+			const code = editor.getCode()
+			if (!code.includes('import { setClient, getVariable } from "windmill-client@0.3.15')) {
+				editor.insertAtBeginning(
+					`import { setClient, getVariable } from "windmill-client@0.3.15"\n`
+				)
+			}
+			if (!code.includes('setClient()')) {
+				editor.insertAtCursor(`setClient()\n(await getVariable('${path}'))`)
+			} else {
+				editor.insertAtCursor(`(await getVariable('${path}'))`)
+			}
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -259,6 +313,18 @@
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
+		} else if (lang === 'bun') {
+			const code = editor.getCode()
+			if (!code.includes('import { setClient, getResource } from "windmill-client@0.3.15')) {
+				editor.insertAtBeginning(
+					`import { setClient, getResource } from "windmill-client@0.3.15"\n`
+				)
+			}
+			if (!code.includes('setClient()')) {
+				editor.insertAtCursor(`setClient()\n(await getResource('${path}'))`)
+			} else {
+				editor.insertAtCursor(`(await getResource('${path}'))`)
+			}
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -298,24 +364,29 @@
 	</div>
 </ItemPicker>
 
-{#if lang == 'deno'}
+{#if showResourceTypePicker}
 	<ItemPicker
 		bind:this={resourceTypePicker}
 		pickCallback={async (_, name) => {
 			if (!editor) return
-			const toCamel = (s) => {
-				return s.replace(/([-_][a-z])/gi, ($1) => {
-					return $1.toUpperCase().replace('-', '').replace('_', '')
-				})
-			}
 			const resourceType = await ResourceService.getResourceType({
 				workspace: $workspaceStore ?? 'NO_W',
 				path: name
 			})
 
-			const tsSchema = compile(resourceType.schema)
-			console.log(tsSchema)
-			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+			if (lang == 'python3') {
+				const pySchema = pythonCompile(resourceType.schema)
+
+				editor.insertAtCursor(`class ${name}(TypedDict):\n${pySchema}\n`)
+				const code = editor.getCode()
+				if (!code.includes('from typing import TypedDict')) {
+					editor.insertAtBeginning('from typing import TypedDict\n')
+				}
+			} else {
+				const tsSchema = compile(resourceType.schema)
+				console.log(tsSchema)
+				editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+			}
 			sendUserToast(`${name} inserted at cursor`)
 		}}
 		tooltip="Resources Types are the schemas associated with a Resource. They define the structure of the data that is returned from a Resource."
@@ -336,46 +407,51 @@
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		/>
 		<div class="flex items-center">
-			<Button
-				title="Add context variable"
-				color="light"
-				btnClasses="!font-medium text-gray-600"
-				on:click={contextualVariablePicker.openDrawer}
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faDollarSign }}
-				{iconOnly}
-			>
-				+Context Var
-			</Button>
+			{#if showContextVarPicker}
+				<Button
+					title="Add context variable"
+					color="light"
+					btnClasses="!font-medium text-gray-600"
+					on:click={contextualVariablePicker.openDrawer}
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faDollarSign }}
+					{iconOnly}
+				>
+					+Context Var
+				</Button>
+			{/if}
+			{#if showVarPicker}
+				<Button
+					title="Add variable"
+					color="light"
+					btnClasses="!font-medium text-gray-600"
+					on:click={variablePicker.openDrawer}
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faDollarSign }}
+					{iconOnly}
+				>
+					+Variable
+				</Button>
+			{/if}
 
-			<Button
-				title="Add variable"
-				color="light"
-				btnClasses="!font-medium text-gray-600"
-				on:click={variablePicker.openDrawer}
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faDollarSign }}
-				{iconOnly}
-			>
-				+Variable
-			</Button>
+			{#if showResourcePicker}
+				<Button
+					title="Add resource"
+					btnClasses="!font-medium text-gray-600"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={resourcePicker.openDrawer}
+					{iconOnly}
+					startIcon={{ icon: faCube }}
+				>
+					+Resource
+				</Button>
+			{/if}
 
-			<Button
-				title="Add resource"
-				btnClasses="!font-medium text-gray-600"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={resourcePicker.openDrawer}
-				{iconOnly}
-				startIcon={{ icon: faCube }}
-			>
-				+Resource
-			</Button>
-
-			{#if lang == 'deno'}
+			{#if showResourceTypePicker}
 				<Button
 					title="Add resource"
 					btnClasses="!font-medium text-gray-600"
@@ -461,6 +537,8 @@
 					{/if}
 				</div>
 			{/if}
+
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} />
 
 			<!-- <Popover
 				notClickable

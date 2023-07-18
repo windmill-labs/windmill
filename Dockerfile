@@ -108,6 +108,9 @@ RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc \
     && rm -rf /var/lib/apt/lists/*
 
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
+    dpkg --install 'pwsh.deb' && \
+    rm 'pwsh.deb' || true
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
@@ -171,7 +174,7 @@ RUN chmod 755 /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:0.6.13 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:0.6.14 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

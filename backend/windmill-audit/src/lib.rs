@@ -132,7 +132,7 @@ pub async fn list_audit(
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, AuditLog>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
     Ok(rows)
 }
@@ -140,7 +140,7 @@ pub async fn list_audit(
 pub async fn get_audit(mut tx: Transaction<'_, sqlx::Postgres>, id: i32) -> Result<AuditLog> {
     let audit_o = sqlx::query_as::<_, AuditLog>("SELECT * FROM audit WHERE id = $1")
         .bind(id)
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
     tx.commit().await?;
     let audit = windmill_common::utils::not_found_if_none(audit_o, "AuditLog", &id.to_string())?;

@@ -198,6 +198,14 @@
 							}}
 						/>
 
+						<FlowScriptPicker
+							label={`Powershell`}
+							lang="powershell"
+							on:click={() => {
+								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'powershell' })
+							}}
+						/>
+
 						<!-- <FlowScriptPicker
 							label={`MySQL`}
 							lang="mysql"

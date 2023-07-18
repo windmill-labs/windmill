@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.128.0"
+version = "1.132.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.128.0"
+version = "1.132.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -31,7 +31,7 @@ name = "windmill"
 path = "./src/main.rs"
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
 incremental = true
 
 [features]
@@ -144,8 +144,7 @@ swc_ecma_ast = "0.106.2"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "0.6", features = [
-    "offline",
+sqlx = { version = "^0", features = [
     "macros",
     "migrate",
     "uuid",

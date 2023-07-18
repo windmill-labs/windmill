@@ -126,7 +126,7 @@ async fn check_name_conflict<'c>(
         name,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
     if exists {
@@ -201,7 +201,7 @@ async fn create_group(
         ng.summary,
         serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query_as!(
@@ -211,11 +211,11 @@ async fn create_group(
         &authed.username,
         ng.name,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "group.create",
         ActionKind::Create,
@@ -240,7 +240,7 @@ pub async fn get_group_opt<'c>(
         name,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **db)
     .await?;
     Ok(group_opt)
 }
@@ -271,7 +271,7 @@ async fn get_group(
         name,
         w_id
     )
-    .fetch_all(&mut tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     tx.commit().await?;
@@ -308,17 +308,17 @@ async fn delete_group(
         name,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     sqlx::query!(
         "DELETE FROM group_ WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "group.delete",
         ActionKind::Delete,
@@ -351,11 +351,11 @@ async fn update_group(
         &name,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "group.edit",
         ActionKind::Update,
@@ -389,11 +389,11 @@ async fn add_user(
         user_username,
         name,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "group.adduser",
         ActionKind::Update,
@@ -429,11 +429,11 @@ async fn remove_user(
         name,
         &w_id,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "group.removeuser",
         ActionKind::Update,

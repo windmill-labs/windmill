@@ -125,7 +125,7 @@ pub async fn get_schedule_opt<'c>(
         path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut **db)
     .await?;
     Ok(schedule_opt)
 }
@@ -142,7 +142,7 @@ pub async fn exists_schedule(
         path,
         w_id
     )
-    .fetch_one(tx)
+    .fetch_one(&mut **tx)
     .await?
     .unwrap_or(false);
 

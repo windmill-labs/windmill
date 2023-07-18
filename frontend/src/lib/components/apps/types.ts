@@ -112,6 +112,7 @@ export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
 
 export type HiddenRunnable = {
 	name: string
+	transformer?: InlineScript & { language: 'frontend' }
 	// inlineScript?: InlineScript | undefined
 	// type?: 'runnableByName' | 'runnableByPath'
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
@@ -205,6 +206,8 @@ export type AppViewerContext = {
 				onDelete?: () => void
 				setValue?: (value: any) => void
 				setSelectedIndex?: (index: number) => void
+				openModal?: () => void
+				closeModal?: () => void
 			}
 		>
 	>

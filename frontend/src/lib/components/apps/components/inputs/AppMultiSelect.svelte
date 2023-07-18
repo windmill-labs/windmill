@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -12,6 +12,7 @@
 	import Portal from 'svelte-portal'
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { extractCustomProperties } from '$lib/utils'
+	import { tick } from 'svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -82,7 +83,7 @@
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
 
-	onMount(() => {
+	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
 		const ul = outerDiv?.querySelector('.options')
 
@@ -90,7 +91,13 @@
 			// Move the ul element to the portal
 			portalRef?.appendChild(ul)
 		}
-	})
+	}
+
+	$: if (render) {
+		tick().then(() => {
+			moveOptionsToPortal()
+		})
+	}
 
 	let w = 0
 	let h = 0
