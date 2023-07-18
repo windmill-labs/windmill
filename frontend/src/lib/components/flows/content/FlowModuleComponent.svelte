@@ -32,6 +32,7 @@
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
+	import DiffEditor from '$lib/components/DiffEditor.svelte'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -43,6 +44,7 @@
 	export let previousModule: FlowModule | undefined
 
 	let editor: Editor
+	let diffEditor: DiffEditor
 	let modulePreview: ModulePreview
 	let websocketAlive = {
 		pyright: false,
@@ -174,6 +176,7 @@
 					<EditorBar
 						{validCode}
 						{editor}
+						{diffEditor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
 						iconOnly={width < 850}
@@ -222,6 +225,12 @@
 									}}
 									fixedOverflowWidgets={true}
 								/>
+								<DiffEditor
+									bind:this={diffEditor}
+									automaticLayout
+									fixedOverflowWidgets
+									class="hidden h-full"
+								/>
 							{/key}
 						{:else if flowModule.value.type === 'script'}
 							<div class="border-t border-gray-200">
@@ -260,6 +269,9 @@
 									pickableProperties={stepPropPicker.pickableProperties}
 									bind:this={modulePreview}
 									mod={flowModule}
+									{editor}
+									{diffEditor}
+									lang={flowModule.value['language'] ?? 'deno'}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
 							{:else if selected === 'advanced'}

@@ -18,6 +18,8 @@
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import ScriptGen from '$lib/components/codeGen/ScriptGen.svelte'
+	import DiffEditor from '$lib/components/DiffEditor.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -33,7 +35,8 @@
 	const { runnableComponents, stateId, worldStore, state, appPath, app } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let editor: Editor
+	export let editor: Editor | undefined = undefined
+	let diffEditor: DiffEditor
 	let simpleEditor: SimpleEditor
 	let validCode = true
 
@@ -152,6 +155,13 @@
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
 
+				<ScriptGen
+					lang={inlineScript?.language}
+					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
+					{diffEditor}
+					inlineScript
+				/>
+
 				<Button
 					title="Delete"
 					size="xs"
@@ -252,6 +262,13 @@
 					}}
 				/>
 			{/if}
+
+			<DiffEditor
+				bind:this={diffEditor}
+				class="hidden h-full"
+				automaticLayout
+				fixedOverflowWidgets
+			/>
 		</div>
 	</div>
 {/if}
