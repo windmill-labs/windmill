@@ -1,5 +1,9 @@
 <script lang="ts" context="module">
-	import type { SchemaProperty } from '$lib/common'
+	import type { SchemaProperty, Schema } from '$lib/common'
+	import Tab from './common/tabs/Tab.svelte'
+	import TabContent from './common/tabs/TabContent.svelte'
+	import Tabs from './common/tabs/Tabs.svelte'
+	import SchemaEditor from './SchemaEditor.svelte'
 
 	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
 	export type ArgType = (typeof ARG_TYPES)[number]
@@ -15,6 +19,7 @@
 		default?: any
 		items?: { type?: 'string' | 'number' }
 		contentEncoding?: 'base64' | 'binary'
+		schema?: Schema
 	}
 
 	export function schemaToModal(
@@ -31,7 +36,16 @@
 			contentEncoding: schema.contentEncoding,
 			format: schema.format,
 			enum_: schema.enum,
-			required
+			required,
+			schema:
+				schema.type == 'object'
+					? {
+							$schema: undefined,
+							type: schema.type,
+							properties: schema.properties ?? {},
+							required: schema.required ?? []
+					  }
+					: undefined
 		}
 	}
 
@@ -91,6 +105,7 @@
 		property.required = DEFAULT_PROPERTY.required
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
+		property.schema = undefined
 
 		drawer.closeDrawer()
 	}
@@ -212,8 +227,22 @@
 					{:else if property.selectedType == 'array'}
 						<ArrayTypeNarrowing bind:itemsType={property.items} />
 					{:else if property.selectedType == 'object'}
-						<h3 class="mb-2 font-bold mt-4">Resource type</h3>
-						<ObjectTypeNarrowing bind:format={property.format} />
+						<Tabs selected="custom-object">
+							<Tab value="custom-object">Custom Object</Tab>
+							<Tab value="resource">Resource</Tab>
+							<svelte:fragment slot="content">
+								<div class="overflow-auto pt-2">
+									<TabContent value="custom-object">
+										<SchemaEditor bind:schema={property.schema} />
+									</TabContent>
+
+									<TabContent value="resource">
+										<h3 class="mb-2 font-bold mt-4">Resource type</h3>
+										<ObjectTypeNarrowing bind:format={property.format} />
+									</TabContent>
+								</div>
+							</svelte:fragment>
+						</Tabs>
 					{:else}
 						<p>No advanced configuration for this type</p>
 					{/if}
