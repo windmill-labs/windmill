@@ -866,36 +866,31 @@
 							<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
 						</ul>
 						<br />
-						The error handler will be executed by the automatically created group g/error_handler. If your error handler requires variables or resources, you need to add them to the group.
+						The error handler will be executed by the automatically created group g/error_handler. If
+						your error handler requires variables or resources, you need to add them to the group.
 					</div>
 				</div>
 				<div class="w-1/3 flex items-start">
-<<<<<<< HEAD
-					<div class="mt-2"> <!-- Adjusted margin class -->
-						<Button href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template" target="_blank">Use template</Button>
+					<div class="mt-2">
+						<!-- Adjusted margin class -->
+						<Button
+							href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+							target="_blank">Use template</Button
+						>
 					</div>
 				</div>
-			</div>								
-=======
-					<Button
-						wrapperClasses="mt-6"
-						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
-						target="_blank">Use template</Button
-					></div
-				>
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="OpenAI Credentials" primary={false} />
 			<div class="mt-2"
 				><Alert type="info" title="Experimental feature"
 					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
-				></div
-			>
+				>
+			</div>
 			<div class="flex gap-2 mt-5">
 				<input type="text" placeholder="Secret GPT-4 API key" bind:value={openAIKey} />
 				<Button size="md" on:click={editOpenAIKey}>Save</Button>
 			</div>
->>>>>>> main
 		{/if}
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
