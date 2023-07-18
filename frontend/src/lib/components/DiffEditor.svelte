@@ -10,7 +10,6 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import { Breakpoints } from './apps/gridUtils'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -23,17 +22,19 @@
 	})
 	meditor.setTheme('myTheme')
 
+	const SIDE_BY_SIDE_MIN_WIDTH = 650
+
 	export let automaticLayout = true
 	export let fixedOverflowWidgets = true
-	export let sideBySideMinWidth = Breakpoints.lg
 
-	let diffEditor: meditor.IStandaloneDiffEditor
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
+	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
 
 	function loadDiffEditor() {
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: window.innerWidth >= sideBySideMinWidth,
+			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			domReadOnly: true,
 			readOnly: true,
 			minimap: {
@@ -51,9 +52,9 @@
 	export function setDiff(
 		original: string,
 		modified: string,
-		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql'
+		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript'
 	): void {
-		diffEditor.setModel({
+		diffEditor?.setModel({
 			original: meditor.createModel(original, lang),
 			modified: meditor.createModel(modified, lang)
 		})
@@ -64,11 +65,11 @@
 	}
 
 	export function getOriginal(): string {
-		return diffEditor.getModel()?.original.getValue() ?? ''
+		return diffEditor?.getModel()?.original.getValue() ?? ''
 	}
 
 	export function getModified(): string {
-		return diffEditor.getModel()?.modified.getValue() ?? ''
+		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}
 
 	export function show(): void {
@@ -78,20 +79,20 @@
 		diffDivEl?.classList.add('hidden')
 	}
 
-	function onResize() {
-		diffEditor.updateOptions({ renderSideBySide: window.innerWidth >= sideBySideMinWidth })
+	function onWidthChange(editorWidth: number) {
+		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
 	}
+
+	$: onWidthChange(editorWidth)
 
 	onMount(() => {
 		if (BROWSER) {
 			loadDiffEditor()
-			window.addEventListener('resize', onResize)
 			return () => {
 				diffEditor?.dispose()
-				window.removeEventListener('resize', onResize)
 			}
 		}
 	})
 </script>
 
-<div bind:this={diffDivEl} class="{$$props.class} editor" />
+<div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />

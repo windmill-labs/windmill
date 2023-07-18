@@ -27,8 +27,6 @@ async fn proxy(
     Path((w_id, openai_path)): Path<(String, String)>,
     body: Bytes,
 ) -> impl IntoResponse {
-    tracing::info!("reached openai endpoint");
-
     let mut tx = db.begin().await?;
     let settings = sqlx::query_as!(
         OpenAIKey,

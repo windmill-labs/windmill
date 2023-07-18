@@ -13,12 +13,14 @@
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
+	import type SimpleEditor from '../SimpleEditor.svelte'
 
 	// props
 	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage
-	export let editor: Editor | undefined
+	export let lang: SupportedLanguage | 'frontend'
+	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
+	export let inlineScript = false
 
 	// state
 	let funcDesc: string = ''
@@ -73,7 +75,7 @@
 		generatedCode = ''
 	}
 
-	async function checkIfOpenAIAvailable(lang: SupportedLanguage) {
+	async function checkIfOpenAIAvailable(lang: SupportedLanguage | 'frontend') {
 		try {
 			const exists = $existsOpenaiKeyStore
 			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
@@ -84,7 +86,11 @@
 	}
 
 	function showDiff() {
-		diffEditor?.setDiff(editor?.getCode() || '', generatedCode, scriptLangToEditorLang(lang))
+		diffEditor?.setDiff(
+			editor?.getCode() || '',
+			generatedCode,
+			lang === 'frontend' ? 'javascript' : scriptLangToEditorLang(lang)
+		)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -114,32 +120,63 @@
 
 {#if openAIAvailable}
 	{#if generatedCode}
-		<div class="flex gap-1 px-2">
-			<Button
-				title="Discard generated code"
-				btnClasses="!font-medium"
-				size="xs"
-				color="red"
-				spacingSize="xs2"
-				on:click={rejectDiff}
-				variant="contained"
-				startIcon={{ icon: faClose }}
-				{iconOnly}
-			>
-				Discard
-			</Button><Button
-				title="Accept generated code"
-				btnClasses="!font-medium"
-				size="xs"
-				color="green"
-				spacingSize="xs2"
-				on:click={acceptDiff}
-				startIcon={{ icon: faCheck }}
-				{iconOnly}
-			>
-				Accept
-			</Button>
-		</div>
+		{#if inlineScript}
+			<div class="flex gap-1">
+				<Button
+					title="Discard generated code"
+					btnClasses="!font-medium px-2 w-7"
+					size="xs"
+					color="red"
+					on:click={rejectDiff}
+					variant="contained"
+				>
+					<Icon data={faClose} />
+				</Button><Button
+					title="Accept generated code"
+					btnClasses="!font-medium px-2 w-7"
+					size="xs"
+					color="green"
+					on:click={acceptDiff}
+				>
+					<Icon data={faCheck} /></Button
+				>
+			</div>
+		{:else}
+			<div class="flex gap-1 px-2">
+				<Button
+					title="Discard generated code"
+					btnClasses="!font-medium px-2"
+					size="xs"
+					color="red"
+					on:click={rejectDiff}
+					variant="contained"
+					startIcon={{ icon: faClose }}
+					{iconOnly}
+				>
+					Discard
+				</Button><Button
+					title="Accept generated code"
+					btnClasses="!font-medium px-2"
+					size="xs"
+					color="green"
+					on:click={acceptDiff}
+					startIcon={{ icon: faCheck }}
+					{iconOnly}
+				>
+					Accept
+				</Button>
+			</div>
+		{/if}
+	{:else if inlineScript}
+		<Button
+			size="lg"
+			bind:element={button}
+			color="light"
+			btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+			loading={genLoading}
+		>
+			<Icon scale={0.8} data={faMagicWandSparkles} />
+		</Button>
 	{:else}
 		<Button
 			title="Generate code from prompt"
@@ -155,7 +192,7 @@
 			{isEdit ? 'AI Edit' : 'AI Gen'}
 		</Button>
 	{/if}
-	{#if !generatedCode}
+	{#if !generatedCode && !genLoading}
 		<Popup
 			ref={button}
 			options={{ placement: 'top-start' }}
