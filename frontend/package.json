@@ -21,7 +21,7 @@
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
 		"@sveltejs/kit": "^1.20.1",
-		"@sveltejs/package": "^2.0.0",
+		"@sveltejs/package": "^2.2.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
@@ -40,7 +40,7 @@
 		"eslint-plugin-svelte3": "^4.0.0",
 		"monaco-editor-workers": "~0.39.1",
 		"ol": "^7.4.0",
-		"openapi-typescript-codegen": "^0.24.0",
+		"openapi-typescript-codegen": "^0.25.0",
 		"path-browserify": "^1.0.1",
 		"pdfjs-dist": "^3.8.162",
 		"postcss": "^8.4.24",
@@ -74,7 +74,7 @@
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
-		"@leeoniya/ufuzzy": "^1.0.7",
+		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.2",
@@ -104,7 +104,7 @@
 		"windmill-parser-wasm": "^1.127.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
-		"yjs": "^13.6.4"
+		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
 		"@sveltejs/kit": "^1.20.1",
