@@ -135,7 +135,7 @@
 	.panel {
 		position: fixed;
 		width: 100%;
-		background: white;
+		@apply bg-surface;
 		z-index: 3;
 		transition: transform var(--duration) ease;
 		height: 100%;

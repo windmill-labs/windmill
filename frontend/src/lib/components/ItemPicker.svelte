@@ -50,7 +50,13 @@
 />
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent {tooltip} {documentationLink} overflow_y={false} title="Search {itemName}s" on:close={drawer.closeDrawer}>
+	<DrawerContent
+		{tooltip}
+		{documentationLink}
+		overflow_y={false}
+		title="Search {itemName}s"
+		on:close={drawer.closeDrawer}
+	>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-12/12 pb-4">
 				<input
@@ -72,7 +78,7 @@
 				<div class="border rounded-md divide-y divide-gray-200 w-full overflow-auto pb-12 grow">
 					{#each filteredItems as obj}
 						<div
-							class="hover:bg-gray-50 w-full flex items-center p-4 gap-4 first-of-type:!border-t-0 
+							class="hover:bg-surface-hover w-full flex items-center p-4 gap-4 first-of-type:!border-t-0
 						first-of-type:rounded-t-md last-of-type:rounded-b-md"
 						>
 							<div class="inline-flex items-center grow">
@@ -87,12 +93,12 @@
 									}}
 								>
 									{#if `app` in obj}
-										<div class="mr-2 text-sm text-left center-center  w-30">
+										<div class="mr-2 text-sm text-left center-center w-30">
 											<IconedResourceType after={true} silent={false} name={obj['app']} />
 										</div>
 									{/if}
 									{#if `resource_type` in obj}
-										<div class="mr-2  text-left w-30  center-center  text-sm">
+										<div class="mr-2 text-left w-30 center-center text-sm">
 											<IconedResourceType after={true} name={obj['resource_type']} />
 										</div>
 									{/if}

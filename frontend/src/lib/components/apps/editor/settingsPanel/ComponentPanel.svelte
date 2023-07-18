@@ -132,14 +132,14 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-gray-100">
-		<div class="text-xs text-gray-900 font-semibold"
+	<div class="flex justify-between items-center px-3 py-2 bg-surface-selected">
+		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type].name}</div
 		>
 		<a
 			href={components[componentSettings.item.data.type].documentationLink}
 			target="_blank"
-			class="text-frost-500 font-semibold text-xs"
+			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
 		>
 			<div class="flex flex-row gap-2">
 				See documentation

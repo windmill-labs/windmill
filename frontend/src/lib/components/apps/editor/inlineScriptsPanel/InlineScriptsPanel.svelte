@@ -59,7 +59,7 @@
 		</Pane>
 		<Pane size={75}>
 			{#if !$selectedComponentInEditor}
-				<div class="text-sm text-gray-500 text-center py-8 px-2">
+				<div class="text-sm text-secondary text-center py-8 px-2">
 					Select a script on the left panel
 				</div>
 			{:else if gridItem}

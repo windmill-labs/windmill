@@ -20,18 +20,18 @@
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<div
 		class={classNames(
-			'bg-white w-full h-full z-30',
+			'bg-surface w-full h-full z-30',
 			$connectingInput.opened ? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 z-50' : ''
 		)}
 	>
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
+			<div class="sticky z-10 top-0 left-0 w-full p-1.5">
 				<ClearableInput bind:value={$search} placeholder="Search outputs..." />
 			</div>
 
 			<div class="flex flex-col gap-4">
 				<div>
-					<span class="text-xs font-semibold text-gray-800 p-2">State & Context</span>
+					<span class="text-xs font-semibold text-secondary p-2">State & Context</span>
 
 					<OutputHeader selectable={false} id={'ctx'} name={'App Context'} first color="blue">
 						<ComponentOutputViewer
@@ -60,13 +60,13 @@
 				</div>
 
 				<div>
-					<span class="text-xs font-semibold text-gray-800 p-2">Components</span>
+					<span class="text-xs font-semibold text-secondary p-2">Components</span>
 					{#each $app.grid as gridItem, index (gridItem.id)}
 						<ComponentOutput {gridItem} first={index === 0} />
 					{/each}
 				</div>
 				<div>
-					<span class="text-xs font-semibold text-gray-800 p-2">Background runnables</span>
+					<span class="text-xs font-semibold text-secondary p-2">Background runnables</span>
 					<BackgroundScriptsOutput />
 				</div>
 			</div>

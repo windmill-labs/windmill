@@ -26,9 +26,9 @@
 		<div
 			transition:fly|local={{ duration: 300, x: width, y: 0, opacity: 1 }}
 			id={SECONDARY_MENU_ID}
-			class="flex flex-col w-full h-full bg-white"
+			class="flex flex-col w-full h-full bg-surface"
 		>
-			<div class="flex justify-between items-center bg-white gap-1 px-3 py-2">
+			<div class="flex justify-between items-center gap-1 px-3 py-2">
 				<Button
 					color="light"
 					size="xs2"

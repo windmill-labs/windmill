@@ -351,9 +351,9 @@
 			<div class="mt-10" />
 		{/if}
 		{#if !loading}
-			<div class="absolute -bottom-2 right-0 bg-white/90">
-				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} /></div
-			>
+			<div class="absolute -bottom-2 right-0">
+				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+			</div>
 		{/if}
 	</div>
 	<div>

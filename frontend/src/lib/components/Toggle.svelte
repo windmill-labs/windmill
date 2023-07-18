@@ -57,7 +57,7 @@
 			/>
 			<div
 				class={classNames(
-					"transition-all bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-white after:border-white after:border after:rounded-full after:transition-all ",
+					"transition-all bg-surface/90 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-white after:border-white after:border after:rounded-full after:transition-all ",
 					color == 'red' ? 'peer-checked:bg-red-600' : 'peer-checked:bg-blue-600',
 					size === 'sm'
 						? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
@@ -69,7 +69,7 @@
 			<span
 				class={twMerge(
 					'ml-2 font-medium duration-50',
-					disabled ? 'text-gray-500' : 'text-gray-900',
+					disabled ? 'text-disabled' : 'text-primary',
 					size === 'xs' ? 'text-xs' : 'text-sm',
 					textClass
 				)}

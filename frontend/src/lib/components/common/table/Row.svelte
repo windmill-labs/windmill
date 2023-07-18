@@ -22,7 +22,7 @@
 </script>
 
 <div
-	class="hover:bg-gray-50 w-full inline-flex items-center gap-4 first-of-type:!border-t-0
+	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
 first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [&>*:not(:last-child)]:border-b"
 >
 	<a
@@ -33,14 +33,14 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [&>*:not(:last-chil
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-gray-900 flex-wrap text-left text-sm font-semibold">
+			<div class="text-primary flex-wrap text-left text-sm font-semibold">
 				{#if marked}
 					{@html marked}
 				{:else}
 					{!summary || summary.length == 0 ? path : summary}
 				{/if}
 			</div>
-			<div class="text-gray-600 text-2xs truncate text-left font-light">
+			<div class="text-secondary text-2xs truncate text-left font-light">
 				{path}
 			</div>
 		</div>

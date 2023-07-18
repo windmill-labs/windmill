@@ -168,7 +168,7 @@
 				? openBackground[color]
 				: $connectingInput.hoveredComponent === id
 				? 'bg-orange-300 '
-				: 'bg-white',
+				: 'bg-surface-selected',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : '',
 			'transition-all'

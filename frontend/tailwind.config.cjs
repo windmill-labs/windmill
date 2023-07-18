@@ -1,17 +1,60 @@
 const plugin = require('tailwindcss/plugin')
 
 const lightTheme = {
-	primaryBackground: 'white',
-	secondaryBackground: '#f9fafb',
-	primaryText: '#2d3748',
-	border: '#cccccc'
+	surface: '#ffffff',
+	surfaceSecondary: '#f9fafb',
+	surfaceHover: '#f4f5f7',
+	surfaceDisabled: '#f4f5f7',
+	surfaceSelected: '#f4f5f7',
+
+	textPrimary: '#2d3748',
+	textSecondary: '#4a5568',
+	textDisabled: '#a0aec0',
+
+	border: '#3e4c60'
 }
 
+const lightThemeRgb = makeRgb(lightTheme)
+
 const darkTheme = {
-	primaryBackground: '#2e3440',
-	secondaryBackground: '#3b4252',
-	primaryText: '#DADCEA',
-	border: '#3e3f53'
+	surface: '#2e3440',
+	surfaceSecondary: '#3b4252',
+	surfaceHover: '#4c566a',
+	surfaceDisabled: '#3b4252',
+	surfaceSelected: '#434c5e',
+
+	textPrimary: '#f3f6f8',
+	textSecondary: '#e0e7ed',
+	textDisabled: '#c5d0dc',
+
+	border: '#3e4c60'
+}
+
+const darkThemeRgb = makeRgb(darkTheme)
+
+function makeRgb(theme) {
+	return Object.fromEntries(
+		Object.entries(theme).map(([key, value]) => {
+			if (typeof value === 'string' && value.startsWith('#')) {
+				return [key, hexToRgb(value)]
+			}
+
+			return [key, value]
+		})
+	)
+}
+
+function hexToRgb(hex) {
+	// Remove '#' symbol from the beginning of the hex value
+	hex = hex.replace('#', '')
+
+	// Convert the hex value to decimal
+	const r = parseInt(hex.substring(0, 2), 16)
+	const g = parseInt(hex.substring(2, 4), 16)
+	const b = parseInt(hex.substring(4, 6), 16)
+
+	// Return the RGB string format
+	return `${r} ${g} ${b}`
 }
 
 /** @type {import('tailwindcss').Config} */
@@ -327,7 +370,16 @@ const config = {
 				700: '#384d67',
 				800: '#263445',
 				900: '#131a22'
-			}
+			},
+			surface: 'rgb(var(--color-surface) / <alpha-value>)',
+			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
+			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
+			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
+			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
+
+			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)'
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -344,6 +396,9 @@ const config = {
 			]
 		},
 		extend: {
+			border: {
+				color: 'red'
+			},
 			maxHeight: {
 				'1/2': '50vh',
 				'2/3': '66vh',
@@ -393,16 +448,47 @@ const config = {
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
-					color: theme('colors.gray.900'),
+
+					backgroundColor: 'rgb(var(--color-surface) / <alpha-value>)',
+					color: lightTheme.textPrimary,
+
+					'--color-surface': lightThemeRgb.surface,
+					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
+					'--color-surface-hover': lightThemeRgb.surfaceHover,
+					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
+					'--color-surface-selected': lightThemeRgb.surfaceSelected,
+
+					'--color-text-primary': lightThemeRgb.textPrimary,
+					'--color-text-secondary': lightThemeRgb.textSecondary,
+					'--color-text-disabled': lightThemeRgb.textDisabled,
+
+					'--color-border': lightThemeRgb.border,
+
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
+					},
+
+					'&.dark': {
+						backgroundColor: darkTheme.surface,
+						color: darkTheme.textPrimary,
+
+						'--color-surface': darkThemeRgb.surface,
+						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
+						'--color-surface-hover': darkThemeRgb.surfaceHover,
+						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
+						'--color-surface-selected': darkThemeRgb.surfaceSelected,
+
+						'--color-text-primary': darkThemeRgb.textPrimary,
+						'--color-text-secondary': darkThemeRgb.textSecondary,
+						'--color-text-disabled': darkThemeRgb.textDisabled,
+
+						'--color-border': darkThemeRgb.border
 					}
 				},
 				h1: {
 					fontSize: '24px',
 					fontWeight: theme('fontWeight.extrabold'),
 					lineHeight: '1.05',
-					color: theme('colors.gray.800'),
 					[`@media (min-width: ${theme('screens.lg')})`]: {
 						fontSize: '26px'
 					},
@@ -483,7 +569,7 @@ const config = {
 						border: `1px solid ${theme('colors.gray.300')}`,
 						borderRadius: theme('borderRadius.md'),
 						'&:focus': {
-							'--tw-ring-color': theme('colors.indigo.100'),
+							'--tw-ring-color': theme('colors.frost.100'),
 							'--tw-ring-offset-shadow':
 								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
 							'--tw-ring-shadow':
@@ -501,7 +587,7 @@ const config = {
 						color: theme('colors.gray.200'),
 						borderColor: theme('colors.gray.600'),
 						'&:focus': {
-							'--tw-ring-color': theme('colors.indigo.700')
+							'--tw-ring-color': theme('colors.frost.700')
 						}
 					},
 
@@ -625,11 +711,11 @@ const config = {
 					)})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: theme('colors.white') + ' !important',
+					backgroundColor: lightTheme.surface + ' !important',
 					overflow: 'auto !important'
 				},
 				'.dark .splitpanes__pane': {
-					backgroundColor: darkTheme.primaryBackground + ' !important',
+					backgroundColor: darkTheme.surface + ' !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
@@ -637,7 +723,7 @@ const config = {
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: '#3f83f850 !important',
+						backgroundColor: lightTheme.border + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						zIndex: '1001 !important',
@@ -653,7 +739,7 @@ const config = {
 				'.dark .splitpanes__splitter': {
 					backgroundColor: darkTheme.border + ' !important',
 					'&::after': {
-						backgroundColor: '#8ebdcc !important'
+						backgroundColor: darkTheme.border + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -688,35 +774,22 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: theme('colors.gray.600'),
-					color: theme('colors.gray.800')
+					borderColor: lightTheme.border,
+					color: lightTheme.textPrimary
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: 'white',
-					color: darkTheme.primaryText
+					borderColor: darkTheme.border,
+					color: darkTheme.textPrimary
 				}
 			})
+
 			addUtilities({
-				html: {
-					backgroundColor: lightTheme.primaryBackground,
-					color: lightTheme.primaryText,
-
-					'&.dark': {
-						backgroundColor: darkTheme.primaryBackground,
-						color: darkTheme.primaryText
-					}
-				},
-				'.secondaryBackground': {
-					backgroundColor: lightTheme.secondaryBackground
-				},
-
-				'.dark .secondaryBackground': {
-					backgroundColor: darkTheme.secondaryBackground
-				},
-
 				'.separator': {
-					backgroundColor: '#ddd !important'
+					backgroundColor: `${lightTheme.border} !important`
+				},
+				'.dark .separator': {
+					backgroundColor: `${darkTheme.border} !important`
 				},
 				'.center-center': {
 					display: 'flex',

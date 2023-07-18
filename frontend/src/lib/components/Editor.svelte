@@ -27,16 +27,12 @@
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
 
-	meditor.defineTheme('myTheme', {
-		base: 'vs',
-		inherit: true,
-		rules: [],
-		colors: {
-			'editorLineNumber.foreground': '#999',
-			'editorGutter.background': '#F9FAFB'
-		}
+	import('./theme/nord.json').then((data) => {
+		// @ts-ignore
+		meditor.defineTheme('nord', data)
 	})
-	meditor.setTheme('myTheme')
+
+	meditor.setTheme('nord')
 
 	import {
 		createHash as randomHash,

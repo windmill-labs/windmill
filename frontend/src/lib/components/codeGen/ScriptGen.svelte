@@ -143,7 +143,7 @@
 	{:else}
 		<Button
 			title="Generate code from prompt"
-			btnClasses="!font-medium text-gray-600"
+			btnClasses="!font-medium text-scondary"
 			size="xs"
 			color="light"
 			spacingSize="md"

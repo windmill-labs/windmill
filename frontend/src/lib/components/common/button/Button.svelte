@@ -88,9 +88,9 @@
 		},
 		light: {
 			border:
-				'border border-gray-300 bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
+				'border bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-gray-300',
 			contained:
-				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300',
+				'bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-gray-300',
 			divider: 'divide-x divide-gray-200'
 		}
 	}

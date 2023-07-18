@@ -10,9 +10,9 @@
 
 <button
 	on:click={() => dispatch('close')}
-	class="hover:bg-gray-200 {noBg
+	class="hover:bg-surface-hover {noBg
 		? ''
-		: 'bg-gray-100'} rounded-full w-8 h-8 flex items-center justify-center transition-all"
+		: 'bg-surface-secondary'} rounded-full w-8 h-8 flex items-center justify-center transition-all"
 >
-	<Icon data={faClose} class="text-gray-500" />
+	<Icon data={faClose} class="text-secondary" />
 </button>

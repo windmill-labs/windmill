@@ -166,8 +166,8 @@
 						{#each savedInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-gray-100 transition-all`,
-									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-surface-hover transition-all`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={() => {
 									if (!i.isEditing) {
@@ -264,8 +264,8 @@
 						{#each previousInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-gray-100 transition-a`,
-									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={() => {
 									if (selectedInput === i) {
@@ -293,7 +293,7 @@
 										<a
 											target="_blank"
 											href="/runs/{i.id}"
-											class="text-right float-right text-gray-600"
+											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
 											<ExternalLink size={16} />
