@@ -6,6 +6,9 @@
 	import SmoothStepEdge from '../../edges/views/Edges/SmoothStepEdge.svelte'
 	import StepEdge from '../../edges/views/Edges/StepEdge.svelte'
 
+	// This is a hack to make sure type definitions are correct
+	import 'd3'
+
 	import Node from '../../nodes/views/Node.svelte'
 
 	import { determineD3Instance } from '../..//d3/controllers/d3'
@@ -56,6 +59,7 @@
 		selectAll,
 		pointer
 	}
+
 	let d3Zoom = determineD3Instance(
 		boundary,
 		d3,
