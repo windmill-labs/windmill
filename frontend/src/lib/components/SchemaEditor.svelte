@@ -61,7 +61,8 @@
 			enum: schema.enum_,
 			items: schema.items,
 			contentEncoding: schema.contentEncoding,
-			format: schema.format
+			format: schema.format,
+			properties: schema.schema?.properties
 		}
 	}
 	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
