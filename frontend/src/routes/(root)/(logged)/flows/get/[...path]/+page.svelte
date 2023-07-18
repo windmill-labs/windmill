@@ -17,7 +17,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -90,6 +90,11 @@
 	}
 
 	let args = undefined
+
+	if ($runFormStore) {
+		args = $runFormStore
+		$runFormStore = undefined
+	}
 
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
@@ -279,7 +284,8 @@
 						path: urlAsync
 					},
 					sync: {
-						path: urlSync
+						path: urlSync,
+						get_path: urlSync
 					}
 				}}
 				isFlow={true}

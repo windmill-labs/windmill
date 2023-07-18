@@ -27,6 +27,7 @@
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
+		existsOpenaiKeyStore,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
@@ -53,6 +54,7 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
+	let openAIKey: string | undefined = undefined
 	let errorHandlerInitialPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'script' = 'script'
@@ -125,6 +127,25 @@
 		}
 	}
 
+	async function editOpenAIKey(): Promise<void> {
+		// in JS, an empty string is also falsy
+		if (openAIKey) {
+			await WorkspaceService.editOpenaiKey({
+				workspace: $workspaceStore!,
+				requestBody: { openai_key: openAIKey }
+			})
+			existsOpenaiKeyStore.set(true)
+			sendUserToast('OpenAI key set')
+		} else {
+			await WorkspaceService.editOpenaiKey({
+				workspace: $workspaceStore!,
+				requestBody: { openai_key: undefined }
+			})
+			existsOpenaiKeyStore.set(false)
+			sendUserToast(`OpenAI key removed`)
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -139,6 +160,7 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+		openAIKey = settings.openai_key
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialPath = errorHandlerScriptPath
 	}
@@ -274,6 +296,14 @@
 				{/if}
 				<Tab size="md" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
+				</Tab>
+
+				<Tab size="md" value="openai">
+					<div class="flex gap-2 items-center my-1"
+						>OpenAI Credentials <span class="text-white px-2 py-1 rounded-full text-xs bg-red-500"
+							>Beta</span
+						></div
+					>
 				</Tab>
 			</Tabs>
 		</div>
@@ -840,11 +870,32 @@
 					</div>
 				</div>
 				<div class="w-1/3 flex items-start">
+<<<<<<< HEAD
 					<div class="mt-2"> <!-- Adjusted margin class -->
 						<Button href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template" target="_blank">Use template</Button>
 					</div>
 				</div>
 			</div>								
+=======
+					<Button
+						wrapperClasses="mt-6"
+						href="/scripts/add?hub=hub%2F1088%2Fwindmill%2FGlobal_%2F_workspace_error_handler_template"
+						target="_blank">Use template</Button
+					></div
+				>
+			</div>
+		{:else if tab == 'openai'}
+			<PageHeader title="OpenAI Credentials" primary={false} />
+			<div class="mt-2"
+				><Alert type="info" title="Experimental feature"
+					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
+				></div
+			>
+			<div class="flex gap-2 mt-5">
+				<input type="text" placeholder="Secret GPT-4 API key" bind:value={openAIKey} />
+				<Button size="md" on:click={editOpenAIKey}>Save</Button>
+			</div>
+>>>>>>> main
 		{/if}
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">

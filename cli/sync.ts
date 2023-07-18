@@ -19,6 +19,7 @@ import {
   log,
   yamlStringify,
   yamlParse,
+  ScheduleService,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -132,7 +133,9 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "deno") ext = "ts";
       else if (language == "go") ext = "go";
       else if (language == "bash") ext = "sh";
-      else if (language == "postgresql") ext = "sql";
+      else if (language == "postgresql") ext = "pg.sql";
+      else if (language == "mysql") ext = "my.sql";
+      else if (language == "bun") ext = "bun.ts";
 
       return `${name}.inline_script.${ext}`;
     }
@@ -396,6 +399,7 @@ async function pull(
     skipVariables?: boolean;
     skipResources?: boolean;
     skipSecrets?: boolean;
+    includeSchedules?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -416,7 +420,8 @@ async function pull(
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
-      opts.skipSecrets
+      opts.skipSecrets,
+      opts.includeSchedules
     ))!,
     !opts.json
   );
@@ -604,6 +609,7 @@ async function push(
     skipVariables?: boolean;
     skipResources?: boolean;
     skipSecrets?: boolean;
+    includeSchedules?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -633,7 +639,8 @@ async function push(
           opts.plainSecrets,
           opts.skipVariables,
           opts.skipResources,
-          opts.skipSecrets
+          opts.skipSecrets,
+          opts.includeSchedules
         ))!,
         !opts.json
       );
@@ -786,6 +793,12 @@ async function push(
               path: removeSuffix(change.path, ".app.json"),
             });
             break;
+          case "schedule":
+            await ScheduleService.deleteSchedule({
+              workspace: workspaceId,
+              path: removeSuffix(change.path, ".schedule.json"),
+            });
+            break;
           case "variable":
             await VariableService.deleteVariable({
               workspace: workspaceId,
@@ -826,6 +839,7 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--include-schedules", "Include syncing  schedules")
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -844,6 +858,7 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--include-schedules", "Include syncing  schedules")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 

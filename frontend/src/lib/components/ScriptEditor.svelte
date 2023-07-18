@@ -24,6 +24,7 @@
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import { Icon } from 'svelte-awesome'
+	import DiffEditor from './DiffEditor.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -36,6 +37,7 @@
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
 	export let editor: Editor | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
 	export let collabMode = false
 	export let edit = true
 
@@ -242,6 +244,7 @@
 			{websocketAlive}
 			collabUsers={peers}
 			kind={asKind(kind)}
+			{diffEditor}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -296,6 +299,12 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 					/>
+					<DiffEditor
+						bind:this={diffEditor}
+						automaticLayout
+						{fixedOverflowWidgets}
+						class="hidden flex-1 h-full !overflow-visible"
+					/>
 				{/key}
 			</div>
 		</Pane>
@@ -344,7 +353,14 @@
 						</div>
 					</Pane>
 					<Pane size={67}>
-						<LogPanel {lang} previewJob={testJob} {pastPreviews} previewIsLoading={testIsLoading} />
+						<LogPanel
+							{lang}
+							previewJob={testJob}
+							{pastPreviews}
+							previewIsLoading={testIsLoading}
+							{editor}
+							{diffEditor}
+						/>
 					</Pane>
 				</Splitpanes>
 			</div>

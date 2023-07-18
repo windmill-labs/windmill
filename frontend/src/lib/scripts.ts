@@ -16,12 +16,14 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		// 	return 'typescript'
 	} else if (lang == 'postgresql') {
 		return 'sql'
-		// } else if (lang == 'mysql') {
-		// 	return 'sql'
+	} else if (lang == 'mysql') {
+		return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {
 		return 'shell'
+	} else if (lang == 'graphql') {
+		return 'graphql'
 	} else {
 		return lang
 	}
@@ -84,6 +86,8 @@ export async function getScriptByPath(path: string): Promise<{
 	schema: any
 	description: string
 	tag: string | undefined
+	concurrent_limit: number[] | undefined
+	concurrency_time_window_s: number[] | undefined
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
@@ -93,7 +97,9 @@ export async function getScriptByPath(path: string): Promise<{
 			language: language as SupportedLanguage,
 			schema,
 			description: '',
-			tag: undefined
+			tag: undefined,
+			concurrent_limit: undefined,
+			concurrency_time_window_s: undefined,
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -105,7 +111,9 @@ export async function getScriptByPath(path: string): Promise<{
 			language: script.language,
 			schema: script.schema,
 			description: script.description,
-			tag: script.tag
+			tag: script.tag,
+			concurrent_limit: script.concurrent_limit,
+			concurrency_time_window_s: script.concurrency_time_window_s,
 		}
 	}
 }

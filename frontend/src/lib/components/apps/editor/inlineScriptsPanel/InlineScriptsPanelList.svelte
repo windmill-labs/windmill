@@ -179,7 +179,7 @@
 			</div>
 			<div class="flex flex-col gap-1 w-full">
 				{#if $app.hiddenInlineScripts?.length > 0}
-					{#each $app.hiddenInlineScripts as { name, hidden }, index (index)}
+					{#each $app.hiddenInlineScripts as { name, hidden, transformer }, index (index)}
 						{#if !hidden}
 							{@const id = BG_PREFIX + index}
 							<button
@@ -191,6 +191,20 @@
 								<span class="text-2xs truncate">{name}</span>
 								<Badge color="indigo">{id}</Badge>
 							</button>
+							{#if transformer}
+								<div class="w-full pl-4">
+									<button
+										id={PREFIX + id + '_transformer'}
+										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+		{$selectedComponentInEditor === id + '_transformer'
+											? 'border-blue-500 bg-blue-100'
+											: 'hover:bg-blue-50'}"
+										on:click={() => selectScript(id + '_transformer')}
+									>
+										<span class="text-2xs truncate">Transformer</span>
+									</button>
+								</div>
+							{/if}
 						{/if}
 					{/each}
 				{:else}

@@ -23,6 +23,8 @@
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE } from '$lib/utils'
+	import AppExportButton from '$lib/components/apps/editor/AppExportButton.svelte'
+	import type { App } from '$lib/components/apps/types'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -44,7 +46,19 @@
 	} = app
 
 	const dispatch = createEventDispatcher()
+
+	let appExport: AppExportButton
+
+	async function loadAppJson() {
+		const app: App = (await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path
+		})) as unknown as App
+		appExport.open(app)
+	}
 </script>
+
+<AppExportButton bind:this={appExport} />
 
 <Row
 	href={`/apps/get/${path}`}
@@ -143,6 +157,13 @@
 						icon: faFileExport,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'app')
+						}
+					},
+					{
+						displayName: 'App JSON',
+						icon: faFileExport,
+						action: () => {
+							loadAppJson()
 						}
 					},
 					{

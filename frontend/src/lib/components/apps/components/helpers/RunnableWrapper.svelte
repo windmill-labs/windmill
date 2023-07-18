@@ -13,7 +13,15 @@
 
 	type SideEffectAction =
 		| {
-				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast' | 'sendErrorToast' | 'errorOverlay'
+				selected:
+					| 'gotoUrl'
+					| 'none'
+					| 'setTab'
+					| 'sendToast'
+					| 'sendErrorToast'
+					| 'errorOverlay'
+					| 'openModal'
+					| 'closeModal'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -25,6 +33,12 @@
 					sendErrorToast?: {
 						message: string | undefined
 						appendError: boolean | undefined
+					}
+					openModal?: {
+						modalId: string | undefined
+					}
+					closeModal?: {
+						modalId: string | undefined
 					}
 				}
 		  }
@@ -90,44 +104,67 @@
 
 		if (sideEffect.selected == 'none') return
 
-		if (sideEffect.selected == 'setTab') {
-			if (Array.isArray(sideEffect.configuration.setTab.setTab)) {
-				sideEffect.configuration.setTab?.setTab?.forEach((tab) => {
-					if (tab) {
-						const { id, index } = tab
-						$componentControl[id].setTab?.(index)
-					}
-				})
+		switch (sideEffect.selected) {
+			case 'setTab':
+				const setTab = sideEffect?.configuration.setTab?.setTab
+
+				if (Array.isArray(setTab)) {
+					setTab.forEach((tab) => {
+						if (tab) {
+							const { id, index } = tab
+							$componentControl[id].setTab?.(index)
+						}
+					})
+				}
+				break
+			case 'gotoUrl':
+				const url = sideEffect?.configuration?.gotoUrl?.url
+
+				if (!url) return
+
+				const newTab = sideEffect?.configuration?.gotoUrl?.newTab
+
+				if (newTab) {
+					window.open(url, '_blank')
+				} else {
+					window.location.href = url
+				}
+
+				break
+			case 'sendToast': {
+				const message = sideEffect?.configuration?.sendToast?.message
+
+				if (!message) return
+
+				sendUserToast(message, !success)
+				break
 			}
-		} else if (
-			sideEffect.selected == 'gotoUrl' &&
-			sideEffect.configuration.gotoUrl.url &&
-			sideEffect.configuration.gotoUrl.url != ''
-		) {
-			if (sideEffect.configuration.gotoUrl.newTab) {
-				window.open(sideEffect.configuration.gotoUrl.url, '_blank')
-			} else {
-				window.location.href = sideEffect.configuration.gotoUrl.url
+			case 'sendErrorToast': {
+				const message = sideEffect?.configuration?.sendErrorToast?.message
+				const appendError = sideEffect?.configuration?.sendErrorToast?.appendError
+
+				if (!message) return
+
+				sendUserToast(message, true, [], appendError ? errorMessage : undefined)
+				break
 			}
-		} else if (
-			sideEffect.selected == 'sendToast' &&
-			sideEffect.configuration.sendToast &&
-			sideEffect.configuration.sendToast.message &&
-			sideEffect.configuration.sendToast.message != ''
-		) {
-			sendUserToast(sideEffect.configuration.sendToast.message, !success)
-		} else if (
-			sideEffect.selected == 'sendErrorToast' &&
-			sideEffect.configuration.sendErrorToast &&
-			sideEffect.configuration.sendErrorToast.message &&
-			sideEffect.configuration.sendErrorToast.message != ''
-		) {
-			sendUserToast(
-				sideEffect.configuration.sendErrorToast.message,
-				true,
-				[],
-				sideEffect.configuration.sendErrorToast.appendError ? errorMessage : undefined
-			)
+			case 'openModal': {
+				const modalId = sideEffect?.configuration?.openModal?.modalId
+				if (modalId) {
+					$componentControl[modalId].openModal?.()
+				}
+				break
+			}
+			case 'closeModal': {
+				const modalId = sideEffect?.configuration?.closeModal?.modalId
+
+				if (!modalId) return
+
+				$componentControl[modalId].closeModal?.()
+				break
+			}
+			default:
+				break
 		}
 	}
 </script>

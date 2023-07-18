@@ -61,6 +61,8 @@ deno_core.workspace = true
 deno_ast.workspace = true
 postgres-native-tls.workspace = true
 native-tls.workspace = true
+mysql_async.workspace = true
+base64.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

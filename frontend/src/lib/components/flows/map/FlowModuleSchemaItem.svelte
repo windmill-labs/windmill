@@ -2,7 +2,17 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
-	import { Bed, Database, Move, PhoneIncoming, Repeat, Square, Voicemail, X } from 'lucide-svelte'
+	import {
+		Bed,
+		Database,
+		Gauge,
+		Move,
+		PhoneIncoming,
+		Repeat,
+		Square,
+		Voicemail,
+		X
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
@@ -19,6 +29,7 @@
 	export let label: string
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
+	export let concurrency: boolean = false
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -43,6 +54,17 @@
 					<Repeat size={14} />
 				</div>
 				<svelte:fragment slot="text">Retries</svelte:fragment>
+			</Popover>
+		{/if}
+		{#if concurrency}
+			<Popover notClickable>
+				<div
+					transition:fade|local={{ duration: 200 }}
+					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
+				>
+					<Gauge size={14} />
+				</div>
+				<svelte:fragment slot="text">Concurrency Limits</svelte:fragment>
 			</Popover>
 		{/if}
 		{#if cache}

@@ -7,6 +7,10 @@
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import ScriptFix from './codeGen/ScriptFix.svelte'
+	import type { Preview } from '$lib/gen'
+	import type Editor from './Editor.svelte'
+	import type DiffEditor from './DiffEditor.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -14,6 +18,9 @@
 	export let disableExpand = false
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
+	export let editor: Editor | undefined = undefined
+	export let diffEditor: DiffEditor | undefined = undefined
+	export let lang: Preview.language | undefined = undefined
 
 	let resultKind:
 		| 'json'
@@ -57,13 +64,17 @@
 		return obj as ArrayLike<ArrayLike<any>>
 	}
 
+	function isObjectOfArray(result: any[], keys: string[]): boolean {
+		return keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
+	}
+
 	function inferResultKind(result: any) {
 		if (result) {
 			try {
 				let keys = Object.keys(result)
 				if (isRectangularArray(result)) {
 					return 'table-row'
-				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
+				} else if (isObjectOfArray(result, keys)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'html') {
 					return 'html'
@@ -134,7 +145,7 @@
 						</div>
 						{#if Array.isArray(result[col])}
 							{#each result[col] as item}
-								<div class="px-12 text-left text-xs whitespace-nowrap">
+								<div class="px-12 text-left text-xs whitespace-nowrap overflow-auto pb-2">
 									{typeof item === 'string' ? item : JSON.stringify(item)}
 								</div>
 							{/each}
@@ -213,12 +224,15 @@
 					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div>
+		{:else if !forceJson && resultKind == 'error'}<div class="flex flex-col items-start">
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
+				{#if lang && editor && diffEditor}
+					<ScriptFix error={JSON.stringify(result.error)} {lang} {editor} {diffEditor} />
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-8 mx-4">
 				<Button

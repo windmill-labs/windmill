@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.127.0"
+version = "1.132.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.127.0"
+version = "1.132.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -31,11 +31,12 @@ name = "windmill"
 path = "./src/main.rs"
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
 incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+benchmark = ["windmill-api/benchmark"]
 
 [dependencies]
 anyhow.workspace = true
@@ -144,7 +145,6 @@ base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
 sqlx = { version = "^0", features = [
-    "offline",
     "macros",
     "migrate",
     "uuid",
@@ -179,5 +179,6 @@ wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1"]}
+mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"

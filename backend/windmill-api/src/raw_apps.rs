@@ -104,7 +104,7 @@ async fn list_apps(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
-        .fetch_all(&mut tx)
+        .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
@@ -126,7 +126,7 @@ async fn get_data(
         path.to_owned(),
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
 
@@ -155,7 +155,7 @@ async fn create_app(
         app.path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -175,11 +175,11 @@ async fn create_app(
         app.summary,
         app.value,
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.create",
         ActionKind::Create,
@@ -212,10 +212,10 @@ async fn delete_app(
         path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.delete",
         ActionKind::Delete,
@@ -245,13 +245,13 @@ async fn update_app(
     let path = path.to_path();
 
     let mut tx = user_db.begin(&authed).await?;
-    let npath = &app.path;
-    let npath = if npath.is_some() || app.summary.is_some() {
-        let mut sqlb = SqlBuilder::update_table("raw_app");
-        sqlb.and_where_eq("path", "?".bind(&path));
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+    let mut sqlb = SqlBuilder::update_table("raw_app");
+    sqlb.and_where_eq("path", "?".bind(&path));
+    sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        if let Some(npath) = &app.path {
+    let npath = &app.path;
+    if npath.is_some() || app.summary.is_some() {
+        if let Some(npath) = npath {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
 
@@ -260,7 +260,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false);
 
@@ -277,28 +277,27 @@ async fn update_app(
         if let Some(nsummary) = &app.summary {
             sqlb.set_str("summary", nsummary);
         }
+    }
 
-        if let Some(value) = &app.value {
-            sqlb.set_str("data", value);
-            sqlb.set("version", "version + 1");
-        }
+    if let Some(value) = &app.value {
+        sqlb.set_str("data", value);
+        sqlb.set("version", "version + 1");
+    }
 
-        sqlb.returning("path");
+    sqlb.returning("path");
 
-        let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
-        not_found_if_none(npath_o, "Raw App", path)?
-    } else {
-        "".to_string()
-    };
+    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+    not_found_if_none(npath_o, "Raw App", path)?;
 
+    let npath = app.path.clone().unwrap_or_else(|| path.to_owned());
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed.username,
         "apps.update",
         ActionKind::Update,
         &w_id,
-        Some(&npath),
+        Some(&path),
         None,
     )
     .await?;
