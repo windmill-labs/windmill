@@ -20,8 +20,13 @@
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
 
-	$: fullContext = iterContext ? { ...extraContext, iter: $iterContext } : extraContext
+	$: fullContext = {
+		...extraContext,
+		iter: iterContext ? $iterContext : undefined,
+		row: rowContext ? $rowContext : undefined
+	}
 	const dispatch = createEventDispatcher()
 
 	if (input == undefined) {
@@ -110,6 +115,7 @@
 					value = nvalue as T
 				}
 			} else {
+				lastExpr = nvalue
 				value = nvalue
 			}
 		}
