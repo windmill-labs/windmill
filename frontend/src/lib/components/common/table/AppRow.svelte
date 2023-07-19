@@ -3,13 +3,14 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, DraftService, type ListableApp } from '$lib/gen'
+	import { AppService, AppWithLastVersion, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faCodeFork,
 		faEdit,
 		faExternalLink,
 		faFileExport,
+		faHistory,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -25,6 +26,7 @@
 	import { DELETE } from '$lib/utils'
 	import AppExportButton from '$lib/components/apps/editor/AppExportButton.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -48,6 +50,7 @@
 	const dispatch = createEventDispatcher()
 
 	let appExport: AppExportButton
+	let appDeploymentHistory: AppDeploymentHistory
 
 	async function loadAppJson() {
 		const app: App = (await AppService.getAppByPath({
@@ -56,10 +59,19 @@
 		})) as unknown as App
 		appExport.open(app)
 	}
+
+	async function loadDeployements() {
+		const app: AppWithLastVersion = (await AppService.getAppByPath({
+			workspace: $workspaceStore!,
+			path
+		})) as unknown as AppWithLastVersion
+
+		appDeploymentHistory.open(app.versions)
+	}
 </script>
 
 <AppExportButton bind:this={appExport} />
-
+<AppDeploymentHistory bind:this={appDeploymentHistory} />
 <Row
 	href={`/apps/get/${path}`}
 	kind="app"
@@ -165,6 +177,11 @@
 						action: () => {
 							loadAppJson()
 						}
+					},
+					{
+						displayName: 'Deployments',
+						icon: faHistory,
+						action: () => loadDeployements()
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
