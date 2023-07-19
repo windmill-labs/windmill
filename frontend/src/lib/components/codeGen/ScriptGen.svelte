@@ -9,7 +9,7 @@
 	import Popup from '../common/popup/Popup.svelte'
 	import { fade } from 'svelte/transition'
 	import { Icon } from 'svelte-awesome'
-	import { existsOpenaiKeyStore } from '$lib/stores'
+	import { existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
@@ -25,7 +25,7 @@
 	// state
 	let funcDesc: string = ''
 	let genLoading: boolean = false
-	let openAIAvailable: boolean | undefined = undefined
+	let openaiAvailable: boolean | undefined = undefined
 	let button: HTMLButtonElement | undefined
 	let input: HTMLInputElement | undefined
 	let generatedCode = ''
@@ -33,6 +33,9 @@
 	let isEdit = false
 
 	async function onGenerate() {
+		if (funcDesc.length <= 0) {
+			return
+		}
 		try {
 			// close popup ^^
 			const elem = document.activeElement as HTMLElement
@@ -75,14 +78,11 @@
 		generatedCode = ''
 	}
 
-	async function checkIfOpenAIAvailable(lang: SupportedLanguage | 'frontend') {
-		try {
-			const exists = $existsOpenaiKeyStore
-			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
-		} catch (err) {
-			console.error(err)
-			sendUserToast('Failed to check if OpenAI is available', true)
-		}
+	function checkIfOpenaiAvailable(
+		lang: SupportedLanguage | 'frontend',
+		existsOpenaiResourcePath: boolean
+	) {
+		openaiAvailable = existsOpenaiResourcePath && SUPPORTED_LANGUAGES.has(lang)
 	}
 
 	function showDiff() {
@@ -106,7 +106,7 @@
 		})
 	}
 
-	$: checkIfOpenAIAvailable(lang)
+	$: checkIfOpenaiAvailable(lang, $existsOpenaiResourcePath)
 
 	$: input?.focus()
 
@@ -118,7 +118,7 @@
 	$: selection && (isEdit = !selection.isEmpty())
 </script>
 
-{#if openAIAvailable}
+{#if openaiAvailable}
 	{#if generatedCode}
 		{#if inlineScript}
 			<div class="flex gap-1">
@@ -210,7 +210,7 @@
 						bind:value={funcDesc}
 						class="!w-auto grow"
 						on:keypress={({ key }) => {
-							if (key === 'Enter') {
+							if (key === 'Enter' && funcDesc.length > 0) {
 								onGenerate()
 							}
 						}}
@@ -225,6 +225,7 @@
 						btnClasses="!p-1 !w-[34px] !ml-1"
 						aria-label="Generate"
 						on:click={onGenerate}
+						disabled={funcDesc.length <= 0}
 					>
 						<Icon data={faMagicWandSparkles} />
 					</Button>

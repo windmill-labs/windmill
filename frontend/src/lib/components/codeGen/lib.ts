@@ -2,7 +2,7 @@ import { OpenAI } from 'openai'
 import { OpenAPI } from '../../gen/core/OpenAPI'
 import { ResourceService, Script, WorkspaceService } from '../../gen'
 
-import { existsOpenaiKeyStore, workspaceStore } from '$lib/stores'
+import { existsOpenaiResourcePath, workspaceStore } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 import { scriptLangToEditorLang } from '$lib/scripts'
 
@@ -45,10 +45,10 @@ workspaceStore.subscribe(async (value) => {
 	workspace = value
 	if (workspace) {
 		try {
-			existsOpenaiKeyStore.set(await WorkspaceService.existsOpenaiKey({ workspace }))
+			existsOpenaiResourcePath.set(await WorkspaceService.existsOpenaiResourcePath({ workspace }))
 		} catch (err) {
-			existsOpenaiKeyStore.set(false)
-			console.error('Could not get if openai key exists')
+			existsOpenaiResourcePath.set(false)
+			console.error('Could not get if OpenAI resource exists')
 		}
 	}
 })

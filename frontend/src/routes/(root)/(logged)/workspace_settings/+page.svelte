@@ -10,6 +10,7 @@
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Slider from '$lib/components/Slider.svelte'
@@ -27,7 +28,7 @@
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
-		existsOpenaiKeyStore,
+		existsOpenaiResourcePath,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
@@ -54,10 +55,10 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
-	let openAIKey: string | undefined = undefined
 	let errorHandlerInitialPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'script' = 'script'
+	let openaiResourceInitialPath: string | undefined = undefined
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -127,22 +128,23 @@
 		}
 	}
 
-	async function editOpenAIKey(): Promise<void> {
+	async function editOpenaiResourcePath(openaiResourcePath: string): Promise<void> {
 		// in JS, an empty string is also falsy
-		if (openAIKey) {
-			await WorkspaceService.editOpenaiKey({
+		openaiResourceInitialPath = openaiResourcePath
+		if (openaiResourcePath) {
+			await WorkspaceService.editOpenaiResourcePath({
 				workspace: $workspaceStore!,
-				requestBody: { openai_key: openAIKey }
+				requestBody: { openai_resource_path: openaiResourcePath }
 			})
-			existsOpenaiKeyStore.set(true)
-			sendUserToast('OpenAI key set')
+			existsOpenaiResourcePath.set(true)
+			sendUserToast('OpenAI resource set')
 		} else {
-			await WorkspaceService.editOpenaiKey({
+			await WorkspaceService.editOpenaiResourcePath({
 				workspace: $workspaceStore!,
-				requestBody: { openai_key: undefined }
+				requestBody: { openai_resource_path: undefined }
 			})
-			existsOpenaiKeyStore.set(false)
-			sendUserToast(`OpenAI key removed`)
+			existsOpenaiResourcePath.set(false)
+			sendUserToast(`OpenAI resource removed`)
 		}
 	}
 
@@ -160,7 +162,7 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		openAIKey = settings.openai_key
+		openaiResourceInitialPath = settings.openai_resource_path
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialPath = errorHandlerScriptPath
 	}
@@ -300,7 +302,7 @@
 
 				<Tab size="md" value="openai">
 					<div class="flex gap-2 items-center my-1"
-						>OpenAI Credentials <span class="text-white px-2 py-1 rounded-full text-xs bg-red-500"
+						>Windmill AI <span class="text-white px-2 py-1 rounded-full text-xs bg-red-500"
 							>Beta</span
 						></div
 					>
@@ -888,15 +890,22 @@
 				</div>
 			</div>
 		{:else if tab == 'openai'}
-			<PageHeader title="OpenAI Credentials" primary={false} />
+			<PageHeader title="Windmill AI" primary={false} />
 			<div class="mt-2"
 				><Alert type="info" title="Experimental feature"
-					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
-				>
-			</div>
-			<div class="flex gap-2 mt-5">
-				<input type="text" placeholder="Secret GPT-4 API key" bind:value={openAIKey} />
-				<Button size="md" on:click={editOpenAIKey}>Save</Button>
+					>Select an OpenAI resource to unlock Windmill AI features!</Alert
+				></div
+			>
+			<div class="mt-5">
+				{#key openaiResourceInitialPath}
+					<ResourcePicker
+						resourceType="openai"
+						initialValue={openaiResourceInitialPath}
+						on:change={(ev) => {
+							editOpenaiResourcePath(ev.detail)
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 	{:else}
