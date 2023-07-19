@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "openai_key",
+        "name": "openai_resource_path",
         "type_info": "Varchar"
       }
     ],
@@ -18,5 +18,5 @@
       true
     ]
   },
-  "hash": "87874d29c44f03ff4d7d9cb9dc92900fb5eb6ce38408fe7f8e0f3455c77c3590"
+  "hash": "f8b689ec3e09f14dc02ac9e9f98d252a14d3a2acfadcd9cd6ba27ca9799f4706"
 }
