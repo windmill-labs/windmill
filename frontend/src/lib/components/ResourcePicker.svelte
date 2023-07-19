@@ -106,16 +106,18 @@
 		size="xs"
 		on:click={() => appConnect?.open?.(resourceType)}
 	>
-		<Icon scale={0.8} data={faPlus} /></Button
-	>
+		<Icon scale={0.8} data={faPlus} />
+	</Button>
 	<Button
 		variant="border"
 		color="light"
 		size="xs"
 		on:click={() => {
 			loadResources(resourceType)
-		}}><Icon scale={0.8} data={faRotateRight} /></Button
+		}}
 	>
+		<Icon scale={0.8} data={faRotateRight} />
+	</Button>
 </div>
 
 <style>

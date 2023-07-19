@@ -155,7 +155,9 @@
 	}
 </script>
 
-<div class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-gray-50 h-screen">
+<div
+	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
+>
 	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
 		<div class="font-mono flex-col flex"><Version /><div><Uptodate /></div></div>
 	</div>
@@ -163,10 +165,10 @@
 		<div class="mx-auto flex justify-center">
 			<WindmillIcon height="80px" width="80px" spin="slow" />
 		</div>
-		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
 			Login or sign up
 		</h2>
-		<p class="mt-2 text-center text-sm text-gray-600">
+		<p class="mt-2 text-center text-sm text-secondary">
 			Login or sign up with any of the methods below
 		</p>
 	</div>
@@ -174,7 +176,7 @@
 	<div
 		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
 	>
-		<div class="bg-white px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
+		<div class="bg-surface px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
 			<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
 				{#if !logins}
 					{#each Array(4) as _}
@@ -232,7 +234,7 @@
 							</p>
 						{/if}
 						<div>
-							<label for="email" class="block text-sm font-medium leading-6 text-gray-900">
+							<label for="email" class="block text-sm font-medium leading-6 text-primary">
 								Email
 							</label>
 							<div>
@@ -247,7 +249,7 @@
 						</div>
 
 						<div>
-							<label for="password" class="block text-sm font-medium leading-6 text-gray-900">
+							<label for="password" class="block text-sm font-medium leading-6 text-primary">
 								Password
 							</label>
 							<div>

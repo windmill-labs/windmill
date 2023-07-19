@@ -70,7 +70,7 @@
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
 							<svelte:fragment slot="content">
-								<div class="overflow-hidden bg-white">
+								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleEarlyStop bind:flowModule />

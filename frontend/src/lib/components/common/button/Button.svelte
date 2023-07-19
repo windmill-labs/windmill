@@ -56,32 +56,32 @@
 
 		blue: {
 			border:
-				'border-frost-500 hover:border-frost-700 focus:border-frost-700 bg-white hover:bg-frost-100 focus:bg-frost-100 text-frost-500 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
+				'border-frost-500 hover:border-frost-700 focus:border-frost-700 bg-surface hover:bg-frost-100 focus:bg-frost-100 text-frost-500 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
 			contained:
 				'bg-frost-500 hover:bg-frost-700 focus:bg-frost-700 text-white focus:ring-frost-300',
 			divider: 'divide-x divide-frost-600'
 		},
 		red: {
 			border:
-				'border-red-600 hover:border-red-700 bg-white hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
+				'border-red-600 hover:border-red-700 bg-surface hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
 			contained: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-300',
 			divider: 'divide-x divide-red-700'
 		},
 		green: {
 			border:
-				'border-green-600 hover:border-green-700 bg-white hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
+				'border-green-600 hover:border-green-700 bg-surface hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
 			contained: 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-300',
 			divider: 'divide-x divide-green-700'
 		},
 		dark: {
 			border:
-				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
 			contained: 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white focus:ring-gray-300',
 			divider: 'divide-x divide-gray-800'
 		},
 		gray: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
 			contained:
 				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300',
 			divider: 'divide-x divide-gray-700'

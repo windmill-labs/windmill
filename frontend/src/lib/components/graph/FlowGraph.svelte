@@ -745,7 +745,6 @@
 			{scroll}
 			nodeSelected={showDataflow}
 			background={false}
-			bgColor="rgb(249 250 251)"
 		/>
 	{/if}
 </div>

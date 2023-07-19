@@ -112,10 +112,8 @@
 
 <!-- Now that a store has been created from the initial nodes and initial edges we drill props from the store down to the D3 GraphView along with the unique key -->
 <div
-	class="Svelvet"
-	style={`width: ${width}px; height: ${
-		fullHeight ? '100%' : height + 'px'
-	}; background-color: ${bgColor};`}
+	class="Svelvet bg-surface-secondary"
+	style={`width: ${width}px; height: ${fullHeight ? '100%' : height + 'px'};`}
 >
 	{#if error != ''}
 		<div class="error text-red-600 center-center p-4">{error}</div>

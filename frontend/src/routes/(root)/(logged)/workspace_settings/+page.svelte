@@ -312,7 +312,8 @@
 				title="Members ({users?.length ?? ''})"
 				primary={false}
 				tooltip="Manage users manually or enable SSO authentication."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"/>
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
+			/>
 
 			<AddUser on:new={listUsers} />
 
@@ -388,10 +389,13 @@
 														create new ones.</Tooltip
 													></ToggleButton
 												>
-												<ToggleButton position="right" value="admin" size="xs">Admin<Tooltip
-														>An admin has full control over a specific Windmill workspace, including the ability to manage users, edit
-														entities, and control permissions within the workspace.</Tooltip
-													></ToggleButton>
+												<ToggleButton position="right" value="admin" size="xs"
+													>Admin<Tooltip
+														>An admin has full control over a specific Windmill workspace, including
+														the ability to manage users, edit entities, and control permissions
+														within the workspace.</Tooltip
+													></ToggleButton
+												>
 											</ToggleButtonGroup>
 										</div>
 									</td>
@@ -447,7 +451,12 @@
 					</tbody>
 				</TableCustom>
 			</div>
-			<PageHeader title="Invites ({invites.length ?? ''})" primary={false} tooltip="Manage invites on your workspace." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace">
+			<PageHeader
+				title="Invites ({invites.length ?? ''})"
+				primary={false}
+				tooltip="Manage invites on your workspace."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
+			>
 				<InviteUser on:new={listInvites} />
 			</PageHeader>
 
@@ -488,7 +497,12 @@
 			</div>
 
 			<div class="mt-10" />
-			<PageHeader title="Auto Invite" tooltip="Auto invite to the workspace users from your domain." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite" primary={false} />
+			<PageHeader
+				title="Auto Invite"
+				tooltip="Auto invite to the workspace users from your domain."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite"
+				primary={false}
+			/>
 			<div class="flex gap-2">
 				{#if auto_invite_domain != domain}
 					<div>
@@ -889,10 +903,10 @@
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="OpenAI Credentials" primary={false} />
-			<div class="mt-2"
-				><Alert type="info" title="Experimental feature"
-					>Enter your OpenAI api key to unlock Windmill's AI features!</Alert
-				>
+			<div class="mt-2">
+				<Alert type="info" title="Experimental feature">
+					Enter your OpenAI api key to unlock Windmill's AI features!
+				</Alert>
 			</div>
 			<div class="flex gap-2 mt-5">
 				<input type="text" placeholder="Secret GPT-4 API key" bind:value={openAIKey} />
