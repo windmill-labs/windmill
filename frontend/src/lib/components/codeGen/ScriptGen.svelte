@@ -167,30 +167,6 @@
 				</Button>
 			</div>
 		{/if}
-	{:else if inlineScript}
-		<Button
-			size="lg"
-			bind:element={button}
-			color="light"
-			btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
-			loading={genLoading}
-		>
-			<Icon scale={0.8} data={faMagicWandSparkles} />
-		</Button>
-	{:else}
-		<Button
-			title="Generate code from prompt"
-			btnClasses="!font-medium text-gray-600"
-			size="xs"
-			color="light"
-			spacingSize="md"
-			bind:element={button}
-			startIcon={{ icon: faMagicWandSparkles }}
-			{iconOnly}
-			loading={genLoading}
-		>
-			{isEdit ? 'AI Edit' : 'AI Gen'}
-		</Button>
 	{/if}
 	{#if !generatedCode && !genLoading}
 		<Popup
@@ -201,6 +177,35 @@
 			wrapperClasses="!z-[1002]"
 			outerClasses="rounded shadow-xl bg-white border p-3 w-96"
 		>
+			<svelte:fragment slot="button">
+				{#if inlineScript}
+					<Button
+						size="lg"
+						bind:element={button}
+						color="light"
+						btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+						loading={genLoading}
+						nonCaptureEvent={true}
+					>
+						<Icon scale={0.8} data={faMagicWandSparkles} />
+					</Button>
+				{:else}
+					<Button
+						title="Generate code from prompt"
+						btnClasses="!font-medium text-gray-600"
+						size="xs"
+						color="light"
+						spacingSize="md"
+						bind:element={button}
+						startIcon={{ icon: faMagicWandSparkles }}
+						{iconOnly}
+						loading={genLoading}
+						nonCaptureEvent={true}
+					>
+						{isEdit ? 'AI Edit' : 'AI Gen'}
+					</Button>
+				{/if}
+			</svelte:fragment>
 			<label class="block text-gray-900">
 				<div class="pb-1 text-sm text-gray-600">Prompt</div>
 				<div class="flex w-full">

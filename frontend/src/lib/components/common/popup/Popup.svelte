@@ -1,173 +1,35 @@
-<svelte:options accessors />
-
 <script lang="ts">
-	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { slide, type TransitionConfig } from 'svelte/transition'
-	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
-	import { clickOutside } from '../../../utils'
-	import { createStateMachine } from '../../../stateMachine'
+	import { Popover, PopoverButton, PopoverPanel, Transition } from '@rgossiaux/svelte-headlessui'
+	import Portal from 'svelte-portal'
+	import { createFloatingActions } from 'svelte-floating-ui'
 
-	export let ref: HTMLElement | undefined
-	export let options: PopperOptions<any> = { placement: 'auto', strategy: 'fixed' }
-	/** Events on the reference element */
-	export let openOn: (keyof HTMLElementEventMap)[] = ['focus']
-	/** Events on the reference element */
-	export let closeOn: (keyof HTMLElementEventMap)[] = ['blur']
-	export let innerClasses = ''
-	export let outerClasses = ''
-	export let wrapperClasses = ''
-	export let transition: (node: Element, params?: Record<string, any>) => TransitionConfig = slide
-	export { openFocusIn as open, closed as close }
-
-	const states = ['closed', 'open-focus-in', 'open-focus-out'] as const
-	const stateMachine = createStateMachine(states, {
-		to: {
-			closed: ({ previousState, currentState }) => {
-				return isFocusContained() ? previousState : currentState
-			}
-		}
+	const [floatingRef, floatingContent] = createFloatingActions({
+		strategy: 'absolute'
 	})
-
-	const [popperRef, popperContent, getInstance] = createPopperActions()
-	const dispatch = createEventDispatcher()
-	let popup: HTMLElement | undefined
-	let focusableElements: HTMLElement[]
-
-	function getFocusableElements() {
-		let elements: HTMLElement[] = []
-
-		popup
-			?.querySelectorAll<HTMLElement>(
-				'a[href], button, input, textarea, select, details, [tabindex]:not([tabindex="-1"])'
-			)
-			.forEach((elem) => elements.push(elem))
-
-		focusableElements = elements.filter(
-			(el) => !el.hasAttribute('disabled') && !el.getAttribute('aria-hidden')
-		)
-		focusableElements.forEach((el) => {
-			el.tabIndex = -1
-			el.addEventListener('click', openFocusIn)
-			el.addEventListener('blur', conditionalClosed)
-		})
-	}
-
-	function isFocusContained() {
-		const activeElem = document.activeElement
-		return popup?.contains(activeElem) || ref?.contains(activeElem)
-	}
-
-	function closed() {
-		if ($stateMachine.currentState === 'open-focus-out') {
-			setTimeout(() => {
-				stateMachine.setState('closed')
-				dispatch('close')
-			}, 0)
-		} else {
-			stateMachine.setState('closed')
-			dispatch('close')
-		}
-	}
-	function conditionalClosed() {
-		setTimeout(() => {
-			if (isFocusContained()) return
-			closed()
-		}, 0)
-	}
-	function openFocusOut() {
-		stateMachine.setState('open-focus-out')
-	}
-	function openFocusIn() {
-		stateMachine.setState('open-focus-in')
-	}
-
-	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
-		const modifiers = ['Shift', 'Control', 'Command', 'Alt', 'Meta']
-		// Prevent closing the popup when the only key pressed is a modifier key
-		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return
-		if (event.key === 'Escape') {
-			;(<HTMLElement>document.activeElement)?.blur()
-			return conditionalClosed()
-		}
-
-		const prev = ['Up', 'Left']
-		const next = ['Down', 'Right']
-		if (![...prev, ...next].some((dir) => `Arrow${dir}` === event.key)) return
-
-		event.preventDefault()
-
-		if (popup?.contains(document.activeElement)) {
-			const index = focusableElements.findIndex((elem) => elem === document.activeElement)
-			if (index === -1) return
-
-			let targetIndex: number | undefined = undefined
-			if (prev.some((dir) => `Arrow${dir}` === event.key)) {
-				targetIndex = index === 0 ? focusableElements.length - 1 : index - 1
-			} else if (next.some((dir) => `Arrow${dir}` === event.key)) {
-				targetIndex = index + 1 === focusableElements.length ? 0 : index + 1
-			}
-			if (targetIndex !== undefined) {
-				focusableElements[targetIndex].focus()
-				stateMachine.setState('open-focus-in')
-			}
-		} else {
-			const elem = focusableElements[event.key === 'ArrowUp' ? focusableElements.length - 1 : 0]
-			if (elem) {
-				elem.focus()
-				stateMachine.setState('open-focus-in')
-			}
-		}
-	}
-
-	function addRefListeners() {
-		if (!ref) return
-		openOn.forEach((action) => ref!.addEventListener(action, openFocusOut))
-		closeOn.forEach((action) => ref!.addEventListener(action, closed))
-	}
-
-	function removeAllListeners() {
-		focusableElements?.forEach((el) => el.removeEventListener('click', openFocusIn))
-		focusableElements?.forEach((el) => el.removeEventListener('blur', conditionalClosed))
-		if (!ref) return
-		openOn.forEach((action) => ref!.removeEventListener(action, openFocusOut))
-		closeOn.forEach((action) => ref!.removeEventListener(action, closed))
-	}
-
-	$: if ($stateMachine.currentState === 'closed') {
-		focusableElements?.forEach((el) => el.removeEventListener('click', openFocusIn))
-	} else {
-		setTimeout(() => {
-			getFocusableElements()
-			getInstance()?.update()
-		}, 0)
-	}
-
-	$: if (ref) {
-		popperRef(ref)
-		addRefListeners()
-	}
-
-	$: $$slots.default && getInstance()?.update()
-
-	onDestroy(removeAllListeners)
 </script>
 
-<svelte:window on:keydown={keyDown} />
-
-<div
-	class="z-50 {wrapperClasses}"
-	bind:this={popup}
-	use:popperContent={options}
-	use:clickOutside
-	on:click_outside={closed}
-	aria-haspopup="true"
-	aria-expanded={$stateMachine.currentState !== 'closed'}
->
-	{#if $stateMachine.currentState !== 'closed'}
-		<div transition:transition|local={{ duration: 100 }} class={outerClasses}>
-			<div class={innerClasses}>
-				<slot open={openFocusIn} close={closed} />
-			</div>
+<Popover class="relative" let:open>
+	<PopoverButton>
+		<div use:floatingRef>
+			<slot name="button" />
 		</div>
-	{/if}
-</div>
+	</PopoverButton>
+	<Portal>
+		<div use:floatingContent class="z5000" hidden={!open}>
+			<Transition
+				enter="transition ease-out duration-200"
+				enterFrom="opacity-0 translate-y-1"
+				enterTo="opacity-100 translate-y-0"
+				leave="transition ease-in duration-150"
+				leaveFrom="opacity-100 translate-y-0"
+				leaveTo="opacity-0 translate-y-1"
+			>
+				<PopoverPanel>
+					<div class="rounded-lg shadow-lg p-4 bg-white">
+						<slot />
+					</div>
+				</PopoverPanel>
+			</Transition>
+		</div>
+	</Portal>
+</Popover>
