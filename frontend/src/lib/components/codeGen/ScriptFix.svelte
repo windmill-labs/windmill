@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { existsOpenaiKeyStore } from '$lib/stores'
+	import { existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
@@ -18,7 +18,7 @@
 
 	// state
 	let genLoading: boolean = false
-	let openAIAvailable: boolean | undefined = undefined
+	let openaiAvailable: boolean | undefined = undefined
 	let generatedCode = ''
 
 	async function onFix() {
@@ -57,14 +57,11 @@
 		generatedCode = ''
 	}
 
-	async function checkIfOpenAIAvailable(lang: SupportedLanguage) {
-		try {
-			const exists = $existsOpenaiKeyStore
-			openAIAvailable = exists && SUPPORTED_LANGUAGES.has(lang)
-		} catch (err) {
-			console.error(err)
-			sendUserToast('Failed to check if OpenAI is available', true)
-		}
+	function checkIfOpenaiAvailable(
+		lang: SupportedLanguage | 'frontend',
+		existsOpenaiResourcePath: boolean
+	) {
+		openaiAvailable = existsOpenaiResourcePath && SUPPORTED_LANGUAGES.has(lang)
 	}
 
 	function showDiff() {
@@ -78,7 +75,7 @@
 		diffEditor?.hide()
 	}
 
-	$: checkIfOpenAIAvailable(lang)
+	$: checkIfOpenaiAvailable(lang, $existsOpenaiResourcePath)
 
 	$: lang && (generatedCode = '')
 
@@ -87,7 +84,7 @@
 </script>
 
 {#if error}
-	{#if openAIAvailable}
+	{#if openaiAvailable}
 		<div class="mt-2">
 			{#if generatedCode}
 				<div class="flex gap-1">

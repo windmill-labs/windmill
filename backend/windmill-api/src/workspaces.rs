@@ -67,8 +67,8 @@ pub fn workspaced_service() -> Router {
         .route("/edit_deploy_to", post(edit_deploy_to))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
-        .route("/edit_openai_key", post(edit_openai_key))
-        .route("/exists_openai_key", get(exists_openai_key) )
+        .route("/edit_openai_resource_path", post(edit_openai_resource_path))
+        .route("/exists_openai_resource_path", get(exists_openai_resource_path) )
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
@@ -116,7 +116,7 @@ pub struct WorkspaceSettings {
     pub plan: Option<String>,
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
-    pub openai_key: Option<String>,
+    pub openai_resource_path: Option<String>,
     pub error_handler: Option<String>,
 }
 
@@ -158,8 +158,8 @@ struct EditWebhook {
 }
 
 #[derive(Deserialize)]
-struct EditOpenAIKey {
-    openai_key: Option<String>,
+struct EditOpenaiResourcePath {
+    openai_resource_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -661,28 +661,28 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
-async fn edit_openai_key(
+async fn edit_openai_resource_path(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Authed { is_admin, username, .. }: Authed,
-    Json(eo): Json<EditOpenAIKey>,
+    Json(eo): Json<EditOpenaiResourcePath>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
 
-    if let Some(openai_key) = &eo.openai_key {
+    if let Some(openai_resource_path) = &eo.openai_resource_path {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2",
-            openai_key,
+            "UPDATE workspace_settings SET openai_resource_path = $1 WHERE workspace_id = $2",
+            openai_resource_path,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET openai_key = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET openai_resource_path = NULL WHERE workspace_id = $1",
             &w_id,
         )
         .execute(&mut *tx)
@@ -691,35 +691,35 @@ async fn edit_openai_key(
     audit_log(
         &mut *tx,
         &authed.username,
-        "workspaces.edit_openai_key",
+        "workspaces.edit_openai_resource_path",
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("openai_key", &format!("{:?}", eo.openai_key)[..])].into()),
+        Some([("openai_resource_path", &format!("{:?}", eo.openai_resource_path)[..])].into()),
     )
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Edit openai_key for workspace {}", &w_id))
+    Ok(format!("Edit openai_resource_path for workspace {}", &w_id))
 }
 
 
-async fn exists_openai_key(
+async fn exists_openai_resource_path(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<bool> {
 
     let mut tx = db.begin().await?;
-    let openai_key = sqlx::query_scalar!(
-        "SELECT openai_key FROM workspace_settings WHERE workspace_id = $1",
+    let openai_resource_path = sqlx::query_scalar!(
+        "SELECT openai_resource_path FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_key: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path: {e}")))?;
     tx.commit().await?;
 
-    let exists = openai_key.is_some();
+    let exists = openai_resource_path.is_some();
 
     Ok(Json(exists))
 }
