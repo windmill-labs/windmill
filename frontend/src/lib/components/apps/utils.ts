@@ -195,7 +195,6 @@ export function toStatic(
 export function buildExtraLib(
 	components: Record<string, Record<string, Output<any>>>,
 	idToExclude: string,
-	hasRows: boolean,
 	state: Record<string, any>,
 	goto: boolean
 ): string {
@@ -209,7 +208,6 @@ export function buildExtraLib(
 		.join('\n')
 
 	return `${cs}
-${hasRows ? 'declare const row: Record<string, any>;' : ''}
 ${
 	goto
 		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
@@ -225,6 +223,7 @@ declare function closeModal(id: string): void;
 }
 declare const state: ${JSON.stringify(state)};
 declare const iter: {index: number, value: any};
+declare const row: {index: number, value: any};
 `
 }
 

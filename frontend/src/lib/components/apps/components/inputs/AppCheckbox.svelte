@@ -31,6 +31,8 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
 	let value: boolean = false
 
@@ -57,6 +59,9 @@
 		outputs.result.set(value)
 		if (iterContext && listInputs) {
 			listInputs(id, value)
+		}
+		if (rowContext && rowInputs) {
+			rowInputs(id, value)
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))

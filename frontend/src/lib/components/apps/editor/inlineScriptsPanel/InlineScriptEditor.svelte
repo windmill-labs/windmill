@@ -118,7 +118,7 @@
 
 	$: extraLib =
 		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
 			: undefined
 
 	let drawerIsOpen: boolean | undefined = undefined
