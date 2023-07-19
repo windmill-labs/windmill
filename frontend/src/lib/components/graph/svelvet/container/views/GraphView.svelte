@@ -203,7 +203,7 @@
 {#if showDataflowToggle}
 	<div id="dataflow_toggle">
 		<Toggle
-			textClass="!text-gray-600"
+			textClass="!text-secondary"
 			size="xs"
 			bind:checked={dataflow}
 			options={{

@@ -220,7 +220,7 @@
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60} minSize={20}>
-						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-primary">
+						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
 							<div class="flex flex-col gap-0.5">
 								{#if !emptyString(flow.summary)}
 									<span class="text-lg font-semibold">{flow.path}</span>

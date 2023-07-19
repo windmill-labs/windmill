@@ -86,7 +86,10 @@
 			placeholder="Search prop..."
 		/>
 	</div>
-	<div class="overflow-y-auto px-2 grow" class:bg-gray-100={!$propPickerConfig && !notSelectable}>
+	<div
+		class="overflow-y-auto px-2 grow"
+		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
+	>
 		<div class="flex justify-between items-center space-x-1">
 			<span class="font-bold text-sm">Flow Input</span>
 			<div class="flex space-x-2 items-center" />

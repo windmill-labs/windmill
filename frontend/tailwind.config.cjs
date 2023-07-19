@@ -11,7 +11,7 @@ const lightTheme = {
 	textSecondary: '#4a5568',
 	textDisabled: '#a0aec0',
 
-	border: '#3e4c60'
+	border: '#ccc'
 }
 
 const lightThemeRgb = makeRgb(lightTheme)
@@ -773,12 +773,12 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: lightTheme.border,
+					borderColor: darkTheme.border,
 					color: lightTheme.textPrimary
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: darkTheme.border,
+					borderColor: lightTheme.border,
 					color: darkTheme.textPrimary
 				}
 			})

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
-	import { classNames } from '$lib/utils'
 	import { faBolt } from '@fortawesome/free-solid-svg-icons'
 	import { ClipboardCopy, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -48,12 +48,13 @@
 {/if}
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
-	class={classNames(
+	class={twMerge(
 		'w-full flex relative overflow-hidden rounded-sm ',
 		selectable ? 'cursor-pointer' : '',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
+		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+		'bg-surface text-primary '
 	)}
-	style="min-width: 275px; height: 34px; background-color: {bgColor};"
+	style="min-width: 275px; height: 34px;"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
