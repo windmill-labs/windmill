@@ -277,12 +277,12 @@
 				canRefresh
 			/>
 			<div class="flex gap-20 items-start mt-3">
-				<div class="text-gray-600 italic text-sm"
+				<div class="text-gray-600 text-sm"
 					>The following args will be passed to the error handler:
 					<ul class="mt-1 ml-2">
-						<li><b>path</b>: The path of the script or flow that errored</li>
-						<li><b>schedule_path</b>: The path of the schedule</li>
-						<li><b>error</b>: The error details</li>
+						<li><b>path</b>: The path of the script or flow that errored.</li>
+						<li><b>schedule_path</b>: The path of the schedule.</li>
+						<li><b>error</b>: The error details.</li>
 					</ul>
 				</div>
 				<Button

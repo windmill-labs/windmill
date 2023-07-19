@@ -84,6 +84,7 @@
 	<PageHeader
 		title="Audit logs"
 		tooltip="You can only see your own audit logs unless you are an admin."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs"
 	/>
 
 	{#if !$enterpriseLicense}
