@@ -73,7 +73,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev
+RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
