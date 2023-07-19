@@ -32,6 +32,7 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
 	import AppSelect from '../../inputs/AppSelect.svelte'
+	import RowWrapper from '../../layout/RowWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -58,9 +59,12 @@
 		selectedRow: undefined,
 		loading: false,
 		result: [],
+		inputs: {},
 		search: '',
 		page: 1
 	})
+
+	let inputs = {}
 
 	$: setSearch(searchValue)
 
@@ -347,82 +351,134 @@
 									>
 										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
-												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-												<div
-													on:mouseover|stopPropagation={() => {
-														if (actionButton.id !== $hoverStore) {
-															$hoverStore = actionButton.id
-														}
+												<RowWrapper
+													on:inputsChange={() => {
+														outputs?.inputs.set(inputs, true)
 													}}
-													on:mouseout|stopPropagation={() => {
-														if ($hoverStore !== undefined) {
-															$hoverStore = undefined
-														}
-													}}
-													class={classNames(
-														($selectedComponent?.includes(actionButton.id) ||
-															$hoverStore === actionButton.id) &&
-															$mode !== 'preview'
-															? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
-															: ''
-													)}
+													bind:inputs
+													value={row}
+													index={rowIndex}
 												>
-													{#if $mode !== 'preview'}
-														<!-- svelte-ignore a11y-click-events-have-key-events -->
-														<span
-															title={`Id: ${actionButton.id}`}
-															class={classNames(
-																'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
-																'bg-indigo-500/90 border-indigo-600 text-white',
-																$selectedComponent?.includes(actionButton.id) ||
-																	$hoverStore === actionButton.id
-																	? 'opacity-100'
-																	: 'opacity-0'
-															)}
-															on:click|stopPropagation={() => {
-																$selectedComponent = [actionButton.id]
-															}}
-														>
-															{actionButton.id}
-														</span>
-													{/if}
-													{#if rowIndex == 0}
-														{@const controls = {
-															left: () => {
-																if (actionIndex === 0) {
-																	$selectedComponent = [id]
-																	return true
-																} else if (actionIndex > 0) {
-																	$selectedComponent = [actionButtons[actionIndex - 1].id]
-																	return true
-																}
-																return false
-															},
-															right: () => {
-																if (actionIndex === actionButtons.length - 1) {
-																	return id
-																} else if (actionIndex < actionButtons.length - 1) {
-																	$selectedComponent = [actionButtons[actionIndex + 1].id]
-																	return true
-																}
-																return false
+													<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+													<div
+														on:mouseover|stopPropagation={() => {
+															if (actionButton.id !== $hoverStore) {
+																$hoverStore = actionButton.id
 															}
 														}}
-														{#if actionButton.type == 'buttoncomponent'}
+														on:mouseout|stopPropagation={() => {
+															if ($hoverStore !== undefined) {
+																$hoverStore = undefined
+															}
+														}}
+														class={classNames(
+															($selectedComponent?.includes(actionButton.id) ||
+																$hoverStore === actionButton.id) &&
+																$mode !== 'preview'
+																? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
+																: ''
+														)}
+													>
+														{#if $mode !== 'preview'}
+															<!-- svelte-ignore a11y-click-events-have-key-events -->
+															<span
+																title={`Id: ${actionButton.id}`}
+																class={classNames(
+																	'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
+																	'bg-indigo-500/90 border-indigo-600 text-white',
+																	$selectedComponent?.includes(actionButton.id) ||
+																		$hoverStore === actionButton.id
+																		? 'opacity-100'
+																		: 'opacity-0'
+																)}
+																on:click|stopPropagation={() => {
+																	$selectedComponent = [actionButton.id]
+																}}
+															>
+																{actionButton.id}
+															</span>
+														{/if}
+														{#if rowIndex == 0}
+															{@const controls = {
+																left: () => {
+																	if (actionIndex === 0) {
+																		$selectedComponent = [id]
+																		return true
+																	} else if (actionIndex > 0) {
+																		$selectedComponent = [actionButtons[actionIndex - 1].id]
+																		return true
+																	}
+																	return false
+																},
+																right: () => {
+																	if (actionIndex === actionButtons.length - 1) {
+																		return id
+																	} else if (actionIndex < actionButtons.length - 1) {
+																		$selectedComponent = [actionButtons[actionIndex + 1].id]
+																		return true
+																	}
+																	return false
+																}
+															}}
+															{#if actionButton.type == 'buttoncomponent'}
+																<AppButton
+																	extraKey={'idx' + rowIndex}
+																	{render}
+																	noWFull
+																	preclickAction={async () => {
+																		toggleRow(row, rowIndex)
+																	}}
+																	id={actionButton.id}
+																	customCss={actionButton.customCss}
+																	configuration={actionButton.configuration}
+																	recomputeIds={actionButton.recomputeIds}
+																	extraQueryParams={{ row: row.original }}
+																	componentInput={actionButton.componentInput}
+																	{controls}
+																/>
+															{:else if actionButton.type == 'checkboxcomponent'}
+																<AppCheckbox
+																	extraKey={'idx' + rowIndex}
+																	{render}
+																	id={actionButton.id}
+																	customCss={actionButton.customCss}
+																	configuration={actionButton.configuration}
+																	recomputeIds={actionButton.recomputeIds}
+																	preclickAction={async () => {
+																		toggleRow(row, rowIndex)
+																	}}
+																	{controls}
+																/>
+															{:else if actionButton.type == 'selectcomponent'}
+																<div class="w-40">
+																	<AppSelect
+																		extraKey={'idx' + rowIndex}
+																		{render}
+																		id={actionButton.id}
+																		customCss={actionButton.customCss}
+																		configuration={actionButton.configuration}
+																		recomputeIds={actionButton.recomputeIds}
+																		preclickAction={async () => {
+																			toggleRow(row, rowIndex)
+																		}}
+																		{controls}
+																	/>
+																</div>
+															{/if}
+														{:else if actionButton.type == 'buttoncomponent'}
 															<AppButton
 																extraKey={'idx' + rowIndex}
 																{render}
 																noWFull
-																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
-																}}
 																id={actionButton.id}
 																customCss={actionButton.customCss}
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
+																preclickAction={async () => {
+																	toggleRow(row, rowIndex)
+																}}
 																extraQueryParams={{ row: row.original }}
 																componentInput={actionButton.componentInput}
-																{controls}
 															/>
 														{:else if actionButton.type == 'checkboxcomponent'}
 															<AppCheckbox
@@ -435,11 +491,11 @@
 																preclickAction={async () => {
 																	toggleRow(row, rowIndex)
 																}}
-																{controls}
 															/>
 														{:else if actionButton.type == 'selectcomponent'}
 															<div class="w-40">
 																<AppSelect
+																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	id={actionButton.id}
@@ -449,54 +505,11 @@
 																	preclickAction={async () => {
 																		toggleRow(row, rowIndex)
 																	}}
-																	{controls}
 																/>
 															</div>
 														{/if}
-													{:else if actionButton.type == 'buttoncomponent'}
-														<AppButton
-															extraKey={'idx' + rowIndex}
-															{render}
-															noWFull
-															id={actionButton.id}
-															customCss={actionButton.customCss}
-															configuration={actionButton.configuration}
-															recomputeIds={actionButton.recomputeIds}
-															preclickAction={async () => {
-																toggleRow(row, rowIndex)
-															}}
-															extraQueryParams={{ row: row.original }}
-															componentInput={actionButton.componentInput}
-														/>
-													{:else if actionButton.type == 'checkboxcomponent'}
-														<AppCheckbox
-															extraKey={'idx' + rowIndex}
-															{render}
-															id={actionButton.id}
-															customCss={actionButton.customCss}
-															configuration={actionButton.configuration}
-															recomputeIds={actionButton.recomputeIds}
-															preclickAction={async () => {
-																toggleRow(row, rowIndex)
-															}}
-														/>
-													{:else if actionButton.type == 'selectcomponent'}
-														<div class="w-40">
-															<AppSelect
-																--font-size="10px"
-																extraKey={'idx' + rowIndex}
-																{render}
-																id={actionButton.id}
-																customCss={actionButton.customCss}
-																configuration={actionButton.configuration}
-																recomputeIds={actionButton.recomputeIds}
-																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
-																}}
-															/>
-														</div>
-													{/if}
-												</div>
+													</div>
+												</RowWrapper>
 											{/each}
 										</div>
 									</td>

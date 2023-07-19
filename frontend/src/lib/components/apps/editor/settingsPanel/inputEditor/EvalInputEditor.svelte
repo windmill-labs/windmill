@@ -8,13 +8,12 @@
 
 	export let componentInput: EvalAppInput | undefined
 	export let id: string
-	export let hasRows: boolean = false
 
 	const { onchange, worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, hasRows, $state, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, false)
 			: undefined
 </script>
 

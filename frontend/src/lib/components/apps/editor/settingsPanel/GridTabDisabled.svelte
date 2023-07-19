@@ -42,7 +42,6 @@
 			userInputEnabled={false}
 			shouldCapitalize={true}
 			resourceOnly={false}
-			hasRows={false}
 			fieldType={field?.['fieldType']}
 			subFieldType={field?.['subFieldType']}
 			format={field?.['format']}

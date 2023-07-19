@@ -106,7 +106,6 @@
 {/each}
 
 <!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
-
 <RunnableWrapper
 	bind:this={runnableWrapper}
 	{recomputeIds}
