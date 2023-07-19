@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE workspace_settings SET openai_key = $1 WHERE workspace_id = $2",
+  "query": "UPDATE workspace_settings SET openai_resource_path = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "d2fefff37e6e0d1c8061f3215cb740b9af6798bf1605e79be0786b1f08b55f02"
+  "hash": "d7d368f9ef2587c6abd3daaec93401615a53e3d7d949b65ebf01ef8760ba46b8"
 }
