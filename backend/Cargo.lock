@@ -453,9 +453,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.18"
+version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8175979259124331c1d7bf6586ee7e0da434155e4b2d48ec2c8386281d8df39"
+checksum = "a6a1de45611fdb535bfde7b7de4fd54f4fd2b17b1737c0a59b69bf9b92074b8c"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -980,9 +980,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.12"
+version = "4.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3eab9e8ceb9afdade1ab3f0fd8dbce5b1b2f468ad653baf10e771781b2b67b73"
+checksum = "74bb1b4028935821b2d6b439bba2e970bdcf740832732437ead910c632e30d7d"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -991,9 +991,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.12"
+version = "4.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f2763db829349bf00cfc06251268865ed4363b93a943174f638daf3ecdba2cd"
+checksum = "5ae467cbb0111869b765e13882a1dbbd6cb52f58203d8b80c44f667d4dd19843"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1541,7 +1541,7 @@ dependencies = [
  "flate2",
  "serde",
  "tokio",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "windows-sys",
 ]
 
@@ -2811,9 +2811,9 @@ dependencies = [
 
 [[package]]
 name = "libxml"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca310e4db05e9b7386ad0734975fabc912b66f6bc50a98f525e690822da1ee0e"
+checksum = "5fe73cdec2bcb36d25a9fe3f607ffcd44bb8907ca0100c4098d1aa342d1e7bec"
 dependencies = [
  "libc",
  "pkg-config",
@@ -3129,7 +3129,7 @@ dependencies = [
  "subprocess",
  "thiserror",
  "time 0.3.23",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -3448,9 +3448,9 @@ checksum = "9b2a4787296e9989611394c33f193f676704af1686e70b8f8033ab5ba9a35a94"
 
 [[package]]
 name = "pest"
-version = "2.7.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f73935e4d55e2abf7f130186537b19e7a4abc886a0252380b59248af473a3fc9"
+checksum = "0d2d1d55045829d65aad9d389139882ad623b33b904e7c9f1b10c5b8927298e5"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -3724,7 +3724,7 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -3820,9 +3820,9 @@ checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.65"
+version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92de25114670a878b1261c79c9f8f729fb97e95bac93f6312f583c60dd6a1dfe"
+checksum = "18fb31db3f9bddb2ea821cde30a9f70117e3f119938b5ee630b7403aa6e2ead9"
 dependencies = [
  "unicode-ident",
 ]
@@ -3960,9 +3960,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.30"
+version = "1.0.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5907a1b7c277254a8b15170f6e7c97cfa60ee7872a3217663bb81151e48184bb"
+checksum = "5fe8a65d69dd0808184ebb5f836ab526bb259db23c657efa38711b1072ee47f0"
 dependencies = [
  "proc-macro2",
 ]
@@ -4250,7 +4250,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -4587,7 +4587,7 @@ dependencies = [
  "serde",
  "thiserror",
  "url",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -4625,7 +4625,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -4648,9 +4648,9 @@ checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sct"
@@ -4901,9 +4901,9 @@ dependencies = [
 
 [[package]]
 name = "serde_yaml"
-version = "0.9.23"
+version = "0.9.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da6075b41c7e3b079e5f246eb6094a44850d3a4c25a67c581c80796c80134012"
+checksum = "bd5f51e3fdb5b9cdd1577e1cb7a733474191b1aca6a72c2e50913241632c1180"
 dependencies = [
  "indexmap 2.0.0",
  "itoa",
@@ -5217,7 +5217,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "webpki-roots 0.24.0",
 ]
 
@@ -5300,7 +5300,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "whoami",
 ]
 
@@ -5341,7 +5341,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "whoami",
 ]
 
@@ -5366,7 +5366,7 @@ dependencies = [
  "sqlx-core",
  "tracing",
  "url",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -6475,7 +6475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13a3aaa69b04e5b66cc27309710a569ea23593612387d67daaf102e73aa974fd"
 dependencies = [
  "rand 0.8.5",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
@@ -6668,9 +6668,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d023da39d1fde5a8a3fe1f3e01ca9632ada0a63e9797de55a879d6e2236277be"
+checksum = "79daa5ed5740825c40b389c5e50312b9c86df53fccd33f281df655642b43869d"
 dependencies = [
  "getrandom 0.2.10",
  "serde",
@@ -6965,7 +6965,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6990,7 +6990,7 @@ dependencies = [
  "tokio-metrics",
  "tracing",
  "url",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
@@ -7000,7 +7000,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7058,7 +7058,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7070,12 +7070,12 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
 name = "windmill-audit"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7088,7 +7088,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7108,12 +7108,12 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid 1.4.0",
+ "uuid 1.4.1",
 ]
 
 [[package]]
 name = "windmill-parser"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7121,7 +7121,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7132,7 +7132,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7142,7 +7142,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7153,7 +7153,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7168,7 +7168,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7179,7 +7179,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7194,7 +7194,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7211,7 +7211,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7233,14 +7233,14 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "windmill-audit",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-worker"
-version = "1.132.0"
+version = "1.133.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7274,7 +7274,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
- "uuid 1.4.0",
+ "uuid 1.4.1",
  "windmill-api-client",
  "windmill-audit",
  "windmill-common",
