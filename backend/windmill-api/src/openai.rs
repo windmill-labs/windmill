@@ -23,8 +23,35 @@ pub fn workspaced_service() -> Router {
 #[derive(Deserialize)]
 struct OpenaiResource {
     api_key: String,
-    organisation: Option<String>,
+    organization_id: Option<String>,
 }
+
+struct Variable {
+    value: String,
+    is_secret: bool,
+}
+async fn get_variable(path: String, db: &DB, w_id: &String) -> Result<String, Error> {
+    let mut tx = db.begin().await?;
+    let mut variable = sqlx::query_as!(
+        Variable,
+        "SELECT value, is_secret
+        FROM variable
+        WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if variable.is_secret {
+        let mc = build_crypt(&mut tx, &w_id).await?;
+        variable.value = mc
+            .decrypt_base64_to_string(variable.value)
+            .map_err(|e| Error::InternalErr(e.to_string()))?;
+    }
+    tx.commit().await?;
+    Ok(variable.value)
+}
+
 async fn proxy(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -69,29 +96,10 @@ async fn proxy(
     let mut resource: OpenaiResource = serde_json::from_value(resource.unwrap())
         .map_err(|e| Error::InternalErr(format!("validating openai resource {e}")))?;
 
-    let openai_api_key_path = if resource.api_key.starts_with("$var:") {
-        resource.api_key.strip_prefix("$var:").unwrap().to_string()
-    } else {
-        return Err(Error::InternalErr(
-            "OpenAI resource api key must be a variable".to_string(),
-        ));
-    };
-
-    tx = db.begin().await?;
-    resource.api_key = sqlx::query_scalar!(
-        "SELECT value
-        FROM variable
-        WHERE path = $1 AND workspace_id = $2",
-        &openai_api_key_path,
-        &w_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let mc = build_crypt(&mut tx, &w_id).await?;
-    tx.commit().await?;
-    resource.api_key = mc
-        .decrypt_base64_to_string(resource.api_key)
-        .map_err(|e| Error::InternalErr(e.to_string()))?;
+    if resource.api_key.starts_with("$var:") {
+        let openai_api_key_path = resource.api_key.strip_prefix("$var:").unwrap().to_string();
+        resource.api_key = get_variable(openai_api_key_path, &db, &w_id).await?;
+    }
 
     let mut request = HTTP_CLIENT
         .post(String::from("https://api.openai.com/v1/") + &openai_path)
@@ -99,8 +107,13 @@ async fn proxy(
         .header("authorization", format!("Bearer {}", resource.api_key))
         .body(body);
 
-    if resource.organisation.is_some() {
-        request = request.header("OpenAI-Organization", resource.organisation.unwrap());
+    if let Some(mut org_id) = resource.organization_id {
+        tracing::info!("org_id: {:?}", org_id);
+        if org_id.starts_with("$var:") {
+            let openai_organisation_path = org_id.strip_prefix("$var:").unwrap().to_string();
+            org_id = get_variable(openai_organisation_path, &db, &w_id).await?;
+        }
+        request = request.header("OpenAI-Organization", org_id);
     }
 
     let resp = request.send().await.map_err(to_anyhow)?;
@@ -123,7 +136,8 @@ async fn proxy(
         headers.insert(k, v.clone());
     }
 
+    let status_code = resp.status();
     let stream = resp.bytes_stream();
 
-    Ok((headers, StreamBody::new(stream)))
+    Ok((status_code, headers, StreamBody::new(stream)))
 }
