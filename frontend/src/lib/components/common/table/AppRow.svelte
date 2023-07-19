@@ -10,6 +10,7 @@
 		faEdit,
 		faExternalLink,
 		faFileExport,
+		faHistory,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -179,7 +180,7 @@
 					},
 					{
 						displayName: 'Deployments',
-						icon: faFileExport,
+						icon: faHistory,
 						action: () => loadDeployements()
 					},
 					{
