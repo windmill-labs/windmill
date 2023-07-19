@@ -73,6 +73,8 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
+RUN apt-get update && apt-get install -y libxml2-dev
+
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
@@ -81,8 +83,6 @@ COPY ./backend ./
 COPY --from=frontend /frontend /frontend
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
-
-RUN apt-get update && apt-get install -y libxml2-dev
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
