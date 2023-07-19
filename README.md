@@ -390,6 +390,7 @@ it being synced automatically everyday.
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | false                                      | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
 | GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE | None                                       | Path to a script to run when a root job fails. The script will be run in and from the admins workspace                                                                                             | Server                |
 | WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
+| SAML_METADATA                                 | None                                       | SAML Metadata URL to enable SAML SSO (EE only)                                                                                                                                                     | Server                |
 
 ## Run a local dev setup
 
@@ -410,9 +411,9 @@ See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
 1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup. The easiest way to get a working postgres is running `cargo
-   install --version ^0.7 sqlx-cli && sqlx migrate run`. This will also avoid
-   compile time issue with sqlx's `query!` macro
+   Postgres setup. The easiest way to get a working postgres is running
+   `cargo install --version ^0.7 sqlx-cli && sqlx migrate run`. This will also
+   avoid compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
 3. Install deno and python3, have the bins at `/usr/bin/deno` and
