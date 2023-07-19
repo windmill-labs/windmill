@@ -46,6 +46,7 @@
 
 	let showPassword = false
 	let logins: string[] | undefined = undefined
+	let saml: string | undefined = undefined
 
 	async function login(): Promise<void> {
 		const requestBody = {
@@ -116,8 +117,10 @@
 	}
 
 	async function loadLogins() {
-		logins = await OauthService.listOAuthLogins()
-		showPassword = logins.length == 0 || (email != undefined && email.length > 0)
+		const allLogins = await OauthService.listOAuthLogins()
+		logins = allLogins.oauth
+		saml = allLogins.saml
+		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 	}
 
 	onMount(async () => {
@@ -182,7 +185,7 @@
 					{/each}
 				{:else}
 					{#each providers as { type, icon, name }}
-						{#if logins.includes(type)}
+						{#if logins?.includes(type)}
 							<Button
 								color="dark"
 								variant="border"
@@ -194,7 +197,7 @@
 							</Button>
 						{/if}
 					{/each}
-					{#each logins.filter((x) => !providersType.includes(x)) as login}
+					{#each logins.filter((x) => !providersType?.includes(x)) as login}
 						<Button
 							color="dark"
 							variant="border"
@@ -205,9 +208,19 @@
 						</Button>
 					{/each}
 				{/if}
+				{#if saml}
+					<Button
+						color="dark"
+						variant="border"
+						btnClasses="mt-2 w-full !border-gray-300"
+						on:click={() => saml && goto(saml)}
+					>
+						SSO
+					</Button>
+				{/if}
 			</div>
-			{#if logins && logins.length > 0}
-				<div class={classNames('center-center', logins.length > 0 ? 'mt-6' : '')}>
+			{#if saml || (logins && logins.length > 0)}
+				<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 					<Button
 						size="xs"
 						color="blue"
