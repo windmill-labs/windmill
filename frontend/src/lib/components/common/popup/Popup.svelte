@@ -8,10 +8,12 @@
 		placement: 'bottom-start'
 	}
 
+	export let containerClasses: string = 'rounded-lg shadow-lg p-4 bg-white'
+
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 </script>
 
-<Popover class="relative" let:open on:close>
+<Popover let:open on:close>
 	<PopoverButton>
 		<div use:floatingRef>
 			<slot name="button" />
@@ -28,7 +30,7 @@
 				leaveTo="opacity-0 translate-y-1"
 			>
 				<PopoverPanel let:close>
-					<div class="rounded-lg shadow-lg p-4 bg-white">
+					<div class={containerClasses}>
 						<slot {close} />
 					</div>
 				</PopoverPanel>
