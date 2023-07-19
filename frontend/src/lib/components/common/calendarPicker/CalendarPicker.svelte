@@ -8,7 +8,6 @@
 
 	const dispatch = createEventDispatcher()
 	let value = date
-	let button: HTMLButtonElement
 	let input: HTMLInputElement
 
 	$: if (date && input) {
@@ -24,7 +23,6 @@
 <Popup floatingConfig={{ placement: 'top-start', strategy: 'absolute' }} let:close>
 	<svelte:fragment slot="button">
 		<button
-			bind:this={button}
 			title="Open calendar picker"
 			class="absolute bottom-1 right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
 			aria-label="Open calendar picker"
