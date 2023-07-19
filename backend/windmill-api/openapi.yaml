@@ -1126,7 +1126,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/workspaces/edit_openai_key:
     post:
       summary: edit OpenAI key
@@ -1691,13 +1691,20 @@ paths:
         - oauth
       responses:
         "200":
-          description: list of oauth login clients
+          description: list of oauth and saml login clients
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                properties:
+                  oauth:
+                    type: array
+                    items:
+                      type: string
+                  saml:
+                    type: string
+                required:
+                  - oauth
 
   /oauth/list_connects:
     get:
@@ -5633,7 +5640,8 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+          enum:
+            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5657,7 +5665,7 @@ components:
           type: array
           items:
             type: integer
-        
+
       required:
         - hash
         - path
@@ -5697,7 +5705,8 @@ components:
             type: string
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+          enum:
+            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5867,7 +5876,8 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+          enum:
+            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         email:
           type: string
         visible_to_owner:
@@ -5957,7 +5967,8 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+          enum:
+            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         is_skipped:
           type: boolean
         email:
@@ -6385,7 +6396,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+          enum:
+            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
         tag:
           type: string
         kind:

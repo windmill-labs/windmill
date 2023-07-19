@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::Context;
@@ -34,9 +35,9 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::{truncate_token, Authed};
+use crate::saml::SamlSsoLogin;
+use crate::users::{login_externally, Authed, LoginUserInfo};
 use crate::webhook_util::{InstanceEvent, WebhookShared};
-use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
@@ -387,14 +388,20 @@ async fn delete_account(
     Ok(format!("Deleted account id {id}"))
 }
 
-async fn list_logins() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
-        OAUTH_CLIENTS
+#[derive(Serialize)]
+struct Logins {
+    oauth: Vec<String>,
+    saml: Option<String>,
+}
+async fn list_logins(Extension(sso): Extension<Arc<SamlSsoLogin>>) -> error::JsonResult<Logins> {
+    Ok(Json(Logins {
+        oauth: OAUTH_CLIENTS
             .logins
             .keys()
             .map(|x| x.to_owned())
             .collect::<Vec<String>>(),
-    ))
+        saml: sso.0.clone(),
+    }))
 }
 
 #[derive(Serialize)]
@@ -784,14 +791,20 @@ async fn slack_command(
                 (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) = windmill_common::get_latest_deployed_hash_for_path(
-                    tx.transaction_mut(),
-                    &settings.workspace_id,
-                    path,
-                )
-                .await?;
+                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
+                    windmill_common::get_latest_deployed_hash_for_path(
+                        tx.transaction_mut(),
+                        &settings.workspace_id,
+                        path,
+                    )
+                    .await?;
                 (
-                    JobPayload::ScriptHash { hash: script_hash, path: path.to_owned(), concurrent_limit, concurrency_time_window_s },
+                    JobPayload::ScriptHash {
+                        hash: script_hash,
+                        path: path.to_owned(),
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    },
                     tag,
                 )
             };
@@ -838,14 +851,6 @@ async fn slack_command(
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
-pub struct UserInfo {
-    email: Option<String>,
-    name: Option<String>,
-    company: Option<String>,
-    displayName: Option<String>,
-}
-
 async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
@@ -866,7 +871,7 @@ async fn login_callback(
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info::<UserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
+        let user = http_get_user_info::<LoginUserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
 
         let email = match client_name.as_str() {
             "github" => http_get_user_info::<Vec<GHEmailInfo>>(
@@ -882,7 +887,7 @@ async fn login_callback(
             )))?
             .email
             .to_string(),
-            _ => user.email.ok_or_else(|| {
+            _ => user.email.clone().ok_or_else(|| {
                 error::Error::BadRequest("email address not fetchable from user info".to_string())
             })?,
         }
@@ -896,85 +901,15 @@ async fn login_callback(
             }
         }
 
-        let mut tx = db.begin().await?;
-
-        let login: Option<(String, String, bool)> =
-            sqlx::query_as("SELECT email, login_type, super_admin FROM password WHERE email = $1")
-                .bind(&email)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        if let Some((email, login_type, super_admin)) = login {
-            let login_type = serde_json::json!(login_type);
-            if login_type == client_name {
-                crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
-            } else {
-                return Err(error::Error::BadRequest(format!(
-                    "an user with the email associated to this login exists but with a different \
-                     login type {login_type}"
-                )));
-            }
-            audit_log(
-                &mut *tx,
-                &email,
-                "oauth.login",
-                ActionKind::Create,
-                "global",
-                Some(&truncate_token(&token)),
-                None,
-            )
-            .await?;
-        } else {
-            let mut name = user.name;
-            if name.is_none() || name == Some(String::new()) {
-                name = user.displayName;
-            }
-            sqlx::query(&format!(
-                "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
-                 $2, $3, '{}', true)",
-                &client_name
-            ))
-            .bind(&email)
-            .bind(&name)
-            .bind(user.company)
-            .execute(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
-            tx = db.begin().await?;
-            crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
-            audit_log(
-                &mut *tx,
-                &email,
-                "oauth.signup",
-                ActionKind::Create,
-                "global",
-                Some(&email),
-                Some([("method", &client_name[..])].into()),
-            )
-            .await?;
-
-            let demo_exists =
-                sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
-                    .fetch_one(&mut *tx)
-                    .await?
-                    .unwrap_or(false);
-            if demo_exists {
-                if let Err(e) = sqlx::query!(
-                    "INSERT INTO workspace_invite
-                (workspace_id, email, is_admin)
-                VALUES ('demo', $1, false)
-                ON CONFLICT DO NOTHING",
-                    &email
-                )
-                .execute(&mut *tx)
-                .await
-                {
-                    tracing::error!("error inserting invite: {:#?}", e);
-                }
-            }
-        }
-        tx.commit().await?;
+        login_externally(
+            db,
+            &email,
+            client_name,
+            cookies,
+            Some(token.to_string()),
+            Some(user),
+        )
+        .await?;
 
         webhook.send_instance_event(InstanceEvent::UserSignupOAuth { email: email.clone() });
 
