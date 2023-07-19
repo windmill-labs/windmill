@@ -39,6 +39,8 @@
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
@@ -87,6 +89,9 @@
 		if (iterContext && listInputs) {
 			listInputs(id, rawValue)
 		}
+		if (rowContext && rowInputs) {
+			rowInputs(id, rawValue)
+		}
 	}
 
 	function onChange(e: CustomEvent) {
@@ -111,6 +116,9 @@
 		outputs?.result.set(result)
 		if (iterContext && listInputs) {
 			listInputs(id, result)
+		}
+		if (rowContext && rowInputs) {
+			rowInputs(id, result)
 		}
 		if (recomputeIds) {
 			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))

@@ -14,7 +14,6 @@
 	} from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import TableActionLabel from './TableActionLabel.svelte'
 	import { Inspect, List, ToggleRightIcon } from 'lucide-svelte'
 
 	export let components: (BaseAppComponent &
@@ -67,7 +66,13 @@
 			</Badge>
 
 			<div>
-				<TableActionLabel componentInput={component.configuration.label} />
+				{#if component.type == 'buttoncomponent'}
+					Button
+				{:else if component.type == 'selectcomponent'}
+					Select
+				{:else if component.type == 'checkboxcomponent'}
+					Toggle
+				{/if}
 			</div>
 			<div>
 				<Button variant="border" color="red" on:click={() => deleteComponent(component.id)}>

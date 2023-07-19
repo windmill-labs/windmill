@@ -9,7 +9,6 @@
 	export let inputSpecsConfiguration: RichConfigurations | undefined = undefined
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
-	export let rowColumns = false
 	export let resourceOnly = false
 	export let displayType = false
 
@@ -26,7 +25,6 @@
 					{id}
 					{shouldCapitalize}
 					{resourceOnly}
-					{rowColumns}
 					inputSpecsConfiguration={finalInputSpecsConfiguration?.[k]?.['configuration']}
 					labels={finalInputSpecsConfiguration?.[k]?.['labels']}
 					tooltip={finalInputSpecsConfiguration?.[k]?.['tooltip']}
@@ -40,7 +38,6 @@
 					{userInputEnabled}
 					{shouldCapitalize}
 					{resourceOnly}
-					hasRows={rowColumns}
 					fieldType={meta?.['fieldType']}
 					subFieldType={meta?.['subFieldType']}
 					format={meta?.['format']}

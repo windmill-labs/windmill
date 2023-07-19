@@ -32,7 +32,6 @@
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
-	export let rowColumns = false
 	export let onDelete: (() => void) | undefined = undefined
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
@@ -99,7 +98,6 @@
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
-					false,
 					$state,
 					false
 			  )
@@ -227,7 +225,6 @@
 										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}
-										{rowColumns}
 									/>
 								</PanelSection>
 							</div>
@@ -239,7 +236,6 @@
 		{#if Object.values(initialConfiguration).length > 0}
 			<PanelSection title={`Configuration (${Object.values(initialConfiguration).length})`}>
 				<InputsSpecsEditor
-					{rowColumns}
 					id={component.id}
 					inputSpecsConfiguration={initialConfiguration}
 					bind:inputSpecs={componentSettings.item.data.configuration}

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.132.0"
+version = "1.133.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.132.0"
+version = "1.133.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -182,3 +182,4 @@ tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
+samael = { version = "0.0.12", features = ["xmlsec"] }
