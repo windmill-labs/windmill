@@ -63,7 +63,6 @@
 	{#key tableActionSettings?.item?.data?.id}
 		<ComponentPanel
 			noGrid
-			rowColumns
 			bind:componentSettings={tableActionSettings}
 			duplicateMoveAllowed={false}
 			onDelete={() => {
