@@ -157,7 +157,6 @@
 								userInputEnabled={false}
 								shouldCapitalize={true}
 								resourceOnly={false}
-								hasRows={false}
 								fieldType={condition?.['fieldType']}
 								subFieldType={condition?.['subFieldType']}
 								format={condition?.['format']}

@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.133.0](https://github.com/windmill-labs/windmill/compare/v1.132.0...v1.133.0) (2023-07-19)
+
+
+### Features
+
+* add SAML support in EE ([d715ec5](https://github.com/windmill-labs/windmill/commit/d715ec58f251765ad2071809161eab8ad189d92d))
+* **frontend:** generate scripts in the flow and app builders ([#1886](https://github.com/windmill-labs/windmill/issues/1886)) ([2416805](https://github.com/windmill-labs/windmill/commit/24168056293d4e570f78fbd13068bb94b76d9d9c))
+
 ## [1.132.0](https://github.com/windmill-labs/windmill/compare/v1.131.0...v1.132.0) (2023-07-16)
 
 

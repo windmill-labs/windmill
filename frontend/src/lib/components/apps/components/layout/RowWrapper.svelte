@@ -12,8 +12,8 @@
 	const ctx = writable({ index, value, disabled })
 
 	$: $ctx = { index, value, disabled }
-	setContext<ListContext>('ListWrapperContext', ctx)
-	setContext<ListInputs>('ListInputs', (id: string, value: any) => {
+	setContext<ListContext>('RowWrapperContext', ctx)
+	setContext<ListInputs>('RowInputs', (id: string, value: any) => {
 		if (!inputs[id]) {
 			inputs[id] = { [index]: value }
 		} else {

@@ -11,7 +11,6 @@
 	export let shouldCapitalize: boolean
 	export let id: string
 	export let resourceOnly: boolean
-	export let rowColumns: boolean
 	export let tooltip: string | undefined
 
 	$: {
@@ -62,7 +61,6 @@
 					userInputEnabled={false}
 					{shouldCapitalize}
 					{resourceOnly}
-					hasRows={rowColumns}
 					fieldType={config?.['fieldType']}
 					subFieldType={config?.['subFieldType']}
 					format={config?.['format']}

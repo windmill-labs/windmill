@@ -58,6 +58,7 @@
 		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -170,7 +171,10 @@
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, iterContext ? { iter: $iterContext } : {}),
+					computeGlobalContext($worldStore, {
+						iter: iterContext ? $iterContext : undefined,
+						row: rowContext ? $rowContext : undefined
+					}),
 					false,
 					$state,
 					$mode == 'dnd',
@@ -302,10 +306,11 @@
 				let raw = $worldStore.newOutput(id, 'raw', res)
 				res = await eval_like(
 					transformer.content,
-					computeGlobalContext(
-						$worldStore,
-						iterContext ? { iter: $iterContext, result: res } : { result: res }
-					),
+					computeGlobalContext($worldStore, {
+						iter: iterContext ? $iterContext : undefined,
+						row: rowContext ? $rowContext : undefined,
+						result: res
+					}),
 					false,
 					$state,
 					$mode == 'dnd',

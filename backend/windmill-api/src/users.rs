@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#![allow(non_snake_case)]
+
 use std::{sync::Arc, time::Duration};
 
 use crate::{
@@ -2090,6 +2092,116 @@ async fn get_all_runnables(
         tx.commit().await?;
     }
     Ok(Json(runnables))
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LoginUserInfo {
+    pub email: Option<String>,
+    pub name: Option<String>,
+    pub company: Option<String>,
+
+    pub displayName: Option<String>,
+}
+
+pub async fn login_externally(
+    db: DB,
+    email: &String,
+    client_name: String,
+    cookies: Cookies,
+    token: Option<String>,
+    user: Option<LoginUserInfo>,
+) -> Result<()> {
+    let mut tx = db.begin().await?;
+    let login: Option<(String, String, bool)> =
+        sqlx::query_as("SELECT email, login_type, super_admin FROM password WHERE email = $1")
+            .bind(email)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some((email, login_type, super_admin)) = login {
+        let login_type = serde_json::json!(login_type);
+        if login_type == client_name {
+            crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
+        } else {
+            return Err(error::Error::BadRequest(format!(
+                "an user with the email associated to this login exists but with a different \
+                     login type {login_type}"
+            )));
+        }
+        if token.is_some() {
+            audit_log(
+                &mut *tx,
+                &email,
+                "oauth.login",
+                ActionKind::Create,
+                "global",
+                Some(&truncate_token(&token.unwrap())[..]),
+                None,
+            )
+            .await?;
+        } else {
+            audit_log(
+                &mut *tx,
+                &email,
+                "oauth.login",
+                ActionKind::Create,
+                "global",
+                None,
+                None,
+            )
+            .await?;
+        };
+    } else {
+        let mut name = user.clone().and_then(|x| x.name);
+        if (name.is_none() || name == Some(String::new())) && user.is_some() {
+            name = user.clone().unwrap().displayName;
+        }
+        sqlx::query(&format!(
+            "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
+                 $2, $3, '{}', true)",
+            &client_name
+        ))
+        .bind(email)
+        .bind(&name)
+        .bind(user.map(|x| x.company))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        invite_user_to_all_auto_invite_worspaces(&db, email).await?;
+        tx = db.begin().await?;
+        crate::users::create_session_token(email, false, &mut tx, cookies).await?;
+        audit_log(
+            &mut *tx,
+            email,
+            "oauth.signup",
+            ActionKind::Create,
+            "global",
+            Some(email),
+            Some([("method", &client_name[..])].into()),
+        )
+        .await?;
+
+        let demo_exists =
+            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
+        if demo_exists {
+            if let Err(e) = sqlx::query!(
+                "INSERT INTO workspace_invite
+                (workspace_id, email, is_admin)
+                VALUES ('demo', $1, false)
+                ON CONFLICT DO NOTHING",
+                &email
+            )
+            .execute(&mut *tx)
+            .await
+            {
+                tracing::error!("error inserting invite: {:#?}", e);
+            }
+        }
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn delete_expired_items_perdiodically(

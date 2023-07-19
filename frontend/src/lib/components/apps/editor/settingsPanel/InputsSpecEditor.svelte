@@ -18,7 +18,6 @@
 	export let id: string
 	export let componentInput: RichConfiguration
 	export let key: string
-	export let hasRows: boolean = false
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let resourceOnly = false
@@ -139,7 +138,7 @@
 				/>
 			</div>
 		{:else if componentInput?.type === 'eval'}
-			<EvalInputEditor {hasRows} {id} bind:componentInput />
+			<EvalInputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
