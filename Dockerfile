@@ -82,6 +82,8 @@ COPY --from=frontend /frontend /frontend
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
+RUN apt-get update && apt-get install -y libxml2-dev
+
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
@@ -105,7 +107,7 @@ ARG TARGETPLATFORM
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1\
     && rm -rf /var/lib/apt/lists/*
 
 RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
