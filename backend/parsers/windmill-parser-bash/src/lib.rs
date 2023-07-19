@@ -18,7 +18,7 @@ pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"$"#).unwrap();
+    static ref RE: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"(?:([\t ]*#.*)?)$"#).unwrap();
 }
 
 fn parse_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -66,6 +66,7 @@ mod tests {
 token="$1"
 image="$2"
 digest="${3:-latest with spaces}"
+text="$4" # with comment
 
 "#;
         //println!("{}", serde_json::to_string()?);
@@ -94,6 +95,13 @@ digest="${3:-latest with spaces}"
                         name: "digest".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("latest with spaces")),
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "text".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
                         has_default: false
                     }
                 ]
