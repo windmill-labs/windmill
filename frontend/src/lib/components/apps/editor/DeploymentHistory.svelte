@@ -11,8 +11,6 @@
 
 	export let versions: number[]
 
-	debugger
-
 	let selectedVersion: number | undefined = undefined
 	let selected: AppWithLastVersion | undefined = undefined
 
