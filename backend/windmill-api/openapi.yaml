@@ -971,7 +971,7 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  openai_key:
+                  openai_resource_path:
                     type: string
                   error_handler:
                     type: string
@@ -1127,23 +1127,23 @@ paths:
               schema:
                 type: string
   
-  /w/{workspace}/workspaces/edit_openai_key:
+  /w/{workspace}/workspaces/edit_openai_resource_path:
     post:
-      summary: edit OpenAI key
-      operationId: editOpenaiKey
+      summary: edit OpenAI resource path
+      operationId: editOpenaiResourcePath
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: WorkspaceOpenAIKey
+        description: WorkspaceOpenaiResourcePath
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                openai_key:
+                openai_resource_path:
                   type: string
       responses:
         "200":
@@ -1153,10 +1153,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/exists_openai_key:
+  /w/{workspace}/workspaces/exists_openai_resource_path:
     get:
-      summary: OpenAI key exists
-      operationId: existsOpenaiKey
+      summary: OpenAI resource path exists
+      operationId: existsOpenaiResourcePath
       tags:
         - workspace
       parameters:
