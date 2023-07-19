@@ -7,7 +7,6 @@
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
-	import { fade } from 'svelte/transition'
 	import { Icon } from 'svelte-awesome'
 	import { existsOpenaiKeyStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
@@ -34,12 +33,6 @@
 
 	async function onGenerate() {
 		try {
-			// close popup ^^
-			const elem = document.activeElement as HTMLElement
-			if (elem.blur) {
-				elem.blur()
-			}
-
 			genLoading = true
 			if (isEdit && selection) {
 				const selectedCode = editor?.getSelectedLines() || ''
@@ -169,14 +162,7 @@
 		{/if}
 	{/if}
 	{#if !generatedCode && !genLoading}
-		<Popup
-			ref={button}
-			options={{ placement: 'top-start' }}
-			transition={fade}
-			closeOn={[]}
-			wrapperClasses="!z-[1002]"
-			outerClasses="rounded shadow-xl bg-white border p-3 w-96"
-		>
+		<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }}>
 			<svelte:fragment slot="button">
 				{#if inlineScript}
 					<Button
@@ -206,7 +192,7 @@
 					</Button>
 				{/if}
 			</svelte:fragment>
-			<label class="block text-gray-900">
+			<label class="block text-gray-900 w-96">
 				<div class="pb-1 text-sm text-gray-600">Prompt</div>
 				<div class="flex w-full">
 					<input

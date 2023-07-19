@@ -1,14 +1,17 @@
 <script lang="ts">
 	import { Popover, PopoverButton, PopoverPanel, Transition } from '@rgossiaux/svelte-headlessui'
 	import Portal from 'svelte-portal'
-	import { createFloatingActions } from 'svelte-floating-ui'
+	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
-	const [floatingRef, floatingContent] = createFloatingActions({
-		strategy: 'absolute'
-	})
+	export let floatingConfig: ComputeConfig = {
+		strategy: 'absolute',
+		placement: 'bottom-start'
+	}
+
+	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 </script>
 
-<Popover class="relative" let:open>
+<Popover class="relative" let:open on:close>
 	<PopoverButton>
 		<div use:floatingRef>
 			<slot name="button" />
@@ -24,9 +27,9 @@
 				leaveFrom="opacity-100 translate-y-0"
 				leaveTo="opacity-0 translate-y-1"
 			>
-				<PopoverPanel>
+				<PopoverPanel let:close>
 					<div class="rounded-lg shadow-lg p-4 bg-white">
-						<slot />
+						<slot {close} />
 					</div>
 				</PopoverPanel>
 			</Transition>
