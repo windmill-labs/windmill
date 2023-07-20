@@ -24,7 +24,7 @@
 </script>
 
 <div
-	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-white shadow-lg ring-1 ring-black ring-opacity-5 border"
+	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface shadow-lg ring-1 ring-black ring-opacity-5 border"
 >
 	<div class="p-2 min-h-[60px] flex flex-col">
 		<div class="flex items-start w-full">
@@ -36,9 +36,11 @@
 				{/if}
 			</div>
 			<div class="ml-3 flex-1 w-0">
-				<p class="text-sm text-gray-500">{message}</p>
+				<p class="text-sm text-secondary">{message}</p>
 				{#if errorMessage}
-					<p class="text-sm text-gray-500 border bg-gray-50 p-2 w-full overflow-auto mt-2">
+					<p
+						class="text-sm text-secondary border bg-surface-secondary p-2 w-full overflow-auto mt-2"
+					>
 						{errorMessage}
 					</p>
 				{/if}
@@ -48,7 +50,7 @@
 				<button
 					type="button"
 					on:click={handleClose}
-					class="inline-flex rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none"
+					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-gray-500 focus:outline-none"
 				>
 					<span class="sr-only">Close</span>
 					<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -66,7 +68,7 @@
 						action.callback()
 						toast.pop(toastId)
 					}}
-					class="text-sm !text-black"
+					class="text-sm !text-primary"
 				>
 					{action.label}
 				</Button>

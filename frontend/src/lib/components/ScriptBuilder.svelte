@@ -434,14 +434,16 @@
 				{/if}
 			</div>
 			{#if !isCloudHosted()}
-				<h2 class="border-b pb-1 mt-10 mb-4"
-					>Custom env variables<Tooltip
+				<h2 class="border-b pb-1 mt-10 mb-4">
+					Custom env variables
+					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
-						>Additional static custom env variables to pass to the script.</Tooltip
-					></h2
-				>
+					>
+						Additional static custom env variables to pass to the script.
+					</Tooltip>
+				</h2>
 				<div class="w-full">
-					<span class="text-secondary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
 					{#if Array.isArray(script.envs ?? [])}
 						{#each script.envs ?? [] as v, i}
 							<div class="flex max-w-md mt-1 w-full items-center">

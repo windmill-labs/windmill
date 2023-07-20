@@ -161,18 +161,13 @@
 				...x
 			}))}
 	>
-		<div
-			slot="submission"
-			class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-		>
+		<div slot="submission">
 			<Button
 				variant="border"
 				color="blue"
 				size="sm"
 				startIcon={{ icon: faPlus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
+				on:click={() => variableEditor?.initNew?.()}
 			>
 				New variable
 			</Button>

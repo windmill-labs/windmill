@@ -75,7 +75,7 @@
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}
-				<div class="border rounded-md divide-y divide-gray-200 w-full overflow-auto pb-12 grow">
+				<div class="border rounded-md divide-y w-full overflow-auto pb-12 grow">
 					{#each filteredItems as obj}
 						<div
 							class="hover:bg-surface-hover w-full flex items-center p-4 gap-4 first-of-type:!border-t-0
@@ -84,7 +84,7 @@
 							<div class="inline-flex items-center grow">
 								<button
 									class="py-2 px-1 gap-1 flex grow border-gray-300 border-opacity-0
-									 text-black"
+									 text-primary"
 									on:click={() => {
 										if (closeOnClick) {
 											drawer.closeDrawer()

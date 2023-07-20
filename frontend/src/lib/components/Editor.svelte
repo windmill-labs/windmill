@@ -46,7 +46,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -734,8 +733,6 @@
 		websocketInterval && clearInterval(websocketInterval)
 	})
 </script>
-
-<EditorTheme />
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 

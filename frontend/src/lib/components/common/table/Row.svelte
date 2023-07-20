@@ -14,16 +14,11 @@
 	export let path: string
 	export let href: string
 	export let workspaceId: string
-	const color = {
-		script: 'hover:bg-blue-50 hover:border-blue-200',
-		flow: 'hover:bg-[#f0fdfa] hover:border-[#99f6e4]',
-		app: 'hover:bg-[#fff7ed] hover:border-orange-300'
-	}[kind]
 </script>
 
 <div
 	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
-first-of-type:rounded-t-md last-of-type:rounded-b-md {color} [*:not(:last-child)]:border-b px-4 py-2.5"
+first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5"
 >
 	<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
 		<div class="shrink">

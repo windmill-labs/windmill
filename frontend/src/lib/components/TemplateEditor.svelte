@@ -24,7 +24,6 @@
 	import { writable } from 'svelte/store'
 	import { buildWorkerDefinition } from './build_workers'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import EditorTheme from './EditorTheme.svelte'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -602,7 +601,6 @@
 	})
 </script>
 
-<EditorTheme />
 <div
 	bind:this={divEl}
 	style="height: 18px;"

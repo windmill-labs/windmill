@@ -10,7 +10,6 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import EditorTheme from './EditorTheme.svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 650
 
@@ -86,4 +85,3 @@
 </script>
 
 <div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />
-<EditorTheme />

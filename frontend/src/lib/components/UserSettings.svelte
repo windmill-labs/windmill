@@ -186,7 +186,7 @@
 					<div
 						class="{displayCreateToken
 							? ''
-							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-gray-50 min-w-min"
+							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min"
 					>
 						<h3 class="pb-3 font-semibold">Add a new token</h3>
 						{#if scopes != undefined}

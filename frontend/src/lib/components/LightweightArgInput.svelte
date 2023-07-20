@@ -238,7 +238,7 @@
 								{/if}
 								<button
 									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 ml-2"
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 									aria-label="Clear"
 									on:click={() => {
 										value = value.filter((el) => el != v)

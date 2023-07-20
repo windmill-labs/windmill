@@ -530,9 +530,11 @@
 						<TabContent value="dependencies">
 							<div class="">
 								{#if script?.lock}
-									<pre class="bg-gray-50 text-sm p-2">{script.lock}</pre>
+									<pre class="bg-surface-secondary text-sm p-2 h-full">{script.lock}</pre>
 								{:else}
-									<p class="bg-gray-50 text-sm p-2"> There is no lock file for this script</p>
+									<p class="bg-surface-secondary text-sm p-2">
+										There is no lock file for this script
+									</p>
 								{/if}
 							</div>
 						</TabContent>

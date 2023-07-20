@@ -7,9 +7,9 @@
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount } from 'svelte'
-	import github from 'svelte-highlight/styles/github'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import EditorTheme from '$lib/components/EditorTheme.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	if (token) {
@@ -157,8 +157,6 @@
 	}
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
+<EditorTheme />
 
 <slot />

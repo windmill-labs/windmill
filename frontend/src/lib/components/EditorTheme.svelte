@@ -127,6 +127,7 @@
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
+
 <svelte:head>
 	{#if darkMode}
 		{@html nord}
