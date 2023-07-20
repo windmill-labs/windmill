@@ -529,7 +529,6 @@ async fn list_igroups(authed: Authed, Extension(db): Extension<DB>) -> JsonResul
     .await?;
 
     tx.commit().await?;
-
     return Ok(Json(groups));
 }
 
