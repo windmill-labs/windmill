@@ -11,8 +11,6 @@
 
 	export let versions: number[]
 
-	debugger
-
 	let selectedVersion: number | undefined = undefined
 	let selected: AppWithLastVersion | undefined = undefined
 
@@ -62,10 +60,12 @@
 						<h3 class="p-1">Deployed {displayDate(selected.created_at)} by {selected.created_by}</h3
 						>
 						<div class="flex gap-2">
-							<Button on:click={() => window.open(`/apps/add?template_id=${selectedVersion}`)}
-								>Restore as fork</Button
-							>
-							<Button on:click={() => dispatch('restore', selected)}>Restore here</Button>
+							<Button on:click={() => window.open(`/apps/add?template_id=${selectedVersion}`)}>
+								Restore as fork
+							</Button>
+							<Button on:click={() => dispatch('restore', selected)}
+								>Redeploy with that version
+							</Button>
 						</div>
 					</div>
 					<AppPreview noBackend app={selected.value} context={{}} />

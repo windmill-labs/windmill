@@ -73,6 +73,8 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
+RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev
+
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
@@ -90,7 +92,7 @@ FROM python:3.10.8-slim-buster
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev libwebkit2gtk-4.0-37 \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential pkg-config libcairo2-dev libwebkit2gtk-4.0-37 unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \

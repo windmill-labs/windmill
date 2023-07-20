@@ -356,7 +356,7 @@
 														outputs?.inputs.set(inputs, true)
 													}}
 													bind:inputs
-													value={row}
+													value={row.original}
 													index={rowIndex}
 												>
 													<!-- svelte-ignore a11y-mouse-events-have-key-events -->

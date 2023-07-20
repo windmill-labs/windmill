@@ -7,18 +7,29 @@
  */
 
 use axum::{
+    middleware::Next,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use bytes::{BufMut, BytesMut};
-use hyper::{header, http::HeaderValue, StatusCode};
+use hyper::{header, http::HeaderValue, Request, StatusCode};
 use mime_guess::mime;
 use serde::Serialize;
 use windmill_common::error::{Error, Result};
 
+lazy_static::lazy_static! {
+    static ref SCIM_PASSWORD: Option<String> = std::env::var("SCIM_PASSWORD")
+        .ok();
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonScim<T>(pub T);
+
+pub async fn has_basic_auth<B>(request: Request<B>, next: Next<B>) -> Response {
+    let header = request.headers().get("Authorization");
+    next.run(request).await
+}
 
 pub type JsonScimResult<T> = std::result::Result<JsonScim<T>, Error>;
 
@@ -52,7 +63,7 @@ where
     }
 }
 
-pub fn workspaced_service() -> Router {
+pub fn global_service() -> Router {
     Router::new()
         .route("/authorize", post(authorize))
         .route("/Users", get(get_users))

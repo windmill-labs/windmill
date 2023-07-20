@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.134.1](https://github.com/windmill-labs/windmill/compare/v1.134.0...v1.134.1) (2023-07-20)
+
+
+### Bug Fixes
+
+* handle pip requirements to git commits ([a48edf4](https://github.com/windmill-labs/windmill/commit/a48edf435fb1df876c8012bf49a4c4265847d10e))
+* s/paylod/payload ([#1910](https://github.com/windmill-labs/windmill/issues/1910)) ([8f3960c](https://github.com/windmill-labs/windmill/commit/8f3960c93556301f6fdf9825a6e6b2e4d389dd2c))
+
+## [1.134.0](https://github.com/windmill-labs/windmill/compare/v1.133.0...v1.134.0) (2023-07-19)
+
+
+### Features
+
+* **frontend:** add deployment history + script path ([#1896](https://github.com/windmill-labs/windmill/issues/1896)) ([3a805d1](https://github.com/windmill-labs/windmill/commit/3a805d1e4b85009fae3f81d97b918b3c6bd551b5))
+* make row information available from table rows' evals ([ad1b92d](https://github.com/windmill-labs/windmill/commit/ad1b92d59df5aba39d7ae29e902c55b1f2411458))
+* use openai resource for windmill AI ([#1902](https://github.com/windmill-labs/windmill/issues/1902)) ([ddd8049](https://github.com/windmill-labs/windmill/commit/ddd8049b0aa74c9431cd01ff8a6e10e8a0196b3d))
+
+
+### Bug Fixes
+
+* **backend:** openai resource not only variable ([#1906](https://github.com/windmill-labs/windmill/issues/1906)) ([778ac92](https://github.com/windmill-labs/windmill/commit/778ac92411fc1dd5686087797be19fb602c55d46))
+* parse bash args with same-line comments ([#1907](https://github.com/windmill-labs/windmill/issues/1907)) ([0f7ed87](https://github.com/windmill-labs/windmill/commit/0f7ed8798be7ef33f91fd5c4cd751beec28601a1))
+
 ## [1.133.0](https://github.com/windmill-labs/windmill/compare/v1.132.0...v1.133.0) (2023-07-19)
 
 

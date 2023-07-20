@@ -12,11 +12,7 @@
 	let loading = false
 	async function testConnection() {
 		loading = true
-		const job = await JobService.runScriptPreview({
-			workspace: $workspaceStore!,
-			requestBody: {
-				language: 'deno' as Preview.language,
-				content: `
+		const content = `
 import { Client } from 'https://deno.land/x/postgres/mod.ts'
 export async function main(args: any) {
     const u = new URL("postgres://")
@@ -30,7 +26,12 @@ export async function main(args: any) {
 	await client.connect()
 	return 'Connection successful'
 }
-				`,
+`
+		const job = await JobService.runScriptPreview({
+			workspace: $workspaceStore!,
+			requestBody: {
+				language: 'deno' as Preview.language,
+				content,
 				args: {
 					args
 				}

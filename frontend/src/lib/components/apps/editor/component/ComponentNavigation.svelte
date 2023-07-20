@@ -264,7 +264,21 @@
 		}
 		const newItem = insertNewGridItem(
 			$app,
-			(id) => ({ ...item.data, id }),
+			(id) => {
+				if (item.data.type === 'tablecomponent') {
+					return {
+						...item.data,
+						id,
+						actionButtons:
+							item.data.actionButtons.map((x) => ({
+								...x,
+								id: x.id.replace(`${item.id}_`, `${id}_`)
+							})) ?? []
+					}
+				} else {
+					return { ...item.data, id }
+				}
+			},
 			parentGrid,
 			Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
 		)

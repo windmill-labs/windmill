@@ -219,7 +219,6 @@ pub async fn handle_python_job(
         .await?;
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
-
     set_logs(logs, &job.id, db).await;
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
@@ -514,7 +513,10 @@ pub async fn handle_python_reqs(
 
     for req in requirements {
         // todo: handle many reqs
-        let venv_p = format!("{PIP_CACHE_DIR}/{req}");
+        let venv_p = format!(
+            "{PIP_CACHE_DIR}/{}",
+            req.replace(' ', "").replace('/', "").replace(':', "")
+        );
         if metadata(&venv_p).await.is_ok() {
             req_paths.push(venv_p);
             continue;

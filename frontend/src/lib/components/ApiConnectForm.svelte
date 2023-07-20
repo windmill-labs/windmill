@@ -68,7 +68,7 @@
 				right: 'As JSON'
 			}}
 		/>
-		<TestConnection {resource_type} />
+		<TestConnection {resource_type} {args} />
 	</div>
 {:else}
 	<p class="italic text-gray-500 text-xs mb-4"
