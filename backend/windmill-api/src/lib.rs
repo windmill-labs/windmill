@@ -8,7 +8,7 @@
 
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
-use crate::scim::has_basic_auth;
+use crate::scim::has_scim_token;
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -220,6 +220,7 @@ pub async fn run_server(
                 )
                 .nest("/workers", workers::global_service())
                 .nest("/scripts", scripts::global_service())
+                .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
@@ -231,7 +232,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/scim",
-                    saml::global_service().route_layer(axum::middleware::from_fn(has_basic_auth)),
+                    scim::global_service().route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest(
