@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT igroup as name, array_agg(email_to_igroup.email) as emails FROM email_to_igroup GROUP BY igroup",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "emails",
+        "type_info": "VarcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "d3e005e5663a9dccf9d5c52e3c8e512d3b0daf5ecc0d245d53504278b2d6eaa4"
+}
