@@ -46,6 +46,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -165,7 +166,25 @@
 		}
 	})
 
-	meditor.setTheme('nord')
+	meditor.defineTheme('myTheme', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editorLineNumber.foreground': '#999',
+			'editorGutter.background': '#F9FAFB'
+		}
+	})
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			meditor.setTheme('nord')
+		} else {
+			meditor.setTheme('myTheme')
+		}
+	}
+
+	onThemeChange()
 
 	$: {
 		languages.typescript.typescriptDefaults.setModeConfiguration({
@@ -832,6 +851,8 @@
 </script>
 
 <div bind:this={divEl} class="{$$props.class} editor" />
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <style global lang="postcss">
 	.editor {

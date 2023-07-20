@@ -2,7 +2,7 @@ const plugin = require('tailwindcss/plugin')
 
 const lightTheme = {
 	surface: '#ffffff',
-	surfaceSecondary: '#f9fafb',
+	surfaceSecondary: '#f3f4f6',
 	surfaceHover: '#f4f5f7',
 	surfaceDisabled: '#f4f5f7',
 	surfaceSelected: '#f4f5f7',

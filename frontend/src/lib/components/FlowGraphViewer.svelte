@@ -71,9 +71,7 @@
 </Drawer>
 <div class="grid grid-cols-3 w-full h-full">
 	<div
-		class="{noSide
-			? 'col-span-3'
-			: 'sm:col-span-2 col-span-3'} w-full border border-gray-200 max-h-full"
+		class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph

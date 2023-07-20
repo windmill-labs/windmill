@@ -16,6 +16,7 @@
 	import MenuLink from './MenuLink.svelte'
 	import { userStore } from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
+	import { Moon, Sun } from 'lucide-svelte'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -25,7 +26,12 @@
 	]
 
 	$: secondaryMenuLinks = [
-		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator },
+		{
+			label: 'Schedules',
+			href: '/schedules',
+			icon: faCalendar,
+			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
+		},
 		{ label: 'Folders', href: '/folders', icon: faFolderOpen, disabled: $userStore?.operator },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog, disabled: $userStore?.operator },
 		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye, disabled: $userStore?.operator },
@@ -49,6 +55,7 @@
 	]
 
 	export let isCollapsed: boolean = false
+	export let darkMode: boolean = document.documentElement.classList.contains('dark')
 </script>
 
 <nav class="grow flex md:justify-between flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4">
@@ -70,3 +77,24 @@
 		</div>
 	</div>
 </nav>
+
+<button
+	class="text-2xs text-white m-2 p-2 rounded-lg flex flex-row gap-2 justify-center hover:bg-gray-600"
+	on:click={() => {
+		if (!document.documentElement.classList.contains('dark')) {
+			document.documentElement.classList.add('dark')
+			window.localStorage.setItem('dark-mode', 'dark')
+			darkMode = true
+		} else {
+			document.documentElement.classList.remove('dark')
+			window.localStorage.setItem('dark-mode', 'light')
+			darkMode = false
+		}
+	}}
+>
+	{#if darkMode}
+		<Sun class="w-4 h-4" />
+	{:else}
+		<Moon class="w-4 h-4" />
+	{/if}
+</button>

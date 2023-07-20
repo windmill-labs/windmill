@@ -148,12 +148,13 @@
 		interval && clearInterval(interval)
 	})
 
-	// const href = window.location.href
-	// const indexQ = href.indexOf('?')
-	// const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
-	//const darkMode = searchParams?.get('activeColorTheme') === '2'
+	const darkMode = window.localStorage.getItem('dark-mode')
 
-	document.documentElement.classList.add('dark')
+	if (darkMode === 'dark') {
+		document.documentElement.classList.add('dark')
+	} else {
+		document.documentElement.classList.remove('dark')
+	}
 </script>
 
 <svelte:head>
