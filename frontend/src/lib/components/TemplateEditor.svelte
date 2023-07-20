@@ -24,6 +24,7 @@
 	import { writable } from 'svelte/store'
 	import { buildWorkerDefinition } from './build_workers'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import EditorTheme from './EditorTheme.svelte'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -369,17 +370,6 @@
 
 	languages.setLanguageConfiguration('template', conf)
 
-	meditor.defineTheme('myTheme', {
-		base: 'vs',
-		inherit: true,
-		rules: [],
-		colors: {
-			'editorLineNumber.foreground': '#999',
-			'editorGutter.background': '#F9FAFB'
-		}
-	})
-	meditor.setTheme('myTheme')
-
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 	let model: meditor.ITextModel
@@ -612,6 +602,7 @@
 	})
 </script>
 
+<EditorTheme />
 <div
 	bind:this={divEl}
 	style="height: 18px;"

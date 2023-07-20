@@ -66,7 +66,7 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
-<div class="border border-gray-400 rounded py-4">
+<div class="border rounded py-4">
 	<div class="grid grid-cols-1 lg:grid-cols-4 w-full gap-4">
 		<div class="flex-col col-span-2">
 			<div class="flex flex-row text-sm">
@@ -157,20 +157,20 @@
 					</div>
 				{/if}
 			</div>
-			<div class="pl-14 italic text-gray-500 text-2xs whitespace-nowrap overflow-hidden"
-				>{truncateRev(job.id, 8, '')}</div
-			>
+			<div class="pl-14 italic text-secondary text-2xs whitespace-nowrap overflow-hidden">
+				{truncateRev(job.id, 8, '')}
+			</div>
 		</div>
-		<div class="bg-white grid grid-cols-2 gap-x-2 col-span-2">
-			<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">
+		<div class="bg-surface grid grid-cols-2 gap-x-2 col-span-2">
+			<div class="w-full text-secondary text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">
 				<div>
-					<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+					<Icon class="text-secondary" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 						By {job.created_by}</span
 					>
 				</div>
 				{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 					<div>
-						<Icon class="text-gray-700" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
 						>
 							Ran in {msToSec(job.duration_ms)}s</span
@@ -178,10 +178,10 @@
 					</div>
 				{/if}
 			</div>
-			<div class="text-gray-500 text-xs text-left place-self-start flex flex-col gap-1">
+			<div class="text-secondary text-xs text-left place-self-start flex flex-col gap-1">
 				{#if 'started_at' in job && job.started_at}
 					<div>
-						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-1.5"
 						>
 							<span>

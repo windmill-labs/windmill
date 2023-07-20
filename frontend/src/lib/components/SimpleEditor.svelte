@@ -22,17 +22,7 @@
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	meditor.defineTheme('myTheme', {
-		base: 'vs',
-		inherit: true,
-		rules: [],
-		colors: {
-			'editorLineNumber.foreground': '#999',
-			'editorGutter.background': '#F9FAFB'
-		}
-	})
-	meditor.setTheme('myTheme')
+	import EditorTheme from './EditorTheme.svelte'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -230,6 +220,7 @@
 	})
 </script>
 
+<EditorTheme />
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 
 <style lang="postcss">
