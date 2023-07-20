@@ -1126,7 +1126,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/workspaces/edit_openai_resource_path:
     post:
       summary: edit OpenAI resource path
@@ -4230,7 +4230,7 @@ paths:
             type: string
       responses:
         "201":
-          description: job resumed
+          description: job canceled
           content:
             text/plain:
               schema:
@@ -4266,7 +4266,7 @@ paths:
               type: object
       responses:
         "201":
-          description: job resumed
+          description: job canceled
           content:
             text/plain:
               schema:
