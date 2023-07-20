@@ -12,6 +12,7 @@
 		faArchive,
 		faCalendarAlt,
 		faCodeFork,
+		faCopy,
 		faEdit,
 		faFileExport,
 		faList,
@@ -24,7 +25,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { DELETE, isOwner } from '$lib/utils'
+	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
 
@@ -207,6 +208,13 @@
 						disabled: archived
 					},
 					{
+						displayName: 'Copy path',
+						icon: faCopy,
+						action: () => {
+							copyToClipboard(path)
+						}
+					},
+					{
 						displayName: archived ? 'Unarchive' : 'Archive',
 						icon: faArchive,
 						action: () => {
@@ -215,6 +223,7 @@
 						type: 'delete',
 						disabled: !owner
 					},
+
 					...(has_draft
 						? [
 								{

@@ -65,7 +65,7 @@
       },
       {
         "ordinal": 12,
-        "name": "openai_key",
+        "name": "openai_resource_path",
         "type_info": "Varchar"
       }
     ],

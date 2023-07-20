@@ -8,6 +8,7 @@
 
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
+use crate::scim::has_basic_auth;
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -210,8 +211,7 @@ pub async fn run_server(
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/openai", openai::workspaced_service())
-                        .nest("/scim", scim::workspaced_service()),
+                        .nest("/openai", openai::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -228,6 +228,10 @@ pub async fn run_server(
                 .nest(
                     "/saml",
                     saml::global_service().layer(Extension(Arc::new(sp_extension.0))),
+                )
+                .nest(
+                    "/scim",
+                    saml::global_service().route_layer(axum::middleware::from_fn(has_basic_auth)),
                 )
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest(
