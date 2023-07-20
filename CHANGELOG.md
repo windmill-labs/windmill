@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.134.1](https://github.com/windmill-labs/windmill/compare/v1.134.0...v1.134.1) (2023-07-20)
+
+
+### Bug Fixes
+
+* handle pip requirements to git commits ([a48edf4](https://github.com/windmill-labs/windmill/commit/a48edf435fb1df876c8012bf49a4c4265847d10e))
+* s/paylod/payload ([#1910](https://github.com/windmill-labs/windmill/issues/1910)) ([8f3960c](https://github.com/windmill-labs/windmill/commit/8f3960c93556301f6fdf9825a6e6b2e4d389dd2c))
+
 ## [1.134.0](https://github.com/windmill-labs/windmill/compare/v1.133.0...v1.134.0) (2023-07-19)
 
 

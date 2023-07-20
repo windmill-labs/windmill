@@ -980,9 +980,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.16"
+version = "4.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74bb1b4028935821b2d6b439bba2e970bdcf740832732437ead910c632e30d7d"
+checksum = "5b0827b011f6f8ab38590295339817b0d26f344aa4932c3ced71b45b0c54b4a9"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -991,9 +991,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.16"
+version = "4.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ae467cbb0111869b765e13882a1dbbd6cb52f58203d8b80c44f667d4dd19843"
+checksum = "9441b403be87be858db6a23edb493e7f694761acdc3343d5a0fcaafd304cbc9e"
 dependencies = [
  "anstream",
  "anstyle",
@@ -4745,9 +4745,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.171"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30e27d1e4fd7659406c492fd6cfaf2066ba8773de45ca75e855590f856dc34a9"
+checksum = "e91f70896d6720bc714a4a57d22fc91f1db634680e65c8efe13323f1fa38d53f"
 dependencies = [
  "serde_derive",
 ]
@@ -4785,9 +4785,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.171"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389894603bd18c46fa56231694f8d827779c0951a667087194cf9de94ed24682"
+checksum = "a6250dde8342e0232232be9ca3db7aa40aceb5a3e5dd9bddbc00d99a007cde49"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6976,7 +6976,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7011,7 +7011,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7069,7 +7069,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7086,7 +7086,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "chrono",
  "serde",
@@ -7099,7 +7099,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7124,7 +7124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -7132,7 +7132,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7143,7 +7143,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7153,7 +7153,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7164,7 +7164,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7179,7 +7179,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7190,7 +7190,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7205,7 +7205,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7222,7 +7222,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7251,7 +7251,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.134.0"
+version = "1.134.1"
 dependencies = [
  "anyhow",
  "async-recursion",
