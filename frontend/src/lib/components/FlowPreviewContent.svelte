@@ -112,7 +112,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
+<div class="flex divide-y flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
 			<button

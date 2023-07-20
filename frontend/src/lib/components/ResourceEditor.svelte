@@ -175,10 +175,10 @@
 						<input type="text" disabled value={rawCode} />
 					{:else}
 						{#if !viewJsonSchema}
-							<p class="italic text-gray-500 text-xs mb-4"
-								>No corresponding resource type found in your workspace for {selectedResourceType}.
-								Define the value in JSON directly</p
-							>
+							<p class="italic text-secondary text-xs mb-4">
+								No corresponding resource type found in your workspace for {selectedResourceType}.
+								Define the value in JSON directly
+							</p>
 						{/if}
 
 						{#if !emptyString(jsonError)}<span

@@ -3,12 +3,13 @@ const plugin = require('tailwindcss/plugin')
 const lightTheme = {
 	surface: '#ffffff',
 	surfaceSecondary: '#f3f4f6',
-	surfaceHover: '#f4f5f7',
-	surfaceDisabled: '#f4f5f7',
-	surfaceSelected: '#f4f5f7',
+	surfaceHover: '#e5e7eb',
+	surfaceDisabled: '#f9fafb',
+	surfaceSelected: '#d1d5db',
 
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
+	textTertiary: '#718096',
 	textDisabled: '#a0aec0',
 
 	border: '#ccc'
@@ -25,6 +26,7 @@ const darkTheme = {
 
 	textPrimary: '#f3f6f8',
 	textSecondary: '#e0e7ed',
+	textTertiary: '#d8dee9',
 	textDisabled: '#c5d0dc',
 
 	border: '#3e4c60'
@@ -379,6 +381,7 @@ const config = {
 
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
 			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)'
 		},
 		fontFamily: {
@@ -460,6 +463,7 @@ const config = {
 
 					'--color-text-primary': lightThemeRgb.textPrimary,
 					'--color-text-secondary': lightThemeRgb.textSecondary,
+					'--color-text-tetiary': lightThemeRgb.textTertiary,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
 					'--color-border': lightThemeRgb.border,
@@ -480,6 +484,7 @@ const config = {
 
 						'--color-text-primary': darkThemeRgb.textPrimary,
 						'--color-text-secondary': darkThemeRgb.textSecondary,
+						'--color-text-tetiary': darkThemeRgb.textTertiary,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
 
 						'--color-border': darkThemeRgb.border
@@ -518,7 +523,6 @@ const config = {
 					fontSize: '18px',
 					fontWeight: theme('fontWeight.bold'),
 					lineHeight: '1.2',
-					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
 						fontSize: '20px'
 					},
@@ -577,7 +581,10 @@ const config = {
 								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
 						},
 						'&:disabled,[disabled]': {
-							backgroundColor: theme('colors.gray.100') + ' !important'
+							backgroundColor: theme('colors.gray.100') + ' !important',
+							'.dark &': {
+								backgroundColor: theme('colors.gray.700') + ' !important'
+							}
 						}
 					},
 				'.dark input:not(.windmillapp),.dark input[type="text"]:not(.windmillapp),.dark input[type="email"]:not(.windmillapp),.dark input[type="url"]:not(.windmillapp),.dark input[type="password"]:not(.windmillapp),.dark input[type="number"]:not(.windmillapp),.dark input[type="date"]:not(.windmillapp),.dark input[type="datetime-local"]:not(.windmillapp),.dark input[type="month"]:not(.windmillapp),.dark input[type="search"]:not(.windmillapp),.dark input[type="tel"]:not(.windmillapp),.dark input[type="time"]:not(.windmillapp),.dark input[type="week"]:not(.windmillapp),.dark textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp)':

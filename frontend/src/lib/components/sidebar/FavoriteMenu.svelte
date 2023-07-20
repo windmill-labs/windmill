@@ -36,7 +36,7 @@
 	<div class="overflow-hidden" role="none">
 		{#if !favoriteLinks.length}
 			<div class="py-1" role="none">
-				<div class="text-gray-600 block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
+				<div class="text-secondary block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
 					Add Scripts/Flows/Apps here by starring them
 				</div>
 			</div>

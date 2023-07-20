@@ -366,7 +366,7 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md">
+			<div class="border rounded-md divide-y">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#key item.summary}

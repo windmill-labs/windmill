@@ -2,6 +2,8 @@
 	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 	import { onMount } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import github from 'svelte-highlight/styles/github'
+	import nord from 'svelte-highlight/styles/nord'
 
 	meditor.defineTheme('nord', {
 		base: 'vs-dark',
@@ -107,11 +109,15 @@
 		}
 	})
 
+	let darkMode: boolean = false
+
 	function onThemeChange() {
 		if (document.documentElement.classList.contains('dark')) {
 			meditor.setTheme('nord')
+			darkMode = true
 		} else {
 			meditor.setTheme('myTheme')
+			darkMode = false
 		}
 	}
 
@@ -121,3 +127,10 @@
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
+<svelte:head>
+	{#if darkMode}
+		{@html nord}
+	{:else}
+		{@html github}
+	{/if}
+</svelte:head>

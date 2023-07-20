@@ -55,19 +55,12 @@
 		<span>
 			{#if level != 0}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<span
-					class="cursor-pointer border border-gray-300 hover:bg-gray-200 px-1 rounded"
-					on:click={collapse}
-				>
+				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
 					-
 				</span>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
-			<ul
-				class={`w-full pl-2 ${
-					level === 0 ? 'border-none' : 'border-l border-dotted border-gray-200'
-				}`}
-			>
+			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
 						<button on:click={() => selectProp(key)} class="whitespace-nowrap">
@@ -77,7 +70,7 @@
 								<span
 									class="key {pureViewer
 										? 'cursor-auto'
-										: 'border border-gray-300'} font-semibold rounded px-1 hover:bg-blue-100 text-2xs text-gray-800"
+										: 'border '} font-semibold rounded px-1 hover:bg-surface-hover text-2xs text-secondary"
 								>
 									{!isArray ? key : index}</span
 								>
@@ -161,6 +154,7 @@
 	.val.string {
 		@apply text-green-600;
 	}
+
 	.val.number {
 		@apply text-orange-600;
 	}

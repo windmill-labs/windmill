@@ -88,7 +88,7 @@
 		</span>
 	{/if}
 	{#if title}
-		<div class="text-sm font-bold text-gray-900">{title}</div>
+		<div class="text-sm font-bold text-primary">{title}</div>
 	{/if}
 	<slot />
 </div>

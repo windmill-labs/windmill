@@ -41,7 +41,7 @@
 							<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="flow" kind="flow" />
 
 							<label class="block my-4">
-								<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
+								<span class="text-secondary text-sm">Summary <Required required={false} /></span>
 								<input
 									type="text"
 									bind:value={$flowStore.summary}
@@ -51,7 +51,7 @@
 							</label>
 
 							<label class="block my-4" for="inp">
-								<span class="text-gray-700 text-sm">
+								<span class="text-secondary text-sm">
 									Description
 									<Required required={false} />
 									<textarea

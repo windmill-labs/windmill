@@ -427,7 +427,7 @@
 							{/each}
 						</select>
 					{:else}
-						<div class="text-sm text-gray-600 italic mb-2">
+						<div class="text-sm text-secondary italic mb-2">
 							No custom worker group defined on this instance
 						</div>
 					{/if}
@@ -441,7 +441,7 @@
 					></h2
 				>
 				<div class="w-full">
-					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					<span class="text-secondary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
 					{#if Array.isArray(script.envs ?? [])}
 						{#each script.envs ?? [] as v, i}
 							<div class="flex max-w-md mt-1 w-full items-center">

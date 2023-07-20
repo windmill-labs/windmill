@@ -87,7 +87,7 @@
 		/>
 	</div>
 	<div
-		class="overflow-y-auto px-2 grow"
+		class="overflow-y-auto px-2 pt-2 grow"
 		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
 	>
 		<div class="flex justify-between items-center space-x-1">
