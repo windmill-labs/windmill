@@ -36,11 +36,11 @@
 		result: [] as string[]
 	})
 
-	let value: string[] | undefined = outputs?.result.peak()
+	let value: string[] | undefined = [...new Set(outputs?.result.peak())] as string[]
 
 	$componentControl[id] = {
 		setValue(nvalue: string[]) {
-			value = nvalue
+			value = [...new Set(nvalue)]
 			outputs?.result.set([...(value ?? [])])
 		}
 	}
@@ -59,9 +59,10 @@
 
 	function handleDefaultItems() {
 		if (Array.isArray(resolvedConfig.defaultItems)) {
-			value = resolvedConfig.defaultItems?.map((label) => {
+			const nvalue = resolvedConfig.defaultItems?.map((label) => {
 				return typeof label === 'string' ? label : `NOT_STRING`
 			})
+			value = [...new Set(nvalue)]
 			outputs?.result.set([...(value ?? [])])
 		}
 	}

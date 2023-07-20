@@ -132,12 +132,12 @@
 						content={tokenType === 'query'
 							? `${url}?token=${token}${
 									requestType === 'get_path'
-										? `?paylod=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+										? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
 										: ''
 							  }`
 							: `${url}${
 									requestType === 'get_path'
-										? `?paylod=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+										? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
 										: ''
 							  }`}
 					/>
