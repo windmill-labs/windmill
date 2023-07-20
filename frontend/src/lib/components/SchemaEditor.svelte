@@ -251,9 +251,9 @@
 			/>
 			<div class="ml-2">
 				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/reference/#script-parameters-to-json-schema"
+					documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#script-parameters-to-json-schema"
 				>
-					Arguments can be edited either using the wizard, or by editing their JSON Schema
+					Arguments can be edited either using the wizard, or by editing their JSON Schema.
 				</Tooltip>
 			</div>
 		</div>
