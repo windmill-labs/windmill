@@ -907,7 +907,8 @@
 			<PageHeader title="Windmill AI" primary={false} />
 			<div class="mt-2">
 				<Alert type="info" title="Experimental feature">
-					Select an OpenAI resource to unlock Windmill AI features!
+					Select an OpenAI resource to unlock Windmill AI features! <br /> Windmill AI currently only
+					supports OpenAI's GPT-4.
 				</Alert>
 			</div>
 			<div class="mt-5">

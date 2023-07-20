@@ -163,9 +163,9 @@
 							title="Primary Schedule"
 							documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 						>
-							Flows can be triggered by any schedules, their webhooks or their UI but they only have
-							only one primary schedules with which they share the same path. The primary schedule
-							can be set here.
+							Flows can be triggered by any schedules, their webhooks or their UI but they have only
+							one primary schedulfs with which they share the same path. The primary schedule can be
+							set here.
 						</Alert>
 						<div class="mt-4" />
 						<FlowSchedules />
