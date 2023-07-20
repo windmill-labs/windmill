@@ -156,7 +156,13 @@
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
-						<div bind:this={portalRef} class="multiselect" style={`min-width: ${w}px;`} />
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<div
+							bind:this={portalRef}
+							class="multiselect"
+							style={`min-width: ${w}px;`}
+							on:click|stopPropagation
+						/>
 					</div>
 				</Portal>
 			</div>
