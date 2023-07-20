@@ -57,7 +57,7 @@
 				<div
 					on:click|stopPropagation
 					class={twMerge(
-						'relative transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						c,
 						open
 							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
@@ -67,10 +67,10 @@
 				>
 					<div class="flex">
 						<div class="ml-4 text-left flex-1">
-							<h3 class="text-lg font-medium text-gray-900">
+							<h3 class="text-lg font-medium text-primary">
 								{title}
 							</h3>
-							<div class="mt-2 text-sm text-gray-500">
+							<div class="mt-2 text-sm text-tertiary">
 								<slot />
 							</div>
 						</div>

@@ -382,7 +382,17 @@ const config = {
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
 			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
-			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)'
+			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
+
+			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
+			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
+			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
+			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
+
+			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
+			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
+			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
+			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -466,6 +476,16 @@ const config = {
 					'--color-text-tetiary': lightThemeRgb.textTertiary,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
+					'--color-surface-inverse': darkThemeRgb.surface,
+					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
+					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
+					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
+
+					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
+					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
+					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
+					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
+
 					'--color-border': lightThemeRgb.border,
 
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
@@ -486,6 +506,16 @@ const config = {
 						'--color-text-secondary': darkThemeRgb.textSecondary,
 						'--color-text-tetiary': darkThemeRgb.textTertiary,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
+
+						'--color-surface-inverse': lightThemeRgb.surface,
+						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
+						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
+						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
+
+						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
+						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
+						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
+						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
 
 						'--color-border': darkThemeRgb.border
 					}

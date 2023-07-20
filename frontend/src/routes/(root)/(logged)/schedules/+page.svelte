@@ -134,7 +134,7 @@
 						: undefined}
 
 					<div
-						class="hover:bg-gray-50 w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 					>
 						<div class="w-full flex gap-5 items-center">

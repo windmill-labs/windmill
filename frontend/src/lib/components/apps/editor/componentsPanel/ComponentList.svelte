@@ -92,7 +92,7 @@
 											on:click={() => addComponent(item)}
 											title={componentsRecord[item].name}
 											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-											justify-center bg-surface-selected rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
+											justify-center bg-surface rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
 										>
 											<svelte:component this={componentsRecord[item].icon} class="text-primary" />
 										</button>

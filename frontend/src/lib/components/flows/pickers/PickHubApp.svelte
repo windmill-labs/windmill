@@ -44,7 +44,7 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y divide-gray-200 border rounded-md">
+		<ul class="divide-y border rounded-md">
 			{#each filteredItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
@@ -55,7 +55,7 @@
 							<RowIcon kind="app" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+								<div class="text-primary flex-wrap text-md font-semibold">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
