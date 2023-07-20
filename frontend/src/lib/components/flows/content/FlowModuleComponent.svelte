@@ -97,7 +97,9 @@
 			validCode = true
 
 			inputTransformSchemaForm?.setArgs(input_transforms)
-
+			if (flowModule.value.type == 'rawscript' && flowModule.value.lock != undefined) {
+				flowModule.value.lock = undefined
+			}
 			await tick()
 			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
 				if (!$flowStateStore[flowModule.id]) {
@@ -150,7 +152,6 @@
 					}}
 					on:reload={async () => {
 						if (flowModule.value.type == 'script') {
-							console.log('reload')
 							if (flowModule.value.hash != undefined) {
 								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
 							}
