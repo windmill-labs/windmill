@@ -66,6 +66,7 @@ export const hubScripts = writable<
 	| undefined
 >(undefined)
 export const existsOpenaiResourcePath = writable<boolean>(false)
+export const dbSchema = writable<object | undefined>(undefined)
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')
