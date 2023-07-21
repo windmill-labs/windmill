@@ -3,6 +3,7 @@ import yaml
 from dotenv import load_dotenv
 from tqdm import tqdm
 from test_data import RESOURCE_TYPES, DB_SCHEMA
+import os
 
 load_dotenv()
 
@@ -25,18 +26,13 @@ def literal_presenter(dumper, data):
 yaml.add_representer(Literal, literal_presenter)
 
 
-class GenPrompt(TypedDict):
+class Prompt(TypedDict):
     prompt: str
 
 
-class GenConfig(TypedDict):
-    prompts: dict[str, GenPrompt]
+class PromptsConfig(TypedDict):
+    prompts: dict[str, Prompt]
     system: str
-
-
-class CommonConfig(TypedDict):
-    system: str
-    prompt: str
 
 
 class Query(TypedDict):
@@ -47,35 +43,9 @@ class Query(TypedDict):
     error: str
 
 
-def scriptLangToCodeLang(lang: str):
-    if lang in ["deno", "bun", "nativets"]:
-        return "typescript"
-    elif lang in ["postgresql", "mysql"]:
-        return "sql"
-    elif lang == "python3":
-        return "python"
-    elif lang == "bash":
-        return "shell"
-    elif lang == "frontend":
-        return "javascript"
-    else:
-        return lang
-
-
-def scriptLangToEnvironment(lang: str):
-    if lang == "deno":
-        return "typescript in a deno running environment"
-    elif lang == "bun":
-        return "typescript in a node.js running environment"
-    elif lang == "nativets":
-        return "typescript where you should use fetch and are not allowed to import any libraries"
-    elif lang == "frontend":
-        return "client-side javascript"
-    else:
-        return lang
-
-
-def get_prompts(prompts_path: str) -> Tuple[GenConfig, CommonConfig, CommonConfig]:
+def get_prompts(
+    prompts_path: str,
+) -> Tuple[PromptsConfig, PromptsConfig, PromptsConfig]:
     GEN_CONFIG = None
     EDIT_CONFIG = None
     FIX_CONFIG = None
@@ -95,49 +65,46 @@ def get_queries(queries_path: str) -> list[Query]:
 
 def prepare_prompt(
     query: Query,
-    GEN_CONFIG: GenConfig,
-    EDIT_CONFIG: CommonConfig,
-    FIX_CONFIG: CommonConfig,
+    GEN_CONFIG: PromptsConfig,
+    EDIT_CONFIG: PromptsConfig,
+    FIX_CONFIG: PromptsConfig,
 ):
     system = ""
     prompt = ""
+    template_prompt = ""
     if query["type"] == "gen":
         system = GEN_CONFIG["system"]
-        prompt = GEN_CONFIG["prompts"][query["lang"]]["prompt"]
-        prompt = prompt.replace("{description}", query["description"])
-        if query["lang"] in ["deno", "bun", "nativets"]:
-            prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["typescript"])
-        elif query["lang"] in ["python3"]:
-            prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["python"])
-        if query["lang"] in ['postgresql']:
-            prompt = prompt + "\nHere's the database schema, each column is in the format [name, type, required, default?]: " + DB_SCHEMA
+        template_prompt = GEN_CONFIG["prompts"][query["lang"]]["prompt"]
+        prompt = template_prompt.replace("{description}", query["description"])
     elif query["type"] == "edit":
         system = EDIT_CONFIG["system"]
-        prompt = EDIT_CONFIG["prompt"]
-        lang = scriptLangToCodeLang(query["lang"])
-        environment = scriptLangToEnvironment(query["lang"])
-        prompt = (
-            prompt.replace("{description}", query["description"])
-            .replace("{lang}", lang)
-            .replace("{environment}", environment)
-            .replace("{code}", query["code"])
+        template_prompt = EDIT_CONFIG["prompts"][query["lang"]]["prompt"]
+        prompt = template_prompt.replace("{description}", query["description"]).replace(
+            "{code}", query["code"]
         )
     elif query["type"] == "fix":
         system = FIX_CONFIG["system"]
-        prompt = FIX_CONFIG["prompt"]
-        lang = scriptLangToCodeLang(query["lang"])
-        environment = scriptLangToEnvironment(query["lang"])
-        prompt = (
-            prompt.replace("{lang}", lang)
-            .replace("{environment}", environment)
-            .replace("{error}", query["error"])
-            .replace("{code}", query["code"])
+        template_prompt = FIX_CONFIG["prompts"][query["lang"]]["prompt"]
+        prompt = template_prompt.replace("{error}", query["error"]).replace(
+            "{code}", query["code"]
         )
 
-    return system, prompt
+    if query["lang"] in ["deno", "bun", "nativets"]:
+        prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["typescript"])
+    elif query["lang"] in ["python3"]:
+        prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["python"])
+
+    if query["lang"] in ["postgresql"]:
+        prompt = (
+            prompt
+            + "\nHere's the database schema, each column is in the format [name, type, required, default?]: "
+            + DB_SCHEMA
+        )
+
+    return system, prompt, template_prompt
 
 
-def format_answer(answer: str):
+def format_literal(answer: str):
     return re.sub("[^\\S\n]+\n", "\n", answer).replace("\t", "    ")
 
 
@@ -147,8 +114,11 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
     queries = get_queries(queries_path)
 
     answers = []
+
     for query in tqdm(queries):
-        system, prompt = prepare_prompt(query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG)
+        system, prompt, template_prompt = prepare_prompt(
+            query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG
+        )
         chat_completion = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
@@ -161,11 +131,13 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
 
         answer = {
             **query,
-            "answer": Literal(format_answer(chat_completion["choices"][0]["message"]["content"])),  # type: ignore
+            "answer": Literal(format_literal(chat_completion["choices"][0]["message"]["content"])),  # type: ignore
+            "template_system": Literal(format_literal(system)),
+            "template_prompt": Literal(format_literal(template_prompt)),
         }
 
         if "code" in query:
-            answer["code"] = Literal(query["code"])
+            answer["code"] = Literal(format_literal(query["code"]))
 
         answers.append(answer)
 

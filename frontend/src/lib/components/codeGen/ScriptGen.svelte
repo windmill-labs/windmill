@@ -48,18 +48,20 @@
 			if (isEdit && selection) {
 				const selectedCode = editor?.getSelectedLines() || ''
 				const originalCode = editor?.getCode() || ''
-				const selectionGenCode = await editScript({
+				const result = await editScript({
 					language: lang,
 					description: funcDesc,
-					selectedCode
+					selectedCode,
+					dbSchema: lang === 'postgresql' ? $dbSchema : undefined
 				})
-				generatedCode = originalCode.replace(selectedCode, selectionGenCode + '\n')
+				generatedCode = originalCode.replace(selectedCode, result.code + '\n')
 			} else {
-				generatedCode = await generateScript({
+				const result = await generateScript({
 					language: lang,
 					description: funcDesc,
 					dbSchema: lang === 'postgresql' ? $dbSchema : undefined
 				})
+				generatedCode = result.code
 			}
 			funcDesc = ''
 		} catch (err) {

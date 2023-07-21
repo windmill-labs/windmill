@@ -1,6 +1,7 @@
 - answer: |-
     ```python
     import psycopg2
+    from psycopg2 import OperationalError
     from typing import TypedDict
 
     class postgresql(TypedDict):
@@ -11,58 +12,90 @@
         sslmode: str
         password: str
 
-    def main(config: postgresql):
-        # Create a connection to the database
-        conn = psycopg2.connect(
-            host=config['host'],
-            port=config['port'],
-            user=config['user'],
-            password=config['password'],
-            dbname=config['dbname'],
-            sslmode=config['sslmode']
-        )
+    def main(postgres: postgresql):
+        # Create a connection to the PostgreSQL database
+        try:
+            connection = psycopg2.connect(
+                host=postgres['host'],
+                port=postgres['port'],
+                user=postgres['user'],
+                password=postgres['password'],
+                dbname=postgres['dbname'],
+                sslmode=postgres['sslmode']
+            )
 
-        # Create a cursor object
-        cur = conn.cursor()
+            # Create a cursor object
+            cursor = connection.cursor()
 
-        # Execute the SQL query to fetch all rows from the orders table
-        cur.execute("SELECT * FROM orders")
+            # Execute the SQL query
+            cursor.execute("SELECT * FROM orders")
 
-        # Fetch all rows from the last executed SQL query
-        rows = cur.fetchall()
+            # Fetch all the rows
+            rows = cursor.fetchall()
 
-        # Print the rows
-        for row in rows:
-            print(row)
+            # Print all the rows
+            for row in rows:
+                print(row)
 
-        # Close the cursor and connection
-        cur.close()
-        conn.close()
+        except OperationalError as e:
+            print(f"The error '{e}' occurred")
+
+        finally:
+            # Close the connection
+            if connection:
+                cursor.close()
+                connection.close()
     ```
   description: Connect to postgres and list the rows in the orders table
   lang: python3
+  template_prompt: |-
+    Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```python
     def main(num: int) -> int:
-      # Add a condition to check if num is zero.
-      # If num is zero, return a message to avoid division by zero error.
       if num == 0:
-        return "Error: Division by zero is not allowed."
-      else:
-        return 3 / num
+        raise ValueError('The input number cannot be zero')
+      return 3 / num
     ```
+    explanation: "The error occurs because you're trying to divide by zero which is not allowed in mathematics. The fix is to add a check at the beginning of the function to prevent division by zero. If the input number is zero, it raises a ValueError with an appropriate message."
   code: |-
     def main(num: int) -> int:
       return 3 / num
   error: division by zero
   lang: python3
+  template_prompt: |-
+    Here's my python3 code:
+    ```python
+    {code}
+    ```
+    Additional information: We have to export a "main" function and specify the parameter types but do not need to not call it.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    I get the following error: {error}
+    Fix my code.
+  template_system: |-
+    You fix the code shared by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Explain the error and the fix in the following format:
+    explanation: "Here's the explanation"
+    Also put the explanations in the code as comments.
   type: fix
 - answer: |-
     ```python
-    # This is a Python function named main. It takes an integer as input.
+    # The function main is defined here. It takes an integer 'num' as an argument.
     def main(num: int) -> int:
-      # The function returns the input number divided by 16.
+      # The function returns the result of the division of 'num' by 16.
       return num / 16
     ```
   code: |-
@@ -70,6 +103,21 @@
       return num / 16
   description: Comment my code
   lang: python3
+  template_prompt: |-
+    Here's my python3 code:
+    ```python
+    {code}
+    ```
+    Additional information: We have to export a "main" function and specify the parameter types but do not need to not call it.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    My instructions: {description}
+  template_system: |-
+    You write code as instructed by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: edit
 - answer: |-
     ```go
@@ -80,46 +128,59 @@
         "fmt"
     )
 
-    // main function which accepts a float64 number and divides it by 16
-    // returns the result and an error if the input number is 0
+    // Function to divide a number by 16
     func main(num float64) (float64, error) {
-        // check if the number is 0, as division by 0 is not allowed
         if num == 0 {
-            return 0, errors.New("Division by 0 is not allowed")
+            return 0, errors.New("Cannot divide by zero")
         }
 
-        // divide the number by 16
-        result := num / 16
-
-        // return the result and nil as error
+        result := num / 16.0
         return result, nil
     }
     ```
-    In this code, we first check if the input number is 0. If it is, we return an error because division by zero is not allowed. If the number is not 0, we divide it by 16 and return the result and nil (indicating no error).
   description: Divide a number by 16
   lang: go
+  template_prompt: |-
+    Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
-    // Importing the library for number to word conversion
+    // Importing the required library
     import { toWords } from "npm:number-to-words";
 
-    // Define the main function
+    // Defining the main function
     export async function main(number: number): Promise<string> {
-      // Convert the number to words
-      const words = toWords(number);
+      // Converting the number to word using the toWords function from the number-to-words library
+      const word = toWords(number);
 
-      // Return the result
-      return words;
+      // Returning the word
+      return word;
     }
     ```
+    In this function, we are using the `toWords` function from the `number-to-words` npm library to convert a number to a word. The function takes a number as input and returns a promise that resolves to a string. The string is the word representation of the number.
   description: Convert a number to a word
   lang: deno
+  template_prompt: |-
+    Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
-    // Importing the required PostgreSQL library from npm
-    import { Client } from "npm:pg";
+    // Importing the required libraries
+    import { Client } from "npm:https://deno.land/x/postgres@v0.13.0/mod.ts";
 
     // Defining the Postgresql type
     type Postgresql = {
@@ -131,95 +192,139 @@
       password: string
     }
 
-    // Exporting the main function
+    // Defining the main function
     export async function main(postgres: Postgresql) {
-      // Creating a new PostgreSQL client with the provided configuration
+      // Creating a new client instance
       const client = new Client({
-        host: postgres.host,
+        hostname: postgres.host,
         port: postgres.port,
         user: postgres.user,
         password: postgres.password,
         database: postgres.dbname,
-        ssl: {
-          rejectUnauthorized: postgres.sslmode === 'require' ? true : false,
-        },
+        tls: { enforce: postgres.sslmode === "require" },
       });
 
-      // Connecting to the PostgreSQL server
+      // Connecting to the database
       await client.connect();
 
-      // Querying the orders table
-      const res = await client.query('SELECT * FROM orders');
+      // Running the query to list rows in the orders table
+      const result = await client.queryArray("SELECT * FROM orders;");
 
-      // Logging the rows from the orders table
-      console.log(res.rows);
-
-      // Closing the connection to the PostgreSQL server
+      // Closing the connection
       await client.end();
+
+      // Returning the result
+      return result.rows;
     }
     ```
-    This function, when called, will connect to a PostgreSQL server using the provided configuration, query the "orders" table, log the rows from the table, and then close the connection. The function is asynchronous because it needs to wait for the connection, query, and disconnection operations to complete.
   description: Connect to postgres and list the rows in the orders table
   lang: deno
+  template_prompt: |-
+    Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
-    Here's a simple TypeScript function called "main" that converts a number to a word using the npm library "number-to-words". I've added the library import at the top of the file. The function takes a number as an argument and returns the word representation of that number.
-
     ```typescript
-    import * as numberToWords from 'number-to-words';
+    // Importing the library to convert numbers to words
+    import * as converter from 'number-to-words';
 
+    // Defining the main function
     export async function main(num: number): Promise<string> {
-      // Convert the number to words using the number-to-words library
-      const word = numberToWords.toWords(num);
+      // Converting the number to word using the library function
+      let word = converter.toWords(num);
 
-      // Return the word
+      // Returning the word
       return word;
     }
     ```
-    The function is asynchronous and returns a Promise that resolves to a string. This is because in a real-world scenario, the conversion process might involve some asynchronous operations (like fetching data from a database or making a request to an API), and we want to be able to handle that. In this simple example, the conversion is done synchronously, but the function is still declared as async for consistency and future-proofing.
+    This function takes a number as input and returns a Promise that resolves to a string. The string is the word representation of the number. The function uses the 'number-to-words' npm library to convert the number to words.
   description: Convert a number to a word
   lang: bun
-  type: gen
-- answer: |-
-    ```sql
-    -- $1::text name
-    -- $2::text email
-    INSERT INTO users (name, email) VALUES ($1::text, $2::text);
+  template_prompt: |-
+    Write a function in typescript called "main". The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
     ```
-  description: Insert an email and a name in the users table
-  lang: postgresql
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
+    -- $1 email
+    -- $2 disabled = false
+    -- $3 is_admin = false
+    -- $4 operator = false
+    -- $5 username
+    -- $6 workspace_id
+    INSERT INTO usr (email, disabled, is_admin, operator, username, workspace_id)
+    VALUES ($1::varchar, $2::bool, $3::bool, $4::bool, $5::varchar, $6::varchar);
+    ```
+    This SQL code will insert a new user into the 'usr' table in your PostgreSQL database. The values for the fields are obtained directly in the statement with `$1::type`, `$2::type`, etc. The comments before the command name the parameters. The default values for 'disabled', 'is_admin', and 'operator' are all false.
+  description: Insert an a new user
+  lang: postgresql
+  template_prompt: |-
+    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
+  type: gen
+- answer: |-
+    ```SQL
     -- ? email (VARCHAR)
     -- ? name (VARCHAR)
-    INSERT INTO users (email, name)
-    VALUES (?, ?)
+    INSERT INTO users (email, name) VALUES (?, ?);
     ```
   description: Insert an email and a name in the users table
   lang: mysql
+  template_prompt: |-
+    Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```bash
     var1="$1"
 
-    # Bash only supports integer division natively.
-    # So we use bc, a command line calculator, to perform floating point division.
-    result=$(echo "scale=2; $var1 / 16" | bc)
-
-    echo $result
+    # Use bc (an arbitrary precision calculator language) to perform the division
+    # Scale is set to 2 to get output up to two decimal places
+    echo "scale=2; $var1/16" | bc
     ```
   description: Divide a number by 16
   lang: bash
+  template_prompt: |-
+    Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```bash
-    # Get the arguments
+    # Assign the arguments to variables
     app_name="$1"
     python_version="$2"
 
     # Create a Dockerfile
-    cat > Dockerfile << EOF
+    cat << EOF > Dockerfile
     # Use an official Python runtime as a parent image
     FROM python:${python_version}
 
@@ -241,76 +346,159 @@
     # Run app.py when the container launches
     CMD ["python", "app.py"]
     EOF
+
+    # Build the Docker image
+    docker build -t ${app_name} .
+
+    # Run the Docker image
+    docker run -p 4000:80 ${app_name}
     ```
-    This bash script creates a Dockerfile for a Python application. The Dockerfile uses the official Python image from Docker Hub as its base. It then sets the working directory in the container to /app and copies the current directory (i.e., the directory where the Dockerfile is located) into the /app directory in the container. It installs any Python packages listed in requirements.txt, exposes port 80 for the app to communicate with the outside world, sets an environment variable with the name of the app, and finally, specifies that Docker should execute python app.py when the container is launched.
+    This bash script creates a Dockerfile for a Python application. The Dockerfile is then used to build a Docker image and finally run the Docker container. The script takes two arguments: the name of the application and the Python version. The application name is used as the Docker image name and also set as an environment variable inside the Docker container. The Python version is used to select the parent image for the Docker container. The script assumes that the current directory contains a requirements.txt file with the Python packages required by the application and an app.py file which is the entry point of the application.
   description: Write a docker image for a python app
   lang: bash
+  template_prompt: |-
+    Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
-    // Define Github type
+    // Define the Github type
     type Github = {
       token: string
     }
 
-    // Define main function
-    export async function main(owner: string, repo: string, github: Github): Promise<number> {
-      // Set up the request headers
+    // Define the main function
+    export async function main(repo: string, github: Github): Promise<number> {
+      // Define the Github API URL
+      const url = `https://api.github.com/repos/${repo}`;
+
+      // Define the headers for the fetch request
       const headers = {
-        "Authorization": `token ${github.token}`,
-        "Accept": "application/vnd.github.v3+json"
+        'Authorization': `token ${github.token}`,
+        'Accept': 'application/vnd.github.v3+json'
       };
 
-      // Fetch data from Github API
-      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      // Make the fetch request to the Github API
+      const response = await fetch(url, { headers });
 
-      // Check if response is ok
+      // Check if the response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Parse the response to JSON
+      // Parse the response as JSON
       const data = await response.json();
 
-      // Return the number of stars
+      // Return the number of stars of the repo
       return data.stargazers_count;
     }
     ```
-    This function uses the fetch API to make a GET request to the GitHub API. The owner and repo parameters are the username and repository name, respectively. The github parameter is an object that contains the GitHub personal access token. The function returns a promise that resolves to the number of stars of the repository. If the request fails, it throws an error.
+    This function takes a repo string and a Github object as parameters. It constructs the Github API URL and defines the headers for the fetch request. It then makes the fetch request to the Github API and checks if the response is ok. If the response is not ok, it throws an error. If the response is ok, it parses the response as JSON and returns the number of stars of the repo.
   description: Query the github api and return the number of stars of a repo
   lang: nativets
+  template_prompt: |-
+    Write a function in typescript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```javascript
-    // Access the 'email' property from the global 'ctx' object
-    let email = ctx.email;
+    // Access the email from the context object
+    var email = ctx.email;
 
-    // Use the 'setValue' function to set the value of the input with id 'my_field' to the 'email' variable
+    // Use the setValue function to set the value of the input field with id 'my_field' to the email
     setValue('my_field', email);
     ```
-  description:
-    set the value of the input with id 'my_field' to the context variable
+  description: set the value of the input with id 'my_field' to the context variable
     email
   lang: frontend
+  template_prompt: |-
+    Write client-side javascript code that should {description}. You have access to a few helpers:
+    You can access the context object with the ctx global variable.
+    The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
+    You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
+    Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
+    Use the recompute function to recompute a component: recompute(id: string)
+    Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
+    The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
     -- $1 username
     SELECT
-        DATE_TRUNC('month', completed_job.created_at) AS month,
-        COUNT(completed_job.id) AS job_count
+        DATE_TRUNC('month', timestamp) AS month,
+        COUNT(id) / COUNT(DISTINCT DATE_TRUNC('month', timestamp)) AS average_jobs
     FROM
-        completed_job
+        audit
     WHERE
-        completed_job.created_by = $1::varchar
+        username = $1::varchar AND operation = 'complete'
     GROUP BY
         month
     ORDER BY
         month;
     ```
-    In this SQL query, we are querying the `completed_job` table where the `created_by` column matches the provided username. We then group the result by month (truncated from the `created_at` timestamp), and count the number of jobs in each month. The result is ordered by month.
-  description:
-    compute the average number of completed jobs per month for the given
+    This SQL code calculates the average number of completed jobs per month for a given username.
+
+    It starts by truncating the timestamp to the month, which groups all the jobs completed in the same month together.
+
+    Then it counts the number of jobs completed in each month and divides by the total number of distinct months to get the average number of jobs per month.
+
+    The WHERE clause filters for the specified username and only considers 'complete' operations.
+
+    Finally, it orders the results by month.
+  description: compute the average number of completed jobs per month for the given
     username
   lang: postgresql
+  template_prompt: |-
+    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+  template_system: |-
+    You write code as queried by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Put explanations directly in the code as comments.
   type: gen
+- answer: |-
+    explanation: "The error message indicates that there's no column named 'is_secret' in the 'account' table. From the provided schema, it can be observed that the 'is_secret' column is actually in the 'variable' table, not the 'account' table. The correct SQL query should select from the 'variable' table instead of 'account'."
+
+    ```sql
+    SELECT is_secret FROM variable
+    ```
+  code: |-
+    SELECT is_secret FROM account
+  error: 'ExecutionError: db error: ERROR: column "is_secret" does not exist'
+  lang: postgresql
+  template_prompt: |-
+    Here's my PostgreSQL code:
+    ```sql
+    {code}
+    ```
+    Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    I get the following error: {error}
+    Fix my code.
+  template_system: |-
+    You fix the code shared by the user. Only output code. Wrap the code like that:
+    ```language
+    {code}
+    ```
+    Explain the error and the fix in the following format:
+    explanation: "Here's the explanation"
+    Also put the explanations in the code as comments.
+  type: fix
