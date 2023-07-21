@@ -61,7 +61,7 @@
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	<div class="gap-2 w-full flex flex-wrap my-4">
+	<div class="gap-2 w-full flex flex-wrap mt-4">
 		{#each filtersAndSelected as filter (filter)}
 			<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 				<Badge
