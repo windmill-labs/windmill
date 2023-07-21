@@ -3,7 +3,6 @@ import yaml
 from dotenv import load_dotenv
 from tqdm import tqdm
 from test_data import RESOURCE_TYPES, DB_SCHEMA
-import os
 
 load_dotenv()
 

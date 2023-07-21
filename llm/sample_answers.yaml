@@ -62,6 +62,8 @@
 - answer: |-
     ```python
     def main(num: int) -> int:
+      # Add a condition to check if num is zero.
+      # If num is zero, return a message to avoid division by zero error.
       if num == 0:
         raise ValueError('The input number cannot be zero')
       return 3 / num
@@ -128,8 +130,10 @@
         "fmt"
     )
 
-    // Function to divide a number by 16
+    // main function which accepts a float64 number and divides it by 16
+    // returns the result and an error if the input number is 0
     func main(num float64) (float64, error) {
+        // check if the number is 0, as division by 0 is not allowed
         if num == 0 {
             return 0, errors.New("Cannot divide by zero")
         }
@@ -179,8 +183,8 @@
   type: gen
 - answer: |-
     ```typescript
-    // Importing the required libraries
-    import { Client } from "npm:https://deno.land/x/postgres@v0.13.0/mod.ts";
+    // Importing the required PostgreSQL library from npm
+    import { Client } from "npm:pg";
 
     // Defining the Postgresql type
     type Postgresql = {
@@ -196,7 +200,7 @@
     export async function main(postgres: Postgresql) {
       // Creating a new client instance
       const client = new Client({
-        hostname: postgres.host,
+        host: postgres.host,
         port: postgres.port,
         user: postgres.user,
         password: postgres.password,
@@ -204,13 +208,16 @@
         tls: { enforce: postgres.sslmode === "require" },
       });
 
-      // Connecting to the database
+      // Connecting to the PostgreSQL server
       await client.connect();
 
       // Running the query to list rows in the orders table
       const result = await client.queryArray("SELECT * FROM orders;");
 
-      // Closing the connection
+      // Logging the rows from the orders table
+      console.log(res.rows);
+
+      // Closing the connection to the PostgreSQL server
       await client.end();
 
       // Returning the result
@@ -231,6 +238,8 @@
     Put explanations directly in the code as comments.
   type: gen
 - answer: |-
+    Here's a simple TypeScript function called "main" that converts a number to a word using the npm library "number-to-words". I've added the library import at the top of the file. The function takes a number as an argument and returns the word representation of that number.
+
     ```typescript
     // Importing the library to convert numbers to words
     import * as converter from 'number-to-words';
@@ -367,7 +376,7 @@
   type: gen
 - answer: |-
     ```typescript
-    // Define the Github type
+    // Define Github type
     type Github = {
       token: string
     }
@@ -379,19 +388,19 @@
 
       // Define the headers for the fetch request
       const headers = {
-        'Authorization': `token ${github.token}`,
-        'Accept': 'application/vnd.github.v3+json'
+        "Authorization": `token ${github.token}`,
+        "Accept": "application/vnd.github.v3+json"
       };
 
       // Make the fetch request to the Github API
       const response = await fetch(url, { headers });
 
-      // Check if the response is ok
+      // Check if response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Parse the response as JSON
+      // Parse the response to JSON
       const data = await response.json();
 
       // Return the number of stars of the repo
@@ -420,7 +429,8 @@
     // Use the setValue function to set the value of the input field with id 'my_field' to the email
     setValue('my_field', email);
     ```
-  description: set the value of the input with id 'my_field' to the context variable
+  description:
+    set the value of the input with id 'my_field' to the context variable
     email
   lang: frontend
   template_prompt: |-
