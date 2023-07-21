@@ -231,7 +231,7 @@
 
 	function addDBSchemaCompletions() {
 		dbSchemaCompletor = languages.registerCompletionItemProvider('sql', {
-			triggerCharacters: ['.', ' '],
+			triggerCharacters: ['.', ' ', '('],
 			provideCompletionItems: function (model, position) {
 				const textUntilPosition = model.getValueInRange({
 					startLineNumber: 1,
@@ -253,6 +253,14 @@
 				}
 
 				let suggestions: languages.CompletionItem[] = []
+
+				const noneMatch = textUntilPosition.match(/(?:add|create table)\s/i)
+
+				if (noneMatch) {
+					return {
+						suggestions
+					}
+				}
 
 				for (const schemaKey in $dbSchema) {
 					suggestions.push({
@@ -276,11 +284,11 @@
 							sortText: 'y'
 						})
 
-						const fromMatch = textUntilPosition.match(
-							/from (?![\s\S]*\b(where|order by|group by)\b)/i
+						const noColsMatch = textUntilPosition.match(
+							/(?:from|insert into|update|table)\s(?![\s\S]*(\b(where|order by|group by|values|set|column)\b|\())/i
 						)
 
-						if (!fromMatch) {
+						if (!noColsMatch) {
 							for (const columnKey in $dbSchema[schemaKey][tableKey]) {
 								suggestions.push({
 									label: columnKey,
