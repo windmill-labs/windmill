@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.134.2](https://github.com/windmill-labs/windmill/compare/v1.134.1...v1.134.2) (2023-07-20)
+
+
+### Bug Fixes
+
+* **frontend:** Prevent options from closing when an option is selected ([#1912](https://github.com/windmill-labs/windmill/issues/1912)) ([b2b3249](https://github.com/windmill-labs/windmill/commit/b2b3249e51c3340b8a819e037ba68984a35d90a8))
+* remove lockfile on any rawinput change in flows ([8c58752](https://github.com/windmill-labs/windmill/commit/8c58752a16e66d74981eb5eab4763198d4775905))
+* remove lockfile on any rawinput change in flows ([dfb1d8f](https://github.com/windmill-labs/windmill/commit/dfb1d8fa44222f52b285a37d867a42cb1f27450d))
+
 ## [1.134.1](https://github.com/windmill-labs/windmill/compare/v1.134.0...v1.134.1) (2023-07-20)
 
 

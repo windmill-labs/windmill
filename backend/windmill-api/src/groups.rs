@@ -9,6 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     users::{get_groups_for_user, Authed},
+    utils::require_super_admin,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -37,6 +38,15 @@ pub fn workspaced_service() -> Router {
         .route("/adduser/:name", post(add_user))
         .route("/removeuser/:name", post(remove_user))
         .route("/is_owner", get(is_owner))
+}
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/list", get(list_igroups))
+        .route("/create", post(create_igroup))
+        .route("/delete/:name", delete(delete_igroup))
+        .route("/adduser/:name", post(add_user_igroup))
+        .route("/removeuser/:name", post(remove_user_igroup))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -70,6 +80,11 @@ pub struct EditGroup {
 #[derive(Deserialize)]
 pub struct Username {
     pub username: String,
+}
+
+#[derive(Deserialize)]
+pub struct Email {
+    pub email: String,
 }
 
 async fn list_groups(
@@ -193,8 +208,7 @@ async fn create_group(
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
 
-    sqlx::query_as!(
-        Group,
+    sqlx::query!(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4)",
         w_id,
         ng.name,
@@ -204,8 +218,7 @@ async fn create_group(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query_as!(
-        Group,
+    sqlx::query!(
         "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         &authed.username,
@@ -220,6 +233,62 @@ async fn create_group(
         "group.create",
         ActionKind::Create,
         &w_id,
+        Some(&ng.name.to_string()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("Created group {}", ng.name))
+}
+
+async fn create_igroup(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Json(ng): Json<NewGroup>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &authed.email).await?;
+    sqlx::query!(
+        "INSERT INTO instance_group (name, summary) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ng.name,
+        ng.summary,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "igroup.create",
+        ActionKind::Create,
+        "global",
+        Some(&ng.name.to_string()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("Created group {}", ng.name))
+}
+
+async fn delete_igroup(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Json(ng): Json<NewGroup>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &authed.email).await?;
+    sqlx::query!("DELETE FROM instance_group WHERE name = $1", ng.name,)
+        .execute(&mut *tx)
+        .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "igroup.delete",
+        ActionKind::Delete,
+        "global",
         Some(&ng.name.to_string()),
         None,
     )
@@ -294,7 +363,8 @@ async fn delete_group(
 
     if name == "all" {
         return Err(Error::BadRequest(
-            "The group 'all' is a special group that contains all users and cannot be deleted".to_string(),
+            "The group 'all' is a special group that contains all users and cannot be deleted"
+                .to_string(),
         ));
     }
 
@@ -344,8 +414,7 @@ async fn update_group(
     }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
-    sqlx::query_as!(
-        Group,
+    sqlx::query!(
         "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3",
         eg.summary,
         &name,
@@ -382,8 +451,7 @@ async fn add_user(
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
-    sqlx::query_as!(
-        Group,
+    sqlx::query!(
         "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         user_username,
@@ -406,6 +474,102 @@ async fn add_user(
     Ok(format!("Added {} to group {}", user_username, name))
 }
 
+async fn add_user_igroup(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(name): Path<String>,
+    Json(Email { email }): Json<Email>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    require_super_admin(&mut tx, &authed.email).await?;
+
+    let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    not_found_if_none(group_opt, "IGroup", &name)?;
+
+    sqlx::query!(
+        "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        email,
+        name,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "igroup.adduser",
+        ActionKind::Update,
+        "global",
+        Some(&name.to_string()),
+        Some([("email", email.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Added {} to igroup {}", email, name))
+}
+
+#[derive(Serialize)]
+struct IGroup {
+    name: String,
+    emails: Option<Vec<String>>,
+}
+async fn list_igroups(authed: Authed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
+    let mut tx = db.begin().await?;
+
+    require_super_admin(&mut tx, &authed.email).await?;
+    let groups = sqlx::query_as!(
+        IGroup,
+        "SELECT igroup as name, array_agg(email_to_igroup.email) as emails FROM email_to_igroup GROUP BY igroup"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    return Ok(Json(groups));
+}
+
+async fn remove_user_igroup(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(name): Path<String>,
+    Json(Email { email }): Json<Email>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    require_super_admin(&mut tx, &authed.email).await?;
+
+    let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name,)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    not_found_if_none(group_opt, "IGroup", &name)?;
+
+    sqlx::query!(
+        "DELETE FROM email_to_igroup WHERE email = $1 AND igroup = $2",
+        email,
+        name,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "igroup.removeuser",
+        ActionKind::Update,
+        "global",
+        Some(&name.to_string()),
+        Some([("email", email.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Added {} to igroup {}", email, name))
+}
+
 async fn remove_user(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -422,8 +586,7 @@ async fn remove_user(
     if &name == "all" {
         return Err(Error::BadRequest(format!("Cannot delete users from all")));
     }
-    sqlx::query_as!(
-        Group,
+    sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3",
         user_username,
         name,
