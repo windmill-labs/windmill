@@ -43,3 +43,6 @@
 - lang: frontend
   type: gen
   description: set the value of the input with id 'my_field' to the context variable email
+- lang: postgresql
+  type: gen
+  description: compute the average number of completed jobs per month for the given username

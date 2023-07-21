@@ -17,9 +17,10 @@ import { Client } from 'https://deno.land/x/postgres/mod.ts'
 export async function main(args: any) {
     const u = new URL("postgres://")
 	u.hash = ''
-	u.search = \`?sslmode=${args.sslmode}\`
+	u.search = '?sslmode=' + args.sslmode
 	u.pathname = args.dbname
 	u.host = args.host
+	u.port = args.port
 	u.password = args.password
 	u.username = args.user
 	const client = new Client(u.toString())

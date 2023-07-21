@@ -2,7 +2,7 @@ import argparse
 import yaml
 from dotenv import load_dotenv
 from tqdm import tqdm
-from resources import RESOURCE_TYPES
+from test_data import RESOURCE_TYPES, DB_SCHEMA
 
 load_dotenv()
 
@@ -109,6 +109,8 @@ def prepare_prompt(
             prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["typescript"])
         elif query["lang"] in ["python3"]:
             prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["python"])
+        if query["lang"] in ['postgresql']:
+            prompt = prompt + "\nHere's the database schema, each column is in the format [name, type, required, default?]: " + DB_SCHEMA
     elif query["type"] == "edit":
         system = EDIT_CONFIG["system"]
         prompt = EDIT_CONFIG["prompt"]
