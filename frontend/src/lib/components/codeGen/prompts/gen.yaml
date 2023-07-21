@@ -23,7 +23,7 @@ prompts:
       Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
   postgresql:
     prompt: |-
-      Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with $1::{type}, $2::{type}, etc... Name the parameters by adding comments before the command like that: -- $1 name1 (one per row, do not include the type)
+      Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   mysql:
     prompt: |-
       Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)

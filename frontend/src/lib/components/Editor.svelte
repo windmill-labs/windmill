@@ -26,6 +26,7 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
+	import { dbSchema } from '$lib/stores'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -223,6 +224,98 @@
 	}
 
 	let command: Disposable | undefined = undefined
+
+	let dbSchemaCompletor: Disposable | undefined = undefined
+	$: $dbSchema && addDBSchemaCompletions()
+	$: !$dbSchema && dbSchemaCompletor && dbSchemaCompletor.dispose()
+
+	function addDBSchemaCompletions() {
+		dbSchemaCompletor = languages.registerCompletionItemProvider('sql', {
+			triggerCharacters: ['.', ' '],
+			provideCompletionItems: function (model, position) {
+				const textUntilPosition = model.getValueInRange({
+					startLineNumber: 1,
+					startColumn: 1,
+					endLineNumber: position.lineNumber,
+					endColumn: position.column
+				})
+
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					endLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endColumn: word.endColumn
+				}
+
+				if (!$dbSchema) {
+					return { suggestions: [] }
+				}
+
+				let suggestions: languages.CompletionItem[] = []
+
+				for (const schemaKey in $dbSchema) {
+					suggestions.push({
+						label: schemaKey,
+						detail: 'schema',
+						kind: languages.CompletionItemKind.Function,
+						insertText: schemaKey,
+						range: range,
+						sortText: 'z'
+					})
+
+					// const
+
+					for (const tableKey in $dbSchema[schemaKey]) {
+						suggestions.push({
+							label: tableKey,
+							detail: `table (${schemaKey})`,
+							kind: languages.CompletionItemKind.Function,
+							insertText: tableKey,
+							range: range,
+							sortText: 'y'
+						})
+
+						const fromMatch = textUntilPosition.match(
+							/from (?![\s\S]*\b(where|order by|group by)\b)/i
+						)
+
+						if (!fromMatch) {
+							for (const columnKey in $dbSchema[schemaKey][tableKey]) {
+								suggestions.push({
+									label: columnKey,
+									detail: `${$dbSchema[schemaKey][tableKey][columnKey]['type']} (${schemaKey}.${tableKey})`,
+									kind: languages.CompletionItemKind.Function,
+									insertText: columnKey,
+									range: range,
+									sortText: 'x'
+								})
+							}
+						}
+
+						if (textUntilPosition.match(new RegExp(`${tableKey}.$`, 'i'))) {
+							suggestions = suggestions.filter((x) =>
+								x.detail?.includes(`(${schemaKey}.${tableKey})`)
+							)
+							return {
+								suggestions
+							}
+						}
+					}
+
+					if (textUntilPosition.match(new RegExp(`${schemaKey}.$`, 'i'))) {
+						suggestions = suggestions.filter((x) => x.detail === `table (${schemaKey})`)
+						return {
+							suggestions
+						}
+					}
+				}
+				return {
+					suggestions
+				}
+			}
+		})
+	}
 
 	const outputChannel = {
 		name: 'Language Server Client',
