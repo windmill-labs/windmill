@@ -95,8 +95,8 @@
 	{#if open}
 		<div
 			transition:fade|local={{ duration: 50 }}
-			class="absolute z-50 {popupOnTop ? 'bottom-[35px]' : 'top-[35px]'} -left-10 bg-white rounded
-			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] h-80
+			class="absolute z-50 {popupOnTop ? 'bottom-[35px]' : 'top-[35px]'} -left-10 bg-surface rounded
+			border shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
 		>
 			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5">

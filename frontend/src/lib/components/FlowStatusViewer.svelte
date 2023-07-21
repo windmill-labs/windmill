@@ -204,7 +204,7 @@
 {#if job}
 	<div class="flow-root w-full space-y-4">
 		{#if innerModules.length > 0}
-			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
+			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{/if}
 		{#if isListJob}
 			{#if render}
@@ -213,7 +213,7 @@
 				</div>
 			{/if}
 		{:else if render}
-			<div class={innerModules.length > 0 ? 'border border-gray-400 shadow p-2' : ''}>
+			<div class={innerModules.length > 0 ? 'border rounded-md shadow p-2' : ''}>
 				<FlowPreviewStatus {job} />
 				{#if `result` in job}
 					<div class="w-full h-full">

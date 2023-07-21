@@ -27,7 +27,7 @@ const darkTheme = {
 	textPrimary: '#f3f6f8',
 	textSecondary: '#e0e7ed',
 	textTertiary: '#d8dee9',
-	textDisabled: '#c5d0dc',
+	textDisabled: '#FF0000',
 
 	border: '#3e4c60'
 }
@@ -363,15 +363,17 @@ const config = {
 				900: '#312e81'
 			},
 			frost: {
-				100: '#dfe6ee',
-				200: '#bfcdde',
-				300: '#9eb3cd',
-				400: '#7e9abd',
+				50: '#f5f7fa',
+				100: '#eaeef4',
+				200: '#cfd9e8',
+				300: '#a6bad3',
+				400: '#7594bb',
 				500: '#5e81ac',
-				600: '#4b678a',
-				700: '#384d67',
-				800: '#263445',
-				900: '#131a22'
+				600: '#415f88',
+				700: '#364d6e',
+				800: '#2f425d',
+				900: '#2b394f',
+				950: '#1d2534'
 			},
 			surface: 'rgb(var(--color-surface) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
@@ -388,6 +390,7 @@ const config = {
 			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
 			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
 			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
+			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
 
 			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
 			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
@@ -480,6 +483,7 @@ const config = {
 					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
 					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
 					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
+					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
 
 					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
 					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
@@ -511,6 +515,7 @@ const config = {
 						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
 						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
 						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
+						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,
 
 						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
 						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,

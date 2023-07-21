@@ -75,23 +75,24 @@
 		},
 		dark: {
 			border:
-				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
-			contained: 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white focus:ring-gray-300',
-			divider: 'divide-x divide-gray-800'
+				'border-surface-inverse bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected-inverse',
+			contained:
+				'bg-surface-inverse hover:bg-surface-inverse-hover focus:bg-surface-hover-inverse text-primary-inverse focus:ring-surface-selected-inverse',
+			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		},
 		gray: {
 			border:
 				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
 			contained:
 				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300',
-			divider: 'divide-x divide-gray-700'
+			divider: 'divide-x divide-gray-700 dark:divide-gray-200'
 		},
 		light: {
 			border:
-				'border bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-gray-300',
+				'border bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected',
 			contained:
-				'bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-gray-300',
-			divider: 'divide-x divide-gray-200'
+				'bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-surface-selected',
+			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
 		}
 	}
 

@@ -7,7 +7,7 @@
 </script>
 
 <div>
-	<div class="text-sm font-semibold"> LI quick setup </div>
+	<div class="text-sm font-semibold">CLI quick setup </div>
 	<div class="text-sm" role="alert" id="dynamic-input-help-box">
 		<ul class="pl-0 pt-2 list-decimal list-inside">
 			<li

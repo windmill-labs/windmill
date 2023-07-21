@@ -542,7 +542,7 @@
 					<Awareness />
 				{/if}
 
-				<div class="flex flex-row gap-x-1 lg:gap-x-4">
+				<div class="flex flex-row gap-x-1 lg:gap-x-2">
 					<Button
 						color="light"
 						variant="border"
@@ -554,7 +554,7 @@
 						Metadata
 					</Button>
 					<Button
-						color="dark"
+						color="light"
 						variant="border"
 						size="xs"
 						on:click={() => {

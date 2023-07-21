@@ -280,7 +280,7 @@
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
 					<a
-						class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+						class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
