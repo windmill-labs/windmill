@@ -113,10 +113,10 @@ export async function main(pg: Postgresql) {
 {#if $dbSchema && pg}
 	<Button
 		size="xs"
-		variant="contained"
-		color="light"
-		btnClasses="text-frost-500 !hover:text-frost-700"
+		variant="border"
+		color="blue"
 		spacingSize="xs2"
+		btnClasses="mt-1"
 		on:click={drawer.openDrawer}
 	>
 		Explore DB schema
