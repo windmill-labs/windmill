@@ -139,7 +139,7 @@
 			{/if}
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-gray-500 text-sm">No inputs</div>
+		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
 </div>
 

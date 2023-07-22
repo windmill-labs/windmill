@@ -244,12 +244,8 @@
 	#buttons > button {
 		border-radius: 4px;
 		@apply bg-surface;
-		border: #bbb solid 1px;
+		@apply border;
 		transition: all;
-	}
-
-	#buttons > button:hover {
-		@apply bg-surface-hover;
 	}
 
 	.Nodes {

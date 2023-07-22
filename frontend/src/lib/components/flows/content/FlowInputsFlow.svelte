@@ -76,7 +76,7 @@
 			{#each filteredItems as { path, summary, description, marked }}
 				<li class="flex flex-row w-full">
 					<button
-						class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all text-black"
+						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
 						on:click={() => {
 							dispatch('pick', { path })
 						}}

@@ -17,7 +17,7 @@
 <div class="h-full overflow-hidden border-t">
 	<Splitpanes>
 		<Pane {size} minSize={15} class="h-full relative z-0">
-			<div class="grow overflow-auto bg-gray h-full bg-gray-50 relative">
+			<div class="grow overflow-auto bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
 						{#each new Array(6) as _}

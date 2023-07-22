@@ -65,8 +65,7 @@
 	}}
 >
 	<div
-		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module"
+		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />

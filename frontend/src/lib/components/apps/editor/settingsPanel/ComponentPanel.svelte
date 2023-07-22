@@ -344,23 +344,23 @@
 				</div>
 				<div class="flex flex-col gap-1">
 					<div>
-						<span class="text-gray-600 text-xs mr-2"> Copy:</span>
+						<span class="text-secondary text-xs mr-2"> Copy:</span>
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>C</Kbd>,
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Move: </span>
+						<span class="text-secondary text-xs mr-2">Move: </span>
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>X</Kbd>,
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Navigate:</span>
+						<span class="text-secondary text-xs mr-2">Navigate:</span>
 						<Kbd>&leftarrow;</Kbd>
 						<Kbd>&uparrow;</Kbd><Kbd>&rightarrow;</Kbd>
 						<Kbd>ESC</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Add to selection:</span>
+						<span class="text-secondary text-xs mr-2">Add to selection:</span>
 						<Kbd>&DoubleUpArrow;</Kbd>+<Kbd>click</Kbd>
 					</div>
 				</div>

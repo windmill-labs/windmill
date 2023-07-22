@@ -316,7 +316,7 @@
 		<hr />
 		<div class="flex flex-col space-y-2">
 			<small>Estimated upcoming events ({timezone})</small>
-			<div class="flex flex-col rounded-md p-4 border text-gray-600">
+			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary">
 				{#each preview as date}
 					<div class="flex items-center space-x-2 text-sm">
 						<span>{dateFormatter(new Date(date))}</span>

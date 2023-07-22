@@ -292,7 +292,7 @@
 						</tbody>
 					</TableCustom>
 				{:else}
-					<div class="text-gray-700 text-xs italic mt-2">This schema has no arguments.</div>
+					<div class="text-secondary text-xs italic mt-2">This schema has no arguments.</div>
 				{/if}
 			</div>
 		{:else}

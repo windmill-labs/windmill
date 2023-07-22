@@ -54,8 +54,8 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="flex text-2xs text-gray-600 gap-8 items-center">
-			<div class="py-2 pr-2 text-gray-600 flex gap-1 items-center">
+		<div class="flex text-2xs gap-8 items-center">
+			<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
 				Hide bar on view
 				<Toggle size="xs" bind:checked={$app.norefreshbar} />
 			</div>

@@ -32,8 +32,9 @@
 		$allIdsInPath.includes(id) || id == $selectedComponent?.[0] || $manuallyOpened[id] || inSearch
 
 	const hoverColor = {
-		blue: 'hover:bg-blue-100 hover:text-blue-500',
-		indigo: 'hover:bg-indigo-100 hover:text-indigo-500'
+		blue: 'hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900 dark:hover:text-blue-300',
+		indigo:
+			'hover:bg-indigo-100 hover:text-indigo-500 dark:hover:bg-indigo-900 dark:hover:text-indigo-300'
 	}
 
 	const openBackground = {
@@ -168,7 +169,7 @@
 				? openBackground[color]
 				: $connectingInput.hoveredComponent === id
 				? 'bg-orange-300 '
-				: 'bg-surface-selected',
+				: 'bg-surface-secondary',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : '',
 			'transition-all'

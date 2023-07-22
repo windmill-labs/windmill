@@ -13,6 +13,7 @@
 	export let disabled: boolean = false
 	export let selectedColor: string = '#3b82f6'
 	export let small: boolean = false
+	export let iconProps: Record<string, any> = {}
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -38,6 +39,7 @@
 				this={icon}
 				size={14}
 				color={$selected === value ? selectedColor : '#9CA3AF'}
+				{...iconProps}
 			/>
 		{/if}
 		{#if label && !iconOnly}

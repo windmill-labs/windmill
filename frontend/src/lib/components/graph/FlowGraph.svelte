@@ -268,32 +268,36 @@
 	}
 
 	function getStateColor(state: FlowStatusModule.type | undefined): string {
+		const isDark = document.documentElement.classList.contains('dark')
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return 'rgb(193, 255, 216)'
+				return isDark ? '#2e3440' : 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
-				return 'rgb(248 113 113)'
+				return isDark ? '#2e3440' : 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return 'rgb(253, 240, 176)'
+				return isDark ? '#2e3440' : 'rgb(253, 240, 176)'
 			case FlowStatusModule.type.WAITING_FOR_EVENTS:
-				return 'rgb(229, 176, 253)'
+				return isDark ? '#2e3440' : 'rgb(229, 176, 253)'
 			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
-				return 'rgb(255, 208, 193)'
+				return isDark ? '#2e3440' : 'rgb(255, 208, 193)'
 			default:
-				return '#fff'
+				return isDark ? '#2e3440' : '#fff'
 		}
 	}
 
 	function getResultColor(): string {
+		const isDark = document.documentElement.classList.contains('dark')
+
 		switch (success) {
 			case true:
 				return getStateColor(FlowStatusModule.type.SUCCESS)
 			case false:
 				return getStateColor(FlowStatusModule.type.FAILURE)
 			default:
-				return '#fff'
+				return isDark ? '#2e3440' : '#fff'
 		}
 	}
+
 	function flowModuleToNode(
 		parentIds: string[],
 		mod: FlowModule,
@@ -655,7 +659,12 @@
 						label,
 						insertable,
 						modules,
-						bgColor: label == 'Result' ? getResultColor() : '#dfe6ee',
+						bgColor:
+							label == 'Result'
+								? getResultColor()
+								: document.documentElement.classList.contains('dark')
+								? '#2e3440'
+								: '#dfe6ee',
 						selected: $selectedId == label,
 						index,
 						selectable,

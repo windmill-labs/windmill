@@ -134,9 +134,9 @@
 		</span>
 	{/if}
 {:else if topBrackets}
-	<span class="text-black">{openBracket}{closeBracket}</span>
+	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-400 text-xs ml-2">No items ([])</span>
+	<span class="text-tertiary text-xs ml-2">No items ([])</span>
 {/if}
 
 <style lang="postcss">

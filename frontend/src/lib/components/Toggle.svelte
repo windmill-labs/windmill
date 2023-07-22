@@ -31,7 +31,7 @@
 			<span
 				class={twMerge(
 					'mr-2 font-medium duration-50',
-					disabled ? 'text-gray-500' : 'text-gray-900',
+					disabled ? 'text-disabled' : 'text-primary',
 					size === 'xs' ? 'text-xs' : 'text-sm',
 					textClass
 				)}
