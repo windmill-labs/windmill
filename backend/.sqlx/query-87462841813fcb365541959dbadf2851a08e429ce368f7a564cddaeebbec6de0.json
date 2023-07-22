@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
+  "query": "SELECT name FROM group_ WHERE workspace_id = $1 UNION ALL SELECT name FROM instance_group ORDER BY name desc",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      null
     ]
   },
-  "hash": "7eeac533a0d63f4e3af9d3e3123b0a73f44543e618e29e4c6a6d573852339933"
+  "hash": "87462841813fcb365541959dbadf2851a08e429ce368f7a564cddaeebbec6de0"
 }
