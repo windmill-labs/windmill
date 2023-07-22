@@ -101,6 +101,6 @@
 			/>
 		</div>
 	{:else}
-		<p class="m-2 italic">Empty form (no propertie)</p>
+		<p class="m-2 italic">Empty form (no property)</p>
 	{/if}
 </RunnableWrapper>
