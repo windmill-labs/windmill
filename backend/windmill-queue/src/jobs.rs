@@ -761,7 +761,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             concurrent_jobs_for_this_script.unwrap_or(-1)
         );
         if concurrent_jobs_for_this_script.is_none()
-            || concurrent_jobs_for_this_script.unwrap() < i64::from(job_custom_concurrent_limit)
+            || concurrent_jobs_for_this_script.unwrap() <= i64::from(job_custom_concurrent_limit)
         {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
