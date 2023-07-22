@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.135.0](https://github.com/windmill-labs/windmill/compare/v1.134.2...v1.135.0) (2023-07-22)
+
+
+### Features
+
+* add SCIM support ([ebb9235](https://github.com/windmill-labs/windmill/commit/ebb92356febadd4a0576b1bb88f59dc79da3b7e4))
+* add SCIM support ([c4d1d50](https://github.com/windmill-labs/windmill/commit/c4d1d50f817c2b0d014b925056d6f404415f004f))
+* **frontend:** db schema explorer + db aware AI ([#1920](https://github.com/windmill-labs/windmill/issues/1920)) ([a6025ae](https://github.com/windmill-labs/windmill/commit/a6025ae75e47f1f66abd865604a991c42c4920f1))
+
+
+### Bug Fixes
+
+* **frontend:** Fix show archived button position ([#1921](https://github.com/windmill-labs/windmill/issues/1921)) ([713f3e8](https://github.com/windmill-labs/windmill/commit/713f3e84c94a0c9a0bddc504702833974d7f70d9))
+* off by one concurrency limit fix ([a054bdd](https://github.com/windmill-labs/windmill/commit/a054bdd0438567996b551b1b00a4c0697ce61986))
+
 ## [1.134.2](https://github.com/windmill-labs/windmill/compare/v1.134.1...v1.134.2) (2023-07-20)
 
 
