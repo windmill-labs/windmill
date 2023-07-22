@@ -112,20 +112,23 @@ struct QueryListGroup {
     pub only_member_of: Option<bool>,
 }
 async fn list_group_names(
-    Authed { username, .. }: Authed,
+    Authed { username, email, .. }: Authed,
     Extension(db): Extension<DB>,
     Query(QueryListGroup { only_member_of }): Query<QueryListGroup>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
     let rows = if !only_member_of.unwrap_or(false) {
         sqlx::query_scalar!(
-            "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
+            "SELECT name FROM group_ WHERE workspace_id = $1 UNION ALL SELECT name FROM instance_group ORDER BY name desc",
             w_id
         )
         .fetch_all(&db)
         .await?
+        .into_iter()
+        .filter_map(|x| x)
+        .collect()
     } else {
-        get_groups_for_user(&w_id, &username, &db).await?
+        get_groups_for_user(&w_id, &username, &email, &db).await?
     };
 
     Ok(Json(rows))
@@ -523,7 +526,7 @@ async fn list_igroups(authed: Authed, Extension(db): Extension<DB>) -> JsonResul
     require_super_admin(&mut tx, &authed.email).await?;
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT igroup as name, array_agg(email_to_igroup.email) as emails FROM email_to_igroup GROUP BY igroup"
+        "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
     )
     .fetch_all(&mut *tx)
     .await?;
