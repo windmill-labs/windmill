@@ -43,6 +43,7 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_igroups))
+        .route("/get/:name", get(get_igroup))
         .route("/create", post(create_igroup))
         .route("/delete/:name", delete(delete_igroup))
         .route("/adduser/:name", post(add_user_igroup))
@@ -119,7 +120,7 @@ async fn list_group_names(
 ) -> JsonResult<Vec<String>> {
     let rows = if !only_member_of.unwrap_or(false) {
         sqlx::query_scalar!(
-            "SELECT name FROM group_ WHERE workspace_id = $1 UNION ALL SELECT name FROM instance_group ORDER BY name desc",
+            "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name desc",
             w_id
         )
         .fetch_all(&db)
@@ -533,6 +534,18 @@ async fn list_igroups(authed: Authed, Extension(db): Extension<DB>) -> JsonResul
 
     tx.commit().await?;
     return Ok(Json(groups));
+}
+
+async fn get_igroup(Path(name): Path<String>, Extension(db): Extension<DB>) -> JsonResult<IGroup> {
+    let group = sqlx::query_as!(
+        IGroup,
+        "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
+        name
+    )
+    .fetch_optional(&db)
+    .await?;
+    let group = not_found_if_none(group, "IGroup", &name)?;
+    return Ok(Json(group));
 }
 
 async fn remove_user_igroup(
