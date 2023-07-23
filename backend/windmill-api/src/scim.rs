@@ -234,15 +234,17 @@ struct Group {
 }
 #[cfg(feature = "enterprise")]
 fn group_response(group: Group) -> JsonScim<serde_json::Value> {
-    return JsonScim(json!({
+    let json = json!({
         "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
         "displayName": group.name,
         "id": convert_name(&group.name),
-        "members": group.emails,
+        "members": group.emails.unwrap_or_default().into_iter().map(|x| json!({"value": x, "display": x})).collect::<Vec<serde_json::Value>>(),
         "meta": {
             "resourceType": "Group"
         }
-    }));
+    });
+    // tracing::info!("SCIM group: {:?}", json);
+    return JsonScim(json);
 }
 
 #[cfg(feature = "enterprise")]
@@ -343,6 +345,10 @@ pub async fn update_group(
     if body.schemas.len() == 1 {
         let schema = body.schemas.get(0).unwrap();
         if schema == "urn:ietf:params:scim:schemas:core:2.0:Group" {
+            sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", id)
+                .execute(&mut *tx)
+                .await?;
+
             if let Some(members) = body.members.clone() {
                 for m in members {
                     sqlx::query!(
