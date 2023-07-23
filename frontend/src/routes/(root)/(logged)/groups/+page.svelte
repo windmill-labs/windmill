@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Group } from '$lib/gen'
+	import type { InstanceGroup } from '$lib/gen'
 	import { GroupService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -18,12 +19,17 @@
 
 	let newGroupName: string = ''
 	let groups: GroupW[] | undefined = undefined
+	let instanceGroups: InstanceGroup[] | undefined = undefined
 	let groupDrawer: Drawer
 
 	async function loadGroups(): Promise<void> {
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
 			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, $userStore), ...x }
 		})
+	}
+
+	async function loadInstanceGroups(): Promise<void> {
+		instanceGroups = await GroupService.listInstanceGroups()
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -44,6 +50,7 @@
 	}
 
 	$: {
+		loadInstanceGroups()
 		if ($workspaceStore && $userStore) {
 			loadGroups()
 		}
@@ -148,6 +155,39 @@
 			</tbody>
 		</TableCustom>
 	</div>
+
+	{#if instanceGroups && instanceGroups.length > 0}
+		<PageHeader
+			title="Instance Groups"
+			tooltip="Instance Groups are managed by SCIM and are groups shared by every workspaces"
+			documentationLink="https://www.windmill.dev/docs/misc/saml_and_scim#scim"
+		/>
+		<div class="relative mb-20 pt-8">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>Name</th>
+					<th>Members</th>
+				</tr>
+				<tbody slot="body">
+					{#each instanceGroups as { name, emails }}
+						<tr>
+							<td>
+								<a
+									href="#{name}"
+									on:click={() => {
+										editGroupName = name
+										groupDrawer.openDrawer()
+									}}
+									>{name}
+								</a>
+							</td>
+							<td>{emails?.length ?? 0} members</td>
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
+		</div>
+	{/if}
 </CenteredPage>
 
 <style>

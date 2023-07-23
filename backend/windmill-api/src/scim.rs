@@ -55,7 +55,27 @@ pub struct JsonScim<T>(pub T);
 
 pub async fn has_scim_token<B>(request: Request<B>, next: Next<B>) -> Response {
     let header = request.headers().get("Authorization");
-    next.run(request).await
+    if let Some(header) = header {
+        if let Ok(header) = header.to_str() {
+            if header.starts_with("Bearer ") {
+                let token = header.trim_start_matches("Bearer ");
+                if let Some(scim_token) = SCIM_TOKEN.as_ref() {
+                    if token == scim_token {
+                        return next.run(request).await;
+                    }
+                }
+            }
+        }
+    }
+    return (
+        StatusCode::UNAUTHORIZED,
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+        )],
+        "Unauthorized",
+    )
+        .into_response();
 }
 
 pub type JsonScimResult<T> = std::result::Result<JsonScim<T>, Error>;

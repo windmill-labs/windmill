@@ -4530,6 +4530,38 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScheduleWJobs"
 
+  /groups/list:
+    get:
+      summary: list instance groups
+      operationId: listInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroup"
+
+  /groups/get/{name}:
+    get:
+      summary: get instance group
+      operationId: getInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: instance group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceGroup"
+
   /w/{workspace}/groups/list:
     get:
       summary: list groups
@@ -6637,6 +6669,18 @@ components:
           type: object
           additionalProperties:
             type: boolean
+      required:
+        - name
+
+    InstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
       required:
         - name
 
