@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.135.1](https://github.com/windmill-labs/windmill/compare/v1.135.0...v1.135.1) (2023-07-23)
+
+
+### Bug Fixes
+
+* fix database migration ([0b019bc](https://github.com/windmill-labs/windmill/commit/0b019bc8a917a76c7631a20fb4a21f7252c418ba))
+
 ## [1.135.0](https://github.com/windmill-labs/windmill/compare/v1.134.2...v1.135.0) (2023-07-22)
 
 
