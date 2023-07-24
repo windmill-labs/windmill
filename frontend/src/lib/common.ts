@@ -74,3 +74,12 @@ export function pathToMeta(path: string): Meta {
 		name: splitted.slice(2).join('/')
 	}
 }
+
+export function prettyLanguage(lang: string) {
+	switch (lang) {
+		case 'nativets':
+			return 'Native Typescript'
+		default:
+			return lang.charAt(0).toUpperCase() + lang.slice(1)
+	}
+}
