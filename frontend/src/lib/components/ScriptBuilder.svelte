@@ -293,7 +293,7 @@
 						size="sm"
 						variant="border"
 						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-blue-900/75' : 'm-[1px]'}
+						btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75' : 'm-[1px]'}
 						on:click={() => {
 							template = 'script'
 							initContent(lang, script.kind, template)
@@ -309,7 +309,9 @@
 					size="sm"
 					variant="border"
 					color={template == 'docker' ? 'blue' : 'light'}
-					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={template == 'docker'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						if (isCloudHosted()) {
@@ -338,7 +340,9 @@
 					size="sm"
 					variant="border"
 					color={template == 'powershell' ? 'blue' : 'light'}
-					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={template == 'powershell'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						template = 'powershell'
@@ -352,7 +356,9 @@
 					size="xs"
 					variant="border"
 					color={script.language == 'bun' ? 'blue' : 'light'}
-					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={script.language == 'bun'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						initContent(Script.language.BUN, script.kind, template)
