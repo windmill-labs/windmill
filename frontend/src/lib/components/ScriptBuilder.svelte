@@ -517,7 +517,7 @@
 							>
 								<Badge
 									color="gray"
-									class="center-center !bg-gray-300 !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
+									class="center-center !bg-surface-selected !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
 								>
 									<Pen size={12} class="mr-2" /> Path
 								</Badge>

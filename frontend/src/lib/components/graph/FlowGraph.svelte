@@ -271,15 +271,15 @@
 		const isDark = document.documentElement.classList.contains('dark')
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return isDark ? '#2e3440' : 'rgb(193, 255, 216)'
+				return isDark ? '#059669' : 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
-				return isDark ? '#2e3440' : 'rgb(248 113 113)'
+				return isDark ? '#dc2626' : 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return isDark ? '#2e3440' : 'rgb(253, 240, 176)'
+				return isDark ? '#f59e0b' : 'rgb(253, 240, 176)'
 			case FlowStatusModule.type.WAITING_FOR_EVENTS:
-				return isDark ? '#2e3440' : 'rgb(229, 176, 253)'
+				return isDark ? '#db2777' : 'rgb(229, 176, 253)'
 			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
-				return isDark ? '#2e3440' : 'rgb(255, 208, 193)'
+				return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 			default:
 				return isDark ? '#2e3440' : '#fff'
 		}

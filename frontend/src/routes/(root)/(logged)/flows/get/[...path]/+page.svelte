@@ -255,8 +255,10 @@
 							/>
 						</div>
 					</Pane>
-					<Pane size={40} minSize={20} class="bg-surface-secondary">
-						<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+					<Pane size={40} minSize={20}>
+						<div class="!bg-surface-secondary h-full">
+							<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+						</div>
 					</Pane>
 				</Splitpanes>
 			</SplitPanesWrapper>
