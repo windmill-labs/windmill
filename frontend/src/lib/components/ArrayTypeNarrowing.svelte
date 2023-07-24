@@ -43,7 +43,7 @@
 </select>
 {#if Array.isArray(itemsType?.enum)}
 	<div class="pt-1" />
-	<label for="input" class="mb-2 text-gray-700 text-xs">
+	<label for="input" class="mb-2 text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
 			{#each itemsType?.enum || [] as e}

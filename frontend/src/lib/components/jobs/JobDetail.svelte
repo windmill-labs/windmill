@@ -200,16 +200,16 @@
 					<div class="inline-flex gap-1">
 						<CalendarClock size={13} class="-ml-0.5" />
 						<span>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1">Scheduled</span>
+							<span class="bg-blue-200 text-secondary text-xs rounded px-1">Scheduled</span>
 							for {displayDate(job.scheduled_for ?? '')}
 						</span>
 					</div>
 				{:else if 'scheduled_for' in job && !job.running}
 					<div>
-						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
 						>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1"
+							<span class="bg-blue-200 text-secondary text-xs rounded px-1"
 								>Waiting for an executor</span
 							>
 						</span>
@@ -218,21 +218,21 @@
 				<div>
 					{#if job && job.parent_job}
 						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
+							<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
 								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
-							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
+							<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
 								Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}
-						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+						<Icon class="text-secondary" data={faCalendar} scale={SMALL_ICON_SCALE} />
 						<span class="mx-1"
 							>Schedule <button
 								class="break-words text-blue-400 font-normal truncate text-xs"

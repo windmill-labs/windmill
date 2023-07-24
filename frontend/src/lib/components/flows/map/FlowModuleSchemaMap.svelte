@@ -151,7 +151,7 @@
 		>
 		{#each Object.entries(dependents) as [k, v]}
 			<div class="pb-3">
-				<h3 class="text-gray-700 font-semibold">{k}</h3>
+				<h3 class="text-secondary font-semibold">{k}</h3>
 				<ul class="text-sm">
 					{#each v as dep}
 						<li>{dep}</li>

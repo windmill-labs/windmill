@@ -189,7 +189,7 @@
 											}}
 											class="w-full"
 										>
-											<input type="text" bind:value={i.name} class="text-gray-700" />
+											<input type="text" bind:value={i.name} class="text-secondary" />
 										</form>
 									{:else}
 										<small

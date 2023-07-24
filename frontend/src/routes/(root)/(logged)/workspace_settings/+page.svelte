@@ -731,7 +731,7 @@
 					with a '/windmill' command.</Alert
 				></div
 			>
-			<p class="text-xs text-gray-700 my-1 mt-2">
+			<p class="text-xs text-secondary my-1 mt-2">
 				Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
 					connected{/if}
 			</p>

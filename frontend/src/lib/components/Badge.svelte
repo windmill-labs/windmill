@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Tooltip from './Tooltip.svelte'
 	export let twBgColor = 'bg-blue-200'
-	export let twTextColor = 'text-gray-700'
+	export let twTextColor = 'text-secondary'
 	export let tooltip: string | undefined = undefined
 </script>
 

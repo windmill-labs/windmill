@@ -104,7 +104,7 @@
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				<Badge>
-					<Icon class="text-gray-700" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
+					<Icon class="text-secondary" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
 						Ran in {msToSec(job?.['duration_ms'])}s</span
 					>
 				</Badge>

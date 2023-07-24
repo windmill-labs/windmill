@@ -112,7 +112,7 @@
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
-														<span class="text-gray-700 ml-2">
+														<span class="text-secondary ml-2">
 															<Icon data={faClipboard} />
 														</span>
 													</a>
@@ -128,7 +128,7 @@
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{syncedUrl}
-														<span class="text-gray-700 ml-2">
+														<span class="text-secondary ml-2">
 															<Icon data={faClipboard} />
 														</span>
 													</a>

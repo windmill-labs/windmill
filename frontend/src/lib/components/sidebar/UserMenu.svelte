@@ -112,7 +112,7 @@
 		{#if isCloudHosted() && $premiumStore}
 			{#if !$premiumStore.premium}
 				<div class="py-1" role="none">
-					<span class="text-gray-700 block w-full text-left px-4 py-2 text-sm"
+					<span class="text-secondary block w-full text-left px-4 py-2 text-sm"
 						>{$usageStore}/1000 free-tier executions</span
 					>
 					<div class="w-full bg-gray-200 h-1">
@@ -121,7 +121,7 @@
 					{#if $userStore?.is_admin}
 						<button
 							type="button"
-							class="text-gray-700 block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+							class="text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 							role="menuitem"
 							tabindex="-1"
 							on:click={() => {
@@ -137,7 +137,7 @@
 				<div class="py-1" role="none">
 					<button
 						type="button"
-						class="text-gray-700 block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+						class="text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 						role="menuitem"
 						tabindex="-1"
 						on:click={() => {

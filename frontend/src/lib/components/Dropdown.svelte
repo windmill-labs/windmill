@@ -78,7 +78,7 @@
 			{:else if item.href && !item.disabled}
 				<a
 					href={item.href}
-					class="block w-full px-4 font-semibold text-left py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					class="block w-full px-4 font-semibold text-left py-2 text-sm text-secondary hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
 					{item.disabled ? 'bg-gray-200' : ''}"
 					role="menuitem"
 					tabindex="-1"
@@ -89,7 +89,7 @@
 						<Icon
 							data={item.icon}
 							scale={0.6}
-							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
+							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-secondary'}"
 						/>
 					{/if}
 					{item.displayName}
@@ -98,7 +98,7 @@
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
 					class:bg-gray-200={item.disabled}
-					class="block font-semibold text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
+					class="block font-semibold text-left px-4 py-2 text-sm text-secondary cursor-auto"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"
@@ -108,7 +108,7 @@
 						<Icon
 							data={item.icon}
 							scale={0.6}
-							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
+							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-secondary'}"
 						/>
 					{/if}
 					{item.displayName}

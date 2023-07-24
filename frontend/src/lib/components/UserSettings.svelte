@@ -105,7 +105,7 @@
 						<div class="flex flex-col gap-2 w-full">
 							<div class="mt-4">
 								<label class="block w-60 mb-2 text-gray-500">
-									<div class="text-gray-700">email</div>
+									<div class="text-secondary">email</div>
 									<input
 										type="text"
 										disabled
@@ -115,7 +115,7 @@
 								</label>
 								{#if login_type == 'password'}
 									<label class="block w-120">
-										<div class="text-gray-700">password</div>
+										<div class="text-secondary">password</div>
 										<input
 											type="password"
 											bind:value={newPassword}
@@ -257,7 +257,7 @@
 								{/each}
 							{:else if tokens && tokens.length === 0}
 								<tr class="px-6"
-									><td class="text-gray-700 italic text-xs"> There are no tokens yet</td></tr
+									><td class="text-secondary italic text-xs"> There are no tokens yet</td></tr
 								>
 							{:else}
 								<tr> Loading...</tr>
