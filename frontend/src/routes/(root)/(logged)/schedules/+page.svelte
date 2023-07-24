@@ -154,7 +154,7 @@
 										{script_path}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs truncate text-left font-light">
+								<div class="text-secondary text-xs truncate text-left font-light">
 									schedule: {path}
 								</div>
 							</a>
@@ -297,7 +297,7 @@
 									</a>
 								{/each}
 							</div>
-							<div class="flex flex-wrap text-[0.7em] text-gray-500 gap-1 justify-end truncate pr-2"
+							<div class="flex flex-wrap text-[0.7em] text-tertiary gap-1 justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"
 									>the {displayDate(edited_at)}</div
 								></div
