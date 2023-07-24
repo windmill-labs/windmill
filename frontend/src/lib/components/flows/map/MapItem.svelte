@@ -10,6 +10,7 @@
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import { prettyLanguage } from '$lib/common'
 
 	export let mod: FlowModule
 	export let trigger: boolean
@@ -154,7 +155,9 @@
 					{bgColor}
 					label={mod.summary ||
 						(`path` in mod.value ? mod.value.path : undefined) ||
-						(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
+						(mod.value.type === 'rawscript'
+							? `Inline ${prettyLanguage(mod.value.language)}`
+							: 'To be defined')}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}
