@@ -176,7 +176,7 @@
 			<div>
 				<div class="mb-1">
 					<span class="font-semibold text-secondary">Variable value</span>
-					<span class="text-sm text-gray-500 mr-4">
+					<span class="text-sm text-tertiary mr-4">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
 					{#if edit && variable.is_secret}<Button

@@ -46,7 +46,7 @@ ${Object.entries(args)
 </script>
 
 <div class="relative">
-	<div class="text-gray-500 text-xs absolute top-8 right-0">
+	<div class="text-tertiary text-xs absolute top-8 right-0">
 		<button
 			on:click={() => {
 				jsonStr = JSON.stringify(args, null, 4)

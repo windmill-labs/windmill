@@ -173,7 +173,7 @@
 
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 	{#if invites.length == 0}
-		<p class="text-sm text-gray-500 mt-2"> You don't have new invites at the moment. </p>
+		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
 	{#each invites as invite}
 		<div

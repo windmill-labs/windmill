@@ -78,7 +78,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-gray-500 text-sm">No inputs</div>
+		<div class="text-tertiary text-sm">No inputs</div>
 	{/if}
 </div>
 

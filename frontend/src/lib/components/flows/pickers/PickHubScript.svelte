@@ -85,7 +85,7 @@
 		</ul>
 	{/if}
 	{#if filteredItems.length > maxItems}
-		<div class="text-gray-500 text-sm py-4">
+		<div class="text-tertiary text-sm py-4">
 			There are more items ({filteredItems.length}) than being displayed. Refine your search.
 		</div>
 	{/if}

@@ -534,7 +534,7 @@
 										</a>
 									</td>
 									<td>
-										<span class="text-gray-500 text-xs">
+										<span class="text-tertiary text-xs">
 											{removeMarkdown(truncate(description ?? '', 30))}
 										</span>
 									</td>
@@ -718,7 +718,7 @@
 										</a>
 									</td>
 									<td>
-										<span class="text-gray-500 text-xs">
+										<span class="text-tertiary text-xs">
 											{removeMarkdown(truncate(description ?? '', 200))}
 										</span>
 									</td>

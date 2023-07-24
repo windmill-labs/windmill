@@ -42,7 +42,7 @@
 </svelte:head>
 
 <div class="z-50 text-xs fixed bottom-1 right-2">
-	<a href="https://windmill.dev" class="whitespace-nowrap text-gray-500 inline-flex items-center"
+	<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>
 </div>

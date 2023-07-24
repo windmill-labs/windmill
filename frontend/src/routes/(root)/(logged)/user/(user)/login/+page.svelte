@@ -241,7 +241,7 @@
 				<div>
 					<div class="space-y-6">
 						{#if isCloudHosted()}
-							<p class="text-xs text-gray-500 italic pb-6">
+							<p class="text-xs text-tertiary italic pb-6">
 								To get credentials without the OAuth providers above, send an email at
 								contact@windmill.dev
 							</p>
@@ -289,7 +289,7 @@
 					</div>
 
 					{#if isCloudHosted()}
-						<p class="text-2xs text-gray-500 italic mt-10 text-center">
+						<p class="text-2xs text-tertiary italic mt-10 text-center">
 							By logging in, you agree to our
 							<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
 								Terms of Service

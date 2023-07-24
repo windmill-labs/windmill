@@ -51,5 +51,5 @@
 		</div>
 	</div>
 {:else}
-	<div class="text-xs text-gray-500"> No tab component found in the app </div>
+	<div class="text-xs text-tertiary"> No tab component found in the app </div>
 {/if}

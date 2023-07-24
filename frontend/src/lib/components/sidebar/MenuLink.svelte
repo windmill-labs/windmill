@@ -39,7 +39,7 @@
 			data={icon}
 			class={classNames(
 				' flex-shrink-0 h-4 w-4',
-				isSelected ? ' text-gray-700' : 'text-white group-hover:text-gray-500',
+				isSelected ? ' text-gray-700' : 'text-white group-hover:text-tertiary',
 				isCollapsed ? '-mr-1' : 'mr-3'
 			)}
 		/>

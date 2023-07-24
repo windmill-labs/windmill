@@ -65,12 +65,12 @@
 		{#if isLoading}
 			<Loader2 class="animate-spin absolute top-2 left-2" />
 		{:else if duration}
-			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-2"
+			<span class="absolute text-xs text-tertiary dark:text-gray-400 top-2 left-2"
 				>took {duration}ms</span
 			>
 		{/if}
 		{#if mem}
-			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-36"
+			<span class="absolute text-xs text-tertiary dark:text-gray-400 top-2 left-36"
 				>mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}

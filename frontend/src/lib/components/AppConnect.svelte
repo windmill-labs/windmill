@@ -373,7 +373,7 @@
 						>
 							Add item
 						</Button>
-						<span class="ml-2 text-sm text-gray-500">
+						<span class="ml-2 text-sm text-tertiary">
 							({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
 						</span>
 					</div>

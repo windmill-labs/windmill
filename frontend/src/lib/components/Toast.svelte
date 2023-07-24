@@ -50,7 +50,7 @@
 				<button
 					type="button"
 					on:click={handleClose}
-					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-gray-500 focus:outline-none"
+					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
 				>
 					<span class="sr-only">Close</span>
 					<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

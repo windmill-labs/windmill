@@ -52,7 +52,7 @@
 	</div>
 </div>
 {#if paginated}
-	<div class="flex flex-row-reverse text-gray-500">
+	<div class="flex flex-row-reverse text-tertiary">
 		<button
 			on:click={() => {
 				dispatch('next')

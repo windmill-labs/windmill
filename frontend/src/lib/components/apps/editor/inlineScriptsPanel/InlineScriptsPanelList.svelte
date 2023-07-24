@@ -154,7 +154,7 @@
 					</div>
 				{/if}
 				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
-					<div class="text-xs text-gray-500">No scripts/flows</div>
+					<div class="text-xs text-tertiary">No scripts/flows</div>
 				{/if}
 			</div>
 		</div>
@@ -180,7 +180,7 @@
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
 				>
-					<Plus size={14} class="text-gray-500" />
+					<Plus size={14} class="text-tertiary" />
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
@@ -216,7 +216,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-gray-500">No background runnable</div>
+					<div class="text-xs text-tertiary">No background runnable</div>
 				{/if}
 			</div>
 		</div>

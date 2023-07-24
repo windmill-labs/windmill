@@ -52,7 +52,7 @@
 </script>
 
 <div class="flex justify-between">
-	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-gray-500">
+	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-tertiary">
 		{#each tabs ?? [] as step, index}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<li

@@ -5,7 +5,7 @@
 	export let job: QueuedJob | CompletedJob
 </script>
 
-<div class="grid grid-cols-2 gap-4 mb-1 text-gray-500 dark:text-gray-400">
+<div class="grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400">
 	<JobStatus {job} />
 	{#if job}
 		<div

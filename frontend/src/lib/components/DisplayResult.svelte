@@ -125,13 +125,13 @@
 <div class="inline-highlight">
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
-			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
+			<div class="mb-2 text-tertiary text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-gray-500 text-xs absolute top-5.5 right-0">
+					<div class="text-tertiary text-xs absolute top-5.5 right-0">
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
@@ -270,7 +270,7 @@
 			{/if}
 		{/if}
 	{:else}
-		<div class="text-gray-500 text-sm">No result: {jsonStr}</div>
+		<div class="text-tertiary text-sm">No result: {jsonStr}</div>
 	{/if}
 </div>
 

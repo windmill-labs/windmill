@@ -78,7 +78,7 @@
 }
 
 .list .empty {
-    @apply text-center py-5 text-gray-500;
+    @apply text-center py-5 text-tertiary;
 }
 
 .item {
@@ -118,7 +118,7 @@
 }
 
 .multi-item.disabled {
-    @apply hover:bg-gray-300 hover:text-gray-500;
+    @apply hover:bg-gray-300 hover:text-tertiary;
 }
 
 .multi-item-clear {

@@ -75,7 +75,7 @@
 		<div
 			in:fade|local={{ duration: 50, delay: 50 }}
 			out:fade|local={{ duration: 50 }}
-			class="absolute left-0 top-0 w-full text-sm text-gray-500 text-center py-6 px-2"
+			class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2"
 		>
 			No components found
 		</div>

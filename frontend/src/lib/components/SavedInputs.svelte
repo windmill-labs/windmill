@@ -249,7 +249,7 @@
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-gray-500">No saved Inputs</div>
+						<div class="text-center text-tertiary">No saved Inputs</div>
 					{/if}
 				</div>
 			</div>
@@ -303,7 +303,7 @@
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-gray-500">No previous Runs</div>
+						<div class="text-center text-tertiary">No previous Runs</div>
 					{/if}
 				</div>
 			</div>
@@ -320,7 +320,7 @@
 								<ObjectViewer json={selectedInput?.args} />
 							</div>
 						{:else}
-							<div class="text-center text-gray-500">
+							<div class="text-center text-tertiary">
 								Select an Input to preview scripts arguments
 							</div>
 						{/if}

@@ -89,7 +89,7 @@
 							bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
 						/>{/if}{/key}
 			{:else}
-				<div class="text-sm text-gray-500 text-center py-8 px-2">
+				<div class="text-sm text-tertiary text-center py-8 px-2">
 					No script found at id {$selectedComponentInEditor}
 				</div>
 			{/if}

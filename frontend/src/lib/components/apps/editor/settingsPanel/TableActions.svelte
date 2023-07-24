@@ -47,7 +47,7 @@
 
 <PanelSection title={`Table actions`}>
 	{#if components.length == 0}
-		<span class="text-xs text-gray-500">No action buttons</span>
+		<span class="text-xs text-tertiary">No action buttons</span>
 	{/if}
 	{#each components as component}
 		<div

@@ -243,7 +243,7 @@
 				/>
 			</PanelSection>
 		{:else}
-			<div class="h-full w-full text-sm text-gray-500 text-center py-8 px-2"
+			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2"
 				>{ccomponents[component.type].name} has no configuration</div
 			>
 		{/if}

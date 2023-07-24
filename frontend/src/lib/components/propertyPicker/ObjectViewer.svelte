@@ -129,7 +129,7 @@
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if collapsed}
-		<span class="text-gray-500 text-xs">
+		<span class="text-tertiary text-xs">
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
 	{/if}

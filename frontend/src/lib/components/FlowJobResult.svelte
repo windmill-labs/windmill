@@ -18,7 +18,7 @@
 	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow border-gray-400 h-full max-h-screen"
 >
 	<div class="bg-surface {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
-		<span class="text-gray-500">Result</span>
+		<span class="text-tertiary">Result</span>
 		{#if result}
 			<DisplayResult {workspaceId} {jobId} {filename} {result} />
 		{:else if loading}

@@ -359,7 +359,7 @@
 					{#each innerModules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10" />
-							<h3 class="text-gray-500 mb-2 w-full">
+							<h3 class="text-tertiary mb-2 w-full">
 								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
 									Step
 									<span class="font-medium text-primary">

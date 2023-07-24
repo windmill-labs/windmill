@@ -71,7 +71,7 @@
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
 			<button
-				class="text-xs absolute top-0 right-4 text-gray-500"
+				class="text-xs absolute top-0 right-4 text-tertiary"
 				on:click={() => {
 					jsonViewerContent = value
 					jsonViewer.toggleDrawer()

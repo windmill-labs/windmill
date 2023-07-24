@@ -73,7 +73,7 @@
 					{/if}
 				</span>
 				{#if displayType}
-					<div class="text-xs text-gray-500">
+					<div class="text-xs text-tertiary">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
