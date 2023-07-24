@@ -1889,7 +1889,7 @@ run().catch(async (e) => {{
                 }
             } else if !*DISABLE_NSJAIL {
                 args.push("--allow-net");
-                args.push("--allow-read=./");
+                args.push("--allow-read=./,/tmp/windmill/cache/deno/");
                 args.push("--allow-write=./");
                 args.push("--allow-env");
             } else {
