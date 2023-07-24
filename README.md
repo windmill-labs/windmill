@@ -96,20 +96,20 @@ You can build your entire infra on top of Windmill!
 ## Show me some actual script code
 
 ```typescript
-import * as wmill from "https://deno.land/x/windmill@v1.62.0/mod.ts";
+import * as wmill from "https://deno.land/x/windmill@v1.136.0/mod.ts"
 //import any dependency  from npm
+// fill the type, or use the +Resource type to get a type-safe reference to a resource
+// type Postgresql = object
 
 import cowsay from "npm:cowsay@1.5.0";
 
 export async function main(
   a: number,
-  // unions generate enums
   b: "my" | "enum",
-  // default parameters prefill the field
-  d = "default arg",
-  // nested objects work c = { nested: "object" },
-  // permissioned and typed json
-  db: wmill.Resource<"postgresql">
+  //c: Postgresql,
+  d = "inferred type string from default arg",
+  e = { nested: "object" },
+  //e: wmill.Base64
 ) {
   const email = Deno.env.get("WM_EMAIL");
   // variables are permissioned and by path
