@@ -293,7 +293,7 @@
 						size="sm"
 						variant="border"
 						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-blue-900/75' : 'm-[1px]'}
 						on:click={() => {
 							template = 'script'
 							initContent(lang, script.kind, template)
@@ -390,11 +390,11 @@
 			<h2 class="border-b pb-1 mt-10 mb-4">Concurrency limits</h2>
 			<div class="flex gap-x-4 shrink">
 				<label class="block shrink min-w-0">
-					<span class="text-gray-700 text-sm">Maximum number of runs</span>
+					<span class="text-secondary text-sm">Maximum number of runs</span>
 					<input class="!w-55" type="number" bind:value={script.concurrent_limit} />
 				</label>
 				<label class="block shrink min-w-0">
-					<span class="text-gray-700 text-sm">Per time window (seconds)</span>
+					<span class="text-secondary text-sm">Per time window (seconds)</span>
 					<input class="!w-18" type="number" bind:value={script.concurrency_time_window_s} />
 				</label>
 			</div>
@@ -443,7 +443,7 @@
 					</Tooltip>
 				</h2>
 				<div class="w-full">
-					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					<span class="text-tertiary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
 					{#if Array.isArray(script.envs ?? [])}
 						{#each script.envs ?? [] as v, i}
 							<div class="flex max-w-md mt-1 w-full items-center">
