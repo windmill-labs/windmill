@@ -10,7 +10,7 @@ const lightTheme = {
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
 	textTertiary: '#718096',
-	textDisabled: '#a0aec0',
+	textDisabled: '#FF0000',
 
 	border: '#ccc'
 }
@@ -21,7 +21,7 @@ const darkTheme = {
 	surface: '#2e3440',
 	surfaceSecondary: '#3b4252',
 	surfaceHover: '#4c566a',
-	surfaceDisabled: '#3b4252',
+	surfaceDisabled: '#2a2f3a',
 	surfaceSelected: '#434c5e',
 
 	textPrimary: '#f3f6f8',

@@ -80,7 +80,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-				{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+				{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -94,7 +96,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 			{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100'
+											? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
@@ -109,7 +111,9 @@
 					<button
 						id={PREFIX + id}
 						class="panel-item
-						{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+						{$selectedComponentInEditor === id
+							? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+							: 'hover:bg-blue-50'}"
 						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
@@ -121,7 +125,7 @@
 								id={PREFIX + id + '_transformer'}
 								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 {$selectedComponentInEditor === id + '_transformer'
-									? 'border-blue-500 bg-blue-100'
+									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id + '_transformer')}
 							>
@@ -138,7 +142,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
@@ -155,7 +161,7 @@
 
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
-				<div class="text-xs text-gray-600 font-semibold truncate">
+				<div class="text-xs text-tertiary font-semibold truncate">
 					Background runnables
 					<Tooltip
 						class="mb-0.5"
@@ -185,7 +191,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -197,7 +205,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 		{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100'
+											? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>

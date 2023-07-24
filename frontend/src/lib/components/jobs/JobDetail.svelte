@@ -77,14 +77,14 @@
 						{#if 'success' in job && job.success}
 							{#if job.is_skipped}
 								<Icon
-									class="text-green-600"
+									class="text-green-600 dark:text-green-400"
 									data={faFastForward}
 									scale={SMALL_ICON_SCALE}
 									label="Job completed successfully but was skipped"
 								/>
 							{:else}
 								<Icon
-									class="text-green-600"
+									class="text-green-600 dark:text-green-400"
 									data={check}
 									scale={SMALL_ICON_SCALE}
 									label="Job completed successfully"
@@ -92,7 +92,7 @@
 							{/if}
 						{:else if 'success' in job}
 							<Icon
-								class="text-red-700"
+								class="text-red-600 dark:text-red-400"
 								data={faTimes}
 								scale={SMALL_ICON_SCALE}
 								label="Job completed with an error"
@@ -106,14 +106,14 @@
 							/>
 						{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
 							<Icon
-								class="text-gray-700"
+								class="text-secondary"
 								data={faCalendar}
 								scale={SMALL_ICON_SCALE}
 								label="Job is scheduled to run at a later time"
 							/>
 						{:else}
 							<Icon
-								class="text-gray-500"
+								class="text-tertiary"
 								data={faHourglassHalf}
 								scale={SMALL_ICON_SCALE}
 								label="Job is waiting for an executor"

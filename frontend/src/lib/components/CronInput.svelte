@@ -295,16 +295,16 @@
 						<div class="w-full flex flex-col gap-1">
 							<small class="font-bold">Preview New Cron</small>
 
-							<div class="flex p-2 px-4 rounded-md bg-gray-100">
+							<div class="flex p-2 px-4 rounded-md bg-surface-secondary">
 								<span>{nschedule}</span>
 							</div>
 						</div>
 					</div>
 
 					<div class="mt-4">
-						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}
-							>Set Cron Schedule</Button
-						>
+						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}>
+							Set Cron Schedule
+						</Button>
 					</div>
 				</CollapseLink>
 			</div>

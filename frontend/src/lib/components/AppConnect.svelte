@@ -323,7 +323,7 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={key === resource_type ? 'blue' : 'dark'}
+							color={key === resource_type ? 'blue' : 'light'}
 							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
 								manual = false
@@ -387,7 +387,7 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={key === resource_type ? 'blue' : 'dark'}
+							color={key === resource_type ? 'blue' : 'light'}
 							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
 								manual = true

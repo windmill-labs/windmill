@@ -133,13 +133,13 @@
 		on:close={drawer.closeDrawer}
 	>
 		<div>
-			<div class="flex flex-col gap-3 py-3 text-gray-700">
+			<div class="flex flex-col gap-3 py-3">
 				<div>
 					{#if !can_write}
 						<div class="m-2">
-							<Alert type="warning" title="Only read access"
-								>You only have read access to this resource and cannot edit it</Alert
-							>
+							<Alert type="warning" title="Only read access">
+								You only have read access to this resource and cannot edit it
+							</Alert>
 						</div>
 					{/if}
 					<Path

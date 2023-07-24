@@ -124,7 +124,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !schedules?.length}
-			<div class="text-center text-sm text-gray-600 mt-2"> No schedules </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if filteredItems?.length}
 			<div class="border rounded-md divide-y divide-gray-200">
 				{#each filteredItems as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs }}

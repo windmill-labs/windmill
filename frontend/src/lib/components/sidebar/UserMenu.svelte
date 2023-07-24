@@ -46,12 +46,12 @@
 		{/if}
 	</button>
 
-	<div class="divide-y divide-gray-100">
+	<div class="divide-y">
 		<div class="px-4 py-3" role="none">
-			<p class="text-sm font-medium text-gray-900 truncate" role="none">
+			<p class="text-sm font-medium text-primary truncate" role="none">
 				{$usersWorkspaceStore?.email}
 			</p>
-			<span class="text-xs text-gray-600">
+			<span class="text-xs text-tertiary">
 				{#if $userStore?.is_admin}
 					Admin of this workspace <Icon data={faCrown} scale={0.6} />
 				{:else if $userStore?.operator}
@@ -63,7 +63,7 @@
 		<div class="py-1" role="none">
 			<a
 				href={USER_SETTINGS_HASH}
-				class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+				class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
 				role="menuitem"
 				tabindex="-1"
 			>
@@ -74,7 +74,7 @@
 			<div class="py-1" role="none">
 				<a
 					href={SUPERADMIN_SETTINGS_HASH}
-					class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					class="text-secondary block px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
 					role="menuitem"
 					tabindex="-1"
 				>
@@ -90,7 +90,7 @@
 						switchWorkspace('admins')
 						close()
 					}}
-					class="text-gray-700 block px-4 py-2 font-normal text-sm hover:bg-gray-100 hover:text-gray-900"
+					class="text-secondary block px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary"
 					role="menuitem"
 					tabindex="-1"
 				>
@@ -101,7 +101,7 @@
 		<div class="py-1" role="none">
 			<button
 				type="button"
-				class="text-gray-700 block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+				class="text-secondary block w-full text-left px-4 py-2 text-sm hover:bg-surface-hover hover:text-primary"
 				role="menuitem"
 				tabindex="-1"
 				on:click={() => logout()}

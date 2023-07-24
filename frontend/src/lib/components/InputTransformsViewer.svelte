@@ -11,7 +11,7 @@
 	<ul class="mb-1">
 		{#each entries as [key, val]}
 			<li class="flex pb-2 last:pb-0">
-				<span class="font-black text-gray-700 text-xs">{key}:</span>
+				<span class="font-black text-secondary text-xs">{key}:</span>
 				{#if val.type == 'static'}
 					{#if typeof val.value == 'object'}
 						<ObjectViewer json={val.value} />

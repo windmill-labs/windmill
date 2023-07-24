@@ -174,7 +174,7 @@
 			size="lg"
 			bind:element={button}
 			color="light"
-			btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+			btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 			loading={genLoading}
 		>
 			<Icon scale={0.8} data={faMagicWandSparkles} />

@@ -422,8 +422,8 @@
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
-				<div class="grid grid-cols-3 border border-gray-300">
-					<div class="col-span-2 bg-gray-50">
+				<div class="grid grid-cols-3 border">
+					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values(retry_status) as count}
 								<span class="text-sm">

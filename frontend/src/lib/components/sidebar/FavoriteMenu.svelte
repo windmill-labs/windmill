@@ -46,7 +46,7 @@
 					<a
 						href={favorite.href}
 						on:click={close}
-						class="w-full inline-flex flex-row px-4 py-2 hover:bg-gray-100"
+						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover"
 					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}
@@ -57,7 +57,7 @@
 								<LayoutDashboard size={16} />
 							{/if}
 						</span>
-						<span class="text-gray-800 ml-2 grow min-w-0 text-xs truncate">
+						<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
 							{favorite.label}
 						</span>
 					</a>

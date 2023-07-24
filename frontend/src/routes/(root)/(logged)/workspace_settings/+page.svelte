@@ -770,12 +770,13 @@
 					</Button>
 				</div>
 			{/if}
-			<h3 class="mt-5 text-gray-700"
-				>Script or flow to run on /windmill command <Tooltip>
+			<h3 class="mt-5 text-secondary">
+				Script or flow to run on /windmill command
+				<Tooltip>
 					The script or flow to be triggered when the `/windmill` command is invoked. The script or
 					flow chosen is passed the parameters <pre>response_url: string, text: string</pre>
-					respectively the url to reply directly to the trigger and the text of the command.</Tooltip
-				>
+					respectively the url to reply directly to the trigger and the text of the command.
+				</Tooltip>
 			</h3>
 			<ScriptPicker
 				kind={Script.kind.SCRIPT}
@@ -853,7 +854,7 @@
 				></div
 			>
 
-			<h3 class="mt-5 text-gray-700"
+			<h3 class="mt-5 text-secondary"
 				>URL to send requests to<Tooltip>
 					This URL will be POSTed to with a JSON body depending on the type of event. The type is
 					indicated by the <pre>type</pre> field. The other fields are dependent on the type.
@@ -878,7 +879,7 @@
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
-					<div class="text-gray-600 text-sm">
+					<div class="text-tertiary text-sm">
 						The following args will be passed to the error handler:
 						<ul class="mt-1 ml-2">
 							<li><b>path</b>: The path of the script or flow that errored.</li>

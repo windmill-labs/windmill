@@ -30,20 +30,20 @@
 </script>
 
 <div
-	class="sticky top-0 z-20 text-lg bg-gray-100 font-semibold lowercase leading-none [font-variant:small-caps] text-gray-700 px-3 pb-1 mt-4 mb-1"
+	class="sticky top-0 z-20 text-lg bg-surface-secondary font-semibold lowercase leading-none [font-variant:small-caps] text-secondary px-3 pb-1 mt-4 mb-1"
 >
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
 	<div class="px-3">
 		{#if tooltip}
-			<div class="text-gray-600 text-2xs py-2">{tooltip}</div>
+			<div class="text-tertiary text-2xs py-2">{tooltip}</div>
 		{/if}
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<div class="text-sm font-medium text-gray-600 pb-0.5"> Plain CSS </div>
+					<div class="text-sm font-medium text-tertiary pb-0.5"> Plain CSS </div>
 					<div class="flex gap-1">
 						<div class="relative grow">
 							<ClearableInput
@@ -91,7 +91,7 @@
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
-				<div class="text-sm font-medium text-gray-600 pb-0.5">
+				<div class="text-sm font-medium text-tertiary pb-0.5">
 					Tailwind classes<Tooltip documentationLink="https://tailwindcss.com/"
 						>Use any tailwind classes to style your component</Tooltip
 					></div

@@ -169,7 +169,6 @@
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-gray-600"
 			startIcon={{ icon: faSave }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}

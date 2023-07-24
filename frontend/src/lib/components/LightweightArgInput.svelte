@@ -352,7 +352,7 @@
 			<slot name="actions" />
 		</div>
 		{#if error && error != ''}
-			<div class="text-right text-xs text-red-600">
+			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if error === ''}
 					&nbsp;
 				{:else}
