@@ -12,8 +12,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import Version from '$lib/components/Version.svelte'
-	import Uptodate from '$lib/components/Uptodate.svelte'
+	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -161,9 +160,7 @@
 <div
 	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
 >
-	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
-		<div class="font-mono flex-col flex"><Version /><div><Uptodate /></div></div>
-	</div>
+	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
 			<WindmillIcon height="80px" width="80px" spin="slow" />

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import WindmillIcon from './icons/WindmillIcon.svelte'
-	import Uptodate from './Uptodate.svelte'
-	import Version from './Version.svelte'
+	import LoginPageHeader from './LoginPageHeader.svelte'
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
@@ -36,9 +35,5 @@
 		</div>
 	</div>
 
-	<div class="absolute top-0 right-0 text-2xs text-secondary italic px-3 py-1">
-		<span class="font-mono flex flex-col">
-			<div>Windmill <Version /></div><div><Uptodate /></div>
-		</span>
-	</div>
+	<LoginPageHeader />
 </div>

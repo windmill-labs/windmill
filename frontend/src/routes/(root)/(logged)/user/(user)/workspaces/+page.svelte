@@ -126,7 +126,7 @@
 		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
 			<label class="block pb-2">
 				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300
+					class="block w-full mx-auto py-1 px-2 rounded-md border
 				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
 						workspaceStore.set(workspace.id)
@@ -177,7 +177,7 @@
 	{/if}
 	{#each invites as invite}
 		<div
-			class="w-full mx-auto py-1 px-2 rounded-md border border-gray-300 shadow-sm
+			class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
 			text-sm mt-1 flex flex-row justify-between items-center"
 		>
 			<div class="grow">

@@ -10,4 +10,6 @@
 	}
 </script>
 
-{version}
+<div class="text-secondary text-xs">
+	{version}
+</div>
