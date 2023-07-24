@@ -19,7 +19,7 @@
 					{#if headers}
 						{#each headers as header, i}
 							<th
-								class="py-3.5 text-left text-sm font-semibold text-gray-900 capitalize {i == 0
+								class="py-3.5 text-left text-sm font-semibold text-primary capitalize {i == 0
 									? 'sm:pl-6 md:pl-0 pl-4 pr-3'
 									: 'px-3 '}">{header}</th
 							>

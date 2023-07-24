@@ -28,8 +28,8 @@
 		class={classNames(
 			'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8',
 			isSelected
-				? 'bg-gray-50 text-gray-900'
-				: 'text-gray-600 hover:bg-gray-50 hover:text-gray-900',
+				? 'bg-surface-selected text-primary'
+				: 'text-secondary hover:bg-surface-hover hover:text-primary',
 			$$props.class
 		)}
 		target={href.includes('http') ? '_blank' : null}

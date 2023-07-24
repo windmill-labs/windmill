@@ -43,8 +43,8 @@
 	}
 
 	const manuallyOpenColor = {
-		blue: 'text-gray-900 bg-gray-300 rounded-sm',
-		indigo: 'text-gray-900 bg-gray-300 rounded-sm'
+		blue: 'text-primary bg-gray-300 rounded-sm',
+		indigo: 'text-primary bg-gray-300 rounded-sm'
 	}
 
 	const idClass = {

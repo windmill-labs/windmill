@@ -82,7 +82,7 @@
 		<input
 			type="text"
 			bind:value={search}
-			class="bg-gray-50 mt-2 border border-gray-300 text-gray-900 text-sm rounded-lg block mb-2 w-full"
+			class="bg-gray-50 mt-2 border border-gray-300 text-primary text-sm rounded-lg block mb-2 w-full"
 			placeholder="Search prop..."
 		/>
 	</div>

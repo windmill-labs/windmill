@@ -48,7 +48,7 @@
 	outerClasses="rounded shadow-xl bg-white border p-3"
 	closeOn={[]}
 >
-	<label class="block text-gray-900">
+	<label class="block text-primary">
 		<div class="pb-1 text-sm text-gray-600">{label}</div>
 		<div class="flex w-full">
 			<input type="datetime-local" bind:value class="!w-auto grow" bind:this={input} />

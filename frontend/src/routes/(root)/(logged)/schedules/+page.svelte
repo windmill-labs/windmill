@@ -145,7 +145,7 @@
 								on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-gray-900 flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{#if marked}
 										<span class="text-xs">
 											{@html marked}

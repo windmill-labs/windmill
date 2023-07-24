@@ -61,7 +61,7 @@
 							<RowIcon kind="flow" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+								<div class="text-primary flex-wrap text-md font-semibold mb-1">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
