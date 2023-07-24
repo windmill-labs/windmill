@@ -315,7 +315,7 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-gray-600 grow min-w-[100px]">
+		<div class="relative text-tertiary grow min-w-[100px]">
 			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus

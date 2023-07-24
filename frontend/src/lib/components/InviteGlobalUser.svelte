@@ -63,5 +63,5 @@
 	<div>
 		<input type="text" placeholder="company (optional)" bind:value={company} />
 	</div>
-	<div class="text-xs text-gray-600 grow text-right"> Email will be sent if SMTP configured </div>
+	<div class="text-xs text-tertiary grow text-right"> Email will be sent if SMTP configured </div>
 </div>

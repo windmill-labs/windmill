@@ -582,7 +582,7 @@
 							endIcon={{ icon: faExternalLink }}
 							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 						>
-						<p class="text-xs text-gray-600 mt-1">
+						<p class="text-xs text-tertiary mt-1">
 							See invoices, change billing information or subscription details</p
 						>
 					</div>

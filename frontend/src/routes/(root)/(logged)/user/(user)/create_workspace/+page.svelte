@@ -143,7 +143,7 @@
 		>
 	</div>
 	{#if isDomainAllowed == false}
-		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
+		<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
 		<Button variant="border" size="sm" href="/user/workspaces"

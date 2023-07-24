@@ -124,7 +124,7 @@
 <div class="flex gap-2 flex-col mt-2 w-full">
 	{#key redraw}
 		{#if Array.isArray(items) && componentInput.value}
-			<div class="text-xs text-gray-600 font-semibold">{pluralize(items.length, 'item')}</div>
+			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
 			<section
 				use:dndzone={{
 					items,

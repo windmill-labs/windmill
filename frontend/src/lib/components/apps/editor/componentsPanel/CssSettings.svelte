@@ -69,7 +69,7 @@
 	let search = ''
 </script>
 
-<!-- <div class="w-full text-lg font-semibold text-center text-gray-600 p-2">Global Styling</div> -->
+<!-- <div class="w-full text-lg font-semibold text-center text-tertiary p-2">Global Styling</div> -->
 <Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="h-full">
 	<Tab value="ui" size="xs" class="w-1/2">
 		<div class="m-1 center-center">

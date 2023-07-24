@@ -71,7 +71,7 @@
 					<Skeleton layout={[[2], 0.7]} />
 				{/each}
 			{:else if !items?.length}
-				<div class="text-center text-sm text-gray-600 mt-2">
+				<div class="text-center text-sm text-tertiary mt-2">
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}

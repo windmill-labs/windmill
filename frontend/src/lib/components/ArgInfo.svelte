@@ -42,7 +42,7 @@
 </Drawer>
 
 {#if value == undefined || value == null}
-	<span class="text-gray-600">null</span>
+	<span class="text-tertiary">null</span>
 {:else if value == '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual

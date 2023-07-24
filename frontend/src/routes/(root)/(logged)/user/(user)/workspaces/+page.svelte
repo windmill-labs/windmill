@@ -118,7 +118,7 @@
 
 	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
-			<p class="text-sm text-gray-600 mt-2">
+			<p class="text-sm text-tertiary mt-2">
 				You are not a member of any workspace yet. Accept an invitation or create your own
 				workspace.
 			</p>
@@ -241,7 +241,7 @@
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
 	>
 		<h1 class="text-center mb-2">Select a workspace</h1>
-		<p class="text-center font-medium text-gray-600 text-xs mb-10">
+		<p class="text-center font-medium text-tertiary text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
 	</div>

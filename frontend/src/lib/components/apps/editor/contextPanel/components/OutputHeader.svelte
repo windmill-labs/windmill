@@ -185,7 +185,7 @@
 				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 				title="Select component"
 				on:click|stopPropagation={() => ($selectedComponent = [id])}
-				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
+				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-tertiary"
 			>
 				<div
 					class={classNames(

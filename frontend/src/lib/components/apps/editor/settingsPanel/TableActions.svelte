@@ -83,7 +83,7 @@
 	{/each}
 	<div class="w-full flex gap-2">
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"
@@ -93,7 +93,7 @@
 			+ <Inspect size={14} />
 		</Button>
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"
@@ -103,7 +103,7 @@
 			+ <ToggleRightIcon size={14} />
 		</Button>
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"

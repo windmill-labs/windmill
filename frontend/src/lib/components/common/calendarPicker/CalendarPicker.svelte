@@ -49,7 +49,7 @@
 	closeOn={[]}
 >
 	<label class="block text-primary">
-		<div class="pb-1 text-sm text-gray-600">{label}</div>
+		<div class="pb-1 text-sm text-tertiary">{label}</div>
 		<div class="flex w-full">
 			<input type="datetime-local" bind:value class="!w-auto grow" bind:this={input} />
 			<Button

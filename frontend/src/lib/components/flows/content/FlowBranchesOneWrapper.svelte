@@ -38,7 +38,7 @@
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
-								<p class="italic text-gray-600"
+								<p class="italic text-tertiary"
 									>If none of the predicates' expressions evaluated in-order match, this branch is
 									chosen</p
 								>

@@ -114,7 +114,7 @@
 					isLoading={testIsLoading}
 				/>
 			</Pane>
-			<Pane size={50} minSize={10} class="text-sm text-gray-600">
+			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
 						<DisplayResult

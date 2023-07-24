@@ -22,7 +22,7 @@
 		</td>
 	{/each}
 {:else}
-	<div class="flex flex-col text-xs text-gray-600">
+	<div class="flex flex-col text-xs text-tertiary">
 		{#each Object.entries(usage) as [k, v]}
 			<div>
 				{k}: {v}

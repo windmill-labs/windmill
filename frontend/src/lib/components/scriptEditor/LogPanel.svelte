@@ -102,7 +102,7 @@
 								/>
 							</div>
 						{:else}
-							<div class="text-sm text-gray-600 p-2">
+							<div class="text-sm text-tertiary p-2">
 								{#if previewIsLoading}
 									<Loader2 class="animate-spin" />
 								{:else}

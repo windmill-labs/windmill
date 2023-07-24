@@ -95,7 +95,7 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-gray-600 
+		`relative center-center flex-col text-center font-medium text-tertiary 
 		border-2 border-dashed border-gray-400 hover:border-blue-500 
 		focus-within:border-blue-500 hover:bg-blue-50 focus-within:bg-blue-50 
 		duration-200 rounded-lg p-1`,

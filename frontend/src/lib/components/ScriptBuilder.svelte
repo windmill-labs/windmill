@@ -282,7 +282,7 @@
 			<h2 class="border-b pb-1 mt-10 mb-4">Language</h2>
 
 			{#if lockedLanguage}
-				<div class="text-sm text-gray-600 italic mb-2">
+				<div class="text-sm text-tertiary italic mb-2">
 					As a forked script, the language '{script.language}' cannot be modified.
 				</div>
 			{/if}
@@ -511,7 +511,7 @@
 							>
 								<Badge
 									color="gray"
-									class="center-center !bg-gray-300 !text-gray-600 !h-[28px]  !w-[70px] rounded-r-none"
+									class="center-center !bg-gray-300 !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
 								>
 									<Pen size={12} class="mr-2" /> Path
 								</Badge>

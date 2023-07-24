@@ -45,7 +45,7 @@
 	}}
 	bind:this={button}
 	title="Edit ID"
-	class="flex items-center px-1 rounded-sm bg-gray-100 hover:text-black text-gray-600"
+	class="flex items-center px-1 rounded-sm bg-gray-100 hover:text-black text-tertiary"
 	aria-label="Open component ID editor"
 >
 	<Pencil size={14} />

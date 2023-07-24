@@ -68,7 +68,7 @@
 										{!item.summary || item.summary.length == 0 ? item.path : item.summary}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs">
+								<div class="text-tertiary text-xs">
 									{item.path}
 								</div>
 							</div>

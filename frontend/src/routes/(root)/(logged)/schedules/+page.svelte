@@ -278,7 +278,7 @@
 						<div class="w-full flex justify-between items-baseline">
 							<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
 								{#if avg_s}
-									<div class="pl-2 text-gray-600 text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+									<div class="pl-2 text-tertiary text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
 								{/if}
 								{#each jobs ?? [] as job}
 									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}

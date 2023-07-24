@@ -28,7 +28,7 @@
 	}
 </script>
 
-<div class="w-full h-full mt-2 text-sm text-gray-600">
+<div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
 	<div>
 		{#if is_owner}

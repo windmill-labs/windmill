@@ -269,7 +269,7 @@
 		{/if}
 		<div class={selected == 'graph' ? 'hidden' : ''}>
 			{#if isListJob}
-				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
+				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#each flowJobIds?.flowJobs ?? [] as loopJobId, j}
@@ -378,7 +378,7 @@
 							</h3>
 							<div class="line w-8 h-10" />
 						{/if}
-						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
+						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
@@ -511,12 +511,12 @@
 									logs={node.logs ?? ''}
 								/>
 							{:else}
-								<p class="p-2 text-gray-600 italic"
+								<p class="p-2 text-tertiary italic"
 									>The execution of this node has no information attached to it. The job likely did
 									not run yet</p
 								>
 							{/if}
-						{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p
+						{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
 							>{/if}
 					</div>
 				</div>

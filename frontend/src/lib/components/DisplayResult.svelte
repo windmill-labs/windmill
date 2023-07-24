@@ -179,7 +179,7 @@
 								Warning
 							</div>
 							<p
-								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+								class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
 								>Rendering HTML can expose you to <a
 									href="https://owasp.org/www-community/attacks/xss/"
 									target="_blank"
@@ -255,7 +255,7 @@
 			</div>
 		{:else}
 			{#if jsonStr.length > 10000}
-				<div class="text-sm mb-2 text-gray-600">
+				<div class="text-sm mb-2 text-tertiary">
 					<a
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
@@ -292,7 +292,7 @@
 					</Button>
 				</svelte:fragment>
 				{#if jsonStr.length > 100000}
-					<div class="text-sm mb-2 text-gray-600">
+					<div class="text-sm mb-2 text-tertiary">
 						<a
 							download="{filename ?? 'result'}.json"
 							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a

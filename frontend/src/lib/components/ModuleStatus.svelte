@@ -14,12 +14,12 @@
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
-	<span class="italic text-gray-600">
+	<span class="italic text-tertiary">
 		<Icon data={faHourglassHalf} class="mr-2" />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
-	<span class="italic text-gray-600">
+	<span class="italic text-tertiary">
 		<Icon data={faHourglassHalf} class="mr-2" />
 		{#if scheduled_for}
 			Job has been {scheduled_for} and will be executed after that time

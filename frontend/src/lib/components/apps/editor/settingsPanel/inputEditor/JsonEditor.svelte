@@ -24,7 +24,7 @@
 </script>
 
 {#if tooBig}
-	<span class="text-gray-600">JSON to edit is too big</span>
+	<span class="text-tertiary">JSON to edit is too big</span>
 {:else}
 	<div class="flex flex-col w-full">
 		<div class="border w-full">

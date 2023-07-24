@@ -101,7 +101,7 @@ ${Object.entries(args)
 				</Button>
 			</svelte:fragment>
 			{#if jsonStr.length > 100000}
-				<div class="text-sm mb-2 text-gray-600">
+				<div class="text-sm mb-2 text-tertiary">
 					<a
 						download="windmill-args.json"
 						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a

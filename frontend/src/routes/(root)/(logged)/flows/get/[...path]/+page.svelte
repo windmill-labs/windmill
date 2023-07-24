@@ -225,7 +225,7 @@
 								{#if !emptyString(flow.summary)}
 									<span class="text-lg font-semibold">{flow.path}</span>
 								{/if}
-								<span class="text-sm text-gray-600">
+								<span class="text-sm text-tertiary">
 									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
 								</span>
 

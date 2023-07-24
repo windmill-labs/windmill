@@ -114,7 +114,7 @@
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					<div class="text-sm font-semibold text-gray-600 mb-1">
+					<div class="text-sm font-semibold text-tertiary mb-1">
 						<div>Job is scheduled for</div>
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
@@ -122,7 +122,7 @@
 				{#if job?.type === Job.type.COMPLETED_JOB}
 					<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
 				{:else if job && `running` in job ? job.running : false}
-					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
+					<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
 					<LogViewer
 						jobId={job?.id}
 						duration={job?.['duration_ms']}

@@ -6,7 +6,7 @@
 }
 
 .svelte-select input {
-    @apply cursor-default border-none text-gray-600 h-10 leading-10 px-4 py-0 bg-transparent text-sm absolute left-0 m-0 w-full 
+    @apply cursor-default border-none text-tertiary h-10 leading-10 px-4 py-0 bg-transparent text-sm absolute left-0 m-0 w-full 
         focus:outline-none hover:border-gray-400;
 }
 
@@ -15,7 +15,7 @@
 }
 
 .svelte-select.disabled {
-    @apply bg-gray-200 border-gray-200 text-gray-600;
+    @apply bg-gray-200 border-gray-200 text-tertiary;
 }
 
 .svelte-select.disabled input {
@@ -42,7 +42,7 @@
 .svelte-select.focused .icons,
 .svelte-select .chevron:hover,
 .svelte-select .clear-select:hover {
-    @apply text-gray-600;
+    @apply text-tertiary;
 }
 
 .svelte-select .clear-select {

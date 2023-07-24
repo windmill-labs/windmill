@@ -143,7 +143,7 @@
 			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-gray-600">No arguments</div>
+		<div class="text-xs text-tertiary">No arguments</div>
 	{/if}
 	{#if schedulable}
 		<div class="mt-10" />

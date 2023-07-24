@@ -243,7 +243,7 @@
 											</Button>
 										</div>
 									{:else}
-										<span class="text-xs text-gray-600">By {i.created_by}</span>
+										<span class="text-xs text-tertiary">By {i.created_by}</span>
 									{/if}
 								</div>
 							</button>
