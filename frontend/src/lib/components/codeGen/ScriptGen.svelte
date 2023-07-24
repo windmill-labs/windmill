@@ -201,9 +201,9 @@
 			transition={fade}
 			closeOn={[]}
 			wrapperClasses="!z-[1002]"
-			outerClasses="rounded shadow-xl bg-white border p-3 w-96"
+			outerClasses="rounded shadow-xl bg-surface border p-3 w-96"
 		>
-			<label class="block text-gray-900">
+			<label class="block text-primary">
 				<div class="flex w-full">
 					<input
 						type="text"
