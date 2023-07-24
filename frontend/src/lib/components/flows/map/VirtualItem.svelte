@@ -132,7 +132,7 @@
 				}
 			}}
 			type="button"
-			class=" text-primary bg-surface border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-primary bg-surface border mx-0.5 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 		>
 			<Icon data={faBolt} scale={0.8} />
 		</button>

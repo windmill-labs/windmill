@@ -32,7 +32,7 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 			{moduleRetry
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleRetry')}
 		>
@@ -43,7 +43,7 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 		{module?.value?.['concurrency_limit'] != undefined
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleConcurrency')}
 		>
@@ -54,7 +54,7 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 		{module.cache_ttl != undefined
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleCache')}
 		>
@@ -65,7 +65,7 @@
 			placement="bottom"
 			class="center-center rounded p-2
 			{module.stop_after_if
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleStopAfterIf')}
 		>
@@ -76,7 +76,7 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 			{module.suspend
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleSuspend')}
 		>
@@ -87,7 +87,7 @@
 			placement="bottom"
 			class="center-center rounded p-2
 			{module.sleep
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleSleep')}
 		>

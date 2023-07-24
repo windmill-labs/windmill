@@ -140,7 +140,7 @@
 	</div>
 	{#if deletable}
 		<button
-			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center
+			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center text-primary
 	border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
 	hover:border-red-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) =>
@@ -150,7 +150,7 @@
 		</button>
 
 		<button
-			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center
+			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center text-primary
 border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-blue-400 hover:text-white
 hover:border-blue-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}

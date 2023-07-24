@@ -50,7 +50,7 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y divide-gray-200 border rounded-md">
+		<ul class="divide-y border rounded-md">
 			{#each filteredItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
