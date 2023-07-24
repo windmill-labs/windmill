@@ -346,7 +346,12 @@
 		</div>
 	</div>
 	<div class="relative">
-		<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters
+			syncQuery
+			bind:selectedFilter={ownerFilter}
+			filters={owners}
+			bottomMargin={false}
+		/>
 		{#if filteredItems?.length == 0}
 			<div class="mt-10" />
 		{/if}

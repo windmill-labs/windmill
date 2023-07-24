@@ -13,6 +13,8 @@
 	export let queryName = 'filter'
 	export let syncQuery = false
 
+	export let bottomMargin: boolean = true
+
 	const queryChange: (value: URL) => void = (url: URL) => {
 		if (syncQuery) {
 			window.history.pushState(history.state, '', `?${url?.searchParams.toString()}`)
@@ -61,7 +63,7 @@
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	<div class="gap-2 w-full flex flex-wrap mt-4">
+	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
 		{#each filtersAndSelected as filter (filter)}
 			<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 				<Badge
