@@ -82,8 +82,30 @@ lazy_static::lazy_static! {
             "hub".to_string(),
             "other".to_string()]);
 
-    pub static ref ACCEPTED_TAGS_FILTER: String = format!(" AND ({})",
-        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "));
+
+    pub static ref PULL_QUERY: String = format!(
+        "UPDATE queue
+        SET running = true
+          , started_at = coalesce(started_at, now())
+          , last_ping = now()
+          , suspend_until = null
+        WHERE id = (
+            SELECT id
+            FROM queue
+            WHERE ((running = false
+                   AND scheduled_for <= now())
+               OR (suspend_until IS NOT NULL
+                   AND (   suspend <= 0
+                        OR suspend_until <= now()))) 
+                {}
+            ORDER BY scheduled_for, created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        ) LIMIT 1
+        RETURNING *",
+        format!(" AND ({})",
+        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "))
+    );
 
     // When compiled in 'benchmark' mode, this flags is exposed via the /workers/toggle endpoint
     // and make it possible to disable to current active workers (such that they don't pull any)
@@ -660,49 +682,15 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
 
 pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
-    whitelist_workspaces: Option<Vec<String>>,
-    blacklist_workspaces: Option<Vec<String>>,
     rsmq: Option<R>,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
-    let mut workspaces_filter = String::new();
-    if let Some(whitelist) = whitelist_workspaces {
-        workspaces_filter.push_str(&format!(
-            " AND workspace_id IN ({})",
-            whitelist
-                .into_iter()
-                .map(|x| format!("'{x}'"))
-                .collect::<Vec<String>>()
-                .join(",")
-        ));
-        if let Some(_rsmq) = rsmq {
-            todo!("REDIS: Implement workspace filters for redis");
-        }
-    }
-    if let Some(blacklist) = blacklist_workspaces {
-        workspaces_filter.push_str(&format!(
-            " AND workspace_id NOT IN ({})",
-            blacklist
-                .into_iter()
-                .map(|x| format!("'{x}'"))
-                .collect::<Vec<String>>()
-                .join(",")
-        ));
-        if let Some(_rsmq) = rsmq {
-            todo!("REDIS: Implement workspace filters for redis");
-        }
-    }
-
     // let rs = rd_string(2);
     // let instant = Instant::now();
 
     loop {
         let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
-        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            tx,
-            workspaces_filter.as_str(),
-            rsmq.clone(),
-        )
-        .await?;
+        let (job, mut tx) =
+            pull_single_job_and_mark_as_running_no_concurrency_limit(tx, rsmq.clone()).await?;
 
         if job.is_none() {
             return Ok(None);
@@ -842,7 +830,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     R: rsmq_async::RsmqConnection + Send + Clone,
 >(
     mut tx: QueueTransaction<'c, R>,
-    workspaces_filter: &str,
     rsmq: Option<R>,
 ) -> windmill_common::error::Result<(Option<QueuedJob>, QueueTransaction<'c, R>)> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
@@ -876,7 +863,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             None
         }
     } else {
-        let accepted_tags_filter = &*ACCEPTED_TAGS_FILTER;
         /* Jobs can be started if they:
          * - haven't been started before,
          *   running = false
@@ -884,30 +870,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        sqlx::query_as::<_, QueuedJob>(&format!(
-            "UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id = (
-                SELECT id
-                FROM queue
-                WHERE ((running = false
-                       AND scheduled_for <= now())
-                   OR (suspend_until IS NOT NULL
-                       AND (   suspend <= 0
-                            OR suspend_until <= now()))) 
-                    {workspaces_filter}
-                    {accepted_tags_filter}
-                ORDER BY scheduled_for
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING *"
-        ))
-        .fetch_optional(&mut tx)
-        .await?
+        sqlx::query_as::<_, QueuedJob>(&PULL_QUERY)
+            .fetch_optional(&mut tx)
+            .await?
     };
     Ok((job, tx))
 }
