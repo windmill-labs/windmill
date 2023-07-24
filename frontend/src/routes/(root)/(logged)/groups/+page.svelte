@@ -29,7 +29,11 @@
 	}
 
 	async function loadInstanceGroups(): Promise<void> {
-		instanceGroups = await GroupService.listInstanceGroups()
+		try {
+			instanceGroups = await GroupService.listInstanceGroups()
+		} catch (e) {
+			instanceGroups = undefined
+		}
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
