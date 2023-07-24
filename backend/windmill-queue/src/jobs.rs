@@ -101,7 +101,7 @@ lazy_static::lazy_static! {
             ORDER BY scheduled_for, created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
-        ) LIMIT 1
+        )
         RETURNING *",
         format!(" AND ({})",
         ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "))
