@@ -229,7 +229,7 @@
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 				>
-				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
+				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				{#if lang && editor && diffEditor}
 					<ScriptFix error={JSON.stringify(result.error)} {lang} {editor} {diffEditor} />
 				{/if}

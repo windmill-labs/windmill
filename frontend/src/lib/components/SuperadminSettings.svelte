@@ -65,7 +65,7 @@
 			</div>
 			<div class="mt-2 overflow-auto">
 				<TableCustom>
-					<tr slot="header-row" class="sticky top-0 bg-white border-b">
+					<tr slot="header-row" class="sticky top-0 bg-surface border-b">
 						<th>email</th>
 						<th>auth</th>
 						<th>name</th>

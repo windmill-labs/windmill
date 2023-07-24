@@ -240,7 +240,7 @@
 								<div
 									><span class="inline-flex gap-1"
 										><Badge color="indigo">{mod.id}</Badge>
-										<span class="font-medium text-gray-900">
+										<span class="font-medium text-primary">
 											{#if !emptyString(rawMod?.summary)}
 												{rawMod?.summary ?? ''}
 											{:else if rawMod?.value.type == 'script'}
@@ -352,7 +352,7 @@
 				{/each}
 			{:else if innerModules.length > 0}
 				<ul class="w-full">
-					<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4 py-2">
+					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step results
 					</h3>
 
@@ -362,13 +362,13 @@
 							<h3 class="text-gray-500 mb-2 w-full">
 								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
 									Step
-									<span class="font-medium text-gray-900">
+									<span class="font-medium text-primary">
 										{i + 1}
 									</span>
 									out of
-									<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
+									<span class="font-medium text-primary">{job?.raw_flow?.modules.length}</span>
 									{#if job.raw_flow?.modules[i]?.summary}
-										: <span class="font-medium text-gray-900">
+										: <span class="font-medium text-primary">
 											{job.raw_flow?.modules[i]?.summary ?? ''}
 										</span>
 									{/if}
@@ -484,7 +484,7 @@
 									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 									{#if node.job_id}
 										<div class="truncate"
-											><div class=" text-gray-900 whitespace-nowrap truncate">
+											><div class=" text-primary whitespace-nowrap truncate">
 												<span class="font-bold">Job Id</span>
 												<a
 													rel="noreferrer"

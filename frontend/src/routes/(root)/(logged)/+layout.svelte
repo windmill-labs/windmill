@@ -186,7 +186,7 @@
 			<div class="fixed inset-0 flex z-40">
 				<div
 					class={classNames(
-						'relative flex-1 flex flex-col max-w-min w-full bg-white transition ease-in-out duration-300 transform',
+						'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
 						menuOpen ? 'translate-x-0' : '-translate-x-full'
 					)}
 				>

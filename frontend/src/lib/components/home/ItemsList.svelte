@@ -321,7 +321,7 @@
 				autofocus
 				placeholder={HOME_SEARCH_PLACEHOLDER}
 				bind:value={filter}
-				class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
 			<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg

@@ -101,7 +101,7 @@
 				<p class="font-medium text-gray-600 text-center pt-4 pb-8"> End of the flow </p>
 			{:else if typeof stepDetail != 'string' && stepDetail.value}
 				<div class="">
-					<div class="sticky top-0 bg-white w-full flex items-center py-2">
+					<div class="sticky top-0 bg-surface w-full flex items-center py-2">
 						{#if stepDetail.id}
 							<Badge color="indigo">
 								{stepDetail.id}
