@@ -127,7 +127,7 @@
 
 	function onClear() {
 		value = undefined
-		outputs?.result.set(undefined)
+		outputs?.result.set(undefined, true)
 		if (iterContext && listInputs) {
 			listInputs(id, undefined)
 		}

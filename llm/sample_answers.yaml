@@ -11,27 +11,27 @@
         sslmode: str
         password: str
 
-    def main(postgres_config: postgresql):
-        # Connect to the PostgreSQL server
+    def main(config: postgresql):
+        # Create a connection to the database
         conn = psycopg2.connect(
-            host=postgres_config['host'],
-            port=postgres_config['port'],
-            user=postgres_config['user'],
-            password=postgres_config['password'],
-            dbname=postgres_config['dbname'],
-            sslmode=postgres_config['sslmode']
+            host=config['host'],
+            port=config['port'],
+            user=config['user'],
+            password=config['password'],
+            dbname=config['dbname'],
+            sslmode=config['sslmode']
         )
 
         # Create a cursor object
         cur = conn.cursor()
 
-        # Execute a query
+        # Execute the SQL query to fetch all rows from the orders table
         cur.execute("SELECT * FROM orders")
 
-        # Fetch all the rows
+        # Fetch all rows from the last executed SQL query
         rows = cur.fetchall()
 
-        # Print all the rows
+        # Print the rows
         for row in rows:
             print(row)
 
@@ -43,15 +43,15 @@
   lang: python3
   type: gen
 - answer: |-
-    Sure, here's the corrected code. I've added a check to ensure that the number passed to the function is not zero to prevent a division by zero error.
-
     ```python
     def main(num: int) -> int:
+      # Add a condition to check if num is zero.
+      # If num is zero, return a message to avoid division by zero error.
       if num == 0:
-        raise ValueError("The input number should not be zero")  # raise an error if num is zero
-      return 3 / num
+        return "Error: Division by zero is not allowed."
+      else:
+        return 3 / num
     ```
-    This code will raise a ValueError if the input number is zero.
   code: |-
     def main(num: int) -> int:
       return 3 / num
@@ -59,14 +59,11 @@
   lang: python3
   type: fix
 - answer: |-
-    Sure, here's your code with comments:
-
     ```python
-    # This is a Python function that takes an integer as input.
+    # This is a Python function named main. It takes an integer as input.
     def main(num: int) -> int:
-        # The function divides the input number by 16.
-        # The result of this division is then returned by the function.
-        return num / 16
+      # The function returns the input number divided by 16.
+      return num / 16
     ```
   code: |-
     def main(num: int) -> int:
@@ -83,41 +80,48 @@
         "fmt"
     )
 
-    // Function to divide a number by 16
+    // main function which accepts a float64 number and divides it by 16
+    // returns the result and an error if the input number is 0
     func main(num float64) (float64, error) {
+        // check if the number is 0, as division by 0 is not allowed
         if num == 0 {
-            return 0, errors.New("Division by zero is not allowed")
+            return 0, errors.New("Division by 0 is not allowed")
         }
 
+        // divide the number by 16
         result := num / 16
+
+        // return the result and nil as error
         return result, nil
     }
     ```
-    In this code, we define a function called `main` that takes a float64 number as an input. It then divides the number by 16 and returns the result. If the number is 0, it returns an error.
+    In this code, we first check if the input number is 0. If it is, we return an error because division by zero is not allowed. If the number is not 0, we divide it by 16 and return the result and nil (indicating no error).
   description: Divide a number by 16
   lang: go
   type: gen
 - answer: |-
     ```typescript
-    import { toWords } from "npm:number-to-words"; // Importing the "number-to-words" npm package.
+    // Importing the library for number to word conversion
+    import { toWords } from "npm:number-to-words";
 
+    // Define the main function
     export async function main(number: number): Promise<string> {
-      // Convert the number to words.
+      // Convert the number to words
       const words = toWords(number);
 
-      // Return the words.
+      // Return the result
       return words;
     }
     ```
-    In this function, we are using the "number-to-words" npm package to convert a number to words. The function takes a number as an argument and returns a Promise that resolves to a string. The string is the word representation of the number.
   description: Convert a number to a word
   lang: deno
   type: gen
 - answer: |-
     ```typescript
-    // Importing the required libraries
-    import { Client } from "npm:https://deno.land/x/postgres@v0.13.0/mod.ts";
+    // Importing the required PostgreSQL library from npm
+    import { Client } from "npm:pg";
 
+    // Defining the Postgresql type
     type Postgresql = {
       host: string,
       port: number,
@@ -129,76 +133,58 @@
 
     // Exporting the main function
     export async function main(postgres: Postgresql) {
-      // Creating a new client with the provided configuration
+      // Creating a new PostgreSQL client with the provided configuration
       const client = new Client({
-        hostname: postgres.host,
+        host: postgres.host,
         port: postgres.port,
         user: postgres.user,
         password: postgres.password,
         database: postgres.dbname,
-        tls: {
-          enforce: postgres.sslmode === "require",
+        ssl: {
+          rejectUnauthorized: postgres.sslmode === 'require' ? true : false,
         },
       });
 
-      // Connecting to the database
+      // Connecting to the PostgreSQL server
       await client.connect();
 
-      // Querying the "orders" table
-      const result = await client.queryArray("SELECT * FROM orders;");
+      // Querying the orders table
+      const res = await client.query('SELECT * FROM orders');
 
-      // Closing the connection
+      // Logging the rows from the orders table
+      console.log(res.rows);
+
+      // Closing the connection to the PostgreSQL server
       await client.end();
-
-      // Returning the rows of the "orders" table
-      return result.rows;
     }
     ```
-    In this function, we first import the `Client` class from the `postgres` library. We then define a function `main` that takes a `Postgresql` object as argument. This object contains the information needed to connect to the PostgreSQL database.
-
-    In the function, we first create a new `Client` instance with the provided configuration. We then connect to the database, query the "orders" table, and close the connection. Finally, we return the rows of the "orders" table.
+    This function, when called, will connect to a PostgreSQL server using the provided configuration, query the "orders" table, log the rows from the table, and then close the connection. The function is asynchronous because it needs to wait for the connection, query, and disconnection operations to complete.
   description: Connect to postgres and list the rows in the orders table
   lang: deno
   type: gen
 - answer: |-
+    Here's a simple TypeScript function called "main" that converts a number to a word using the npm library "number-to-words". I've added the library import at the top of the file. The function takes a number as an argument and returns the word representation of that number.
+
     ```typescript
-    // Importing the npm library "number-to-words" to convert numbers to words
     import * as numberToWords from 'number-to-words';
 
-    type Airtable = {
-      apiKey: string
-    }
+    export async function main(num: number): Promise<string> {
+      // Convert the number to words using the number-to-words library
+      const word = numberToWords.toWords(num);
 
-    type AirtableTable = {
-      baseId: string,
-      tableName: string
-    }
-
-    // ... all the other types here ...
-
-    type Toggl = {
-      token: string
-    }
-
-    // Defining the main function
-    export async function main(number: number): Promise<string> {
-      // Converting the number to a word using the numberToWords library
-      const word = numberToWords.toWords(number);
-
-      // Returning the word
+      // Return the word
       return word;
     }
     ```
-    Note: This code assumes that you have installed the `number-to-words` npm package in your project. If not, you can install it by running `npm install --save number-to-words` in your project directory.
+    The function is asynchronous and returns a Promise that resolves to a string. This is because in a real-world scenario, the conversion process might involve some asynchronous operations (like fetching data from a database or making a request to an API), and we want to be able to handle that. In this simple example, the conversion is done synchronously, but the function is still declared as async for consistency and future-proofing.
   description: Convert a number to a word
   lang: bun
   type: gen
 - answer: |-
     ```sql
-    -- $1::text as name
-    -- $2::text as email
-    INSERT INTO users (name, email)
-    VALUES ($1::text, $2::text);
+    -- $1::text name
+    -- $2::text email
+    INSERT INTO users (name, email) VALUES ($1::text, $2::text);
     ```
   description: Insert an email and a name in the users table
   lang: postgresql
@@ -207,28 +193,35 @@
     ```sql
     -- ? email (VARCHAR)
     -- ? name (VARCHAR)
-    INSERT INTO users (email, name) VALUES (?, ?)
+    INSERT INTO users (email, name)
+    VALUES (?, ?)
     ```
   description: Insert an email and a name in the users table
   lang: mysql
   type: gen
 - answer: |-
     ```bash
-    var1="$1"  # Get the first argument
+    var1="$1"
 
-    result=$(echo "scale=2; $var1 / 16" | bc)  # Divide the number by 16 using bc command. Scale is used to get the decimal values up to 2 places
+    # Bash only supports integer division natively.
+    # So we use bc, a command line calculator, to perform floating point division.
+    result=$(echo "scale=2; $var1 / 16" | bc)
 
-    echo $result  # Print the result
+    echo $result
     ```
   description: Divide a number by 16
   lang: bash
   type: gen
 - answer: |-
-    Here is a simple Dockerfile for a Python application. It assumes that your application is using Flask and Gunicorn, but you can replace these with your actual dependencies.
+    ```bash
+    # Get the arguments
+    app_name="$1"
+    python_version="$2"
 
-    ```dockerfile
+    # Create a Dockerfile
+    cat > Dockerfile << EOF
     # Use an official Python runtime as a parent image
-    FROM python:3.7-slim
+    FROM python:${python_version}
 
     # Set the working directory in the container to /app
     WORKDIR /app
@@ -237,76 +230,87 @@
     ADD . /app
 
     # Install any needed packages specified in requirements.txt
-    RUN pip install --trusted-host pypi.python.org -r requirements.txt
+    RUN pip install --no-cache-dir -r requirements.txt
 
     # Make port 80 available to the world outside this container
     EXPOSE 80
 
     # Define environment variable
-    ENV NAME World
+    ENV NAME ${app_name}
 
     # Run app.py when the container launches
-    CMD ["gunicorn", "app:app"]
+    CMD ["python", "app.py"]
+    EOF
     ```
-
-    This Dockerfile does the following:
-
-    - `FROM python:3.7-slim` starts with the 3.7-slim Python image.
-    - `WORKDIR /app` sets the working directory inside the container to /app.
-    - `ADD . /app` copies the current directory (i.e., the directory containing the Dockerfile) into the container at /app.
-    - `RUN pip install --trusted-host pypi.python.org -r requirements.txt` installs the Python dependencies.
-    - `EXPOSE 80` makes port 80 available outside the container.
-    - `ENV NAME World` sets an environment variable.
-    - `CMD ["gunicorn", "app:app"]` runs your application with Gunicorn when the container starts.
+    This bash script creates a Dockerfile for a Python application. The Dockerfile uses the official Python image from Docker Hub as its base. It then sets the working directory in the container to /app and copies the current directory (i.e., the directory where the Dockerfile is located) into the /app directory in the container. It installs any Python packages listed in requirements.txt, exposes port 80 for the app to communicate with the outside world, sets an environment variable with the name of the app, and finally, specifies that Docker should execute python app.py when the container is launched.
   description: Write a docker image for a python app
   lang: bash
   type: gen
 - answer: |-
     ```typescript
-    // Define the Github type
+    // Define Github type
     type Github = {
       token: string
     }
 
-    // Define the main function
-    export async function main(github: Github, owner: string, repo: string): Promise<number> {
-      // Define the url for the Github API
-      const url = `https://api.github.com/repos/${owner}/${repo}`;
-
-      // Define the headers for the request
+    // Define main function
+    export async function main(owner: string, repo: string, github: Github): Promise<number> {
+      // Set up the request headers
       const headers = {
-        'Authorization': `token ${github.token}`,
-        'Accept': 'application/vnd.github.v3+json'
+        "Authorization": `token ${github.token}`,
+        "Accept": "application/vnd.github.v3+json"
       };
 
-      // Fetch the data from the Github API
-      const response = await fetch(url, { headers });
+      // Fetch data from Github API
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
 
-      // Check if the response is ok
+      // Check if response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Parse the response as JSON
+      // Parse the response to JSON
       const data = await response.json();
 
       // Return the number of stars
       return data.stargazers_count;
     }
     ```
-    This function takes a Github object and the owner and repo as strings. It constructs the URL for the Github API and defines the headers for the request. It then fetches the data from the Github API and checks if the response is ok. If it is, it parses the response as JSON and returns the number of stars. If the response is not ok, it throws an error.
+    This function uses the fetch API to make a GET request to the GitHub API. The owner and repo parameters are the username and repository name, respectively. The github parameter is an object that contains the GitHub personal access token. The function returns a promise that resolves to the number of stars of the repository. If the request fails, it throws an error.
   description: Query the github api and return the number of stars of a repo
   lang: nativets
   type: gen
 - answer: |-
     ```javascript
-    // Access the email from the context object
+    // Access the 'email' property from the global 'ctx' object
     let email = ctx.email;
 
-    // Set the value of the input with id 'my_field' to the email
+    // Use the 'setValue' function to set the value of the input with id 'my_field' to the 'email' variable
     setValue('my_field', email);
     ```
-  description: set the value of the input with id 'my_field' to the context variable
+  description:
+    set the value of the input with id 'my_field' to the context variable
     email
   lang: frontend
+  type: gen
+- answer: |-
+    ```sql
+    -- $1 username
+    SELECT
+        DATE_TRUNC('month', completed_job.created_at) AS month,
+        COUNT(completed_job.id) AS job_count
+    FROM
+        completed_job
+    WHERE
+        completed_job.created_by = $1::varchar
+    GROUP BY
+        month
+    ORDER BY
+        month;
+    ```
+    In this SQL query, we are querying the `completed_job` table where the `created_by` column matches the provided username. We then group the result by month (truncated from the `created_at` timestamp), and count the number of jobs in each month. The result is ordered by month.
+  description:
+    compute the average number of completed jobs per month for the given
+    username
+  lang: postgresql
   type: gen

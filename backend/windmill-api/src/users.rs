@@ -135,7 +135,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), email, super_admin, _) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let (is_admin, is_operator) = if super_admin {
@@ -158,10 +158,11 @@ impl AuthCache {
                                         };
 
                                         let w_id = &w_id.unwrap();
-                                        let groups = get_groups_for_user(w_id, &name, &self.db)
-                                            .await
-                                            .ok()
-                                            .unwrap_or_default();
+                                        let groups =
+                                            get_groups_for_user(w_id, &name, &email, &self.db)
+                                                .await
+                                                .ok()
+                                                .unwrap_or_default();
 
                                         let folders =
                                             get_folders_for_user(w_id, &name, &groups, &self.db)
@@ -170,8 +171,7 @@ impl AuthCache {
                                                 .unwrap_or_default();
 
                                         Some(Authed {
-                                            email: email
-                                                .unwrap_or_else(|| "missing@email.xyz".to_string()),
+                                            email: email,
                                             username: name.to_string(),
                                             is_admin,
                                             is_operator,
@@ -191,8 +191,7 @@ impl AuthCache {
                                         .ok()
                                         .unwrap_or_default();
                                         Some(Authed {
-                                            email: email
-                                                .unwrap_or_else(|| "missing@email.xyz".to_string()),
+                                            email: email,
                                             username: format!("group-{name}"),
                                             is_admin: false,
                                             groups,
@@ -205,8 +204,7 @@ impl AuthCache {
                                     let groups = vec![];
                                     let folders = vec![];
                                     Some(Authed {
-                                        email: email
-                                            .unwrap_or_else(|| "missing@email.xyz".to_string()),
+                                        email: email,
                                         username: owner,
                                         is_admin: super_admin,
                                         is_operator: true,
@@ -233,6 +231,7 @@ impl AuthCache {
                                             let groups = get_groups_for_user(
                                                 &w_id.as_ref().unwrap(),
                                                 &username,
+                                                &email,
                                                 &self.db,
                                             )
                                             .await
@@ -399,7 +398,7 @@ pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &
         && !authed.folders.iter().any(|(f, _, _)| f == splitted[1])
     {
         let name = &authed.username;
-        let groups = get_groups_for_user(w_id, name, db)
+        let groups = get_groups_for_user(w_id, name, &authed.email, db)
             .await
             .ok()
             .unwrap_or_default();
@@ -947,7 +946,16 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     .fetch_optional(db)
     .await?
     .unwrap_or(false);
-    let groups = get_groups_for_user(&w_id, username, db).await?;
+    let groups = get_groups_for_user(
+        &w_id,
+        username,
+        &user
+            .as_ref()
+            .map(|x| x.email.to_string())
+            .unwrap_or_else(|| "".to_string()),
+        db,
+    )
+    .await?;
     let folders = get_folders_for_user(&w_id, username, &groups, db).await?;
 
     Ok(user.map(|usr| UserInfo {
@@ -973,14 +981,22 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     }))
 }
 
-pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
+pub async fn get_groups_for_user(
+    w_id: &str,
+    username: &str,
+    email: &str,
+    db: &DB,
+) -> Result<Vec<String>> {
     let groups = sqlx::query_scalar!(
-        "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2",
+        "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2 UNION ALL SELECT igroup FROM email_to_igroup WHERE email = $3",
         username,
-        w_id
+        w_id,
+        email
     )
     .fetch_all(db)
-    .await?;
+    .await?
+    .into_iter().filter_map(|x| x)
+    .collect();
     Ok(groups)
 }
 pub async fn is_owner_of_path(
