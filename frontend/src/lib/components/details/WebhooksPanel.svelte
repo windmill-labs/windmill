@@ -11,11 +11,12 @@
 		SCRIPT_VIEW_SHOW_EXAMPLE_CURL,
 		SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON
 	} from '$lib/consts'
-	import { ArrowDownRight, ArrowUpRight } from 'lucide-svelte'
+	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
 	import UserSettings from '../UserSettings.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
+	import { copyToClipboard } from '$lib/utils'
 
 	let userSettings: UserSettings
 
@@ -46,6 +47,42 @@
 	$: url = webhooks[webhookType][requestType]
 
 	let token = 'YOUR_TOKEN'
+
+	$: codeContent = `${
+		requestType !== 'get_path'
+			? 'const body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');'
+			: ''
+	}
+fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
+	method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
+	headers: {
+		'Content-Type': 'application/json',
+		${tokenType === 'headers' ? `'Authorization': 'Bearer ${token}',` : ''}
+	},
+	${requestType !== 'get_path' ? `body: body` : ''}
+}).then(
+	response => response.json()
+).then(data => {
+	${
+		webhookType === 'sync'
+			? 'console.log(data)'
+			: `let UUID = data.uuid;
+    let checkCompletion = setInterval(() => {
+		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
+			method: 'GET',
+			headers: {
+					'Authorization': 'Bearer ${token}'
+			}
+		}).then(response => response.json())
+		.then(data => {
+			if (data.completed) {
+				console.log('Job result: ', data);
+				clearInterval(checkCompletion);
+			}
+		});
+	}, 1000);`
+	}
+});`
 </script>
 
 <UserSettings bind:this={userSettings} {scopes} />
@@ -200,44 +237,17 @@ done`
 					/>
 				</div>
 			</TabContent>
-			<TabContent value="fetch" class="flex flex-col flex-1 h-full">
-				<Highlight
-					language={typescript}
-					class="p-2 whitespace-pre-wrap border rounded-md"
-					code={`${
-						requestType !== 'get_path' ? 'const body = ' + JSON.stringify(args, null, 2) : ''
-					}
-fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
-	method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-	headers: {
-		'Content-Type': 'application/json',
-		${tokenType === 'headers' ? `'Authorization': 'Bearer ${token}',` : ''}
-	},
-	${requestType !== 'get_path' ? `body: body` : ''}
-}).then(
-	response => response.json()
-).then(data => {
-	${
-		webhookType === 'sync'
-			? 'console.log(data)'
-			: `let UUID = data.uuid;
-    let checkCompletion = setInterval(() => {
-		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
-			method: 'GET',
-			headers: {
-					'Authorization': 'Bearer ${token}'
-			}
-		}).then(response => response.json())
-		.then(data => {
-			if (data.completed) {
-				console.log('Job result: ', data);
-				clearInterval(checkCompletion);
-			}
-		});
-	}, 1000);`
-	}
-});`}
-				/>
+			<TabContent value="fetch">
+				<div
+					class="flex flex-row flex-1 h-full border p-2 rounded-md"
+					on:click={(e) => {
+						e.preventDefault()
+						copyToClipboard(codeContent)
+					}}
+				>
+					<Highlight language={typescript} class="whitespace-pre-wrap " code={codeContent} />
+					<Clipboard size={14} class="w-8 " />
+				</div>
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
