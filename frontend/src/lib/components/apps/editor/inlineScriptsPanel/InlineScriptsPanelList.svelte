@@ -81,7 +81,7 @@
 								id={PREFIX + id}
 								class="panel-item
 				{$selectedComponentInEditor === id
-									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
@@ -96,7 +96,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 			{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
@@ -112,7 +112,7 @@
 						id={PREFIX + id}
 						class="panel-item
 						{$selectedComponentInEditor === id
-							? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+							? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 							: 'hover:bg-blue-50'}"
 						on:click={() => selectScript(id)}
 					>
@@ -125,7 +125,7 @@
 								id={PREFIX + id + '_transformer'}
 								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 {$selectedComponentInEditor === id + '_transformer'
-									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id + '_transformer')}
 							>
@@ -143,7 +143,7 @@
 								id={PREFIX + id}
 								class="panel-item
 								{$selectedComponentInEditor === id
-									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
@@ -180,7 +180,7 @@
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
 				>
-					<Plus size={14} class="text-tertiary" />
+					<Plus size={14} class="!text-primary" />
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
@@ -192,7 +192,7 @@
 								id={PREFIX + id}
 								class="panel-item
 								{$selectedComponentInEditor === id
-									? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
@@ -205,7 +205,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 		{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100 dark:bg-blue-900/50'
+											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>

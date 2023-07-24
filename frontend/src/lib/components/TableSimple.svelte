@@ -27,7 +27,7 @@
 					{/if}
 				</tr>
 			</thead>
-			<tbody class="divide-y divide-gray-200">
+			<tbody class="divide-y">
 				{#if data && keys && data.length > 0}
 					{#each data as row}
 						<tr>

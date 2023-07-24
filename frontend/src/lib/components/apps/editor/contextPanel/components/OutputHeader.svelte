@@ -32,14 +32,14 @@
 		$allIdsInPath.includes(id) || id == $selectedComponent?.[0] || $manuallyOpened[id] || inSearch
 
 	const hoverColor = {
-		blue: 'hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900 dark:hover:text-blue-300',
+		blue: 'hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-frost-900 dark:hover:text-frost-100',
 		indigo:
-			'hover:bg-indigo-100 hover:text-indigo-500 dark:hover:bg-indigo-900 dark:hover:text-indigo-300'
+			'hover:bg-indigo-100 hover:text-indigo-500 dark:hover:bg-frost-900 dark:hover:text-indigo-300'
 	}
 
 	const openBackground = {
-		blue: 'bg-blue-50',
-		indigo: 'bg-indigo-50'
+		blue: 'bg-blue-50 dark:bg-frost-800',
+		indigo: 'bg-indigo-50 dark:bg-indigo-800'
 	}
 
 	const manuallyOpenColor = {
@@ -185,7 +185,7 @@
 				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 				title="Select component"
 				on:click|stopPropagation={() => ($selectedComponent = [id])}
-				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-tertiary"
+				class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
 			>
 				<div
 					class={classNames(

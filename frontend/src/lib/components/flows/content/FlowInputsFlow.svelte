@@ -72,7 +72,7 @@
 		{#if filter.length > 0 && filteredItems.length == 0}
 			<NoItemFound />
 		{/if}
-		<ul class="divide-y divide-gray-200 overflow-auto">
+		<ul class="divide-y overflow-auto">
 			{#each filteredItems as { path, summary, description, marked }}
 				<li class="flex flex-row w-full">
 					<button

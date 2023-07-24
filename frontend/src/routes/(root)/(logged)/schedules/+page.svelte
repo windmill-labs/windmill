@@ -126,7 +126,7 @@
 		{:else if !schedules?.length}
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if filteredItems?.length}
-			<div class="border rounded-md divide-y divide-gray-200">
+			<div class="border rounded-md divide-y">
 				{#each filteredItems as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs }}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
