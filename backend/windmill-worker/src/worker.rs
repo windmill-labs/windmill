@@ -212,13 +212,6 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| x.split(',').map(|x| (x.to_string(), std::env::var(x).unwrap_or("".to_string()))).collect());
 
-    static ref WHITELIST_WORKSPACES: Option<Vec<String>> = std::env::var("WHITELIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-    static ref BLACKLIST_WORKSPACES: Option<Vec<String>>  = std::env::var("BLACKLIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-
     pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
@@ -610,7 +603,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         },
                         (job, timer) = {
                             let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                            pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
+                            pull(&db, rsmq.clone()).map(|x| (x, timer)) 
                         } => {
                             timer.map(|timer| {
                                 let duration_pull_s = timer.stop_and_record();
