@@ -16,7 +16,7 @@
 		slot="trigger"
 		type="button"
 		class={classNames(
-			'group w-full flex items-center text-white hover:bg-gray-50 hover:text-primary focus:ring-4 focus:outline-none focus:ring-gray-300 px-2 py-2 text-sm font-medium rounded-md h-8 '
+			'group w-full flex items-center text-white hover:bg-gray-50 hover:text-gray-900 focus:ring-4 focus:outline-none focus:ring-gray-300 px-2 py-2 text-sm font-medium rounded-md h-8 '
 		)}
 	>
 		<div class="center-center mr-2">

@@ -178,7 +178,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-[#1e232e] bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					'fixed inset-0 bg-[#1e232e] bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -216,7 +216,7 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-[#1e232e] h-full">
+					<div class="bg-[#1e232e] h-full !dark">
 						<div
 							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
 							class:w-40={!isCollapsed}
@@ -247,7 +247,7 @@
 				devOnly ? '!hidden' : ''
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#1e232e]">
+			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#1e232e] !dark">
 				<button
 					on:click={() => {
 						goto('/')
@@ -294,7 +294,7 @@
 		</div>
 		<div
 			class={classNames(
-				'w-full flex flex-col flex-1',
+				'w-full flex flex-col flex-1 h-full',
 				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40'
 			)}
 		>

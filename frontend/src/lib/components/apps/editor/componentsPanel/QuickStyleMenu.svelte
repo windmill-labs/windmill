@@ -188,7 +188,7 @@
 				{isOpen[prefix] ? '!bg-gray-100 hover:!bg-gray-200' : ''}"
 			>
 				<svelte:fragment slot="title">
-					<span class="font-semibold text-gray-600 capitalize">
+					<span class="font-semibold text-tertiary capitalize">
 						{group}
 					</span>
 				</svelte:fragment>
@@ -200,7 +200,7 @@
 						} = styleStore.getProp(p)}
 						{#if prop !== undefined && index !== undefined}
 							<div class="pb-2 pt-1">
-								<div class="text-sm font-medium text-gray-600 pb-0.5">
+								<div class="text-sm font-medium text-tertiary pb-0.5">
 									{formatKebabCase(prop.key)}
 								</div>
 								<div class="flex items-center gap-1">
