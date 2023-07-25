@@ -57,10 +57,7 @@
 <svelte:window on:hashchange={hashChange} />
 
 <div class="overflow-x-auto {wrapperClass}">
-	<div
-		class={twMerge('border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden', c)}
-		{style}
-	>
+	<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
 		<slot {selected} />
 	</div>
 </div>

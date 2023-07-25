@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.134.2
+  version: 1.136.0
   title: Windmill API
 
   contact:
@@ -3034,7 +3034,6 @@ paths:
                   properties:
                     draft_only:
                       type: boolean
-
       responses:
         "201":
           description: flow created
@@ -4529,6 +4528,38 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ScheduleWJobs"
+
+  /groups/list:
+    get:
+      summary: list instance groups
+      operationId: listInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroup"
+
+  /groups/get/{name}:
+    get:
+      summary: get instance group
+      operationId: getInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: instance group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceGroup"
 
   /w/{workspace}/groups/list:
     get:
@@ -6640,6 +6671,18 @@ components:
       required:
         - name
 
+    InstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+
     Folder:
       type: object
       properties:
@@ -6674,6 +6717,10 @@ components:
           type: string
         jobs_executed:
           type: integer
+        custom_tags:
+          type: array
+          items:
+            type: string
       required:
         - worker
         - worker_instance
@@ -6803,6 +6850,8 @@ components:
           type: boolean
         draft_only:
           type: boolean
+        tag:
+          type: string
       required:
         - path
         - edited_by
@@ -6817,6 +6866,8 @@ components:
           properties:
             path:
               type: string
+            tag:
+              type: string
           required:
             - path
 
@@ -6829,6 +6880,8 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        tag:
+          type: string
 
       required:
         - value

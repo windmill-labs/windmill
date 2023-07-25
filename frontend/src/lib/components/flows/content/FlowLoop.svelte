@@ -46,11 +46,37 @@
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if mod.value.type === 'forloopflow'}
-					<div class="mb-2 text-sm font-bold">
+					<div class="flex flex-row gap-8 mt-2 mb-6">
+						<div>
+							<div class="mb-2 text-sm font-bold"
+								>Skip failures <Tooltip
+									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
+									the error will be collected as the result of the iteration. Regardless of this
+									setting, if an error handler is defined, it will process the error.</Tooltip
+								></div
+							>
+							<Toggle
+								bind:checked={mod.value.skip_failures}
+								options={{
+									right: 'Skip failures'
+								}}
+							/>
+						</div>
+						<div>
+							<div class="mb-2 text-sm font-bold">Run in parallel</div>
+							<Toggle
+								bind:checked={mod.value.parallel}
+								options={{
+									right: 'All iterations run in parallel'
+								}}
+							/>
+						</div>
+					</div>
+					<div class="my-2 text-sm font-bold">
 						Iterator expression
 						<Tooltip>
 							List to iterate over. For more information see the
-							<a href="https://www.windmill.dev/docs/getting_started/flows_quickstart">docs.</a>
+							<a href="https://www.windmill.dev/docs/flows/flow_loops">docs.</a>
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
@@ -80,32 +106,6 @@
 							}}
 						/>
 					{/if}
-					<div class="flex flex-row gap-8">
-						<div>
-							<div class="mt-6 mb-2 text-sm font-bold"
-								>Skip failures <Tooltip
-									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
-									the error will be collected as the result of the iteration. Regardless of this
-									setting, if an error handler is defined, it will process the error.</Tooltip
-								></div
-							>
-							<Toggle
-								bind:checked={mod.value.skip_failures}
-								options={{
-									right: 'Skip failures'
-								}}
-							/>
-						</div>
-						<div>
-							<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
-							<Toggle
-								bind:checked={mod.value.parallel}
-								options={{
-									right: 'All iterations run in parallel'
-								}}
-							/>
-						</div>
-					</div>
 				{/if}
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
@@ -117,7 +117,7 @@
 					<Tab value="mock">Mock</Tab>
 
 					<svelte:fragment slot="content">
-						<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
+						<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
 							<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowRetries bind:flowModule={mod} />

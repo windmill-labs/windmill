@@ -49,6 +49,7 @@ function make_context_evaluator(
 	closeModal
 ) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
+	console.debug(template)
 	let functor = Function(template)
 	return functor()
 }

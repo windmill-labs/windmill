@@ -295,16 +295,16 @@
 						<div class="w-full flex flex-col gap-1">
 							<small class="font-bold">Preview New Cron</small>
 
-							<div class="flex p-2 px-4 rounded-md bg-gray-100">
+							<div class="flex p-2 px-4 rounded-md bg-surface-secondary">
 								<span>{nschedule}</span>
 							</div>
 						</div>
 					</div>
 
 					<div class="mt-4">
-						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}
-							>Set Cron Schedule</Button
-						>
+						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}>
+							Set Cron Schedule
+						</Button>
 					</div>
 				</CollapseLink>
 			</div>
@@ -316,7 +316,7 @@
 		<hr />
 		<div class="flex flex-col space-y-2">
 			<small>Estimated upcoming events ({timezone})</small>
-			<div class="flex flex-col rounded-md p-4 border text-gray-600">
+			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary">
 				{#each preview as date}
 					<div class="flex items-center space-x-2 text-sm">
 						<span>{dateFormatter(new Date(date))}</span>

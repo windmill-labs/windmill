@@ -1,6 +1,6 @@
 const aCharCode = 'a'.charCodeAt(0)
 
-export const forbiddenIds: string[] = ['do', 'bg', 'ctx', 'state']
+export const forbiddenIds: string[] = ['do', 'bg', 'ctx', 'state', 'if', 'else', 'for']
 
 export function numberToChars(n: number) {
 	if (n < 0) {

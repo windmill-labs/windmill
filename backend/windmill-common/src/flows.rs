@@ -35,6 +35,7 @@ pub struct Flow {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    pub tag: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +64,7 @@ pub struct NewFlow {
     pub value: serde_json::Value,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
+    pub tag: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

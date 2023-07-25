@@ -95,8 +95,8 @@
 	{#if open}
 		<div
 			transition:fade|local={{ duration: 50 }}
-			class="absolute z-50 {popupOnTop ? 'bottom-[35px]' : 'top-[35px]'} -left-10 bg-white rounded
-			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] h-80
+			class="absolute z-50 {popupOnTop ? 'bottom-[35px]' : 'top-[35px]'} -left-10 bg-surface rounded
+			border shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
 		>
 			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5">
@@ -104,7 +104,7 @@
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				<Badge>
-					<Icon class="text-gray-700" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
+					<Icon class="text-secondary" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
 						Ran in {msToSec(job?.['duration_ms'])}s</span
 					>
 				</Badge>
@@ -114,7 +114,7 @@
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					<div class="text-sm font-semibold text-gray-600 mb-1">
+					<div class="text-sm font-semibold text-tertiary mb-1">
 						<div>Job is scheduled for</div>
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
@@ -122,7 +122,7 @@
 				{#if job?.type === Job.type.COMPLETED_JOB}
 					<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
 				{:else if job && `running` in job ? job.running : false}
-					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
+					<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
 					<LogViewer
 						jobId={job?.id}
 						duration={job?.['duration_ms']}

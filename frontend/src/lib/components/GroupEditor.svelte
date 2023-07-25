@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { GranularAclService, GroupService, UserService, type Group } from '$lib/gen'
+	import {
+		GranularAclService,
+		GroupService,
+		UserService,
+		type Group,
+		type InstanceGroup
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
@@ -16,6 +22,7 @@
 
 	type Role = 'member' | 'manager' | 'admin'
 	let group: Group | undefined
+	let instance_group: InstanceGroup | undefined
 	let members: { member_name: string; role: Role }[] | undefined = undefined
 	let usernames: string[] | undefined = []
 	let username: string = ''
@@ -33,8 +40,7 @@
 	}
 
 	async function load() {
-		await loadGroup()
-		loadUsernames()
+		return Promise.all([loadGroup(), loadInstanceGroup(), loadUsernames()])
 	}
 
 	async function addToGroup() {
@@ -46,22 +52,34 @@
 		loadGroup()
 	}
 
+	async function loadInstanceGroup(): Promise<void> {
+		instance_group = await GroupService.getInstanceGroup({ name })
+	}
+
 	async function loadGroup(): Promise<void> {
-		group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-		can_write = canWrite(name!, group.extra_perms ?? {}, $userStore)
-		members = Array.from(
-			new Set(
-				Object.entries(group?.extra_perms ?? {})
-					.filter(([k, v]) => k.startsWith('u/') && v)
-					.map(([k, _]) => k.split('/')[1])
-					.concat(group?.members ?? [])
-			)
-		).map((x) => {
-			return {
-				member_name: x,
-				role: getRole(x)
+		try {
+			group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
+			can_write = canWrite(name!, group.extra_perms ?? {}, $userStore)
+			members = Array.from(
+				new Set(
+					Object.entries(group?.extra_perms ?? {})
+						.filter(([k, v]) => k.startsWith('u/') && v)
+						.map(([k, _]) => k.split('/')[1])
+						.concat(group?.members ?? [])
+				)
+			).map((x) => {
+				return {
+					member_name: x,
+					role: getRole(x)
+				}
+			})
+		} catch (e) {
+			can_write = false
+			members = []
+			group = {
+				name
 			}
-		})
+		}
 	}
 
 	function getRole(x: string): Role {
@@ -243,6 +261,21 @@
 					</tr>{/each}
 			</tbody>
 		</TableCustom>
+
+		{#if instance_group?.emails}
+			<h2 class="mt-10">Members from the instance group</h2>
+			<TableCustom>
+				<tr slot="header-row">
+					<th>user</th>
+				</tr>
+				<tbody slot="body">
+					{#each instance_group?.emails ?? [] as email}<tr>
+							<td>{email}</td>
+						</tr>{/each}
+				</tbody>
+			</TableCustom>
+		{/if}
+
 		<!-- <h2 class="mt-10"
 			>Groups managing this group <Tooltip>Any member of those groups can manage this group</Tooltip
 			></h2
@@ -262,7 +295,7 @@
 			</div>
 		{/if}
 		{#if managing_groups.length == 0}
-			<p class="text-gray-600 text-sm">No group is managing this group</p>
+			<p class="text-tertiary text-sm">No group is managing this group</p>
 		{:else}
 			<TableCustom>
 				<tr slot="header-row">

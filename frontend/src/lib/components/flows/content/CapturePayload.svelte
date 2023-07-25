@@ -72,7 +72,7 @@
 				<Icon data={faClipboard} /></a
 			>
 		</div>
-		<p class="text-gray-600 mt-4 text-xs">CURL example</p>
+		<p class="text-secondary mt-4 text-xs">CURL example</p>
 
 		<div class="text-xs box mb-4 b">
 			<pre class="overflow-auto"
@@ -81,7 +81,7 @@
    -d '{"foo": 42}'`}</pre
 			>
 		</div>
-		<div class="items-center flex flex-row gap-x-2 text-xs text-gray-600">
+		<div class="items-center flex flex-row gap-x-2 text-xs text-secondary">
 			Listening for new requests
 			<WindmillIcon class="animate-[pulse_5s_linear_infinite]" spin="fast" /></div
 		>

@@ -28,17 +28,6 @@
 	import { MonacoBinding } from 'y-monaco'
 	import { dbSchema } from '$lib/stores'
 
-	meditor.defineTheme('myTheme', {
-		base: 'vs',
-		inherit: true,
-		rules: [],
-		colors: {
-			'editorLineNumber.foreground': '#999',
-			'editorGutter.background': '#F9FAFB'
-		}
-	})
-	meditor.setTheme('myTheme')
-
 	import {
 		createHash as randomHash,
 		editorConfig,

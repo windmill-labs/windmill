@@ -49,7 +49,7 @@
 	}
 </script>
 
-<div class={'border border-gray-200 divide-y'}>
+<div class={'border divide-y'}>
 	<ScriptSettingHeader
 		name={runnable?.type === 'runnableByName'
 			? runnable.name

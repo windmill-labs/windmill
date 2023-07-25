@@ -42,7 +42,9 @@
 		{#if diffContent == undefined}
 			<Loader2 class="animate-spin" />
 		{:else}
-			<pre class="border bg-white p-2"><code>{@html diffContent}</code></pre>
+			<pre class="border bg-surface-secondary p-2 whitespace-pre-wrap"
+				><code>{@html diffContent}</code></pre
+			>
 			<div class="flex flex-row-reverse gap-2">
 				<div class="text-red-600">Removed</div>
 				<div class="text-green-600">Added</div></div

@@ -61,11 +61,27 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .collect();
         Ok(lines)
     } else {
+        let find_extra_requirements = code.lines().find_position(|x| {
+            x.starts_with("#extra_requirements:") || x.starts_with("# extra_requirements:")
+        });
+        let mut imports: Vec<String> = vec![];
+        if let Some((pos, _)) = find_extra_requirements {
+            let lines: Vec<String> = code
+                .lines()
+                .skip(pos + 1)
+                .map_while(|x| {
+                    RE.captures(x)
+                        .map(|x| x.get(1).unwrap().as_str().to_string())
+                })
+                .collect();
+            imports.extend(lines);
+        }
+
         let code = code.split(DEF_MAIN).next().unwrap_or("");
         let ast = parse_program(code, "main.py").map_err(|e| {
             error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
         })?;
-        let mut imports: Vec<String> = ast
+        let nimports: Vec<String> = ast
             .into_iter()
             .filter_map(|x| match x {
                 Located { node, .. } => match node {
@@ -97,6 +113,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .filter(|x| !STDIMPORTS.contains(&x.as_str()))
             .unique()
             .collect();
+        imports.extend(nimports);
         imports.sort();
         Ok(imports)
     }

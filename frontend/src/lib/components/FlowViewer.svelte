@@ -86,7 +86,7 @@
 						{/each}
 					</ul>
 				{:else}
-					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
+					<div class="text-secondary text-xs italic mb-4">No inputs</div>
 				{/if}
 				<FlowGraphViewer download {noSide} {flow} overflowAuto />
 			</div>

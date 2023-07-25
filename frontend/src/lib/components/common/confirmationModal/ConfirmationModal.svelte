@@ -52,21 +52,23 @@
 			<div class="flex min-h-full items-center justify-center p-4">
 				<div
 					class={classNames(
-						'relative transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						open
 							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
 							: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
 					)}
 				>
 					<div class="flex">
-						<div class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-							<Icon data={faWarning} class="text-red-500" />
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/50"
+						>
+							<Icon data={faWarning} class="text-red-500 dark:text-red-400" />
 						</div>
 						<div class="ml-4 text-left flex-1">
-							<h3 class="text-lg font-medium text-gray-900">
+							<h3 class="text-lg font-medium text-primary">
 								{title}
 							</h3>
-							<div class="mt-2 text-sm text-gray-500">
+							<div class="mt-2 text-sm text-secondary">
 								<slot />
 							</div>
 						</div>

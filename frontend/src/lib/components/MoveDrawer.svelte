@@ -96,9 +96,9 @@
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
 		{#if !own}
-			<Alert type="warning" title="Not owner"
-				>Since you do not own this item, you cannot move this item (you can however fork it)</Alert
-			>
+			<Alert type="warning" title="Not owner">
+				Since you do not own this item, you cannot move this item (you can however fork it)
+			</Alert>
 		{/if}
 		<h2 class="border-b pb-1 mt-2 mb-4">Summary</h2>
 		<input

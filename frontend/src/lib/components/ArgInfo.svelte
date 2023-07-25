@@ -42,7 +42,7 @@
 </Drawer>
 
 {#if value == undefined || value == null}
-	<span class="text-gray-600">null</span>
+	<span class="text-tertiary">null</span>
 {:else if value == '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual
@@ -71,7 +71,7 @@
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
 			<button
-				class="text-xs absolute top-0 right-4 text-gray-500"
+				class="text-xs absolute top-0 right-4 text-tertiary"
 				on:click={() => {
 					jsonViewerContent = value
 					jsonViewer.toggleDrawer()

@@ -11,6 +11,7 @@
 		faArchive,
 		faCalendarAlt,
 		faCodeFork,
+		faCopy,
 		faEdit,
 		faFileExport,
 		faList,
@@ -23,7 +24,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { DELETE, isOwner } from '$lib/utils'
+	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -156,6 +157,13 @@
 							moveDrawer.openDrawer(path, summary, 'flow')
 						},
 						disabled: !owner || archived
+					},
+					{
+						displayName: 'Copy path',
+						icon: faCopy,
+						action: () => {
+							copyToClipboard(path)
+						}
 					},
 					{
 						displayName: 'Deploy to staging/prod',

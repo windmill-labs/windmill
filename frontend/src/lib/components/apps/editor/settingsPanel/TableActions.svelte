@@ -47,13 +47,13 @@
 
 <PanelSection title={`Table actions`}>
 	{#if components.length == 0}
-		<span class="text-xs text-gray-500">No action buttons</span>
+		<span class="text-xs text-tertiary">No action buttons</span>
 	{/if}
 	{#each components as component}
 		<div
 			class={classNames(
 				'w-full text-xs font-bold gap-1 truncate py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
-				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
+				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-secondary',
 				$selectedComponent?.includes(component.id) ? 'outline outline-blue-500 bg-red-400' : ''
 			)}
 			on:click={() => {
@@ -83,7 +83,7 @@
 	{/each}
 	<div class="w-full flex gap-2">
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"
@@ -93,7 +93,7 @@
 			+ <Inspect size={14} />
 		</Button>
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"
@@ -103,7 +103,7 @@
 			+ <ToggleRightIcon size={14} />
 		</Button>
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-gray-600"
+			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
 			color="light"
 			variant="border"

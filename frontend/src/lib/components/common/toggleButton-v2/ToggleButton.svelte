@@ -13,6 +13,7 @@
 	export let disabled: boolean = false
 	export let selectedColor: string = '#3b82f6'
 	export let small: boolean = false
+	export let iconProps: Record<string, any> = {}
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -28,8 +29,7 @@
 		class={twMerge(
 			' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
 			small ? 'px-1 py-0.5' : 'px-2 py-1',
-			$selected === value ? 'bg-white shadow-md text-gray-800' : 'text-gray-600 hover:bg-gray-200',
-
+			$selected === value ? 'bg-surface shadow-md' : 'bg-surface-secondary hover:bg-surface-hover',
 			$$props.class
 		)}
 		on:click={() => select(value)}
@@ -39,6 +39,7 @@
 				this={icon}
 				size={14}
 				color={$selected === value ? selectedColor : '#9CA3AF'}
+				{...iconProps}
 			/>
 		{/if}
 		{#if label && !iconOnly}

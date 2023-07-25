@@ -87,7 +87,7 @@
 				<div class="text-xs font-bold !mt-2">Attempts</div>
 				<input bind:value={flowModule.retry.exponential.attempts} type="number" />
 				<div class="text-xs font-bold !mt-2">Mulitplier</div>
-				<span class="text-xs text-gray-500">delay = multiplier * base ^ (number of attempt)</span>
+				<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
 				<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
 				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 				<input bind:value={flowModule.retry.exponential.seconds} type="number" />
@@ -95,7 +95,7 @@
 				<div class="text-xs font-bold !mt-2">Attempts</div>
 				<input type="number" disabled />
 				<div class="text-xs font-bold !mt-2">Mulitplier</div>
-				<span class="text-xs text-gray-500">delay = multiplier * base ^ (number of attempt)</span>
+				<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
 				<input type="number" disabled />
 				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 				<input type="number" disabled />
@@ -115,7 +115,7 @@
 					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
 				)}
 				{@const array = [...cArray, ...eArray]}
-				<div class="bg-gray-50 border border-gray-300 rounded px-4 py-2">
+				<div class="bg-surface-secondary border rounded px-4 py-2">
 					<div class="text-xs font-medium mb-2">Retry attempts</div>
 					{#if array.length > 0}
 						<table class="text-xs">

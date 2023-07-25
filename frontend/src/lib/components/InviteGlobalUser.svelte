@@ -33,11 +33,11 @@
 
 <div class="flex flex-row gap-2 mb-2 items-end">
 	<label class="block shrink min-w-0">
-		<span class="text-gray-700 text-sm">Email</span>
+		<span class="text-secondary text-sm">Email</span>
 		<input type="email" placeholder="email" bind:value={$globalEmailInvite} />
 	</label>
 	<label class="block shrink min-w-0">
-		<span class="text-gray-700 text-sm">Password</span>
+		<span class="text-secondary text-sm">Password</span>
 		<input bind:value={password} />
 	</label>
 
@@ -63,5 +63,5 @@
 	<div>
 		<input type="text" placeholder="company (optional)" bind:value={company} />
 	</div>
-	<div class="text-xs text-gray-600 grow text-right"> Email will be sent if SMTP configured </div>
+	<div class="text-xs text-tertiary grow text-right"> Email will be sent if SMTP configured </div>
 </div>

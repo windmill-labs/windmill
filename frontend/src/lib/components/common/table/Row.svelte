@@ -14,33 +14,25 @@
 	export let path: string
 	export let href: string
 	export let workspaceId: string
-	const color = {
-		script: 'hover:bg-blue-50 hover:border-blue-200',
-		flow: 'hover:bg-[#f0fdfa] hover:border-[#99f6e4]',
-		app: 'hover:bg-[#fff7ed] hover:border-orange-300'
-	}[kind]
 </script>
 
 <div
-	class="hover:bg-gray-50 w-full inline-flex items-center gap-4 first-of-type:!border-t-0
-first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
+	class="hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0
+first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5"
 >
-	<a
-		{href}
-		class="min-w-0 grow hover:underline decoration-gray-400 px-4 py-2.5 inline-flex items-center gap-4"
-	>
+	<a {href} class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4">
 		<div class="shrink">
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-gray-900 flex-wrap text-left text-sm font-semibold">
+			<div class="text-primary flex-wrap text-left text-sm font-semibold">
 				{#if marked}
 					{@html marked}
 				{:else}
 					{!summary || summary.length == 0 ? path : summary}
 				{/if}
 			</div>
-			<div class="text-gray-600 text-2xs truncate text-left font-light">
+			<div class="text-secondary text-2xs truncate text-left font-light">
 				{path}
 			</div>
 		</div>
@@ -52,7 +44,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 	{/if}
 
 	{#if canFavorite}
-		<div class="center-center h-full text-sm font-semibold text-gray-700">
+		<div class="center-center h-full text-sm font-semibold text-secondary">
 			<Star
 				{kind}
 				{path}

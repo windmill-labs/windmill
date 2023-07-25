@@ -124,9 +124,9 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !schedules?.length}
-			<div class="text-center text-sm text-gray-600 mt-2"> No schedules </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if filteredItems?.length}
-			<div class="border rounded-md divide-y divide-gray-200">
+			<div class="border rounded-md divide-y">
 				{#each filteredItems as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs }}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
@@ -134,7 +134,7 @@
 						: undefined}
 
 					<div
-						class="hover:bg-gray-50 w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 					>
 						<div class="w-full flex gap-5 items-center">
@@ -145,7 +145,7 @@
 								on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-gray-900 flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{#if marked}
 										<span class="text-xs">
 											{@html marked}
@@ -154,7 +154,7 @@
 										{script_path}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs truncate text-left font-light">
+								<div class="text-secondary text-xs truncate text-left font-light">
 									schedule: {path}
 								</div>
 							</a>
@@ -278,7 +278,7 @@
 						<div class="w-full flex justify-between items-baseline">
 							<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
 								{#if avg_s}
-									<div class="pl-2 text-gray-600 text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+									<div class="pl-2 text-tertiary text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
 								{/if}
 								{#each jobs ?? [] as job}
 									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
@@ -289,7 +289,7 @@
 													class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
 													style="height: {h}px"
 												/>
-												<!-- <div class="text-[0.6em] mt-0.5 text-center text-gray-500"
+												<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
 													>{(job.duration_ms / 1000).toFixed(2)}s</div
 												> -->
 											</div>
@@ -297,7 +297,7 @@
 									</a>
 								{/each}
 							</div>
-							<div class="flex flex-wrap text-[0.7em] text-gray-500 gap-1 justify-end truncate pr-2"
+							<div class="flex flex-wrap text-[0.7em] text-tertiary gap-1 justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"
 									>the {displayDate(edited_at)}</div
 								></div

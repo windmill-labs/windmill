@@ -5,7 +5,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Button, ToggleButton, ToggleButtonGroup } from './common'
+	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -15,6 +15,8 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner } from '$lib/utils'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -144,7 +146,7 @@
 							>
 						</div>
 					{/if}
-					<span class="font-semibold text-gray-700">Path</span>
+					<span class="font-semibold text-secondary">Path</span>
 					<Path
 						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 						bind:error={pathError}
@@ -173,10 +175,10 @@
 
 			<div>
 				<div class="mb-1">
-					<span class="font-semibold text-gray-700">Variable value</span>
-					<span class="text-sm text-gray-500 mr-4"
-						>({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)</span
-					>
+					<span class="font-semibold text-secondary">Variable value</span>
+					<span class="text-sm text-tertiary mr-4">
+						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
+					</span>
 					{#if edit && variable.is_secret}<Button
 							variant="border"
 							size="xs"
@@ -184,7 +186,12 @@
 							>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
 						>{/if}
 				</div>
-				<div class="flex flex-row">
+				<div class="flex flex-col gap-2">
+					<ToggleButtonGroup bind:selected={editorKind}>
+						<ToggleButton value="plain" label="Plain" />
+						<ToggleButton value="json" label="Json" />
+						<ToggleButton value="yaml" label="YAML" />
+					</ToggleButtonGroup>
 					{#if editorKind == 'plain'}
 						<textarea
 							disabled={!can_write}
@@ -215,18 +222,12 @@
 							/>
 						</div>
 					{/if}
-
-					<ToggleButtonGroup col bind:selected={editorKind}>
-						<ToggleButton light position="center" value="plain" size="xs">Plain</ToggleButton>
-						<ToggleButton light position="center" value="json" size="xs">Json</ToggleButton>
-						<ToggleButton light position="center" value="yaml" size="xs">YAML</ToggleButton>
-					</ToggleButtonGroup>
 				</div>
 			</div>
 			<!-- {/if} -->
 
 			<div>
-				<div class="mb-1 font-semibold text-gray-700">
+				<div class="mb-1 font-semibold text-secondary">
 					Description
 					<Required required={false} />
 				</div>

@@ -38,7 +38,7 @@
 			}}
 		/>
 	{:else}
-		<span class="px-2 text-gray-600">
+		<span class="px-2 text-tertiary">
 			Selected editor component is a transformer but component has no transformer
 		</span>
 	{/if}

@@ -31,7 +31,7 @@ use windmill_common::{
     utils::{rd_string, StripPath},
     variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob, Metrics}, IS_READY,
 };
-use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT, ACCEPTED_TAGS, IS_WORKER_TAGS_DEFINED};
 
 use serde_json::{json, Value};
 
@@ -211,13 +211,6 @@ lazy_static::lazy_static! {
     pub static ref WHITELIST_ENVS: Option<Vec<(String, String)>> = std::env::var("WHITELIST_ENVS")
         .ok()
         .map(|x| x.split(',').map(|x| (x.to_string(), std::env::var(x).unwrap_or("".to_string()))).collect());
-
-    static ref WHITELIST_WORKSPACES: Option<Vec<String>> = std::env::var("WHITELIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-    static ref BLACKLIST_WORKSPACES: Option<Vec<String>>  = std::env::var("BLACKLIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
     pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
         .ok()
@@ -611,7 +604,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         },
                         (job, timer) = {
                             let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                            pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
+                            pull(&db, rsmq.clone()).map(|x| (x, timer)) 
                         } => {
                             timer.map(|timer| {
                                 let duration_pull_s = timer.stop_and_record();
@@ -891,11 +884,13 @@ async fn insert_initial_ping(
     ip: &str,
     db: &Pool<Postgres>,
 ) {
+    let tags = ACCEPTED_TAGS.clone();
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3) ON CONFLICT (worker) DO NOTHING",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags) VALUES ($1, $2, $3, $4) ON CONFLICT (worker) DO NOTHING",
         worker_instance,
         worker_name,
-        ip
+        ip,
+        if *IS_WORKER_TAGS_DEFINED { Some(tags.as_slice()) } else { None }
     )
     .execute(db)
     .await
@@ -1041,7 +1036,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 logs.push_str("\n");
             }
 
-            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
+            logs.push_str(&format!("job {} on worker {} (tag: {})\n", &job.id, &worker_name, &job.tag));
 
             set_logs(&logs, &job.id, db).await;
 
@@ -1916,7 +1911,7 @@ run().catch(async (e) => {{
                 }
             } else if !*DISABLE_NSJAIL {
                 args.push("--allow-net");
-                args.push("--allow-read=./");
+                args.push("--allow-read=./,/tmp/windmill/cache/deno/");
                 args.push("--allow-write=./");
                 args.push("--allow-env");
             } else {

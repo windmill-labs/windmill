@@ -59,7 +59,7 @@
 			<Highlight language={json} code={JSON.stringify(drawerContent.content, null, 4)} />
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
-				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-white shadow-inner p-2">
+				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-surface shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
 		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash' || drawerContent?.mode === 'nativets'}
@@ -102,7 +102,7 @@
 								/>
 							</div>
 						{:else}
-							<div class="text-sm text-gray-600 p-2">
+							<div class="text-sm text-tertiary p-2">
 								{#if previewIsLoading}
 									<Loader2 class="animate-spin" />
 								{:else}

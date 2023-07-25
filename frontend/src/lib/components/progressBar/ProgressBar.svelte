@@ -68,8 +68,8 @@
 <div class={$$props.class}>
 	<div
 		class="flex justify-between items-end font-medium mb-1 {error
-			? 'text-red-700'
-			: 'text-blue-700'}"
+			? 'text-red-700 dark:text-red-200'
+			: 'text-blue-700 dark:text-blue-200'}"
 	>
 		<span class="text-base">
 			{error

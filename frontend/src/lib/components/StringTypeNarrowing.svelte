@@ -77,7 +77,7 @@
 <div class="my-2" />
 
 {#if kind == 'pattern'}
-	<label for="input" class="mb-2 text-gray-700 text-xs">
+	<label for="input" class="mb-2 text-secondary text-xs">
 		Pattern (Regex)
 		<div class="flex flex-row">
 			<input
@@ -100,7 +100,7 @@
 		</div>
 	</label>
 {:else if kind == 'enum'}
-	<label for="input" class="mb-2 text-gray-700 text-xs">
+	<label for="input" class="mb-2 text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
 			{#each enum_ || [] as e}

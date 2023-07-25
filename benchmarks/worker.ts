@@ -272,16 +272,14 @@ while (cont) {
         language: "postgresql",
         args: {
           query: "SELECT email FROM usr",
-          database_url:
-            "postgres://postgres:changeme@localhost:5432/windmill",
+          database_url: "postgres://postgres:changeme@localhost:5432/windmill",
         },
       };
     } else {
       payload = {
         path: "denosimple",
         language: api.Preview.language.DENO,
-        content:
-          'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+        content: 'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
         args: {},
       };
     }
@@ -299,7 +297,6 @@ while (cont) {
 }
 
 clearInterval(updateStatusInterval);
-
 
 const end_time = Date.now() + complete_timeout;
 

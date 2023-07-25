@@ -55,19 +55,12 @@
 		<span>
 			{#if level != 0}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<span
-					class="cursor-pointer border border-gray-300 hover:bg-gray-200 px-1 rounded"
-					on:click={collapse}
-				>
+				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
 					-
 				</span>
 			{/if}
 			{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
-			<ul
-				class={`w-full pl-2 ${
-					level === 0 ? 'border-none' : 'border-l border-dotted border-gray-200'
-				}`}
-			>
+			<ul class={`w-full pl-2 ${level === 0 ? 'border-none' : 'border-l border-dotted'}`}>
 				{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 					<li>
 						<button on:click={() => selectProp(key)} class="whitespace-nowrap">
@@ -77,7 +70,7 @@
 								<span
 									class="key {pureViewer
 										? 'cursor-auto'
-										: 'border border-gray-300'} font-semibold rounded px-1 hover:bg-blue-100 text-2xs text-gray-800"
+										: 'border '} font-semibold rounded px-1 hover:bg-surface-hover text-2xs text-secondary"
 								>
 									{!isArray ? key : index}</span
 								>
@@ -136,14 +129,14 @@
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if collapsed}
-		<span class="text-gray-500 text-xs">
+		<span class="text-tertiary text-xs">
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
 	{/if}
 {:else if topBrackets}
-	<span class="text-black">{openBracket}{closeBracket}</span>
+	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-400 text-xs ml-2">No items ([])</span>
+	<span class="text-tertiary text-xs ml-2">No items ([])</span>
 {/if}
 
 <style lang="postcss">
@@ -153,14 +146,15 @@
 	}
 
 	.val.undefined {
-		@apply text-gray-600;
+		@apply text-tertiary;
 	}
 	.val.null {
-		@apply text-gray-600;
+		@apply text-tertiary;
 	}
 	.val.string {
 		@apply text-green-600;
 	}
+
 	.val.number {
 		@apply text-orange-600;
 	}

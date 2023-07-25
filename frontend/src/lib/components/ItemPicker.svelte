@@ -50,7 +50,13 @@
 />
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent {tooltip} {documentationLink} overflow_y={false} title="Search {itemName}s" on:close={drawer.closeDrawer}>
+	<DrawerContent
+		{tooltip}
+		{documentationLink}
+		overflow_y={false}
+		title="Search {itemName}s"
+		on:close={drawer.closeDrawer}
+	>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-12/12 pb-4">
 				<input
@@ -65,20 +71,20 @@
 					<Skeleton layout={[[2], 0.7]} />
 				{/each}
 			{:else if !items?.length}
-				<div class="text-center text-sm text-gray-600 mt-2">
+				<div class="text-center text-sm text-tertiary mt-2">
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}
-				<div class="border rounded-md divide-y divide-gray-200 w-full overflow-auto pb-12 grow">
+				<div class="border rounded-md divide-y w-full overflow-auto pb-12 grow">
 					{#each filteredItems as obj}
 						<div
-							class="hover:bg-gray-50 w-full flex items-center p-4 gap-4 first-of-type:!border-t-0 
+							class="hover:bg-surface-hover w-full flex items-center p-4 gap-4 first-of-type:!border-t-0
 						first-of-type:rounded-t-md last-of-type:rounded-b-md"
 						>
 							<div class="inline-flex items-center grow">
 								<button
 									class="py-2 px-1 gap-1 flex grow border-gray-300 border-opacity-0
-									 text-black"
+									 text-primary"
 									on:click={() => {
 										if (closeOnClick) {
 											drawer.closeDrawer()
@@ -87,12 +93,12 @@
 									}}
 								>
 									{#if `app` in obj}
-										<div class="mr-2 text-sm text-left center-center  w-30">
+										<div class="mr-2 text-sm text-left center-center w-30">
 											<IconedResourceType after={true} silent={false} name={obj['app']} />
 										</div>
 									{/if}
 									{#if `resource_type` in obj}
-										<div class="mr-2  text-left w-30  center-center  text-sm">
+										<div class="mr-2 text-left w-30 center-center text-sm">
 											<IconedResourceType after={true} name={obj['resource_type']} />
 										</div>
 									{/if}

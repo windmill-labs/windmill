@@ -185,7 +185,7 @@
 			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 		{#if editableSchema}
-			<label class="text-gray-700">
+			<label class="text-secondary">
 				Description
 				<textarea
 					class="mb-1"
@@ -229,7 +229,7 @@
 		{/if}
 
 		{#if description}
-			<div class="text-sm italic pb-1">
+			<div class="text-sm italic pb-1 text-secondary">
 				{description}
 			</div>
 		{/if}
@@ -312,7 +312,7 @@
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 ml-2"
+												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 												aria-label="Clear"
 												on:click={() => {
 													value.splice(i, 1)
@@ -450,7 +450,7 @@
 						{/if}
 					</div>
 					{#if variableEditor}
-						<div class="text-sm text-gray-600">
+						<div class="text-sm text-tertiary-inverse">
 							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 								Linked to variable <button
 									class="text-blue-500 underline"
@@ -465,7 +465,7 @@
 			<slot name="actions" />
 		</div>
 		{#if !compact || (error && error != '')}
-			<div class="text-right text-xs text-red-600">
+			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if error === ''}
 					&nbsp;
 				{:else}

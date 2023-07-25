@@ -27,28 +27,28 @@
 
 	const classes: Record<AlertType, Record<string, string>> = {
 		info: {
-			bgClass: 'bg-blue-50 border-blue-200 border',
-			iconClass: 'text-blue-500',
-			titleClass: 'text-blue-800',
-			descriptionClass: 'text-blue-700'
+			bgClass: 'bg-blue-50 border-blue-200 border dark:bg-blue-900/50 dark:border-blue-900',
+			iconClass: 'text-blue-500 dark:text-blue-400',
+			titleClass: 'text-blue-800 dark:text-blue-100',
+			descriptionClass: 'text-blue-700 dark:text-blue-200'
 		},
 		warning: {
-			bgClass: 'bg-yellow-50 border-yellow-200 border',
-			iconClass: 'text-yellow-500',
-			titleClass: 'text-yellow-800',
-			descriptionClass: 'text-yellow-700'
+			bgClass: 'bg-yellow-50 border-yellow-200 border dark:bg-yellow-900/50 dark:border-yellow-900',
+			iconClass: 'text-yellow-500 dark:text-yellow-400',
+			titleClass: 'text-yellow-800 dark:text-yellow-100',
+			descriptionClass: 'text-yellow-700 dark:text-yellow-200'
 		},
 		error: {
-			bgClass: 'bg-red-50 border-red-200 border',
-			iconClass: 'text-red-500',
-			titleClass: 'text-red-800',
-			descriptionClass: 'text-red-700'
+			bgClass: 'bg-red-50 border-red-200 border dark:bg-red-900/50 dark:border-red-900',
+			iconClass: 'text-red-500 dark:text-red-400',
+			titleClass: 'text-red-800 dark:text-red-100',
+			descriptionClass: 'text-red-700 dark:text-red-200'
 		},
 		success: {
-			bgClass: 'bg-green-50 border-green-200 border',
-			iconClass: 'text-green-500',
-			titleClass: 'text-green-800',
-			descriptionClass: 'text-green-700'
+			bgClass: 'bg-green-50 border-green-200 border dark:bg-green-900/50 dark:border-green-900',
+			iconClass: 'text-green-500 dark:text-green-400',
+			titleClass: 'text-green-800 dark:text-green-100',
+			descriptionClass: 'text-green-700 dark:text-green-200'
 		}
 	}
 </script>
@@ -75,8 +75,8 @@
 				)}
 			>
 				{title}&nbsp;{#if tooltip != '' || documentationLink}
-				<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
-			{/if}
+					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+				{/if}
 			</span>
 			<div
 				class={classNames(

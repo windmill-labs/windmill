@@ -1272,6 +1272,7 @@ struct PreviewFlow {
     value: FlowValue,
     path: Option<String>,
     args: Option<serde_json::Map<String, serde_json::Value>>,
+    tag: Option<String>,
 }
 
 pub struct JsonOrForm(
@@ -1415,6 +1416,14 @@ pub async fn run_flow_by_path(
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let tag = sqlx::query_scalar!(
+        "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
+        flow_path,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .flatten();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
@@ -1435,7 +1444,7 @@ pub async fn run_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        None,
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -2105,7 +2114,7 @@ async fn run_preview_flow_job(
         false,
         None,
         true,
-        None,
+        raw_flow.tag,
     )
     .await?;
     tx.commit().await?;

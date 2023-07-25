@@ -203,7 +203,7 @@
 {#if showDataflowToggle}
 	<div id="dataflow_toggle">
 		<Toggle
-			textClass="!text-gray-600"
+			textClass="!text-secondary"
 			size="xs"
 			bind:checked={dataflow}
 			options={{
@@ -243,13 +243,9 @@
 
 	#buttons > button {
 		border-radius: 4px;
-		background-color: white;
-		border: #bbb solid 1px;
+		@apply bg-surface;
+		@apply border;
 		transition: all;
-	}
-
-	#buttons > button:hover {
-		background-color: #eee;
 	}
 
 	.Nodes {

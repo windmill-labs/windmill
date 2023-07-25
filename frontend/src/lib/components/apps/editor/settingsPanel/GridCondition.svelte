@@ -133,7 +133,7 @@
 		subgrid.
 	</Alert>
 	{#if items.length == 0}
-		<span class="text-xs text-gray-500">No Tabs</span>
+		<span class="text-xs text-tertiary">No Tabs</span>
 	{/if}
 	<div class="w-full flex flex-col mt-2">
 		<section

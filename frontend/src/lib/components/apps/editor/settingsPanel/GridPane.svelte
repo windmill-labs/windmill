@@ -47,7 +47,7 @@
 
 <PanelSection title={`panes ${panes.length > 0 ? `(${panes.length})` : ''}`}>
 	{#if panes.length == 0}
-		<span class="text-xs text-gray-500">No panes</span>
+		<span class="text-xs text-tertiary">No panes</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each panes as value, index (index)}
