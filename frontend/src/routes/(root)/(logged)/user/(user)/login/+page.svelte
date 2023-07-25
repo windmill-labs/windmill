@@ -13,6 +13,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
+	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -176,6 +177,9 @@
 	<div
 		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
 	>
+		<div class="flex justify-end">
+			<DarkModeToggle forcedDarkMode={false} />
+		</div>
 		<div class="bg-surface px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
 			<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
 				{#if !logins}

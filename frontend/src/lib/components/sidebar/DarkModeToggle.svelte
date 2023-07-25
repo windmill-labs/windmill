@@ -9,7 +9,7 @@
 
 <button
 	class={twMerge(
-		'text-2xs text-white m-2 p-2 rounded-lg flex flex-row gap-2 justify-center hover:bg-gray-600',
+		'text-2xs text-white m-1 p-2 rounded-lg flex flex-row gap-2 justify-center hover:bg-gray-600',
 		forcedDarkMode ? 'text-white hover:bg-gray-600' : 'text-primary hover:bg-surface-hover'
 	)}
 	on:click={() => {
