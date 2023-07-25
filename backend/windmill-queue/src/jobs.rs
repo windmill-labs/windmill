@@ -64,24 +64,27 @@ lazy_static::lazy_static! {
     .unwrap();
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
 
+    pub static ref DEFAULT_TAGS : Vec<String> = vec![
+        "deno".to_string(),
+        "python3".to_string(),
+        "go".to_string(),
+        "bash".to_string(),
+        "nativets".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "bun".to_string(),
+        "postgresql".to_string(),
+        "dependency".to_string(),
+        "flow".to_string(),
+        "hub".to_string(),
+        "other".to_string()];
+
     pub static ref ACCEPTED_TAGS: Vec<String> = std::env::var("WORKER_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect())
-        .unwrap_or_else(|| vec![
-            "deno".to_string(),
-            "python3".to_string(),
-            "go".to_string(),
-            "bash".to_string(),
-            "nativets".to_string(),
-            "mysql".to_string(),
-            "graphql".to_string(),
-            "bun".to_string(),
-            "postgresql".to_string(),
-            "dependency".to_string(),
-            "flow".to_string(),
-            "hub".to_string(),
-            "other".to_string()]);
+        .unwrap_or_else(|| DEFAULT_TAGS.clone()) ;
 
+    pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
 
     pub static ref PULL_QUERY: String = format!(
         "UPDATE queue
@@ -1306,22 +1309,27 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let tag = if job_kind == JobKind::Dependencies || job_kind == JobKind::FlowDependencies {
         "dependency".to_string()
-    } else if job_kind == JobKind::Flow || job_kind == JobKind::FlowPreview {
-        "flow".to_string()
-    } else if job_kind == JobKind::Identity {
-        // identity is a light script, deno is too
-        "deno".to_string()
     } else if job_kind == JobKind::Script_Hub {
         "hub".to_string()
     } else {
         if tag == Some("".to_string()) {
             tag = None;
         }
+        let default = || {
+            if job_kind == JobKind::Flow || job_kind == JobKind::FlowPreview {
+                "flow"
+            } else if job_kind == JobKind::Identity {
+                // identity is a light script, nativets is too
+                "nativets"
+            } else {
+                "deno"
+            }
+        };
         tag.unwrap_or_else(|| {
             language
                 .as_ref()
                 .map(|x| x.as_str())
-                .unwrap_or_else(|| "deno")
+                .unwrap_or_else(default)
                 .to_string()
         })
     };

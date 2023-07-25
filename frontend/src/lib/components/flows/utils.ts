@@ -188,7 +188,8 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		requestBody: {
 			args,
 			value: newFlow.value,
-			path: newFlow.path
+			path: newFlow.path,
+			tag: newFlow.tag
 		}
 	})
 }

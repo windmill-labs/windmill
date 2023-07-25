@@ -260,8 +260,9 @@ export function setQueryWithoutLoad(
 }
 
 export function groupBy<T>(
-	scripts: T[],
+	items: T[],
 	toGroup: (t: T) => string,
+	toSort: (t: T) => string,
 	dflts: string[] = []
 ): [string, T[]][] {
 	let r: Record<string, T[]> = {}
@@ -269,10 +270,11 @@ export function groupBy<T>(
 		r[dflt] = []
 	}
 
-	scripts.forEach((sc) => {
+	items.forEach((sc) => {
 		let section = toGroup(sc)
 		if (section in r) {
 			r[section].push(sc)
+			r[section].sort((a, b) => toSort(a).localeCompare(toSort(b)))
 		} else {
 			r[section] = [sc]
 		}

@@ -84,6 +84,7 @@
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
+						tag: flow.tag,
 						draft_only: true
 					}
 				})
@@ -146,7 +147,8 @@
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
-						schema: flow.schema
+						schema: flow.schema,
+						tag: flow.tag
 					}
 				})
 				const scheduleExists = await ScheduleService.existsSchedule({
