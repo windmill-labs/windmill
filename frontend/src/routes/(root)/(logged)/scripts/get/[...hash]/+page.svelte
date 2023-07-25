@@ -433,10 +433,10 @@
 					{/if}
 
 					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
-						<span class="text-sm text-gray-600">
+						<span class="text-sm text-secondary">
 							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
 						</span>
-						<Badge small color="gray">
+						<Badge small color="dark-blue">
 							{truncateHash(script?.hash ?? '')}
 						</Badge>
 						{#if script?.is_template}
@@ -530,9 +530,11 @@
 						<TabContent value="dependencies">
 							<div class="">
 								{#if script?.lock}
-									<pre class="bg-gray-50 text-sm p-2">{script.lock}</pre>
+									<pre class="bg-surface-secondary text-sm p-2 h-full">{script.lock}</pre>
 								{:else}
-									<p class="bg-gray-50 text-sm p-2"> There is no lock file for this script</p>
+									<p class="bg-surface-secondary text-sm p-2">
+										There is no lock file for this script
+									</p>
 								{/if}
 							</div>
 						</TabContent>

@@ -13,7 +13,7 @@
 <div class="mt-10" />
 <SchemaForm schema={$flowStore.schema} bind:args={$schedule.args} />
 {#if emptyString($schedule.cron)}
-	<p class="text-xs text-gray-600 mt-10">Define a schedule frequency first</p>
+	<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 {/if}
 <div class="mt-10" />
 <Toggle

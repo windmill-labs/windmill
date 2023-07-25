@@ -20,7 +20,7 @@
 {#if ips}
 	<div class="mt-2" />
 	<Alert size="xs" type="info" title="IPs to whitelist">
-		<span class="text-gray-600">If necessary, the workers IPs to whitelist are:</span>
+		<span class="text-tertiary">If necessary, the workers IPs to whitelist are:</span>
 		{ips.join(', ')}
 	</Alert>
 {/if}

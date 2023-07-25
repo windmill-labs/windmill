@@ -314,7 +314,8 @@
 				title="Members ({users?.length ?? ''})"
 				primary={false}
 				tooltip="Manage users manually or enable SSO authentication."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"/>
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
+			/>
 
 			<AddUser on:new={listUsers} />
 
@@ -390,10 +391,13 @@
 														create new ones.</Tooltip
 													></ToggleButton
 												>
-												<ToggleButton position="right" value="admin" size="xs">Admin<Tooltip
-														>An admin has full control over a specific Windmill workspace, including the ability to manage users, edit
-														entities, and control permissions within the workspace.</Tooltip
-													></ToggleButton>
+												<ToggleButton position="right" value="admin" size="xs"
+													>Admin<Tooltip
+														>An admin has full control over a specific Windmill workspace, including
+														the ability to manage users, edit entities, and control permissions
+														within the workspace.</Tooltip
+													></ToggleButton
+												>
 											</ToggleButtonGroup>
 										</div>
 									</td>
@@ -449,7 +453,12 @@
 					</tbody>
 				</TableCustom>
 			</div>
-			<PageHeader title="Invites ({invites.length ?? ''})" primary={false} tooltip="Manage invites on your workspace." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace">
+			<PageHeader
+				title="Invites ({invites.length ?? ''})"
+				primary={false}
+				tooltip="Manage invites on your workspace."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
+			>
 				<InviteUser on:new={listInvites} />
 			</PageHeader>
 
@@ -490,7 +499,12 @@
 			</div>
 
 			<div class="mt-10" />
-			<PageHeader title="Auto Invite" tooltip="Auto invite to the workspace users from your domain." documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite" primary={false} />
+			<PageHeader
+				title="Auto Invite"
+				tooltip="Auto invite to the workspace users from your domain."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite"
+				primary={false}
+			/>
 			<div class="flex gap-2">
 				{#if auto_invite_domain != domain}
 					<div>
@@ -568,7 +582,7 @@
 							endIcon={{ icon: faExternalLink }}
 							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 						>
-						<p class="text-xs text-gray-600 mt-1">
+						<p class="text-xs text-tertiary mt-1">
 							See invoices, change billing information or subscription details</p
 						>
 					</div>
@@ -717,7 +731,7 @@
 					with a '/windmill' command.</Alert
 				></div
 			>
-			<p class="text-xs text-gray-700 my-1 mt-2">
+			<p class="text-xs text-secondary my-1 mt-2">
 				Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
 					connected{/if}
 			</p>
@@ -756,12 +770,13 @@
 					</Button>
 				</div>
 			{/if}
-			<h3 class="mt-5 text-gray-700"
-				>Script or flow to run on /windmill command <Tooltip>
+			<h3 class="mt-5 text-secondary">
+				Script or flow to run on /windmill command
+				<Tooltip>
 					The script or flow to be triggered when the `/windmill` command is invoked. The script or
 					flow chosen is passed the parameters <pre>response_url: string, text: string</pre>
-					respectively the url to reply directly to the trigger and the text of the command.</Tooltip
-				>
+					respectively the url to reply directly to the trigger and the text of the command.
+				</Tooltip>
 			</h3>
 			<ScriptPicker
 				kind={Script.kind.SCRIPT}
@@ -839,7 +854,7 @@
 				></div
 			>
 
-			<h3 class="mt-5 text-gray-700"
+			<h3 class="mt-5 text-secondary"
 				>URL to send requests to<Tooltip>
 					This URL will be POSTed to with a JSON body depending on the type of event. The type is
 					indicated by the <pre>type</pre> field. The other fields are dependent on the type.
@@ -864,7 +879,7 @@
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
-					<div class="text-gray-600 text-sm">
+					<div class="text-tertiary text-sm">
 						The following args will be passed to the error handler:
 						<ul class="mt-1 ml-2">
 							<li><b>path</b>: The path of the script or flow that errored.</li>
@@ -891,11 +906,12 @@
 			</div>
 		{:else if tab == 'openai'}
 			<PageHeader title="Windmill AI" primary={false} />
-			<div class="mt-2"
-				><Alert type="info" title="Experimental feature"
-					>Select an OpenAI resource to unlock Windmill AI features! <br/> Windmill AI currently only supports OpenAI's GPT-4.</Alert
-				></div
-			>
+			<div class="mt-2">
+				<Alert type="info" title="Experimental feature">
+					Select an OpenAI resource to unlock Windmill AI features! <br /> Windmill AI currently only
+					supports OpenAI's GPT-4.
+				</Alert>
+			</div>
 			<div class="mt-5">
 				{#key openaiResourceInitialPath}
 					<ResourcePicker

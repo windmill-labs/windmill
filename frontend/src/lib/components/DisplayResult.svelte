@@ -125,13 +125,13 @@
 <div class="inline-highlight">
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
-			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
+			<div class="mb-2 text-tertiary text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-gray-500 text-xs absolute top-5.5 right-0">
+					<div class="text-tertiary text-xs absolute top-5.5 right-0">
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
@@ -179,7 +179,7 @@
 								Warning
 							</div>
 							<p
-								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+								class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
 								>Rendering HTML can expose you to <a
 									href="https://owasp.org/www-community/attacks/xss/"
 									target="_blank"
@@ -229,7 +229,7 @@
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 				>
-				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
+				<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
 				{#if lang && editor && diffEditor}
 					<ScriptFix error={JSON.stringify(result.error)} {lang} {editor} {diffEditor} />
 				{/if}
@@ -255,7 +255,7 @@
 			</div>
 		{:else}
 			{#if jsonStr.length > 10000}
-				<div class="text-sm mb-2 text-gray-600">
+				<div class="text-sm mb-2 text-tertiary">
 					<a
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
@@ -270,7 +270,7 @@
 			{/if}
 		{/if}
 	{:else}
-		<div class="text-gray-500 text-sm">No result: {jsonStr}</div>
+		<div class="text-tertiary text-sm">No result: {jsonStr}</div>
 	{/if}
 </div>
 
@@ -280,7 +280,7 @@
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
 					<a
-						class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+						class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
@@ -292,7 +292,7 @@
 					</Button>
 				</svelte:fragment>
 				{#if jsonStr.length > 100000}
-					<div class="text-sm mb-2 text-gray-600">
+					<div class="text-sm mb-2 text-tertiary">
 						<a
 							download="{filename ?? 'result'}.json"
 							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a

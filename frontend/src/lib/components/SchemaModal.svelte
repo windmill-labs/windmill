@@ -124,7 +124,7 @@
 		<div class="flex flex-col gap-6">
 			<div>
 				<label class="block">
-					<div class="mb-1 font-semibold text-gray-700">
+					<div class="mb-1 font-semibold text-secondary">
 						Name
 						<Required required={true} />
 					</div>
@@ -144,14 +144,14 @@
 			</div>
 
 			<label class="block">
-				<div class="mb-1 font-semibold text-gray-700">
+				<div class="mb-1 font-semibold text-secondary">
 					Description
 					<Required required={false} />
 				</div>
 				<textarea placeholder="Enter a description" rows="3" bind:value={property.description} />
 			</label>
 			<div>
-				<div class="mb-1 font-semibold text-gray-700">Type<Required required={true} /></div>
+				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>
 				<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
 					{#each ARG_TYPES as argType}
 						{@const isSelected = argType == property.selectedType}
@@ -216,7 +216,7 @@
 			</div>
 			{#if property.selectedType !== 'boolean'}
 				<div>
-					<div class="font-semibold text-gray-700 mb-1">Advanced</div>
+					<div class="font-semibold text-secondary mb-1">Advanced</div>
 					{#if property.selectedType == 'string'}
 						<StringTypeNarrowing
 							bind:format={property.format}

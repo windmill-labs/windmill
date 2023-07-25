@@ -60,7 +60,7 @@
 	>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
-				<span class="text-xs font-semibold truncate text-gray-800">
+				<span class="text-xs font-semibold truncate text-primary">
 					{customTitle
 						? customTitle
 						: shouldCapitalize
@@ -73,7 +73,7 @@
 					{/if}
 				</span>
 				{#if displayType}
-					<div class="text-xs text-gray-500">
+					<div class="text-xs text-tertiary">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -142,7 +142,7 @@
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
-			<span class="text-2xs italic text-gray-600">Field's value is set by the user</span>
+			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
 		{/if}
 	</div>
 {/if}

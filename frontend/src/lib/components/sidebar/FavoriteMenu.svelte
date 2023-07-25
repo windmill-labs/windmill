@@ -36,7 +36,7 @@
 	<div class="overflow-hidden" role="none">
 		{#if !favoriteLinks.length}
 			<div class="py-1" role="none">
-				<div class="text-gray-600 block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
+				<div class="text-secondary block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
 					Add Scripts/Flows/Apps here by starring them
 				</div>
 			</div>
@@ -46,7 +46,7 @@
 					<a
 						href={favorite.href}
 						on:click={close}
-						class="w-full inline-flex flex-row px-4 py-2 hover:bg-gray-100"
+						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover"
 					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}
@@ -57,7 +57,7 @@
 								<LayoutDashboard size={16} />
 							{/if}
 						</span>
-						<span class="text-gray-800 ml-2 grow min-w-0 text-xs truncate">
+						<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
 							{favorite.label}
 						</span>
 					</a>

@@ -130,14 +130,14 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-gray-100">
-		<div class="text-xs text-gray-900 font-semibold"
+	<div class="flex justify-between items-center px-3 py-2 bg-surface-selected">
+		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type].name}</div
 		>
 		<a
 			href={components[componentSettings.item.data.type].documentationLink}
 			target="_blank"
-			class="text-frost-500 font-semibold text-xs"
+			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
 		>
 			<div class="flex flex-row gap-2">
 				See documentation
@@ -243,7 +243,7 @@
 				/>
 			</PanelSection>
 		{:else}
-			<div class="h-full w-full text-sm text-gray-500 text-center py-8 px-2"
+			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2"
 				>{ccomponents[component.type].name} has no configuration</div
 			>
 		{/if}
@@ -344,23 +344,23 @@
 				</div>
 				<div class="flex flex-col gap-1">
 					<div>
-						<span class="text-gray-600 text-xs mr-2"> Copy:</span>
+						<span class="text-secondary text-xs mr-2"> Copy:</span>
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>C</Kbd>,
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Move: </span>
+						<span class="text-secondary text-xs mr-2">Move: </span>
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>X</Kbd>,
 						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Navigate:</span>
+						<span class="text-secondary text-xs mr-2">Navigate:</span>
 						<Kbd>&leftarrow;</Kbd>
 						<Kbd>&uparrow;</Kbd><Kbd>&rightarrow;</Kbd>
 						<Kbd>ESC</Kbd>
 					</div>
 					<div>
-						<span class="text-gray-600 text-xs mr-2">Add to selection:</span>
+						<span class="text-secondary text-xs mr-2">Add to selection:</span>
 						<Kbd>&DoubleUpArrow;</Kbd>+<Kbd>click</Kbd>
 					</div>
 				</div>

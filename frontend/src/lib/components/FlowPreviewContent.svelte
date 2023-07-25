@@ -112,14 +112,14 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
+<div class="flex divide-y flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
 			<button
 				on:click={() => dispatch('close')}
-				class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+				class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 			>
-				<Icon data={faClose} class="text-gray-500" />
+				<Icon data={faClose} class="text-secondary" />
 			</button>
 		</div>
 
@@ -194,7 +194,7 @@
 			{#if jobId}
 				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
 			{:else}
-				<div class="italic text-gray-500 h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

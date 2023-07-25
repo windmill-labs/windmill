@@ -42,18 +42,18 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y divide-gray-200 border rounded-md">
+		<ul class="divide-y border rounded-md">
 			{#each filteredItems.slice(0, maxItems) as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-4 gap-4 flex flex-row grow hover:bg-gray-50 bg-white transition-all items-center rounded-md"
+						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
 						on:click={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
 							<div
 								class={classNames(
 									'rounded-md p-1 flex justify-center items-center border',
-									'bg-gray-50 border-gray-200'
+									'bg-surface border'
 								)}
 							>
 								<svelte:component
@@ -64,14 +64,14 @@
 							</div>
 
 							<div class="w-full text-left font-normal">
-								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+								<div class="text-primary flex-wrap text-md font-semibold mb-1">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
 										{item.summary ?? ''}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs">
+								<div class="text-secondary text-xs">
 									{item.path}
 								</div>
 							</div>
@@ -85,7 +85,7 @@
 		</ul>
 	{/if}
 	{#if filteredItems.length > maxItems}
-		<div class="text-gray-500 text-sm py-4">
+		<div class="text-tertiary text-sm py-4">
 			There are more items ({filteredItems.length}) than being displayed. Refine your search.
 		</div>
 	{/if}

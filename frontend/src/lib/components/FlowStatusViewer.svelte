@@ -204,16 +204,16 @@
 {#if job}
 	<div class="flow-root w-full space-y-4">
 		{#if innerModules.length > 0}
-			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
+			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{/if}
 		{#if isListJob}
 			{#if render}
-				<div class="w-full h-full border border-gray-600 bg-white p-1">
+				<div class="w-full h-full border border-gray-600 bg-surface p-1">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
 		{:else if render}
-			<div class={innerModules.length > 0 ? 'border border-gray-400 shadow p-2' : ''}>
+			<div class={innerModules.length > 0 ? 'border rounded-md shadow p-2' : ''}>
 				<FlowPreviewStatus {job} />
 				{#if `result` in job}
 					<div class="w-full h-full">
@@ -240,7 +240,7 @@
 								<div
 									><span class="inline-flex gap-1"
 										><Badge color="indigo">{mod.id}</Badge>
-										<span class="font-medium text-gray-900">
+										<span class="font-medium text-primary">
 											{#if !emptyString(rawMod?.summary)}
 												{rawMod?.summary ?? ''}
 											{:else if rawMod?.value.type == 'script'}
@@ -269,7 +269,7 @@
 		{/if}
 		<div class={selected == 'graph' ? 'hidden' : ''}>
 			{#if isListJob}
-				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
+				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#each flowJobIds?.flowJobs ?? [] as loopJobId, j}
@@ -352,23 +352,23 @@
 				{/each}
 			{:else if innerModules.length > 0}
 				<ul class="w-full">
-					<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4 py-2">
+					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step results
 					</h3>
 
 					{#each innerModules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10" />
-							<h3 class="text-gray-500 mb-2 w-full">
+							<h3 class="text-tertiary mb-2 w-full">
 								{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
 									Step
-									<span class="font-medium text-gray-900">
+									<span class="font-medium text-primary">
 										{i + 1}
 									</span>
 									out of
-									<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
+									<span class="font-medium text-primary">{job?.raw_flow?.modules.length}</span>
 									{#if job.raw_flow?.modules[i]?.summary}
-										: <span class="font-medium text-gray-900">
+										: <span class="font-medium text-primary">
 											{job.raw_flow?.modules[i]?.summary ?? ''}
 										</span>
 									{/if}
@@ -378,7 +378,7 @@
 							</h3>
 							<div class="line w-8 h-10" />
 						{/if}
-						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
+						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
@@ -422,8 +422,8 @@
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
-				<div class="grid grid-cols-3 border border-gray-300">
-					<div class="col-span-2 bg-gray-50">
+				<div class="grid grid-cols-3 border">
+					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values(retry_status) as count}
 								<span class="text-sm">
@@ -484,7 +484,7 @@
 									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 									{#if node.job_id}
 										<div class="truncate"
-											><div class=" text-gray-900 whitespace-nowrap truncate">
+											><div class=" text-primary whitespace-nowrap truncate">
 												<span class="font-bold">Job Id</span>
 												<a
 													rel="noreferrer"
@@ -511,12 +511,12 @@
 									logs={node.logs ?? ''}
 								/>
 							{:else}
-								<p class="p-2 text-gray-600 italic"
+								<p class="p-2 text-tertiary italic"
 									>The execution of this node has no information attached to it. The job likely did
 									not run yet</p
 								>
 							{/if}
-						{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p
+						{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
 							>{/if}
 					</div>
 				</div>

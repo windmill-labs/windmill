@@ -13,13 +13,13 @@
 
 <div class="mt-2 flex flex-col {$$props.class}">
 	<div class="inline-block min-w-full align-middle">
-		<table class="min-w-full divide-y divide-gray-300 table-auto">
+		<table class="min-w-full divide-y table-auto">
 			<thead>
 				<tr class={twTextSize}>
 					{#if headers}
 						{#each headers as header, i}
 							<th
-								class="py-3.5 text-left text-sm font-semibold text-gray-900 capitalize {i == 0
+								class="py-3.5 text-left text-sm font-semibold text-primary capitalize {i == 0
 									? 'sm:pl-6 md:pl-0 pl-4 pr-3'
 									: 'px-3 '}">{header}</th
 							>
@@ -27,13 +27,13 @@
 					{/if}
 				</tr>
 			</thead>
-			<tbody class="divide-y divide-gray-200">
+			<tbody class="divide-y">
 				{#if data && keys && data.length > 0}
 					{#each data as row}
 						<tr>
 							{#each keys as key, i}
 								<td
-									class="py-2 text-sm text-gray-700 break-words {i == 0
+									class="py-2 text-sm text-secondary break-words {i == 0
 										? 'pl-4 pr-3 sm:pl-6 md:pl-0 font-semibold'
 										: 'px-3'} {twTextSize}"
 								>
@@ -52,7 +52,7 @@
 	</div>
 </div>
 {#if paginated}
-	<div class="flex flex-row-reverse text-gray-500">
+	<div class="flex flex-row-reverse text-tertiary">
 		<button
 			on:click={() => {
 				dispatch('next')

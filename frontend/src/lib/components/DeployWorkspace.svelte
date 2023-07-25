@@ -502,7 +502,7 @@
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
 			{#each dependencies ?? [] as { kind, path, include }}
 				{@const statusPath = computeStatusPath(kind, path)}
-				<div class="col-span-1 truncate text-gray-700 text-sm">{kind}</div><div
+				<div class="col-span-1 truncate text-secondary text-sm">{kind}</div><div
 					class="col-span-5 truncate font-semibold">{path}</div
 				><div class="col-span-1"><Toggle size="xs" bind:checked={include} /></div><div
 					class="col-span-1"

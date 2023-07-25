@@ -66,7 +66,7 @@
 	}))
 </script>
 
-<section class="p-2 sticky bg-white w-full z-10 top-0">
+<section class="p-2 sticky w-full z-10 top-0">
 	<ClearableInput bind:value={search} placeholder="Search components..." />
 </section>
 
@@ -75,7 +75,7 @@
 		<div
 			in:fade|local={{ duration: 50, delay: 50 }}
 			out:fade|local={{ duration: 50 }}
-			class="absolute left-0 top-0 w-full text-sm text-gray-500 text-center py-6 px-2"
+			class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2"
 		>
 			No components found
 		</div>
@@ -92,11 +92,11 @@
 											on:click={() => addComponent(item)}
 											title={componentsRecord[item].name}
 											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-											justify-center bg-white rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
+											justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 										>
-											<svelte:component this={componentsRecord[item].icon} class="text-gray-600" />
+											<svelte:component this={componentsRecord[item].icon} class="text-primary" />
 										</button>
-										<div class="text-xs text-center flex-wrap text-gray-600 mt-1">
+										<div class="text-xs text-center flex-wrap text-secondary mt-1">
 											{componentsRecord[item].name}
 										</div>
 									</div>
@@ -108,14 +108,14 @@
 												on:click={() => addPresetComponent(presetItem)}
 												title={presetsRecord[presetItem].name}
 												class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-										justify-center bg-white rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
+										justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 											>
 												<svelte:component
 													this={presetsRecord[presetItem].icon}
-													class="text-gray-600"
+													class="text-secondary"
 												/>
 											</button>
-											<div class="text-xs text-center flex-wrap text-gray-600 mt-1">
+											<div class="text-xs text-center flex-wrap text-secondary mt-1">
 												{presetsRecord[presetItem].name}
 											</div>
 										</div>

@@ -78,7 +78,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-gray-500 text-sm">No inputs</div>
+		<div class="text-tertiary text-sm">No inputs</div>
 	{/if}
 </div>
 
@@ -99,7 +99,7 @@
 >
 	<div
 		slot="submission"
-		class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
 		<Button
 			variant="border"

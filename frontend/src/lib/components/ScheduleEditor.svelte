@@ -225,7 +225,7 @@
 
 			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
 			{#if !edit}
-				<p class="text-xs mb-1 text-gray-600">
+				<p class="text-xs mb-1 text-tertiary">
 					Pick a script or flow to be triggered by the schedule<Required required={true} />
 				</p>
 				<ScriptPicker
@@ -277,7 +277,7 @@
 				canRefresh
 			/>
 			<div class="flex gap-20 items-start mt-3">
-				<div class="text-gray-600 text-sm"
+				<div class="text-tertiary text-sm"
 					>The following args will be passed to the error handler:
 					<ul class="mt-1 ml-2">
 						<li><b>path</b>: The path of the script or flow that errored.</li>

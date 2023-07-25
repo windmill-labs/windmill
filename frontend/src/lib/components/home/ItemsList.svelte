@@ -315,13 +315,13 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-gray-600 grow min-w-[100px]">
+		<div class="relative text-tertiary grow min-w-[100px]">
 			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus
 				placeholder={HOME_SEARCH_PLACEHOLDER}
 				bind:value={filter}
-				class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
 			<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg
@@ -346,7 +346,12 @@
 		</div>
 	</div>
 	<div class="relative">
-		<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters
+			syncQuery
+			bind:selectedFilter={ownerFilter}
+			filters={owners}
+			bottomMargin={false}
+		/>
 		{#if filteredItems?.length == 0}
 			<div class="mt-10" />
 		{/if}
@@ -366,7 +371,7 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md divide-y divide-gray-100">
+			<div class="border rounded-md divide-y">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#key item.summary}

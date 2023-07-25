@@ -25,11 +25,11 @@
 
 	{#if displayType}
 		{#if format && !format.startsWith('resource')}
-			<span class="text-xs italic ml-2 text-gray-500 dark:text-indigo-400">
+			<span class="text-xs italic ml-2 text-tertiary dark:text-indigo-400">
 				{format}
 			</span>
 		{:else}
-			<span class="text-xs italic ml-2 text-gray-500 dark:text-indigo-400">
+			<span class="text-xs italic ml-2 text-tertiary dark:text-indigo-400">
 				{type ?? 'any'}{contentEncoding && contentEncoding != ''
 					? `, encoding: ${contentEncoding}`
 					: ''}

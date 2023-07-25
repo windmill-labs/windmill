@@ -24,6 +24,6 @@
 			How to update?<br />
 			- docker: `docker compose up`<br />-
 			<a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
-		</Tooltip></span
-	>
+		</Tooltip>
+	</span>
 {/if}

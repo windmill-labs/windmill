@@ -219,7 +219,7 @@
 	<div>Have others join by sharing the following url:</div>
 	<div class="flex gap-2 pr-4">
 		<input type="text" disabled value={collabUrl()} />
-		<button on:click={() => copyToClipboard(collabUrl())} class="text-gray-700 ml-2">
+		<button on:click={() => copyToClipboard(collabUrl())} class="text-secondary ml-2">
 			<Icon data={faClipboard} />
 		</button>
 	</div>

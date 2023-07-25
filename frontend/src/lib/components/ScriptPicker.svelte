@@ -2,7 +2,7 @@
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
 	import { hubScripts, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
 
@@ -18,6 +18,7 @@
 	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowIcon from './home/FlowIcon.svelte'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -62,7 +63,22 @@
 	}
 
 	$: itemKind && $workspaceStore && loadItems()
+	let darkMode: boolean = false
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <Drawer bind:this={drawerViewer} size="900px">
 	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>
@@ -105,7 +121,9 @@
 			{items}
 			placeholder="Pick a {itemKind}"
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+			containerStyles={darkMode
+				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			portal={false}
 		/>
 	{/if}

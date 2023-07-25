@@ -139,7 +139,7 @@
 			{/if}
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-gray-500 text-sm">No inputs</div>
+		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
 </div>
 
@@ -161,18 +161,13 @@
 				...x
 			}))}
 	>
-		<div
-			slot="submission"
-			class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-		>
+		<div slot="submission">
 			<Button
 				variant="border"
 				color="blue"
 				size="sm"
 				startIcon={{ icon: faPlus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
+				on:click={() => variableEditor?.initNew?.()}
 			>
 				New variable
 			</Button>

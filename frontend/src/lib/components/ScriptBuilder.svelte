@@ -282,7 +282,7 @@
 			<h2 class="border-b pb-1 mt-10 mb-4">Language</h2>
 
 			{#if lockedLanguage}
-				<div class="text-sm text-gray-600 italic mb-2">
+				<div class="text-sm text-tertiary italic mb-2">
 					As a forked script, the language '{script.language}' cannot be modified.
 				</div>
 			{/if}
@@ -293,7 +293,7 @@
 						size="sm"
 						variant="border"
 						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75' : 'm-[1px]'}
 						on:click={() => {
 							template = 'script'
 							initContent(lang, script.kind, template)
@@ -309,7 +309,9 @@
 					size="sm"
 					variant="border"
 					color={template == 'docker' ? 'blue' : 'light'}
-					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={template == 'docker'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						if (isCloudHosted()) {
@@ -338,7 +340,9 @@
 					size="sm"
 					variant="border"
 					color={template == 'powershell' ? 'blue' : 'light'}
-					btnClasses={template == 'docker' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={template == 'powershell'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						template = 'powershell'
@@ -352,7 +356,9 @@
 					size="xs"
 					variant="border"
 					color={script.language == 'bun' ? 'blue' : 'light'}
-					btnClasses={script.language == 'bun' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					btnClasses={script.language == 'bun'
+						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+						: 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
 						initContent(Script.language.BUN, script.kind, template)
@@ -390,11 +396,11 @@
 			<h2 class="border-b pb-1 mt-10 mb-4">Concurrency limits</h2>
 			<div class="flex gap-x-4 shrink">
 				<label class="block shrink min-w-0">
-					<span class="text-gray-700 text-sm">Maximum number of runs</span>
+					<span class="text-secondary text-sm">Maximum number of runs</span>
 					<input class="!w-55" type="number" bind:value={script.concurrent_limit} />
 				</label>
 				<label class="block shrink min-w-0">
-					<span class="text-gray-700 text-sm">Per time window (seconds)</span>
+					<span class="text-secondary text-sm">Per time window (seconds)</span>
 					<input class="!w-18" type="number" bind:value={script.concurrency_time_window_s} />
 				</label>
 			</div>
@@ -427,21 +433,23 @@
 							{/each}
 						</select>
 					{:else}
-						<div class="text-sm text-gray-600 italic mb-2">
+						<div class="text-sm text-secondary italic mb-2">
 							No custom worker group defined on this instance
 						</div>
 					{/if}
 				{/if}
 			</div>
 			{#if !isCloudHosted()}
-				<h2 class="border-b pb-1 mt-10 mb-4"
-					>Custom env variables<Tooltip
-						documentationLink="https://www.windmill.dev/docs/script_editor/custom_environment_variables"
-						>Additional static custom env variables to pass to the script.</Tooltip
-					></h2
-				>
+				<h2 class="border-b pb-1 mt-10 mb-4">
+					Custom env variables
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
+					>
+						Additional static custom env variables to pass to the script.
+					</Tooltip>
+				</h2>
 				<div class="w-full">
-					<span class="text-gray-600 text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+					<span class="text-tertiary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
 					{#if Array.isArray(script.envs ?? [])}
 						{#each script.envs ?? [] as v, i}
 							<div class="flex max-w-md mt-1 w-full items-center">
@@ -509,7 +517,7 @@
 							>
 								<Badge
 									color="gray"
-									class="center-center !bg-gray-300 !text-gray-600 !h-[28px]  !w-[70px] rounded-r-none"
+									class="center-center !bg-surface-selected !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
 								>
 									<Pen size={12} class="mr-2" /> Path
 								</Badge>
@@ -540,7 +548,7 @@
 					<Awareness />
 				{/if}
 
-				<div class="flex flex-row gap-x-1 lg:gap-x-4">
+				<div class="flex flex-row gap-x-1 lg:gap-x-2">
 					<Button
 						color="light"
 						variant="border"
@@ -552,7 +560,7 @@
 						Metadata
 					</Button>
 					<Button
-						color="dark"
+						color="light"
 						variant="border"
 						size="xs"
 						on:click={() => {
@@ -602,7 +610,7 @@
 								size="sm"
 								variant="border"
 								color={isPicked ? 'blue' : 'dark'}
-								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
+								btnClasses="font-medium {isPicked ? '!bg-blue-50/75 !dark:bg-blue-900/75' : ''}"
 								on:click={() => {
 									template = 'script'
 									script.kind = value

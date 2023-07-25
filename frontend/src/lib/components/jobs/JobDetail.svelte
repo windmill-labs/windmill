@@ -66,7 +66,7 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
-<div class="border border-gray-400 rounded py-4">
+<div class="border rounded py-4">
 	<div class="grid grid-cols-1 lg:grid-cols-4 w-full gap-4">
 		<div class="flex-col col-span-2">
 			<div class="flex flex-row text-sm">
@@ -77,14 +77,14 @@
 						{#if 'success' in job && job.success}
 							{#if job.is_skipped}
 								<Icon
-									class="text-green-600"
+									class="text-green-600 dark:text-green-400"
 									data={faFastForward}
 									scale={SMALL_ICON_SCALE}
 									label="Job completed successfully but was skipped"
 								/>
 							{:else}
 								<Icon
-									class="text-green-600"
+									class="text-green-600 dark:text-green-400"
 									data={check}
 									scale={SMALL_ICON_SCALE}
 									label="Job completed successfully"
@@ -92,7 +92,7 @@
 							{/if}
 						{:else if 'success' in job}
 							<Icon
-								class="text-red-700"
+								class="text-red-600 dark:text-red-400"
 								data={faTimes}
 								scale={SMALL_ICON_SCALE}
 								label="Job completed with an error"
@@ -106,14 +106,14 @@
 							/>
 						{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
 							<Icon
-								class="text-gray-700"
+								class="text-secondary"
 								data={faCalendar}
 								scale={SMALL_ICON_SCALE}
 								label="Job is scheduled to run at a later time"
 							/>
 						{:else}
 							<Icon
-								class="text-gray-500"
+								class="text-tertiary"
 								data={faHourglassHalf}
 								scale={SMALL_ICON_SCALE}
 								label="Job is waiting for an executor"
@@ -157,20 +157,20 @@
 					</div>
 				{/if}
 			</div>
-			<div class="pl-14 italic text-gray-500 text-2xs whitespace-nowrap overflow-hidden"
-				>{truncateRev(job.id, 8, '')}</div
-			>
+			<div class="pl-14 italic text-secondary text-2xs whitespace-nowrap overflow-hidden">
+				{truncateRev(job.id, 8, '')}
+			</div>
 		</div>
-		<div class="bg-white grid grid-cols-2 gap-x-2 col-span-2">
-			<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">
+		<div class="bg-surface grid grid-cols-2 gap-x-2 col-span-2">
+			<div class="w-full text-secondary text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">
 				<div>
-					<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+					<Icon class="text-secondary" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 						By {job.created_by}</span
 					>
 				</div>
 				{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 					<div>
-						<Icon class="text-gray-700" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
 						>
 							Ran in {msToSec(job.duration_ms)}s</span
@@ -178,10 +178,10 @@
 					</div>
 				{/if}
 			</div>
-			<div class="text-gray-500 text-xs text-left place-self-start flex flex-col gap-1">
+			<div class="text-secondary text-xs text-left place-self-start flex flex-col gap-1">
 				{#if 'started_at' in job && job.started_at}
 					<div>
-						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-1.5"
 						>
 							<span>
@@ -200,16 +200,16 @@
 					<div class="inline-flex gap-1">
 						<CalendarClock size={13} class="-ml-0.5" />
 						<span>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1">Scheduled</span>
+							<span class="bg-blue-200 text-secondary text-xs rounded px-1">Scheduled</span>
 							for {displayDate(job.scheduled_for ?? '')}
 						</span>
 					</div>
 				{:else if 'scheduled_for' in job && !job.running}
 					<div>
-						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+						<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
 						>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1"
+							<span class="bg-blue-200 text-secondary text-xs rounded px-1"
 								>Waiting for an executor</span
 							>
 						</span>
@@ -218,21 +218,21 @@
 				<div>
 					{#if job && job.parent_job}
 						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
+							<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
 								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
-							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
+							<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
 								Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}
-						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+						<Icon class="text-secondary" data={faCalendar} scale={SMALL_ICON_SCALE} />
 						<span class="mx-1"
 							>Schedule <button
 								class="break-words text-blue-400 font-normal truncate text-xs"

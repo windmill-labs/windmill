@@ -133,13 +133,13 @@
 		on:close={drawer.closeDrawer}
 	>
 		<div>
-			<div class="flex flex-col gap-3 py-3 text-gray-700">
+			<div class="flex flex-col gap-3 py-3">
 				<div>
 					{#if !can_write}
 						<div class="m-2">
-							<Alert type="warning" title="Only read access"
-								>You only have read access to this resource and cannot edit it</Alert
-							>
+							<Alert type="warning" title="Only read access">
+								You only have read access to this resource and cannot edit it
+							</Alert>
 						</div>
 					{/if}
 					<Path
@@ -175,10 +175,10 @@
 						<input type="text" disabled value={rawCode} />
 					{:else}
 						{#if !viewJsonSchema}
-							<p class="italic text-gray-500 text-xs mb-4"
-								>No corresponding resource type found in your workspace for {selectedResourceType}.
-								Define the value in JSON directly</p
-							>
+							<p class="italic text-secondary text-xs mb-4">
+								No corresponding resource type found in your workspace for {selectedResourceType}.
+								Define the value in JSON directly
+							</p>
 						{/if}
 
 						{#if !emptyString(jsonError)}<span

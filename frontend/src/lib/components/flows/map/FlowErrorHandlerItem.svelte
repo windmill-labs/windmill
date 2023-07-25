@@ -44,7 +44,7 @@
 		}
 	}}
 	class={classNames(
-		'border mx-auto rounded-sm px-2 py-1 bg-white text-sm border-gray-400 cursor-pointer flex justify-between items-center flex-row overflow-x-hidden ',
+		'border mx-auto rounded-sm px-2 py-1 bg-surface text-sm cursor-pointer flex justify-between items-center flex-row overflow-x-hidden ',
 		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 	style="min-width: 275px"
