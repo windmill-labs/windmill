@@ -488,6 +488,7 @@ pub struct FlowWDraft {
     pub draft: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    pub tag: Option<String>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -499,7 +500,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft FROM flow
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft, flow.tag FROM flow
         LEFT JOIN draft ON 
         flow.path = draft.path AND flow.workspace_id = draft.workspace_id AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",
