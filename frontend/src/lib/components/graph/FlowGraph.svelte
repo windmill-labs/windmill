@@ -15,7 +15,7 @@
 		type GraphModuleState
 	} from '.'
 	import { defaultIfEmptyString, encodeState, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import Svelvet from './svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from './svelvet/types'
 	import MapItem from '../flows/map/MapItem.svelte'
@@ -23,6 +23,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 	import { deepEqual } from 'fast-equals'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -60,11 +61,12 @@
 	let dataflow = false
 
 	let dispatch = createEventDispatcher()
+	let renderCount = 1
 
 	$: {
 		dataflow
 		moving
-		width && height && minHeight && $selectedId && flowModuleStates
+		width && height && minHeight && $selectedId && flowModuleStates && renderCount
 		createGraph()
 	}
 
@@ -734,26 +736,38 @@
 			loopDepth: 0
 		}
 	}
+
+	function onThemeChange() {
+		renderCount++
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
 	{#if width && height}
-		<Svelvet
-			on:expand={() => {
-				localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
-				window.open('/view_graph', '_blank')
-			}}
-			{download}
-			highlightEdges={false}
-			locked
-			bind:dataflow
-			{nodes}
-			width={fullSize ? fullWidth : width}
-			{edges}
-			{height}
-			{scroll}
-			nodeSelected={showDataflow}
-			background={false}
-		/>
+		{#key renderCount}
+			<Svelvet
+				on:expand={() => {
+					localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+					window.open('/view_graph', '_blank')
+				}}
+				{download}
+				highlightEdges={false}
+				locked
+				bind:dataflow
+				{nodes}
+				width={fullSize ? fullWidth : width}
+				{edges}
+				{height}
+				{scroll}
+				nodeSelected={showDataflow}
+				background={false}
+			/>
+		{/key}
 	{/if}
 </div>
