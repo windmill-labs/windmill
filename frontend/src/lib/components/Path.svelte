@@ -404,7 +404,7 @@
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none"
+				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
 			>
 				Full path
 			</Badge>
