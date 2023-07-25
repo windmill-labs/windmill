@@ -19,6 +19,7 @@
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
+	export let center = true
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -53,7 +54,7 @@
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
 	)}
-	style="min-width: 275px; height: 34px; background-color: {bgColor};"
+	style="min-width: 275px; max-height: 80px; background-color: {bgColor};"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
@@ -65,14 +66,16 @@
 	}}
 >
 	<div
-		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400"
+		class="flex gap-1 justify-between {center
+			? 'items-center'
+			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
 			<span class="mr-2" />
 		{/if}
 		<div />
-		<div class="flex-1 truncate">{label}</div>
+		<div class="flex-1 truncate"><pre>{label}</pre></div>
 		<div class="flex items-center space-x-2">
 			{#if id}
 				<Badge color="indigo">{id}</Badge>
