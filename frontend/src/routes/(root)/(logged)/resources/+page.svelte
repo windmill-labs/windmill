@@ -273,7 +273,7 @@
 
 <Portal>
 	<Drawer bind:this={inferrer} size="800px">
-		<DrawerContent title="Import app from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
+		<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
 			<SimpleEditor
 				bind:code={inferrerJson}
 				lang="json"
@@ -423,7 +423,7 @@
 				Add a resource type
 			</Button>
 			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
-				Add a resource/API
+				Add a resource
 			</Button>
 		</div>
 	</PageHeader>
