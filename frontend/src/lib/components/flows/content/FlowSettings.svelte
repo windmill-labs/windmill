@@ -38,6 +38,19 @@
 		$workerTags = undefined
 		loadWorkerGroups()
 	}
+
+	let path: Path | undefined = undefined
+	$: {
+		if (initialPath == '' && $flowStore.summary?.length > 0) {
+			path?.setName(
+				$flowStore.summary
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <div class="h-full overflow-hidden">
@@ -52,10 +65,10 @@
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
 						<div class="overflow-auto h-full">
-							<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="flow" kind="flow" />
-
-							<label class="block my-4">
-								<span class="text-secondary text-sm">Summary <Required required={false} /></span>
+							<label class="block mb-10 mt-2">
+								<span class="text-secondary text-sm font-bold"
+									>Summary <Required required={false} /></span
+								>
 								<input
 									type="text"
 									bind:value={$flowStore.summary}
@@ -64,20 +77,30 @@
 								/>
 							</label>
 
-							<label class="block my-4" for="inp">
-								<span class="text-secondary text-sm">
+							<span class="text-secondary text-sm font-bold"> Path </span>
+							<Path
+								bind:this={path}
+								bind:path={$flowStore.path}
+								{initialPath}
+								namePlaceholder="flow"
+								kind="flow"
+							/>
+
+							<label class="block mt-10 mb-6" for="inp">
+								<span class="text-secondary text-sm font-bold">
 									Description
 									<Required required={false} />
-									<textarea
-										use:autosize
-										type="text"
-										class="text-sm"
-										id="inp"
-										bind:value={$flowStore.description}
-										placeholder="What this flow does and how to use it."
-										rows="3"
-									/>
 								</span>
+
+								<textarea
+									use:autosize
+									type="text"
+									class="text-sm"
+									id="inp"
+									bind:value={$flowStore.description}
+									placeholder="What this flow does and how to use it."
+									rows="3"
+								/>
 							</label>
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">

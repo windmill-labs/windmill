@@ -386,6 +386,19 @@
 		}
 		lock = false
 	}
+
+	let path: Path | undefined = undefined
+	$: {
+		if (appPath == '' && $summary?.length > 0) {
+			path?.setName(
+				$summary
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -400,16 +413,6 @@
 			<Alert title="Require path" type="info">
 				Choose a path to save the initial draft of the app.
 			</Alert>
-			<div class="py-2" />
-			<Path
-				bind:error={pathError}
-				bind:path={newPath}
-				initialPath=""
-				namePlaceholder="app"
-				kind="app"
-			/>
-			<div class="py-4" />
-
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
 				<input
@@ -419,6 +422,17 @@
 					bind:value={$summary}
 				/>
 			</div>
+
+			<div class="py-2" />
+			<Path
+				bind:this={path}
+				bind:error={pathError}
+				bind:path={newPath}
+				initialPath=""
+				namePlaceholder="app"
+				kind="app"
+			/>
+			<div class="py-4" />
 
 			<div slot="actions">
 				<Button
@@ -434,25 +448,20 @@
 {/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
+		<span class="text-secondary text-sm font-bold">Summary</span>
+		<div class="w-full pt-2">
+			<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
+		</div>
+		<div class="py-4" />
+		<span class="text-secondary text-sm font-bold">Path</span>
 		<Path
+			bind:this={path}
 			bind:error={pathError}
 			bind:path={newPath}
 			initialPath={appPath}
 			namePlaceholder="app"
 			kind="app"
 		/>
-
-		<div class="py-4" />
-
-		<h3>Summary</h3>
-		<div class="w-full pt-2">
-			<input
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full font-semibold"
-				bind:value={$summary}
-			/>
-		</div>
 
 		<div slot="actions">
 			<Button
