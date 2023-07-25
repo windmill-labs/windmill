@@ -50,7 +50,7 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-gray-500 flex flex-col">
+				<div class="text-xs pt-1 text-tertiary flex flex-col">
 					<div>Windmill <Version /></div><div><Uptodate /></div>
 				</div>
 
@@ -65,7 +65,7 @@
 			</div>
 			<div class="mt-2 overflow-auto">
 				<TableCustom>
-					<tr slot="header-row" class="sticky top-0 bg-white border-b">
+					<tr slot="header-row" class="sticky top-0 bg-surface border-b">
 						<th>email</th>
 						<th>auth</th>
 						<th>name</th>

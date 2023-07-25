@@ -11,7 +11,7 @@
 <span
 	class="{$$props.class} {small
 		? 'h-4  center-center'
-		: ''} -py-0.5 ml-0.5 rounded border bg-white/70 text-gray-600 shadow-sm font-light transition-all group-hover:border-primary-500 group-hover:text-primary-500"
+		: ''} -py-0.5 ml-0.5 rounded border bg-surface-secondary text-primary shadow-sm font-light transition-all group-hover:border-primary-500 group-hover:text-primary-inverse"
 >
 	<kbd class={kbdClass}>
 		<slot />

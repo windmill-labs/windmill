@@ -49,7 +49,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Repeat size={14} />
 				</div>
@@ -60,7 +60,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Gauge size={14} />
 				</div>
@@ -71,7 +71,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Database size={14} />
 				</div>
@@ -82,7 +82,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Square size={14} />
 				</div>
@@ -93,7 +93,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<PhoneIncoming size={14} />
 				</div>
@@ -104,7 +104,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Bed size={14} />
 				</div>
@@ -115,7 +115,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Voicemail size={14} />
 				</div>
@@ -125,7 +125,7 @@
 	</div>
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module"
+			border border-gray-400 p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
@@ -140,8 +140,8 @@
 	</div>
 	{#if deletable}
 		<button
-			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center
-	border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-red-400 hover:text-white
+			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center text-primary
+	border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
 	hover:border-red-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
@@ -150,8 +150,8 @@
 		</button>
 
 		<button
-			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center
-border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-blue-400 hover:text-white
+			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center text-primary
+border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-blue-400 hover:text-white
 hover:border-blue-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 		>

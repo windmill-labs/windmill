@@ -295,7 +295,7 @@
 			</div>
 		{/if}
 		{#if managing_groups.length == 0}
-			<p class="text-gray-600 text-sm">No group is managing this group</p>
+			<p class="text-tertiary text-sm">No group is managing this group</p>
 		{:else}
 			<TableCustom>
 				<tr slot="header-row">

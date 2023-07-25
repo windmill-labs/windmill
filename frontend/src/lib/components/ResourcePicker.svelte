@@ -2,7 +2,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faPen, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
@@ -10,6 +10,7 @@
 	import { Button } from './common'
 	import ResourceEditor from './ResourceEditor.svelte'
 	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -54,7 +55,23 @@
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditor
+
+	let darkMode: boolean = false
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <AppConnect
 	on:refresh={async (e) => {
@@ -93,8 +110,11 @@
 		class="text-clip grow min-w-0"
 		placeholder="{resourceType ?? 'any'} resource"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		containerStyles={darkMode
+			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 	/>
+
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
 			<Icon scale={0.8} data={faPen} /></Button
@@ -107,16 +127,18 @@
 		size="xs"
 		on:click={() => appConnect?.open?.(resourceType)}
 	>
-		<Icon scale={0.8} data={faPlus} /></Button
-	>
+		<Icon scale={0.8} data={faPlus} />
+	</Button>
 	<Button
 		variant="border"
 		color="light"
 		size="xs"
 		on:click={() => {
 			loadResources(resourceType)
-		}}><Icon scale={0.8} data={faRotateRight} /></Button
+		}}
 	>
+		<Icon scale={0.8} data={faRotateRight} />
+	</Button>
 </div>
 <DbSchemaExplorer {resourceType} pg={value} />
 

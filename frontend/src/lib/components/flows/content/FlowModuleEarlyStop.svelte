@@ -44,7 +44,9 @@
 		}}
 	/>
 
-	<div class="w-full border p-2 flex flex-col {flowModule.stop_after_if ? '' : 'bg-gray-50'}">
+	<div
+		class="w-full border p-2 flex flex-col {flowModule.stop_after_if ? '' : 'bg-surface-secondary'}"
+	>
 		{#if flowModule.stop_after_if}
 			<Toggle
 				bind:checked={flowModule.stop_after_if.skip_if_stopped}

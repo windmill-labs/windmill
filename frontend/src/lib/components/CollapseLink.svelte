@@ -15,7 +15,7 @@
 	<Button
 		variant="border"
 		color="light"
-		btnClasses="text-gray-600 {small ? 'text-xs' : ''} "
+		btnClasses="text-tertiary {small ? 'text-xs' : ''} "
 		on:click={() => (open = !open)}
 	>
 		{text}&nbsp;<Icon data={open ? faChevronUp : faChevronDown} scale={0.5} />

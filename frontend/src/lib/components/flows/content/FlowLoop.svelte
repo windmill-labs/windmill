@@ -117,7 +117,7 @@
 					<Tab value="mock">Mock</Tab>
 
 					<svelte:fragment slot="content">
-						<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
+						<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
 							<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowRetries bind:flowModule={mod} />

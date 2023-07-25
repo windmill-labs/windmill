@@ -92,7 +92,7 @@
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 pb-2 text-gray-500 flex-col flex">
+				<div class="text-xs pt-1 pb-2 text-tertiary flex-col flex">
 					Windmill <Version />
 				</div>
 
@@ -104,8 +104,8 @@
 						{/if}
 						<div class="flex flex-col gap-2 w-full">
 							<div class="mt-4">
-								<label class="block w-60 mb-2 text-gray-500">
-									<div class="text-gray-700">email</div>
+								<label class="block w-60 mb-2 text-tertiary">
+									<div class="text-secondary">email</div>
 									<input
 										type="text"
 										disabled
@@ -115,7 +115,7 @@
 								</label>
 								{#if login_type == 'password'}
 									<label class="block w-120">
-										<div class="text-gray-700">password</div>
+										<div class="text-secondary">password</div>
 										<input
 											type="password"
 											bind:value={newPassword}
@@ -162,7 +162,7 @@
 						</Button>
 					</div>
 				</div>
-				<div class="text-2xs text-gray-500 italic pb-6">
+				<div class="text-2xs text-tertiary italic pb-6">
 					Authentify to the Windmill API with access tokens.
 				</div>
 
@@ -186,7 +186,7 @@
 					<div
 						class="{displayCreateToken
 							? ''
-							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-gray-50 min-w-min"
+							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min"
 					>
 						<h3 class="pb-3 font-semibold">Add a new token</h3>
 						{#if scopes != undefined}
@@ -207,13 +207,13 @@
 						<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
 							<div class="flex flex-col">
 								<label for="label"
-									>Label <span class="text-xs text-gray-500">(optional)</span></label
+									>Label <span class="text-xs text-tertiary">(optional)</span></label
 								>
 								<input type="text" bind:value={newTokenLabel} />
 							</div>
 							<div class="flex flex-col">
 								<label for="expires"
-									>Expires In &nbsp;<span class="text-xs text-gray-500">(optional)</span>
+									>Expires In &nbsp;<span class="text-xs text-tertiary">(optional)</span>
 								</label>
 								<select bind:value={newTokenExpiration}>
 									<option value={undefined}>No expiration</option>
@@ -257,7 +257,7 @@
 								{/each}
 							{:else if tokens && tokens.length === 0}
 								<tr class="px-6"
-									><td class="text-gray-700 italic text-xs"> There are no tokens yet</td></tr
+									><td class="text-secondary italic text-xs"> There are no tokens yet</td></tr
 								>
 							{:else}
 								<tr> Loading...</tr>

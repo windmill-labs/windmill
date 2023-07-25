@@ -174,7 +174,7 @@
 			size="lg"
 			bind:element={button}
 			color="light"
-			btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+			btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 			loading={genLoading}
 		>
 			<Icon scale={0.8} data={faMagicWandSparkles} />
@@ -182,7 +182,7 @@
 	{:else}
 		<Button
 			title="Generate code from prompt"
-			btnClasses="!font-medium text-gray-600"
+			btnClasses="!font-medium text-scondary"
 			size="xs"
 			color="light"
 			spacingSize="md"
@@ -201,9 +201,9 @@
 			transition={fade}
 			closeOn={[]}
 			wrapperClasses="!z-[1002]"
-			outerClasses="rounded shadow-xl bg-white border p-3 w-96"
+			outerClasses="rounded shadow-xl bg-surface border p-3 w-96"
 		>
-			<label class="block text-gray-900">
+			<label class="block text-primary">
 				<div class="flex w-full">
 					<input
 						type="text"

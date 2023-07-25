@@ -166,8 +166,8 @@
 						{#each savedInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-gray-100 transition-all`,
-									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-surface-hover transition-all`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={() => {
 									if (!i.isEditing) {
@@ -189,7 +189,7 @@
 											}}
 											class="w-full"
 										>
-											<input type="text" bind:value={i.name} class="text-gray-700" />
+											<input type="text" bind:value={i.name} class="text-secondary" />
 										</form>
 									{:else}
 										<small
@@ -243,13 +243,13 @@
 											</Button>
 										</div>
 									{:else}
-										<span class="text-xs text-gray-600">By {i.created_by}</span>
+										<span class="text-xs text-tertiary">By {i.created_by}</span>
 									{/if}
 								</div>
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-gray-500">No saved Inputs</div>
+						<div class="text-center text-tertiary">No saved Inputs</div>
 					{/if}
 				</div>
 			</div>
@@ -264,8 +264,8 @@
 						{#each previousInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-gray-100 transition-a`,
-									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={() => {
 									if (selectedInput === i) {
@@ -293,7 +293,7 @@
 										<a
 											target="_blank"
 											href="/runs/{i.id}"
-											class="text-right float-right text-gray-600"
+											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
 											<ExternalLink size={16} />
@@ -303,7 +303,7 @@
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-gray-500">No previous Runs</div>
+						<div class="text-center text-tertiary">No previous Runs</div>
 					{/if}
 				</div>
 			</div>
@@ -320,7 +320,7 @@
 								<ObjectViewer json={selectedInput?.args} />
 							</div>
 						{:else}
-							<div class="text-center text-gray-500">
+							<div class="text-center text-tertiary">
 								Select an Input to preview scripts arguments
 							</div>
 						{/if}

@@ -34,24 +34,26 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<div class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base" style="min-height: 150px;">
+<div
+	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base"
+	style="min-height: 150px;"
+>
 	<JobStatus {job} />
 	<div>
-		<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-			class="mx-2 text-2xs text-gray-600"
-		>
+		<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} />
+		<span class="mx-2 text-2xs text-secondary">
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
 				{#key time}
 					Received job {displayDaysAgo(job.created_at ?? '')}
 				{/key}
-			{/if}</span
-		>
+			{/if}
+		</span>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
-			<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+			<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				{#if job['success'] != undefined}
 					Started: {displayDate(job.started_at ?? '')}
 				{:else}
@@ -63,7 +65,7 @@
 	{/if}
 	{#if job && job['mem_peak']}
 		<div>
-			<Icon class="text-gray-700" data={faMemory} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+			<Icon class="text-secondary" data={faMemory} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span
 			>
 		</div>
@@ -71,18 +73,18 @@
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
+				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 					class="mx-2"
 				>
 					Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 				>
 			{:else}
-				<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 					Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 				>
 			{/if}
 		{:else if job && job.schedule_path}
-			<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+			<Icon class="text-secondary" data={faCalendar} scale={SMALL_ICON_SCALE} />
 			<span
 				>Triggered by the schedule: <button
 					class="break-words text-sm text-blue-600 font-normal"
@@ -97,21 +99,21 @@
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div>
-				<Icon class="text-gray-700" data={faScroll} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+				<Icon class="text-secondary" data={faScroll} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
 		{/if}
 
 		<div>
-			<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+			<Icon class="text-secondary" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				By {job.created_by}
 				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}but
 					permissioned as {job.permissioned_as}{/if}
 			</span>
 		</div>
 	</div>
-	<div class="text-gray-700 text-2xs pt-2">
+	<div class="text-secondary text-2xs pt-2">
 		run id: <a href={`/run/${job.id}?workspace=${job.workspace_id}`}>{job.id}</a>
 	</div>
 </div>

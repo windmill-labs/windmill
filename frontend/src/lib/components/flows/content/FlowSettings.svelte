@@ -41,7 +41,7 @@
 							<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="flow" kind="flow" />
 
 							<label class="block my-4">
-								<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
+								<span class="text-secondary text-sm">Summary <Required required={false} /></span>
 								<input
 									type="text"
 									bind:value={$flowStore.summary}
@@ -51,7 +51,7 @@
 							</label>
 
 							<label class="block my-4" for="inp">
-								<span class="text-gray-700 text-sm">
+								<span class="text-secondary text-sm">
 									Description
 									<Required required={false} />
 									<textarea
@@ -66,7 +66,7 @@
 								</span>
 							</label>
 							<Slider text="How to trigger flows?">
-								<div class="text-sm text-gray-600 border p-4 mb-20">
+								<div class="text-sm text-tertiary border p-4 mb-20">
 									On-demand:
 									<ul class="pt-4">
 										<li>
@@ -112,7 +112,7 @@
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
-														<span class="text-gray-700 ml-2">
+														<span class="text-secondary ml-2">
 															<Icon data={faClipboard} />
 														</span>
 													</a>
@@ -128,7 +128,7 @@
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{syncedUrl}
-														<span class="text-gray-700 ml-2">
+														<span class="text-secondary ml-2">
 															<Icon data={faClipboard} />
 														</span>
 													</a>

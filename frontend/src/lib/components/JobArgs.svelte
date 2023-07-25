@@ -46,7 +46,7 @@ ${Object.entries(args)
 </script>
 
 <div class="relative">
-	<div class="text-gray-500 text-xs absolute top-8 right-0">
+	<div class="text-tertiary text-xs absolute top-8 right-0">
 		<button
 			on:click={() => {
 				jsonStr = JSON.stringify(args, null, 4)
@@ -68,7 +68,7 @@ ${Object.entries(args)
 					</tr>
 				{/each}
 			{:else if args}
-				<tr><div class="text-gray-600 pt-2 pl-1 text-sm">No arguments</div></tr>
+				<tr><div class="text-secondary pt-2 pl-1 text-sm">No arguments</div></tr>
 			{:else}
 				<tr>
 					<td>
@@ -88,7 +88,7 @@ ${Object.entries(args)
 		<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
 			<svelte:fragment slot="actions">
 				<a
-					class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+					class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-surface-hover rounded-lg"
 					download="windmill-args.json"
 					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}"
 					>Download <Download size={14} /></a
@@ -101,7 +101,7 @@ ${Object.entries(args)
 				</Button>
 			</svelte:fragment>
 			{#if jsonStr.length > 100000}
-				<div class="text-sm mb-2 text-gray-600">
+				<div class="text-sm mb-2 text-tertiary">
 					<a
 						download="windmill-args.json"
 						href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a

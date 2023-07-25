@@ -118,7 +118,7 @@
 
 	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
-			<p class="text-sm text-gray-600 mt-2">
+			<p class="text-sm text-tertiary mt-2">
 				You are not a member of any workspace yet. Accept an invitation or create your own
 				workspace.
 			</p>
@@ -126,7 +126,7 @@
 		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
 			<label class="block pb-2">
 				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300
+					class="block w-full mx-auto py-1 px-2 rounded-md border
 				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
 						workspaceStore.set(workspace.id)
@@ -173,11 +173,11 @@
 
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 	{#if invites.length == 0}
-		<p class="text-sm text-gray-500 mt-2"> You don't have new invites at the moment. </p>
+		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
 	{#each invites as invite}
 		<div
-			class="w-full mx-auto py-1 px-2 rounded-md border border-gray-300 shadow-sm
+			class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
 			text-sm mt-1 flex flex-row justify-between items-center"
 		>
 			<div class="grow">
@@ -241,7 +241,7 @@
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
 	>
 		<h1 class="text-center mb-2">Select a workspace</h1>
-		<p class="text-center font-medium text-gray-600 text-xs mb-10">
+		<p class="text-center font-medium text-tertiary text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
 	</div>

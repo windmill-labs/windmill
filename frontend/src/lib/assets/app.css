@@ -4,6 +4,13 @@
 @tailwind utilities;
 
 @layer base {
+
+	*,
+  ::before,
+  ::after {
+    @apply dark:border-gray-600;
+  }
+
 	@font-face {
 		font-family: 'Inter';
 		src: url('/Inter-Variable.ttf');

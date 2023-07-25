@@ -45,7 +45,7 @@
 							>
 								<div
 									class={classNames(
-										'text-xs flex items-center gap-2 flex-row-2',
+										'text-xs flex items-center gap-2 flex-row-2 ',
 										color === 'red' ? 'text-red-500' : ''
 									)}
 								>

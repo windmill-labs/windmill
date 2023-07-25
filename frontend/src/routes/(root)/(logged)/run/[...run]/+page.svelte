@@ -266,14 +266,14 @@
 						/>
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
 						<Icon
-							class="text-gray-700"
+							class="text-secondary"
 							data={faCalendar}
 							scale={iconScale}
 							label="Job is scheduled for a later time"
 						/>
 					{:else if job && 'running' in job && job.scheduled_for}
 						<Icon
-							class="text-gray-500"
+							class="text-tertiary"
 							data={faHourglassHalf}
 							scale={iconScale}
 							label="Job is waiting for an executor"

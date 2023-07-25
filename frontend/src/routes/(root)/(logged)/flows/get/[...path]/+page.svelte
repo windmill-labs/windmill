@@ -220,12 +220,12 @@
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60} minSize={20}>
-						<div class="p-8 w-full max-w-3xl mx-auto gap-2">
+						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
 							<div class="flex flex-col gap-0.5">
 								{#if !emptyString(flow.summary)}
 									<span class="text-lg font-semibold">{flow.path}</span>
 								{/if}
-								<span class="text-sm text-gray-600">
+								<span class="text-sm text-tertiary">
 									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
 								</span>
 
@@ -256,7 +256,9 @@
 						</div>
 					</Pane>
 					<Pane size={40} minSize={20}>
-						<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+						<div class="!bg-surface-secondary h-full">
+							<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+						</div>
 					</Pane>
 				</Splitpanes>
 			</SplitPanesWrapper>

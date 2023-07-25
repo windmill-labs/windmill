@@ -208,24 +208,20 @@
 							<ToggleButton
 								tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 								light
-								position="left"
 								value="static"
 								size="xs2"
-								small
 								label={'${}'}
 							/>
 						{:else}
-							<ToggleButton small label="Static" position="left" value="static" size="xs2" />
+							<ToggleButton small label="Static" value="static" />
 						{/if}
 
 						<ToggleButton
 							small
 							light
 							tooltip="Javascript expression ('flow_input' or 'results')."
-							position="right"
 							value="javascript"
 							icon={Code}
-							size="xs2"
 						/>
 					</ToggleButtonGroup>
 				</div>

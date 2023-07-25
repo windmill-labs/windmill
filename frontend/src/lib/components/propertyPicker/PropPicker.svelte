@@ -82,11 +82,14 @@
 		<input
 			type="text"
 			bind:value={search}
-			class="bg-gray-50 mt-2 border border-gray-300 text-gray-900 text-sm rounded-lg block mb-2 w-full"
+			class="bg-gray-50 mt-2 border border-gray-300 text-primary text-sm rounded-lg block mb-2 w-full"
 			placeholder="Search prop..."
 		/>
 	</div>
-	<div class="overflow-y-auto px-2 grow" class:bg-gray-100={!$propPickerConfig && !notSelectable}>
+	<div
+		class="overflow-y-auto px-2 pt-2 grow"
+		class:bg-surface-secondary={!$propPickerConfig && !notSelectable}
+	>
 		<div class="flex justify-between items-center space-x-1">
 			<span class="font-bold text-sm">Flow Input</span>
 			<div class="flex space-x-2 items-center" />

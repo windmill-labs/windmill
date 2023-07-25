@@ -45,7 +45,7 @@
 	}}
 	bind:this={button}
 	title="Edit ID"
-	class="flex items-center px-1 rounded-sm bg-gray-100 hover:text-black text-gray-600"
+	class="flex items-center px-1 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
 	aria-label="Open component ID editor"
 >
 	<Pencil size={14} />
@@ -55,11 +55,11 @@
 	options={{ placement: 'top-start' }}
 	transition={fade}
 	wrapperClasses="!z-[1002]"
-	outerClasses="rounded shadow-xl bg-white border p-3"
+	outerClasses="rounded shadow-xl bg-surface border p-3"
 	on:close={() => (value = id)}
 >
-	<label class="block text-gray-900">
-		<div class="pb-1 text-sm text-gray-600">Component ID</div>
+	<label class="block text-primary">
+		<div class="pb-1 text-sm text-secondary">Component ID</div>
 		<div class="flex w-full">
 			<input
 				type="text"

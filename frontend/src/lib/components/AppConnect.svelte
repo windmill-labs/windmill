@@ -323,7 +323,7 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={key === resource_type ? 'blue' : 'dark'}
+							color={key === resource_type ? 'blue' : 'light'}
 							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
 								manual = false
@@ -387,7 +387,7 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={key === resource_type ? 'blue' : 'dark'}
+							color={key === resource_type ? 'blue' : 'light'}
 							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
 								manual = true
@@ -453,7 +453,7 @@
 				kind="resource"
 			/>
 			{#if apiTokenApps[resource_type] || !manual}
-				<ul class="mt-10 bg-white">
+				<ul class="mt-10">
 					<li>
 						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}
 						<span class="font-bold">{truncateRev(value, 5, '*****')}</span>

@@ -117,7 +117,7 @@
 						</span>
 						<div class="flex flex-col">
 							<span class="text-sm text-gray-900 truncate">{user}</span>
-							<span class="text-xs text-gray-500 truncate">{showActivity(url)}</span>
+							<span class="text-xs text-tertiary truncate">{showActivity(url)}</span>
 						</div>
 					</div>
 				{/each}

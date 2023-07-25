@@ -178,7 +178,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-[#2e3440] bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					'fixed inset-0 bg-[#1e232e] bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -186,7 +186,7 @@
 			<div class="fixed inset-0 flex z-40">
 				<div
 					class={classNames(
-						'relative flex-1 flex flex-col max-w-min w-full bg-white transition ease-in-out duration-300 transform',
+						'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
 						menuOpen ? 'translate-x-0' : '-translate-x-full'
 					)}
 				>
@@ -216,7 +216,7 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-[#2e3440] h-full">
+					<div class="bg-[#1e232e] h-full !dark">
 						<div
 							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
 							class:w-40={!isCollapsed}
@@ -247,7 +247,7 @@
 				devOnly ? '!hidden' : ''
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]">
+			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#1e232e] !dark">
 				<button
 					on:click={() => {
 						goto('/')
@@ -294,7 +294,7 @@
 		</div>
 		<div
 			class={classNames(
-				'w-full flex flex-col flex-1',
+				'w-full flex flex-col flex-1 h-full',
 				devOnly ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40'
 			)}
 		>
@@ -311,7 +311,7 @@
 							on:click={() => {
 								menuOpen = true
 							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 						>
 							<svg
 								class="h-6 w-6"

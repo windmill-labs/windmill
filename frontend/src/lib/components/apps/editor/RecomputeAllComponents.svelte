@@ -121,7 +121,7 @@
 	<ButtonDropdown hasPadding={true}>
 		<svelte:fragment slot="label">
 			<span
-				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-gray-600')}
+				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-tertiary')}
 			>
 				{interval ? `${interval / 1000}s` : 'once'}
 			</span>
@@ -139,7 +139,7 @@
 				>
 					<div
 						class={classNames(
-							'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
 						)}
 					>
 						{#if index === 0}

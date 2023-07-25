@@ -35,7 +35,7 @@
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<a
-				class="text-sm text-gray-600 mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
+				class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-surface-hover rounded-lg"
 				download="windmill-logs.json"
 				href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}">Download <Download size={14} /></a
 			>
@@ -44,7 +44,7 @@
 			</Button>
 		</svelte:fragment>
 		<div>
-			<pre class="bg-gray-50 text-xs w-full p-2"
+			<pre class="bg-surface-secondary text-secondary text-xs w-full p-2"
 				>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
@@ -65,12 +65,12 @@
 		{#if isLoading}
 			<Loader2 class="animate-spin absolute top-2 left-2" />
 		{:else if duration}
-			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-2"
+			<span class="absolute text-xs text-tertiary dark:text-gray-400 top-2 left-2"
 				>took {duration}ms</span
 			>
 		{/if}
 		{#if mem}
-			<span class="absolute text-xs text-gray-500 dark:text-gray-400 top-2 left-36"
+			<span class="absolute text-xs text-tertiary dark:text-gray-400 top-2 left-36"
 				>mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}

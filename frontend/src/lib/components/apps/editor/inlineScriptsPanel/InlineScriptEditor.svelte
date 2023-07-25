@@ -176,7 +176,7 @@
 					<Button
 						size="xs"
 						color="light"
-						btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+						btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}

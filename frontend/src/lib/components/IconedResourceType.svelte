@@ -16,7 +16,7 @@
 		{name}
 	{/if}
 	{#if iconComponent}
-		<span class="text-gray-700 grayscale">
+		<span class="text-secondary grayscale">
 			<svelte:component this={iconComponent} {height} {width} />
 		</span>
 	{:else}
