@@ -16,7 +16,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Pen, X } from 'lucide-svelte'
+	import { Loader2, Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
 	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
@@ -412,9 +412,9 @@
 					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
 				></h2
 			>
-			<div class="max-w-sm">
-				{#if $workerTags}
-					{#if $workerTags?.length > 0}
+			{#if $workerTags}
+				{#if $workerTags?.length > 0}
+					<div class="max-w-sm">
 						<select
 							bind:value={script.tag}
 							on:change={(e) => {
@@ -432,13 +432,18 @@
 								<option value={tag}>{tag}</option>
 							{/each}
 						</select>
-					{:else}
-						<div class="text-sm text-secondary italic mb-2">
-							No custom worker group defined on this instance
-						</div>
-					{/if}
+					</div>
+				{:else}
+					<div class="text-sm text-gray-600 italic mb-2">
+						No custom worker group defined on this instance. See <a
+							href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+							target="_blank">documentation</a
+						>
+					</div>
 				{/if}
-			</div>
+			{:else}
+				<Loader2 class="animate-spin" />
+			{/if}
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4">
 					Custom env variables

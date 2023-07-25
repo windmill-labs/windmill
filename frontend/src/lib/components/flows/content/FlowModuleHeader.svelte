@@ -11,7 +11,8 @@
 	import { getLatestHashForScript } from '$lib/scripts'
 
 	export let module: FlowModule
-	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { scriptEditorDrawer, flowStore, selectedId } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -143,26 +144,36 @@
 		{#if $workerTags}
 			{#if $workerTags?.length > 0}
 				<div class="w-40">
-					<select
-						placeholder="Worker group"
-						bind:value={module.value.tag}
-						on:change={(e) => {
-							if (module.value.type === 'rawscript') {
-								if (module.value.tag == '') {
-									module.value.tag = undefined
+					{#if $flowStore.tag == undefined}
+						<select
+							placeholder="Worker group"
+							bind:value={module.value.tag}
+							on:change={(e) => {
+								if (module.value.type === 'rawscript') {
+									if (module.value.tag == '') {
+										module.value.tag = undefined
+									}
 								}
-							}
-						}}
-					>
-						{#if module.value.tag}
-							<option value="">reset to default</option>
-						{:else}
-							<option value="" disabled selected>Worker Group</option>
-						{/if}
-						{#each $workerTags ?? [] as tag (tag)}
-							<option value={tag}>{tag}</option>
-						{/each}
-					</select>
+							}}
+						>
+							{#if module.value.tag}
+								<option value="">reset to default</option>
+							{:else}
+								<option value="" disabled selected>Worker Group</option>
+							{/if}
+							{#each $workerTags ?? [] as tag (tag)}
+								<option value={tag}>{tag}</option>
+							{/each}
+						</select>
+					{:else}
+						<button
+							title="Worker Group is defined at the flow level"
+							class="w-full text-left items-center font-normal p-1 border text-xs rounded"
+							on:click={() => ($selectedId = 'settings-worker-group')}
+						>
+							Flow's WG: {$flowStore.tag}
+						</button>
+					{/if}
 				</div>
 			{/if}
 		{/if}

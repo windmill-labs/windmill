@@ -4,6 +4,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService, type WorkerPing } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy } from '$lib/utils'
@@ -15,7 +16,11 @@
 	let intervalId: NodeJS.Timer | undefined
 
 	$: filteredWorkers = (workers ?? []).filter((x) => (x.last_ping ?? 0) < 300)
-	$: groupedWorkers = groupBy(filteredWorkers, (wp: WorkerPing) => wp.worker_instance)
+	$: groupedWorkers = groupBy(
+		filteredWorkers,
+		(wp: WorkerPing) => wp.worker_instance,
+		(wp: WorkerPing) => wp.worker
+	)
 
 	let timeSinceLastPing = 0
 
@@ -68,6 +73,12 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>Worker</th>
+					<th
+						>Custom Tags <Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+							>If defined, the workers only pull jobs with the same corresponding tag</Tooltip
+						></th
+					>
 					<th>Last ping</th>
 					<th>Worker start</th>
 					<th>Nb of jobs executed</th>
@@ -75,9 +86,10 @@
 				</tr>
 				<tbody slot="body">
 					{#if workers}
-						{#each workers as { worker, last_ping, started_at, jobs_executed }}
+						{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
 							<tr>
 								<td class="py-1">{worker}</td>
+								<td class="py-1">{custom_tags?.join(', ') ?? ''}</td>
 								<td class="py-1"
 									>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</td
 								>
