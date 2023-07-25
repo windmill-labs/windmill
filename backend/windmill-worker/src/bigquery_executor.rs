@@ -136,7 +136,6 @@ pub async fn do_bigquery(
             })
         };
 
-        tracing::info!("Bigquery value: {:?}", bigquery_v);
         statement_values.push(bigquery_v);
     }
 
@@ -161,8 +160,6 @@ pub async fn do_bigquery(
         .send()
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    tracing::info!("Response: {:?}", response);
 
     match response.error_for_status_ref() {
         Ok(_) => {
@@ -253,7 +250,6 @@ fn convert_val(arg_t: String, arg_v: Value) -> Result<Value, Error> {
                 v = json!(v.to_string());
             }
 
-            tracing::info!("Bigquery value: {:?}", v);
             Ok(json!({
                     "value": v,
                 }
@@ -264,7 +260,6 @@ fn convert_val(arg_t: String, arg_v: Value) -> Result<Value, Error> {
 
 fn parse_val(value: &Value, typ: &str, schema: &BigqueryResponseSchemaField) -> Value {
     let str_value = value.as_str().unwrap_or("").to_string();
-    tracing::info!("Parse val: {:?} {:?}", value, typ);
 
     if value.is_array() {
         return Value::Array(
