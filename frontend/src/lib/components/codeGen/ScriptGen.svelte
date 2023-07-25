@@ -8,11 +8,12 @@
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
-	import { existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
 	import type SimpleEditor from '../SimpleEditor.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -49,7 +50,8 @@
 			} else {
 				generatedCode = await generateScript({
 					language: lang,
-					description: funcDesc
+					description: funcDesc,
+					dbSchema: lang === 'postgresql' ? $dbSchema : undefined
 				})
 			}
 			funcDesc = ''
@@ -221,6 +223,14 @@
 						<Icon data={faMagicWandSparkles} />
 					</Button>
 				</div>
+				{#if lang === 'postgresql' && $dbSchema}
+					<p class="text-sm mt-2">
+						Will take into account the DB schema
+						<Tooltip>
+							In order to better generate the script, we pass the selected DB schema to GPT-4.
+						</Tooltip>
+					</p>
+				{/if}
 			</label>
 		</Popup>
 	{/if}

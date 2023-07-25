@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.134.1
+  version: 1.136.0
   title: Windmill API
 
   contact:
@@ -1126,7 +1126,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /w/{workspace}/workspaces/edit_openai_resource_path:
     post:
       summary: edit OpenAI resource path
@@ -4230,7 +4230,7 @@ paths:
             type: string
       responses:
         "201":
-          description: job resumed
+          description: job canceled
           content:
             text/plain:
               schema:
@@ -4266,7 +4266,7 @@ paths:
               type: object
       responses:
         "201":
-          description: job resumed
+          description: job canceled
           content:
             text/plain:
               schema:
@@ -4529,6 +4529,38 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ScheduleWJobs"
+
+  /groups/list:
+    get:
+      summary: list instance groups
+      operationId: listInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: instance group list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstanceGroup"
+
+  /groups/get/{name}:
+    get:
+      summary: get instance group
+      operationId: getInstanceGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: instance group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceGroup"
 
   /w/{workspace}/groups/list:
     get:
@@ -6637,6 +6669,18 @@ components:
           type: object
           additionalProperties:
             type: boolean
+      required:
+        - name
+
+    InstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
       required:
         - name
 

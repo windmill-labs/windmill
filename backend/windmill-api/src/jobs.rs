@@ -1292,55 +1292,54 @@ where
     ) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
-        if let Some(content_type) = content_type {
-            if content_type.starts_with("application/json") {
-                if req
-                    .uri()
-                    .query()
-                    .map(|x| x.contains("raw=true"))
-                    .unwrap_or(false)
-                {
-                    let bytes = Bytes::from_request(req, _state)
-                        .await
-                        .map_err(IntoResponse::into_response)?;
-                    let str = String::from_utf8(bytes.to_vec()).map_err(|e| {
-                        Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
+        if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
+            if req
+                .uri()
+                .query()
+                .map(|x| x.contains("raw=true"))
+                .unwrap_or(false)
+            {
+                let bytes = Bytes::from_request(req, _state)
+                    .await
+                    .map_err(IntoResponse::into_response)?;
+                let str = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                    Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
+                })?;
+                let payload =
+                    serde_json::from_str::<Option<serde_json::Value>>(&str).map_err(|e| {
+                        Error::BadRequest(format!("invalid json: {}", e)).into_response()
                     })?;
-                    let payload =
-                        serde_json::from_str::<Option<serde_json::Value>>(&str).map_err(|e| {
-                            Error::BadRequest(format!("invalid json: {}", e)).into_response()
-                        })?;
-                    return match payload {
-                        Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), Some(str))),
-                        None => Ok(Self(None, Some(str))),
-                        Some(x) => {
-                            let mut map = serde_json::Map::new();
-                            map.insert("body".to_string(), x);
-                            Ok(Self(Some(map), Some(str)))
-                        }
-                    };
-                } else {
-                    let Json(payload): Json<Option<serde_json::Value>> =
-                        req.extract().await.map_err(IntoResponse::into_response)?;
-                    return match payload {
-                        Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), None)),
-                        None => Ok(Self(None, None)),
-                        Some(x) => {
-                            let mut map = serde_json::Map::new();
-                            map.insert("body".to_string(), x);
-                            Ok(Self(Some(map), None))
-                        }
-                    };
-                }
+                return match payload {
+                    Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), Some(str))),
+                    None => Ok(Self(None, Some(str))),
+                    Some(x) => {
+                        let mut map = serde_json::Map::new();
+                        map.insert("body".to_string(), x);
+                        Ok(Self(Some(map), Some(str)))
+                    }
+                };
+            } else {
+                let Json(payload): Json<Option<serde_json::Value>> =
+                    req.extract().await.map_err(IntoResponse::into_response)?;
+                return match payload {
+                    Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), None)),
+                    None => Ok(Self(None, None)),
+                    Some(x) => {
+                        let mut map = serde_json::Map::new();
+                        map.insert("body".to_string(), x);
+                        Ok(Self(Some(map), None))
+                    }
+                };
             }
-
-            if content_type.starts_with("application/x-www-form-urlencoded") {
-                let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-                return Ok(Self(Some(payload), None));
-            }
+        } else if content_type
+            .unwrap()
+            .starts_with("application/x-www-form-urlencoded")
+        {
+            let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
+            return Ok(Self(Some(payload), None));
+        } else {
+            Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
-
-        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
     }
 }
 pub struct QueryOrBody<D>(pub Option<D>);

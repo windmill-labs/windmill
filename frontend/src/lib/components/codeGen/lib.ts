@@ -59,6 +59,7 @@ interface BaseOptions {
 
 interface ScriptGenerationOptions extends BaseOptions {
 	description: string
+	dbSchema?: object
 }
 
 interface EditScriptOptions extends ScriptGenerationOptions {
@@ -97,6 +98,28 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		const resourceTypes = await ResourceService.listResourceType({ workspace })
 		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
+	}
+
+	if (scriptOptions.language === 'postgresql' && scriptOptions.dbSchema) {
+		const { dbSchema } = scriptOptions
+		const smallerSchema = {}
+		for (const schemaKey in dbSchema) {
+			for (const tableKey in dbSchema[schemaKey]) {
+				smallerSchema[tableKey] = []
+				for (const colKey in dbSchema[schemaKey][tableKey]) {
+					const col = dbSchema[schemaKey][tableKey][colKey]
+					const p = [colKey, col.type, col.required]
+					if (col.default) {
+						p.push(col.default)
+					}
+					smallerSchema[tableKey].push(p)
+				}
+			}
+		}
+		prompt =
+			prompt +
+			"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
+			JSON.stringify(smallerSchema)
 	}
 
 	const completion = await openai.chat.completions.create({

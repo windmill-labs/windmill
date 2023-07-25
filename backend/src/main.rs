@@ -160,8 +160,6 @@ Windmill Community Edition {GIT_VERSION}
         "PIP_LOCAL_DEPENDENCIES",
         "ADDITIONAL_PYTHON_PATHS",
         "INCLUDE_HEADERS",
-        "WHITELIST_WORKSPACES",
-        "BLACKLIST_WORKSPACES",
         "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
         "GLOBAL_CACHE_INTERVAL",
@@ -180,6 +178,12 @@ Windmill Community Edition {GIT_VERSION}
         "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
         "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     ]);
+
+    if std::env::var("WHITELIST_WORKSPACES").is_ok()
+        || std::env::var("BLACKLIST_WORKSPACES").is_ok()
+    {
+        panic!("WHITELIST_WORKSPACES and BLACKLIST_WORKSPACES have been removed, please use Worker Groups instead");
+    }
 
     tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
     if let Some(ref smtp) = *SMTP_CLIENT {

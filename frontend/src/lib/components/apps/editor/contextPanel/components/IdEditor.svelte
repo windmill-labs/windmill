@@ -60,7 +60,8 @@
 				class="!w-auto grow"
 				bind:this={input}
 				on:click|stopPropagation={() => {}}
-				on:keypress={({ key }) => {
+				on:keydown|stopPropagation
+				on:keypress|stopPropagation={({ key }) => {
 					if (key === 'Enter') save()
 				}}
 			/>

@@ -56,6 +56,7 @@
 
 	// Test args input
 	let args: Record<string, any> = initialArgs
+
 	let isValid: boolean = true
 
 	// Test

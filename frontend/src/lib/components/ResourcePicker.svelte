@@ -9,6 +9,7 @@
 	import AppConnect from './AppConnect.svelte'
 	import { Button } from './common'
 	import ResourceEditor from './ResourceEditor.svelte'
+	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -117,6 +118,7 @@
 		}}><Icon scale={0.8} data={faRotateRight} /></Button
 	>
 </div>
+<DbSchemaExplorer {resourceType} pg={value} />
 
 <style>
 	:global(.svelte-select-list) {
