@@ -66,6 +66,7 @@
 	}
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['MySQL', Script.language.MYSQL])
+	langs.push(['BigQuery', Script.language.BIGQUERY])
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}

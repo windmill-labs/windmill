@@ -9,7 +9,8 @@ import init, {
 	parse_go,
 	parse_python,
 	parse_sql,
-	parse_mysql
+	parse_mysql,
+	parse_bigquery
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 
@@ -48,6 +49,12 @@ export async function inferArgs(
 		} else if (language == 'mysql') {
 			inferedSchema = JSON.parse(parse_mysql(code))
 			inferedSchema.args = [{ name: 'database', typ: { resource: 'mysql' } }, ...inferedSchema.args]
+		} else if (language == 'bigquery') {
+			inferedSchema = JSON.parse(parse_bigquery(code))
+			inferedSchema.args = [
+				{ name: 'database', typ: { resource: 'gcp_service_account' } },
+				...inferedSchema.args
+			]
 		} else if (language == 'go') {
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {

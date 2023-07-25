@@ -194,6 +194,7 @@ components:
             - bash
             - postgresql
             - mysql
+            - bigquery
             - graphql
             - nativets
         path:

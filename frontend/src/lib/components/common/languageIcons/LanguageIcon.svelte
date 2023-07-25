@@ -10,6 +10,7 @@
 	import RestIcon from '$lib/components/icons/RestIcon.svelte'
 	import { Script } from '$lib/gen'
 	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
+	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -46,6 +47,7 @@
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
+		bigquery: BigQueryIcon,
 		javascript: JavaScript,
 		fetch: FetchIcon,
 		docker: DockerIcon,

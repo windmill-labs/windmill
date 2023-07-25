@@ -63,6 +63,7 @@ postgres-native-tls.workspace = true
 native-tls.workspace = true
 mysql_async.workspace = true
 base64.workspace = true
+gcp_auth.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

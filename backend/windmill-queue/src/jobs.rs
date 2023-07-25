@@ -77,6 +77,7 @@ lazy_static::lazy_static! {
             "graphql".to_string(),
             "bun".to_string(),
             "postgresql".to_string(),
+            "bigquery".to_string(),
             "dependency".to_string(),
             "flow".to_string(),
             "hub".to_string(),

@@ -5641,7 +5641,7 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+            [python3, deno, go, bash, postgresql, mysql, bigquery, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5706,7 +5706,7 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+            [python3, deno, go, bash, postgresql, mysql, bigquery, graphql, nativets, bun]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5877,7 +5877,7 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+            [python3, deno, go, bash, postgresql, mysql, bigquery, graphql, nativets, bun]
         email:
           type: string
         visible_to_owner:
@@ -5968,7 +5968,7 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+            [python3, deno, go, bash, postgresql, mysql, bigquery, graphql, nativets, bun]
         is_skipped:
           type: boolean
         email:
@@ -6397,7 +6397,7 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, graphql, nativets, bun]
+            [python3, deno, go, bash, postgresql, mysql, bigquery, graphql, nativets, bun]
         tag:
           type: string
         kind:

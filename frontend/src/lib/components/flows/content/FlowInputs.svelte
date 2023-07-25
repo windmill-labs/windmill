@@ -174,6 +174,17 @@
 								})
 							}}
 						/>
+						<FlowScriptPicker
+							label="BigQuery"
+							lang={Script.language.BIGQUERY}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.BIGQUERY,
+									kind,
+									subkind: 'flow'
+								})
+							}}
+						/>
 
 						<FlowScriptPicker
 							label={`Docker`}
