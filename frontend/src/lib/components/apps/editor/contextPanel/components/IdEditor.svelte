@@ -4,7 +4,7 @@
 	import { forbiddenIds } from '$lib/components/flows/idUtils'
 	import { ArrowRight, Pencil } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { fade, slide } from 'svelte/transition'
+	import { slide } from 'svelte/transition'
 	import { Button, Popup } from '../../../../common'
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -13,7 +13,6 @@
 	const dispatch = createEventDispatcher()
 	const regex = /^[a-zA-Z][a-zA-Z0-9]*$/
 	let value = id
-	let button: HTMLButtonElement
 	let input: HTMLInputElement
 	let error = ''
 
@@ -39,25 +38,19 @@
 	}
 </script>
 
-<button
-	on:click|stopPropagation={() => {
-		$selectedComponent = [id]
-	}}
-	bind:this={button}
-	title="Edit ID"
-	class="flex items-center px-1 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
-	aria-label="Open component ID editor"
->
-	<Pencil size={14} />
-</button>
-<Popup
-	ref={button}
-	options={{ placement: 'top-start' }}
-	transition={fade}
-	wrapperClasses="!z-[1002]"
-	outerClasses="rounded shadow-xl bg-surface border p-3"
-	on:close={() => (value = id)}
->
+<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+	<svelte:fragment slot="button">
+		<button
+			on:click={() => {
+				$selectedComponent = [id]
+			}}
+			title="Edit ID"
+			class="flex items-center px-1 rounded-sm bg-surface-secondary hover:text-primary text-secondary"
+			aria-label="Open component ID editor"
+		>
+			<Pencil size={14} />
+		</button>
+	</svelte:fragment>
 	<label class="block text-primary">
 		<div class="pb-1 text-sm text-secondary">Component ID</div>
 		<div class="flex w-full">

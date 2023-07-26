@@ -315,16 +315,18 @@
 					</div>
 				</div>
 				<div class="relative w-full">
-					<span class="text-xs absolute -top-4">Max datetime</span>
-					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
-					<CalendarPicker
-						date={maxTs}
-						label="Max datetimes"
-						on:change={async ({ detail }) => {
-							maxTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
-						}}
-					/>
+					<div class="flex gap-1 relative w-full">
+						<span class="text-xs absolute -top-4">Max datetime</span>
+						<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+						<CalendarPicker
+							date={maxTs}
+							label="Max datetimes"
+							on:change={async ({ detail }) => {
+								maxTs = new Date(detail).toISOString()
+								jobs = await fetchJobs(maxTs, minTs)
+							}}
+						/>
+					</div>
 				</div>
 				<Button
 					color="light"

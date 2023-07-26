@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ArrowRight, Calendar } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import { Button, Popup } from '..'
 
 	export let date: string | undefined
@@ -9,7 +8,6 @@
 
 	const dispatch = createEventDispatcher()
 	let value = date
-	let button: HTMLButtonElement
 	let input: HTMLInputElement
 
 	$: if (date && input) {
@@ -21,37 +19,37 @@
 		input.blur()
 	}
 
-	function close() {
-		const elem = document.activeElement as HTMLElement
-		if (elem.blur) {
-			elem.blur()
+	function bg(e: KeyboardEvent) {
+		if (e.key === 'Tab') {
+			e.stopPropagation()
 		}
 	}
 </script>
 
-<button
-	bind:this={button}
-	title="Open calendar picker"
-	class="absolute bottom-1 right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
-	aria-label="Open calendar picker"
-	on:click={() => {
-		input.focus()
-	}}
->
-	<Calendar size={14} />
-</button>
-<Popup
-	ref={button}
-	options={{ placement: 'top-start' }}
-	transition={fade}
-	wrapperClasses="!z-[1002]"
-	outerClasses="rounded shadow-xl bg-surface border p-3"
-	closeOn={[]}
->
+<Popup floatingConfig={{ placement: 'top-end', strategy: 'absolute' }} let:close>
+	<svelte:fragment slot="button">
+		<button
+			title="Open calendar picker"
+			class="absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer"
+			aria-label="Open calendar picker"
+			on:click={() => {
+				input?.focus()
+			}}
+		>
+			<Calendar size={14} />
+		</button>
+	</svelte:fragment>
+
 	<label class="block text-primary">
-		<div class="pb-1 text-sm text-tertiary">{label}</div>
+		<div class="pb-1 text-sm text-secondary">{label}</div>
 		<div class="flex w-full">
-			<input type="datetime-local" bind:value class="!w-auto grow" bind:this={input} />
+			<input
+				type="datetime-local"
+				bind:value
+				class="!w-auto grow"
+				bind:this={input}
+				on:keydown={bg}
+			/>
 			<Button
 				size="xs"
 				color="dark"
@@ -60,7 +58,7 @@
 				aria-label="Save ID"
 				on:click={() => {
 					save()
-					close()
+					close(null)
 				}}
 			>
 				<ArrowRight size={18} />
