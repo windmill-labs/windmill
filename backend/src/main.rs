@@ -23,8 +23,8 @@ use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
 use windmill_common::{utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR,
-    GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR,
-    TAR_PIP_TMP_CACHE_DIR,
+    GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -340,6 +340,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     }
 
     for x in [
+        LOCK_CACHE_DIR,
         PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         BUN_CACHE_DIR,
