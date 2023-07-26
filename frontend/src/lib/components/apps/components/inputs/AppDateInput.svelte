@@ -21,6 +21,7 @@
 	let minValue: string = ''
 	let maxValue: string = ''
 	let defaultValue: string | undefined = undefined
+	let format: string | undefined = undefined
 
 	let value: string | undefined = undefined
 
@@ -36,7 +37,28 @@
 
 	$: handleDefault(defaultValue)
 
-	$: outputs?.result.set(value)
+	function formatDate(dateString: string, format: string = 'DD.MM.YYYY') {
+		const date = new Date(dateString)
+
+		if (format === '') {
+			format = 'DD.MM.YYYY'
+		}
+
+		const padZero = (num: number) => (num < 10 ? '0' + num : num.toString())
+
+		const formatTokens = {
+			YYYY: date.getFullYear(),
+			MM: padZero(date.getMonth() + 1),
+			DD: padZero(date.getDate()),
+			hh: padZero(date.getHours()),
+			mm: padZero(date.getMinutes()),
+			ss: padZero(date.getSeconds())
+		}
+
+		return format.replace(/YYYY|MM|DD|hh|mm|ss/g, (match) => formatTokens[match])
+	}
+
+	$: value && outputs?.result.set(formatDate(value, format))
 
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
@@ -48,6 +70,7 @@
 <InputValue {id} input={configuration.minDate} bind:value={minValue} />
 <InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+<InputValue {id} input={configuration.outputFormat} bind:value={format} />
 
 <InitializeComponent {id} />
 
