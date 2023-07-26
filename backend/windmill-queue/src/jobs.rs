@@ -121,8 +121,6 @@ const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "enterprise")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 
-const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
-
 #[async_recursion]
 pub async fn cancel_job<'c: 'async_recursion>(
     username: &str,
@@ -169,7 +167,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
         }
     }
     if let Some(mut rsmq) = rsmq.clone() {
-        rsmq.change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
+        rsmq.change_message_visibility(&job_running.tag, &id.to_string(), 0)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
@@ -806,6 +804,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 rsmq.send_message(
                     job_uuid.to_bytes_le().to_vec(),
                     Option::Some(estimated_next_schedule_timestamp),
+                    _requeued_job.tag,
                 );
             }
             tx.commit().await?;
@@ -837,10 +836,17 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 ) -> windmill_common::error::Result<(Option<QueuedJob>, QueueTransaction<'c, R>)> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
-        let msg = rsmq
-            .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
+
+        // TODO: shuffle this list to have fairness
+        let mut all_tags = ACCEPTED_TAGS.clone();
+
+        let mut msg: Option<_> = None;
+        while msg.is_none() && !all_tags.is_empty() {
+            msg = rsmq
+                .pop_message::<Vec<u8>>(&all_tags.pop().unwrap())
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+        }
         // println!("3.1: {:?} {rs}", instant.elapsed());
 
         if let Some(msg) = msg {
@@ -1412,7 +1418,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         .await?;
     }
     if let Some(ref mut rsmq) = tx.rsmq {
-        rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o);
+        rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o, tag);
     }
 
     Ok((uuid, tx))

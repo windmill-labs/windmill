@@ -10,6 +10,7 @@ use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
+use crate::workers::ALL_TAGS;
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -149,6 +150,15 @@ pub async fn run_server(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<u16>,
 ) -> anyhow::Result<()> {
+    if let Some(mut rsmq) = rsmq.clone() {
+        for tag in ALL_TAGS.clone() {
+            let r =
+                rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
+            if r.is_ok() {
+                tracing::info!("Redis queue {tag} created");
+            }
+        }
+    }
     let user_db = UserDB::new(db.clone());
 
     let auth_cache = Arc::new(users::AuthCache::new(
