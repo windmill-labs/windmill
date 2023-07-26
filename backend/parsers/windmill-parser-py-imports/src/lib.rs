@@ -49,9 +49,9 @@ lazy_static! {
 
 pub async fn parse_python_imports(
     code: &str,
-    w_id: &str,
-    path: &str,
-    db: &Pool<Postgres>,
+    _w_id: &str,
+    _path: &str,
+    _db: &Pool<Postgres>,
 ) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()

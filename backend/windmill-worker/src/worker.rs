@@ -130,6 +130,7 @@ pub async fn create_token_for_owner(
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
+pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
