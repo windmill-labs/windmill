@@ -72,7 +72,10 @@
 		modalProperty.name = modalProperty.name.trim()
 		if (modalProperty.name.length === 0) {
 			argError = 'Arguments need to have a name'
-		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
+		} else if (
+			Object.keys(schema.properties).includes(modalProperty.name) &&
+			(!editing || (editing && oldArgName && oldArgName !== modalProperty.name))
+		) {
 			argError = 'There is already an argument with this name'
 		} else {
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
