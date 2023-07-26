@@ -393,11 +393,13 @@
 				/></label
 			>
 			<div>
-				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<div class="mb-2 w-full flex flex-row-reverse">
-					<Button on:click={openInferrer} size="sm" color="dark" variant="border">
-						Infer schema from a json value
-					</Button>
+				<div class="flex justify-between w-full items-center">
+					<div class="mb-1 font-semibold text-secondary">Schema</div>
+					<div class="mb-2 w-full flex flex-row-reverse">
+						<Button on:click={openInferrer} size="sm" color="dark" variant="border">
+							Infer schema from a json value
+						</Button>
+					</div>
 				</div>
 				<SchemaEditor bind:schema={newResourceType.schema} />
 			</div>
