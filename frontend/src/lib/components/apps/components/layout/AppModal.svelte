@@ -139,7 +139,7 @@
 							open = false
 						}}
 						style={css?.button?.style}
-						class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 					>
 						<X class="text-tertiary" />
 					</button>

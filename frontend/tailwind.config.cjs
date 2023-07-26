@@ -685,6 +685,12 @@ const config = {
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: '20px !important'
 					}
+				},
+				input: {
+					backgroundColor: theme('colors.surface-secondary') + ' !important'
+				},
+				textarea: {
+					backgroundColor: theme('colors.surface-secondary') + ' !important'
 				}
 			})
 			addComponents({

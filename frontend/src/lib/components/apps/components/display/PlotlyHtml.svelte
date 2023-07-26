@@ -15,7 +15,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['plotlycomponent'].initialData.configuration,
@@ -41,7 +41,13 @@
 	let h: number | undefined = undefined
 	let w: number | undefined = undefined
 
-	$: Plotly && render && result && divEl && h && w && plot()
+	let shouldeUpdate = 1
+
+	darkMode.subscribe(() => {
+		shouldeUpdate++
+	})
+
+	$: Plotly && render && result && divEl && h && w && shouldeUpdate && plot()
 
 	let error = ''
 	function plot() {
@@ -54,7 +60,16 @@
 					height: h,
 					margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 },
 
-					...resolvedConfig.layout
+					...resolvedConfig.layout,
+					paper_bgcolor: $darkMode ? '#2e3440' : '#fff',
+					plot_bgcolor: $darkMode ? '#2e3440' : '#fff',
+					xaxis: {
+						color: $darkMode ? '#f3f6f8' : '#000'
+					},
+
+					yaxis: {
+						color: $darkMode ? '#f3f6f8' : '#000'
+					}
 				},
 				{ responsive: true, displayModeBar: false }
 			)

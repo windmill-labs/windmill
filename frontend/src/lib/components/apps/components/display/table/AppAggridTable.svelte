@@ -5,7 +5,7 @@
 
 	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -15,7 +15,6 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -37,7 +36,7 @@
 			: [{ error: 'input was not an array' }]
 	}
 
-	const { worldStore, selectedComponent, componentControl } =
+	const { worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
@@ -109,22 +108,7 @@
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
 		extraConfig = resolvedConfig.extraConfig
 	}
-	let darkMode: boolean = false
-
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
-	onMount(() => {
-		onThemeChange()
-	})
 </script>
-
-<DarkModeObserver on:change={onThemeChange} />
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -150,7 +134,7 @@
 					style:height="{clientHeight}px"
 					style:width="{clientWidth}px"
 					class="ag-theme-alpine"
-					class:ag-theme-alpine-dark={darkMode}
+					class:ag-theme-alpine-dark={$darkMode}
 				>
 					{#key extraConfig}
 						{#key resolvedConfig?.pagination}
