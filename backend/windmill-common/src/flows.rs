@@ -282,7 +282,6 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
     },
     Identity,
-    Http,
 }
 
 fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>

@@ -511,7 +511,7 @@ async fn create_script(
             false,
             None,
             true,
-            None,
+            ns.tag,
         )
         .await?;
         tx = new_tx;

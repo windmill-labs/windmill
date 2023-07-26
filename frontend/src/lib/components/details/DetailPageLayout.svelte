@@ -5,6 +5,7 @@
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
 
 	export let isOperator: boolean = false
+	export let flow_json: any | undefined = undefined
 
 	let mobileTab: 'form' | 'detail' = 'form'
 </script>
@@ -18,7 +19,7 @@
 					<slot name="form" />
 				</Pane>
 				<Pane size={35} minSize={15}>
-					<DetailPageDetailPanel {isOperator}>
+					<DetailPageDetailPanel {isOperator} {flow_json}>
 						<slot slot="webhooks" name="webhooks" />
 						<slot slot="schedule" name="schedule" />
 						<slot slot="cli" name="cli" />
