@@ -3034,7 +3034,6 @@ paths:
                   properties:
                     draft_only:
                       type: boolean
-
       responses:
         "201":
           description: flow created
@@ -6718,6 +6717,10 @@ components:
           type: string
         jobs_executed:
           type: integer
+        custom_tags:
+          type: array
+          items:
+            type: string
       required:
         - worker
         - worker_instance
@@ -6847,6 +6850,8 @@ components:
           type: boolean
         draft_only:
           type: boolean
+        tag:
+          type: string
       required:
         - path
         - edited_by
@@ -6861,6 +6866,8 @@ components:
           properties:
             path:
               type: string
+            tag:
+              type: string
           required:
             - path
 
@@ -6873,6 +6880,8 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        tag:
+          type: string
 
       required:
         - value

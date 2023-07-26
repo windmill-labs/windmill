@@ -45,14 +45,14 @@
 				$selectedComponent = [id]
 			}}
 			title="Edit ID"
-			class="flex items-center px-1 rounded-sm bg-gray-100 hover:text-black text-gray-600"
+			class="flex items-center px-1 rounded-sm bg-surface-secondary hover:text-primary text-secondary"
 			aria-label="Open component ID editor"
 		>
 			<Pencil size={14} />
 		</button>
 	</svelte:fragment>
-	<label class="block text-gray-900">
-		<div class="pb-1 text-sm text-gray-600">Component ID</div>
+	<label class="block text-primary">
+		<div class="pb-1 text-sm text-secondary">Component ID</div>
 		<div class="flex w-full">
 			<input
 				type="text"

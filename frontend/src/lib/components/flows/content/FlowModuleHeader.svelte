@@ -11,7 +11,8 @@
 	import { getLatestHashForScript } from '$lib/scripts'
 
 	export let module: FlowModule
-	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { scriptEditorDrawer, flowStore, selectedId } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -32,8 +33,8 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 			{moduleRetry
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleRetry')}
 		>
 			<Repeat size={14} />
@@ -43,8 +44,8 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 		{module?.value?.['concurrency_limit'] != undefined
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleConcurrency')}
 		>
 			<Gauge size={14} />
@@ -54,8 +55,8 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 		{module.cache_ttl != undefined
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800  hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleCache')}
 		>
 			<Database size={14} />
@@ -63,10 +64,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded  p-2
+			class="center-center rounded p-2
 			{module.stop_after_if
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800 hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleStopAfterIf')}
 		>
 			<Square size={14} />
@@ -76,8 +77,8 @@
 			placement="bottom"
 			class="center-center rounded p-2 
 			{module.suspend
-				? 'bg-blue-100 text-blue-800 border  border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800  hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleSuspend')}
 		>
 			<PhoneIncoming size={14} />
@@ -85,10 +86,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded  p-2
+			class="center-center rounded p-2
 			{module.sleep
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800  hover:bg-gray-100'}"
+				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleSleep')}
 		>
 			<Bed size={14} />
@@ -96,10 +97,10 @@
 		</Popover>
 		<Popover
 			placement="bottom"
-			class="center-center rounded  p-2
+			class="center-center rounded p-2
 		{module.mock?.enabled
-				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'
-				: 'bg-white text-gray-800  hover:bg-gray-100'}"
+				? 'bg-blue-100  text-blue-800 border border-blue-300 hover:bg-blue-200'
+				: 'bg-surface text-primay hover:bg-hover'}"
 			on:click={() => dispatch('toggleMock')}
 		>
 			<Voicemail size={14} />
@@ -143,33 +144,42 @@
 		{#if $workerTags}
 			{#if $workerTags?.length > 0}
 				<div class="w-40">
-					<select
-						placeholder="Worker group"
-						bind:value={module.value.tag}
-						on:change={(e) => {
-							if (module.value.type === 'rawscript') {
-								if (module.value.tag == '') {
-									module.value.tag = undefined
+					{#if $flowStore.tag == undefined}
+						<select
+							placeholder="Worker group"
+							bind:value={module.value.tag}
+							on:change={(e) => {
+								if (module.value.type === 'rawscript') {
+									if (module.value.tag == '') {
+										module.value.tag = undefined
+									}
 								}
-							}
-						}}
-					>
-						{#if module.value.tag}
-							<option value="">reset to default</option>
-						{:else}
-							<option value="" disabled selected>Worker Group</option>
-						{/if}
-						{#each $workerTags ?? [] as tag (tag)}
-							<option value={tag}>{tag}</option>
-						{/each}
-					</select>
+							}}
+						>
+							{#if module.value.tag}
+								<option value="">reset to default</option>
+							{:else}
+								<option value="" disabled selected>Worker Group</option>
+							{/if}
+							{#each $workerTags ?? [] as tag (tag)}
+								<option value={tag}>{tag}</option>
+							{/each}
+						</select>
+					{:else}
+						<button
+							title="Worker Group is defined at the flow level"
+							class="w-full text-left items-center font-normal p-1 border text-xs rounded"
+							on:click={() => ($selectedId = 'settings-worker-group')}
+						>
+							Flow's WG: {$flowStore.tag}
+						</button>
+					{/if}
 				</div>
 			{/if}
 		{/if}
 		<Button
 			size="xs"
 			color="light"
-			btnClasses="text-gray-600"
 			startIcon={{ icon: faSave }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}

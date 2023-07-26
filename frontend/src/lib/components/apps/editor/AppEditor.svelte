@@ -243,7 +243,7 @@
 											$focusedGrid = undefined
 										}}
 										class={twMerge(
-											'bg-gray-100 h-full w-full relative',
+											'bg-white h-full w-full relative',
 											$appStore.css?.['app']?.['viewer']?.class
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
@@ -308,7 +308,7 @@
 											<SettingsPanel />
 											<SecondaryMenu />
 										{:else}
-											<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
+											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it
 											</div>
 										{/if}

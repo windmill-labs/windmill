@@ -88,7 +88,7 @@
 								close(null)
 							}}
 							class="w-full center-center flex-col font-normal p-1
-									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200
+									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
 									{label === componentInput.value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 						>
 							<svelte:component this={icon} size={22} />

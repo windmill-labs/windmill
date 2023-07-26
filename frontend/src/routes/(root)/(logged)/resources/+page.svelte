@@ -273,7 +273,7 @@
 
 <Portal>
 	<Drawer bind:this={inferrer} size="800px">
-		<DrawerContent title="Import app from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
+		<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
 			<SimpleEditor
 				bind:code={inferrerJson}
 				lang="json"
@@ -306,7 +306,7 @@
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-gray-700 gap-1 flex flex-row items-center"
+				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
 					>Name
 					<div class="flex flex-row items-center gap-x-4">
 						<div class="flex flex-row items-center">
@@ -324,7 +324,7 @@
 				</div></label
 			>
 			<label>
-				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<div class="mb-1 font-semibold text-secondary">Description</div>
 				<textarea
 					type="text"
 					use:autosize
@@ -333,7 +333,7 @@
 				/></label
 			>
 			<div>
-				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<div class="mb-1 font-semibold text-secondary">Schema</div>
 				<SchemaEditor bind:schema={editResourceType.schema} />
 			</div>
 		</div>
@@ -347,7 +347,7 @@
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-gray-700 gap-1 flex flex-row items-center"
+				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
 					>Name<Required required={true} /><Tooltip>
 						Resource types are synchronized with the official types on the hub regularly. The `c_`
 						prefix is to avoid name clashes with them.
@@ -384,7 +384,7 @@
 				</div>
 			</label>
 			<label>
-				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<div class="mb-1 font-semibold text-secondary">Description</div>
 				<textarea
 					type="text"
 					use:autosize
@@ -393,7 +393,7 @@
 				/></label
 			>
 			<div>
-				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<div class="mb-1 font-semibold text-secondary">Schema</div>
 				<div class="mb-2 w-full flex flex-row-reverse">
 					<Button on:click={openInferrer} size="sm" color="dark" variant="border">
 						Infer schema from a json value
@@ -423,7 +423,7 @@
 				Add a resource type
 			</Button>
 			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
-				Add a resource/API
+				Add a resource
 			</Button>
 		</div>
 	</PageHeader>
@@ -534,7 +534,7 @@
 										</a>
 									</td>
 									<td>
-										<span class="text-gray-500 text-xs">
+										<span class="text-tertiary text-xs">
 											{removeMarkdown(truncate(description ?? '', 30))}
 										</span>
 									</td>
@@ -718,7 +718,7 @@
 										</a>
 									</td>
 									<td>
-										<span class="text-gray-500 text-xs">
+										<span class="text-tertiary text-xs">
 											{removeMarkdown(truncate(description ?? '', 200))}
 										</span>
 									</td>

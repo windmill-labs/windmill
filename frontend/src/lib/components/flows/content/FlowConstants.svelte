@@ -122,7 +122,7 @@
 			{#each steps as [args, filter, m] (m.id)}
 				{#if filter.length > 0}
 					<div class="relative h-full border-t p-4">
-						<h2 class="sticky w-full top-0 z-10 inline-flex items-center bg-white py-2">
+						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">
 							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
 							<Badge large color="indigo">{m.id}</Badge>
 						</h2>

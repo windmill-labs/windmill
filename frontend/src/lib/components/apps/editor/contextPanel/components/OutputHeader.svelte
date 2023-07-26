@@ -32,18 +32,19 @@
 		$allIdsInPath.includes(id) || id == $selectedComponent?.[0] || $manuallyOpened[id] || inSearch
 
 	const hoverColor = {
-		blue: 'hover:bg-blue-100 hover:text-blue-500',
-		indigo: 'hover:bg-indigo-100 hover:text-indigo-500'
+		blue: 'hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-frost-900 dark:hover:text-frost-100',
+		indigo:
+			'hover:bg-indigo-100 hover:text-indigo-500 dark:hover:bg-frost-900 dark:hover:text-indigo-300'
 	}
 
 	const openBackground = {
-		blue: 'bg-blue-50',
-		indigo: 'bg-indigo-50'
+		blue: 'bg-blue-50 dark:bg-frost-800',
+		indigo: 'bg-indigo-50 dark:bg-indigo-800'
 	}
 
 	const manuallyOpenColor = {
-		blue: 'text-gray-900 bg-gray-300 rounded-sm',
-		indigo: 'text-gray-900 bg-gray-300 rounded-sm'
+		blue: 'text-primary bg-gray-300 rounded-sm',
+		indigo: 'text-primary bg-gray-300 rounded-sm'
 	}
 
 	const idClass = {
@@ -168,7 +169,7 @@
 				? openBackground[color]
 				: $connectingInput.hoveredComponent === id
 				? 'bg-orange-300 '
-				: 'bg-white',
+				: 'bg-surface-secondary',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : '',
 			'transition-all'
@@ -184,7 +185,7 @@
 				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 				title="Select component"
 				on:click|stopPropagation={() => ($selectedComponent = [id])}
-				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
+				class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
 			>
 				<div
 					class={classNames(

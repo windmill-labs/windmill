@@ -46,7 +46,7 @@
 				leaveTo="transform opacity-0 scale-95"
 			>
 				<MenuItems
-					class="absolute border right-0 z-50 w-56 origin-top-right top-1 rounded-md bg-white shadow-md focus:outline-none"
+					class="absolute border right-0 z-50 w-56 origin-top-right top-1 rounded-md bg-surface shadow-md focus:outline-none"
 				>
 					<div class="my-1">
 						<slot name="items" />

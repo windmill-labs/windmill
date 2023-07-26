@@ -7,7 +7,8 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap my-2 rounded-md"
+<pre
+	class="bg-surface-secondary text-secondary p-2 font-mono text-sm whitespace-pre-wrap my-2 rounded-md"
 	>{content} <span on:click={() => copyToClipboard(content)} class="cursor-pointer ml-2"
 		><Icon data={faClipboard} /></span
 	></pre

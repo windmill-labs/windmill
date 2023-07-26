@@ -203,7 +203,7 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema, dependency_job, draft_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8)",
+         schema, dependency_job, draft_only, tag) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8, $9)",
         w_id,
         nf.path,
         nf.summary,
@@ -211,7 +211,8 @@ async fn create_flow(
         nf.value,
         &authed.username,
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
-        nf.draft_only
+        nf.draft_only,
+        nf.tag
     )
     .execute(&mut tx)
     .await?;
@@ -329,7 +330,7 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL WHERE path = $7 AND workspace_id = $8",
+         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9 WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
         nf.description,
@@ -338,6 +339,7 @@ async fn update_flow(
         schema.and_then(|x| serde_json::to_string(&x).ok()),
         flow_path,
         w_id,
+        nf.tag
     )
     .execute(&mut tx)
     .await?;
@@ -486,6 +488,7 @@ pub struct FlowWDraft {
     pub draft: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    pub tag: Option<String>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -497,7 +500,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft FROM flow
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft, flow.tag FROM flow
         LEFT JOIN draft ON 
         flow.path = draft.path AND flow.workspace_id = draft.workspace_id AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",

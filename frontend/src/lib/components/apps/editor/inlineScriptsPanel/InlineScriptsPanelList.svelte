@@ -80,7 +80,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-				{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+				{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -94,7 +96,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 			{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100'
+											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
@@ -109,7 +111,9 @@
 					<button
 						id={PREFIX + id}
 						class="panel-item
-						{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+						{$selectedComponentInEditor === id
+							? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+							: 'hover:bg-blue-50'}"
 						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
@@ -121,7 +125,7 @@
 								id={PREFIX + id + '_transformer'}
 								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 {$selectedComponentInEditor === id + '_transformer'
-									? 'border-blue-500 bg-blue-100'
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id + '_transformer')}
 							>
@@ -138,7 +142,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
@@ -148,14 +154,14 @@
 					</div>
 				{/if}
 				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
-					<div class="text-xs text-gray-500">No scripts/flows</div>
+					<div class="text-xs text-tertiary">No scripts/flows</div>
 				{/if}
 			</div>
 		</div>
 
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
-				<div class="text-xs text-gray-600 font-semibold truncate">
+				<div class="text-xs text-tertiary font-semibold truncate">
 					Background runnables
 					<Tooltip
 						class="mb-0.5"
@@ -174,7 +180,7 @@
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
 				>
-					<Plus size={14} class="text-gray-500" />
+					<Plus size={14} class="!text-primary" />
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
@@ -185,7 +191,9 @@
 							<button
 								id={PREFIX + id}
 								class="panel-item
-								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -197,7 +205,7 @@
 										id={PREFIX + id + '_transformer'}
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 		{$selectedComponentInEditor === id + '_transformer'
-											? 'border-blue-500 bg-blue-100'
+											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 											: 'hover:bg-blue-50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
@@ -208,7 +216,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-gray-500">No background runnable</div>
+					<div class="text-xs text-tertiary">No background runnable</div>
 				{/if}
 			</div>
 		</div>

@@ -21,10 +21,9 @@ use windmill_common::{
 };
 
 #[cfg(feature = "benchmark")]
-use windmill_queue::IDLE_WORKERS;
-#[cfg(feature = "benchmark")]
 use std::sync::atomic::Ordering;
-
+#[cfg(feature = "benchmark")]
+use windmill_queue::IDLE_WORKERS;
 
 #[cfg(not(feature = "benchmark"))]
 pub fn global_service() -> Router {
@@ -56,6 +55,7 @@ struct WorkerPing {
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
+    custom_tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -74,7 +74,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
         per_page as i64,
         offset as i64
     )
@@ -85,9 +85,7 @@ async fn list_worker_pings(
 }
 
 #[cfg(feature = "benchmark")]
-async fn toggle(
-    Query(query): Query<EnableWorkerQuery>,
-) -> JsonResult<bool> {
+async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
     IDLE_WORKERS.store(query.disable, Ordering::Relaxed);
     Ok(Json(IDLE_WORKERS.load(Ordering::Relaxed)))
 }

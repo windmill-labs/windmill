@@ -2495,6 +2495,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                 open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
                     open_flow: flow,
                     path: "g/all/flow_lock_all".to_owned(),
+                    tag: None,
                 },
                 draft_only: None,
             },

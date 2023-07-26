@@ -1427,7 +1427,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            payload_tag.tag,
+            if flow_job.tag == "flow" {
+                payload_tag.tag
+            } else {
+                Some(flow_job.tag.clone())
+            },
         )
         .await?;
         tx = inner_tx;

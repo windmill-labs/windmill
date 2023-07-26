@@ -76,6 +76,13 @@
 		}
 	}
 
+	export function setName(x: string) {
+		if (meta) {
+			meta.name = x
+			onMetaChange()
+		}
+	}
+
 	export async function reset() {
 		if (path == '' || path == 'u//') {
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
@@ -279,7 +286,7 @@
 			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
+					<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
 						class="mt-0.5"
@@ -320,7 +327,7 @@
 				</label>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
-						<span class="text-gray-700 text-sm">User</span>
+						<span class="text-secondary text-sm">User</span>
 						<input
 							class="!w-36"
 							type="text"
@@ -331,13 +338,15 @@
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<span class="text-gray-700 text-sm"
-							>Folder <Tooltip
+						<span class="text-secondary text-sm">
+							Folder
+							<Tooltip
 								documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
-								>Read and write permissions are given to groups and users at the folder level and
-								shared by all items inside the folder.</Tooltip
-							></span
-						>
+							>
+								Read and write permissions are given to groups and users at the folder level and
+								shared by all items inside the folder.
+							</Tooltip>
+						</span>
 
 						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
@@ -375,7 +384,7 @@
 				{/if}
 			</div>
 			<label class="block grow w-full max-w-md">
-				<span class="text-gray-700 text-sm">
+				<span class="text-secondary text-sm">
 					Name
 					<Required required={true} />
 				</span>
@@ -402,7 +411,7 @@
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"
-				class="center-center !bg-gray-300 !text-gray-600 !w-[70px] !h-[24px] rounded-r-none"
+				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
 			>
 				Full path
 			</Badge>
@@ -418,7 +427,7 @@
 			/>
 			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 		</div>
-		<div class="text-red-600 text-2xs">{error}</div>
+		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
 </div>
 

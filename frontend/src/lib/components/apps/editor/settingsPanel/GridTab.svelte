@@ -158,7 +158,7 @@
 
 <PanelSection title={`${word}s ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
 	{#if tabs.length == 0}
-		<span class="text-xs text-gray-500">No Tabs</span>
+		<span class="text-xs text-tertiary">No Tabs</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		<section

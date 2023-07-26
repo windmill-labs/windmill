@@ -1,16 +1,18 @@
 <script lang="ts">
-	import { Alert, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
 
-	import { faBolt, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { sendUserToast } from '$lib/toast'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { Check, Code, Zap } from 'lucide-svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -37,37 +39,26 @@
 			<div class="center-center">
 				<div class="max-w-min">
 					<ToggleButtonGroup bind:selected={kind}>
-						<ToggleButton position="left" value="script" size="sm" startIcon={{ icon: faCode }}>
-							Action &nbsp;<Tooltip>
-								An action script is simply a script that is neither a trigger nor an approval
-								script. Those are the majority of the scripts.
-							</Tooltip>
-						</ToggleButton>
+						<ToggleButton
+							value="script"
+							icon={Code}
+							label="Action"
+							tooltip="An action script is simply a script that is neither a trigger nor an approval script. Those are the majority of the scripts."
+						/>
 						{#if !shouldDisableTriggerScripts}
 							<ToggleButton
-								position="center"
 								value="trigger"
-								size="sm"
-								startIcon={{ icon: faBolt }}
-							>
-								Trigger &nbsp;<Tooltip
-									documentationLink="https://www.windmill.dev/docs/flows/flow_trigger"
-								>
-									Used as a first step most commonly with a state and a schedule to watch for
-									changes on an external system, compute the diff since last time and set the new
-									state. The diffs are then treated one by one with a for-loop.
-								</Tooltip>
-							</ToggleButton>
+								icon={Zap}
+								label="Trigger"
+								tooltip="Used as a first step most commonly with a state and a schedule to watch for changes on an external system, compute the diff since last time and set the new state. The diffs are then treated one by one with a for-loop."
+							/>
 						{/if}
-						<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
-							Approval &nbsp;<Tooltip
-								documentationLink="https://www.windmill.dev/docs/flows/flow_approval"
-							>
-								An approval step will suspend the execution of a flow until it has been approved
-								through the resume endpoints or the approval page by and solely by the recipients of
-								those secret urls.
-							</Tooltip>
-						</ToggleButton>
+						<ToggleButton
+							value="approval"
+							icon={Check}
+							label="Approval"
+							tooltip="An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of those secret urls."
+						/>
 					</ToggleButtonGroup>
 				</div>
 			</div>

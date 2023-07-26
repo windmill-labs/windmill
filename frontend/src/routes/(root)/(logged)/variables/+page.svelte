@@ -140,7 +140,9 @@
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
 				<DollarSign size={18} />
-				Contextual <Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables">
+				Contextual <Tooltip
+					documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
+				>
 					Contextual variables are passed as environment variables when running a script and depends
 					on the execution context.</Tooltip
 				>
@@ -194,7 +196,7 @@
 											<Popover notClickable>
 												<Icon
 													label="Secret"
-													class="text-gray-700 mb-2 ml-2"
+													class="text-secondary mb-2 ml-2"
 													data={faEyeSlash}
 													scale={0.8}
 												/>
@@ -204,7 +206,7 @@
 									</span>
 								</td>
 								<td class="break-words"
-									><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
+									><span class="text-xs text-tertiary">{truncate(description ?? '', 50)}</span></td
 								>
 
 								<td class="text-center">

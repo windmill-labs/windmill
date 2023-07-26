@@ -147,7 +147,7 @@
 	<h2>Permissions ({perms?.length ?? 0})</h2>
 	{#if can_write}
 		<Alert role="info" title="New permissions may take up to 60s to apply"
-			><span class="text-xs text-gray-500">Due to permissions cache invalidation</span></Alert
+			><span class="text-xs text-tertiary">Due to permissions cache invalidation</span></Alert
 		>
 		<div class="flex items-center gap-1">
 			<div>
@@ -341,7 +341,7 @@
 			</div>
 		{/if} -->
 		<!-- {#if managing_folders.length == 0}
-			<p class="text-gray-600 text-sm">No folder is managing this folder</p>
+			<p class="text-tertiary text-sm">No folder is managing this folder</p>
 		{:else}
 			<TableCustom>
 				<tr slot="header-row">

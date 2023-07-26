@@ -411,7 +411,7 @@
 				<Button
 					title="Add context variable"
 					color="light"
-					btnClasses="!font-medium text-gray-600"
+					btnClasses="!font-medium text-scondary"
 					on:click={contextualVariablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -425,7 +425,7 @@
 				<Button
 					title="Add variable"
 					color="light"
-					btnClasses="!font-medium text-gray-600"
+					btnClasses="!font-medium text-scondary"
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -439,7 +439,7 @@
 			{#if showResourcePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-gray-600"
+					btnClasses="!font-medium text-scondary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -454,7 +454,7 @@
 			{#if showResourceTypePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-gray-600"
+					btnClasses="!font-medium text-scondary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -468,7 +468,7 @@
 
 			<Button
 				title="Reset Content"
-				btnClasses="!font-medium text-gray-600"
+				btnClasses="!font-medium text-scondary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -480,7 +480,7 @@
 			</Button>
 
 			<Button
-				btnClasses="!font-medium text-gray-600"
+				btnClasses="!font-medium text-scondary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -570,7 +570,7 @@
 	<div class="flex flex-row items-center gap-2">
 		{#if scriptPath}
 			<Button
-				btnClasses="!font-medium text-gray-600"
+				btnClasses="!font-medium text-scondary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -584,7 +584,7 @@
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 			<Button
-				btnClasses="!font-medium text-gray-600"
+				btnClasses="!font-medium text-scondary"
 				size="xs"
 				spacingSize="md"
 				color="light"

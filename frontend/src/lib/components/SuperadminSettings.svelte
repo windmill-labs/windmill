@@ -50,7 +50,7 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-gray-500 flex flex-col">
+				<div class="text-xs pt-1 text-tertiary flex flex-col">
 					<div>Windmill <Version /></div><div><Uptodate /></div>
 				</div>
 
@@ -65,7 +65,7 @@
 			</div>
 			<div class="mt-2 overflow-auto">
 				<TableCustom>
-					<tr slot="header-row" class="sticky top-0 bg-white border-b">
+					<tr slot="header-row" class="sticky top-0 bg-surface border-b">
 						<th>email</th>
 						<th>auth</th>
 						<th>name</th>
@@ -73,7 +73,7 @@
 						<th />
 						<th />
 					</tr>
-					<tbody slot="body" class="overflow-y-auto h-full max-h-full">
+					<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 						{#if filteredUsers && users}
 							{#each filteredUsers as { email, super_admin, login_type, name, company } (email)}
 								<tr class="border">
@@ -87,7 +87,7 @@
 									<td>
 										<div class="flex flex-row gap-x-1">
 											<button
-												class="text-blue-500"
+												class="text-blue-500 whitespace-nowrap"
 												on:click={async () => {
 													await UserService.globalUserUpdate({
 														email,
@@ -101,7 +101,7 @@
 											>
 											|
 											<button
-												class="text-red-500"
+												class="text-red-500 whitespace-nowrap"
 												on:click={async () => {
 													await UserService.globalUserDelete({ email })
 													sendUserToast(`User ${email} removed`)

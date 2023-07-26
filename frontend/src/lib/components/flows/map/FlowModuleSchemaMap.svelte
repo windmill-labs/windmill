@@ -151,7 +151,7 @@
 		>
 		{#each Object.entries(dependents) as [k, v]}
 			<div class="pb-3">
-				<h3 class="text-gray-700 font-semibold">{k}</h3>
+				<h3 class="text-secondary font-semibold">{k}</h3>
 				<ul class="text-sm">
 					{#each v as dep}
 						<li>{dep}</li>
@@ -163,7 +163,7 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-gray-50 flex-initial p-2 items-center border-b border-gray-300"
+		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center border-b"
 	>
 		<FlowSettingsItem />
 		<FlowConstantsItem />

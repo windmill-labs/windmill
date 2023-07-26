@@ -47,7 +47,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-sm text-gray-500">No items</div>
+					<div class="text-sm text-tertiary">No items</div>
 				{/if}
 			</div>
 		</PanelSection>
@@ -73,7 +73,7 @@
 					<Skeleton layout={[[40]]} />
 				{/if}
 			{:else}
-				<div class="text-sm p-2 text-gray-500">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>

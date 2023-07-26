@@ -8,7 +8,7 @@
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: settingsClass = classNames(
-		'border w-full rounded-sm p-2 bg-white border-gray-400 text-sm cursor-pointer flex items-center',
+		'border w-full rounded-sm p-2 bg-surface text-sm cursor-pointer flex items-center',
 		$selectedId?.startsWith('settings')
 			? 'outline outline-offset-1 outline-2  outline-slate-900'
 			: ''

@@ -159,7 +159,7 @@
 
 {#if schedules}
 	{#if schedules.length == 0}
-		<div class="text-xs text-gray-700 px-2"> No other schedules </div>
+		<div class="text-xs text-secondary px-2"> No other schedules </div>
 	{:else}
 		<div class="flex flex-col divide-y px-2 pt-2">
 			{#each schedules as schedule}

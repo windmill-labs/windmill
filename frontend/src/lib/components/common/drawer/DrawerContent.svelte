@@ -18,7 +18,7 @@
 		<div class="flex items-center gap-2 min-w-0">
 			<CloseButton on:close />
 
-			<span class="font-semibold truncate text-gray-800"
+			<span class="font-semibold truncate text-primary"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>

@@ -331,7 +331,7 @@
 				<Button
 					color="light"
 					size="xs2"
-					wrapperClasses="border-gray-200 border rounded-md"
+					wrapperClasses="border rounded-md"
 					on:click={() => {
 						manualDates[selectedManualDate].setMinMax()
 						loadJobs()

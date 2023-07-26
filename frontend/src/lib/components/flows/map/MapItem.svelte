@@ -92,7 +92,7 @@
 		{/if}
 
 		{#if annotation && annotation != ''}
-			<div class="absolute z-10 left-0 -top-5 center-center text-gray-600">
+			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
 				{annotation}
 			</div>
 		{/if}

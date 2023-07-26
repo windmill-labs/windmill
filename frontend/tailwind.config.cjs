@@ -1,17 +1,62 @@
 const plugin = require('tailwindcss/plugin')
 
 const lightTheme = {
-	primaryBackground: 'white',
-	secondaryBackground: '#f9fafb',
-	primaryText: '#2d3748',
-	border: '#cccccc'
+	surface: '#ffffff',
+	surfaceSecondary: '#f3f4f6',
+	surfaceHover: '#e5e7eb',
+	surfaceDisabled: '#f9fafb',
+	surfaceSelected: '#d1d5db',
+
+	textPrimary: '#2d3748',
+	textSecondary: '#4a5568',
+	textTertiary: '#718096',
+	textDisabled: '#a0aec0',
+
+	border: '#ccc'
 }
 
+const lightThemeRgb = makeRgb(lightTheme)
+
 const darkTheme = {
-	primaryBackground: '#2e3440',
-	secondaryBackground: '#3b4252',
-	primaryText: '#DADCEA',
-	border: '#3e3f53'
+	surface: '#2e3440',
+	surfaceSecondary: '#3b4252',
+	surfaceHover: '#4c566a',
+	surfaceDisabled: '#2a2f3a',
+	surfaceSelected: '#434c5e',
+
+	textPrimary: '#f3f6f8',
+	textSecondary: '#e0e7ed',
+	textTertiary: '#d8dee9',
+	textDisabled: '#a0aec0',
+
+	border: '#3e4c60'
+}
+
+const darkThemeRgb = makeRgb(darkTheme)
+
+function makeRgb(theme) {
+	return Object.fromEntries(
+		Object.entries(theme).map(([key, value]) => {
+			if (typeof value === 'string' && value.startsWith('#')) {
+				return [key, hexToRgb(value)]
+			}
+
+			return [key, value]
+		})
+	)
+}
+
+function hexToRgb(hex) {
+	// Remove '#' symbol from the beginning of the hex value
+	hex = hex.replace('#', '')
+
+	// Convert the hex value to decimal
+	const r = parseInt(hex.substring(0, 2), 16)
+	const g = parseInt(hex.substring(2, 4), 16)
+	const b = parseInt(hex.substring(4, 6), 16)
+
+	// Return the RGB string format
+	return `${r} ${g} ${b}`
 }
 
 /** @type {import('tailwindcss').Config} */
@@ -318,16 +363,39 @@ const config = {
 				900: '#312e81'
 			},
 			frost: {
-				100: '#dfe6ee',
-				200: '#bfcdde',
-				300: '#9eb3cd',
-				400: '#7e9abd',
+				50: '#f5f7fa',
+				100: '#eaeef4',
+				200: '#cfd9e8',
+				300: '#a6bad3',
+				400: '#7594bb',
 				500: '#5e81ac',
-				600: '#4b678a',
-				700: '#384d67',
-				800: '#263445',
-				900: '#131a22'
-			}
+				600: '#415f88',
+				700: '#364d6e',
+				800: '#2f425d',
+				900: '#2b394f',
+				950: '#1d2534'
+			},
+			surface: 'rgb(var(--color-surface) / <alpha-value>)',
+			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
+			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
+			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
+			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
+
+			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
+			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
+
+			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
+			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
+			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
+			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
+			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
+
+			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
+			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
+			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
+			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -344,6 +412,9 @@ const config = {
 			]
 		},
 		extend: {
+			border: {
+				color: 'red'
+			},
 			maxHeight: {
 				'1/2': '50vh',
 				'2/3': '66vh',
@@ -393,16 +464,71 @@ const config = {
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
-					color: theme('colors.gray.900'),
+
+					backgroundColor: 'rgb(var(--color-surface) / <alpha-value>)',
+					color: lightTheme.textPrimary,
+
+					'--color-surface': lightThemeRgb.surface,
+					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
+					'--color-surface-hover': lightThemeRgb.surfaceHover,
+					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
+					'--color-surface-selected': lightThemeRgb.surfaceSelected,
+
+					'--color-text-primary': lightThemeRgb.textPrimary,
+					'--color-text-secondary': lightThemeRgb.textSecondary,
+					'--color-text-tetiary': lightThemeRgb.textTertiary,
+					'--color-text-disabled': lightThemeRgb.textDisabled,
+
+					'--color-surface-inverse': darkThemeRgb.surface,
+					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
+					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
+					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
+					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
+
+					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
+					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
+					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
+					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
+
+					'--color-border': lightThemeRgb.border,
+
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
+					},
+
+					'&.dark': {
+						backgroundColor: darkTheme.surface,
+						color: darkTheme.textPrimary,
+
+						'--color-surface': darkThemeRgb.surface,
+						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
+						'--color-surface-hover': darkThemeRgb.surfaceHover,
+						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
+						'--color-surface-selected': darkThemeRgb.surfaceSelected,
+
+						'--color-text-primary': darkThemeRgb.textPrimary,
+						'--color-text-secondary': darkThemeRgb.textSecondary,
+						'--color-text-tetiary': darkThemeRgb.textTertiary,
+						'--color-text-disabled': darkThemeRgb.textDisabled,
+
+						'--color-surface-inverse': lightThemeRgb.surface,
+						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
+						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
+						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
+						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,
+
+						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
+						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
+						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
+						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
+
+						'--color-border': darkThemeRgb.border
 					}
 				},
 				h1: {
 					fontSize: '24px',
 					fontWeight: theme('fontWeight.extrabold'),
 					lineHeight: '1.05',
-					color: theme('colors.gray.800'),
 					[`@media (min-width: ${theme('screens.lg')})`]: {
 						fontSize: '26px'
 					},
@@ -417,7 +543,6 @@ const config = {
 					fontSize: '20px',
 					fontWeight: theme('fontWeight.extrabold'),
 					lineHeight: '1.1',
-					color: theme('colors.gray.700'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
 						fontSize: '22px'
 					},
@@ -433,7 +558,6 @@ const config = {
 					fontSize: '18px',
 					fontWeight: theme('fontWeight.bold'),
 					lineHeight: '1.2',
-					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
 						fontSize: '20px'
 					},
@@ -474,6 +598,9 @@ const config = {
 				a: {
 					color: theme('colors.blue.500')
 				},
+				'.dark input::placeholder': {
+					color: theme('colors.gray.400')
+				},
 				'input:not(.windmillapp),input[type="text"]:not(.windmillapp),input[type="email"]:not(.windmillapp),input[type="url"]:not(.windmillapp),input[type="password"]:not(.windmillapp),input[type="number"]:not(.windmillapp),input[type="date"]:not(.windmillapp),input[type="datetime-local"]:not(.windmillapp),input[type="month"]:not(.windmillapp),input[type="search"]:not(.windmillapp),input[type="tel"]:not(.windmillapp),input[type="time"]:not(.windmillapp),input[type="week"]:not(.windmillapp),textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),select:not(.windmillapp)':
 					{
 						display: 'block',
@@ -483,7 +610,7 @@ const config = {
 						border: `1px solid ${theme('colors.gray.300')}`,
 						borderRadius: theme('borderRadius.md'),
 						'&:focus': {
-							'--tw-ring-color': theme('colors.indigo.100'),
+							'--tw-ring-color': theme('colors.frost.100'),
 							'--tw-ring-offset-shadow':
 								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
 							'--tw-ring-shadow':
@@ -492,7 +619,10 @@ const config = {
 								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
 						},
 						'&:disabled,[disabled]': {
-							backgroundColor: theme('colors.gray.100') + ' !important'
+							backgroundColor: theme('colors.gray.100') + ' !important',
+							'.dark &': {
+								backgroundColor: theme('colors.gray.700') + ' !important'
+							}
 						}
 					},
 				'.dark input:not(.windmillapp),.dark input[type="text"]:not(.windmillapp),.dark input[type="email"]:not(.windmillapp),.dark input[type="url"]:not(.windmillapp),.dark input[type="password"]:not(.windmillapp),.dark input[type="number"]:not(.windmillapp),.dark input[type="date"]:not(.windmillapp),.dark input[type="datetime-local"]:not(.windmillapp),.dark input[type="month"]:not(.windmillapp),.dark input[type="search"]:not(.windmillapp),.dark input[type="tel"]:not(.windmillapp),.dark input[type="time"]:not(.windmillapp),.dark input[type="week"]:not(.windmillapp),.dark textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp)':
@@ -501,7 +631,7 @@ const config = {
 						color: theme('colors.gray.200'),
 						borderColor: theme('colors.gray.600'),
 						'&:focus': {
-							'--tw-ring-color': theme('colors.indigo.700')
+							'--tw-ring-color': theme('colors.frost.700')
 						}
 					},
 
@@ -625,11 +755,11 @@ const config = {
 					)})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: theme('colors.white') + ' !important',
+					backgroundColor: lightTheme.surface + ' !important',
 					overflow: 'auto !important'
 				},
 				'.dark .splitpanes__pane': {
-					backgroundColor: darkTheme.primaryBackground + ' !important',
+					backgroundColor: darkTheme.surface + ' !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
@@ -637,7 +767,7 @@ const config = {
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: '#3f83f850 !important',
+						backgroundColor: lightTheme.border + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						zIndex: '1001 !important',
@@ -653,7 +783,7 @@ const config = {
 				'.dark .splitpanes__splitter': {
 					backgroundColor: darkTheme.border + ' !important',
 					'&::after': {
-						backgroundColor: '#8ebdcc !important'
+						backgroundColor: darkTheme.border + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -688,35 +818,22 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: theme('colors.gray.600'),
-					color: theme('colors.gray.800')
+					borderColor: darkTheme.border,
+					color: lightTheme.textPrimary
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: 'white',
-					color: darkTheme.primaryText
+					borderColor: lightTheme.border,
+					color: darkTheme.textPrimary
 				}
 			})
+
 			addUtilities({
-				html: {
-					backgroundColor: lightTheme.primaryBackground,
-					color: lightTheme.primaryText,
-
-					'&.dark': {
-						backgroundColor: darkTheme.primaryBackground,
-						color: darkTheme.primaryText
-					}
-				},
-				'.secondaryBackground': {
-					backgroundColor: lightTheme.secondaryBackground
-				},
-
-				'.dark .secondaryBackground': {
-					backgroundColor: darkTheme.secondaryBackground
-				},
-
 				'.separator': {
-					backgroundColor: '#ddd !important'
+					backgroundColor: `${lightTheme.border} !important`
+				},
+				'.dark .separator': {
+					backgroundColor: `${darkTheme.border} !important`
 				},
 				'.center-center': {
 					display: 'flex',

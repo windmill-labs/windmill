@@ -88,7 +88,7 @@
 						{/if}
 
 						<div class="flex items-center gap-2">
-							<span class="text-sm text-gray-500">
+							<span class="text-sm text-tertiary">
 								{#if runnable}
 									Edited {displayDaysAgo(runnable.created_at || '')} by {runnable.created_by ||
 										'unknown'}
@@ -143,7 +143,7 @@
 			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-gray-600">No arguments</div>
+		<div class="text-xs text-tertiary">No arguments</div>
 	{/if}
 	{#if schedulable}
 		<div class="mt-10" />

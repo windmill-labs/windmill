@@ -44,18 +44,18 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y divide-gray-200 border rounded-md">
+		<ul class="divide-y border rounded-md">
 			{#each filteredItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-gray-50 bg-white transition-all items-center rounded-md"
+						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
 						on:click={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="app" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+								<div class="text-primary flex-wrap text-md font-semibold">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}

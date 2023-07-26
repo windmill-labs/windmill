@@ -49,7 +49,7 @@
 
 <div class={inline && type !== StylePropertyType.color ? '' : 'w-full'}>
 	{#if prop.value['title']}
-		<div class="font-medium text-xs text-gray-500">
+		<div class="font-medium text-xs text-tertiary">
 			{prop.value['title']}
 		</div>
 	{/if}

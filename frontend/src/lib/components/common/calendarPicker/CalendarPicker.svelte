@@ -18,13 +18,19 @@
 		dispatch('change', value)
 		input.blur()
 	}
+
+	function bg(e: KeyboardEvent) {
+		if (e.key === 'Tab') {
+			e.stopPropagation()
+		}
+	}
 </script>
 
 <Popup floatingConfig={{ placement: 'top-end', strategy: 'absolute' }} let:close>
 	<svelte:fragment slot="button">
 		<button
 			title="Open calendar picker"
-			class="absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
+			class="absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer"
 			aria-label="Open calendar picker"
 			on:click={() => {
 				input?.focus()
@@ -34,10 +40,16 @@
 		</button>
 	</svelte:fragment>
 
-	<label class="block text-gray-900">
-		<div class="pb-1 text-sm text-gray-600">{label}</div>
+	<label class="block text-primary">
+		<div class="pb-1 text-sm text-secondary">{label}</div>
 		<div class="flex w-full">
-			<input type="datetime-local" bind:value class="!w-auto grow" bind:this={input} />
+			<input
+				type="datetime-local"
+				bind:value
+				class="!w-auto grow"
+				bind:this={input}
+				on:keydown={bg}
+			/>
 			<Button
 				size="xs"
 				color="dark"

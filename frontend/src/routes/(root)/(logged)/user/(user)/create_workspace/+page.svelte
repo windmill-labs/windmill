@@ -109,18 +109,18 @@
 
 <CenteredModal title="New Workspace">
 	<label class="block pb-2 pt-4">
-		<span class="text-gray-700 text-sm">Workspace name</span>
+		<span class="text-secondary text-sm">Workspace name</span>
 		<input type="text" bind:value={name} />
 	</label>
 	<label class="block pb-2">
-		<span class="text-gray-700 text-sm">Workspace ID</span>
+		<span class="text-secondary text-sm">Workspace ID</span>
 		{#if errorId}
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
 		<input type="text" bind:value={id} class:input-error={errorId != ''} />
 	</label>
 	<label class="block pb-2">
-		<span class="text-gray-700 text-sm">Your username in that workspace</span>
+		<span class="text-secondary text-sm">Your username in that workspace</span>
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
@@ -143,7 +143,7 @@
 		>
 	</div>
 	{#if isDomainAllowed == false}
-		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
+		<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
 		<Button variant="border" size="sm" href="/user/workspaces"

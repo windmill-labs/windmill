@@ -19,6 +19,7 @@
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
+	export let center = true
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -40,7 +41,7 @@
 				dispatch('deleteBranch', deleteBranch)
 			}}
 			type="button"
-			class=" text-gray-900 bg-white border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 		>
 			<X size={14} />
 		</button>
@@ -49,11 +50,11 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class={classNames(
-		'w-full flex relative overflow-hidden rounded-sm ',
+		'w-full flex relative overflow-hidden rounded-sm',
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
 	)}
-	style="min-width: 275px; height: 34px; background-color: {bgColor};"
+	style="min-width: 275px; max-height: 80px; background-color: {bgColor};"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
@@ -65,15 +66,16 @@
 	}}
 >
 	<div
-		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module"
+		class="flex gap-1 justify-between {center
+			? 'items-center'
+			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
 			<span class="mr-2" />
 		{/if}
 		<div />
-		<div class="flex-1 truncate">{label}</div>
+		<div class="flex-1 truncate"><pre>{label}</pre></div>
 		<div class="flex items-center space-x-2">
 			{#if id}
 				<Badge color="indigo">{id}</Badge>
@@ -101,7 +103,7 @@
 					}
 				}}
 				type="button"
-				class=" text-gray-900 bg-white border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+				class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 			>
 				<ClipboardCopy size={12} />
 			</button>
@@ -133,7 +135,7 @@
 				}
 			}}
 			type="button"
-			class=" text-gray-900 bg-white border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-primary bg-surface border mx-0.5 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 		>
 			<Icon data={faBolt} scale={0.8} />
 		</button>

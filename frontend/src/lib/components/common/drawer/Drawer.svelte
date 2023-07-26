@@ -117,7 +117,7 @@
 		left: 0;
 		width: 100%;
 		height: 100%;
-		background: rgba(100, 100, 100, 0.5);
+		background: rgba(0, 0, 0, 0.5);
 		opacity: 0;
 		z-index: 2;
 		transition: opacity var(--duration) ease;
@@ -135,7 +135,7 @@
 	.panel {
 		position: fixed;
 		width: 100%;
-		background: white;
+		@apply bg-surface;
 		z-index: 3;
 		transition: transform var(--duration) ease;
 		height: 100%;

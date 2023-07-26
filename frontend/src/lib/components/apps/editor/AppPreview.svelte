@@ -106,12 +106,12 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative">
+<div class="relative h-full">
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
 	<div
-		class="{$$props.class} {lockedClasses} {width} h-full {app.fullscreen
+		class="{$$props.class} {lockedClasses} {width} light h-full bg-white {app.fullscreen
 			? ''
 			: 'max-w-6xl'} mx-auto"
 	>

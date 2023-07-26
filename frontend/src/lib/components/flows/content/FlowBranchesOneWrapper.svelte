@@ -38,7 +38,7 @@
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
-								<p class="italic text-gray-600"
+								<p class="italic text-tertiary"
 									>If none of the predicates' expressions evaluated in-order match, this branch is
 									chosen</p
 								>
@@ -70,7 +70,7 @@
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
 							<svelte:fragment slot="content">
-								<div class="overflow-hidden bg-white">
+								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleEarlyStop bind:flowModule />

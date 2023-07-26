@@ -36,11 +36,6 @@
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
-	const darkMode = searchParams?.get('activeColorTheme') === '2'
-
-	darkMode
-		? document.documentElement.classList.add('dark')
-		: document.documentElement.classList.remove('dark')
 
 	if (searchParams?.has('local')) {
 		connectWs()

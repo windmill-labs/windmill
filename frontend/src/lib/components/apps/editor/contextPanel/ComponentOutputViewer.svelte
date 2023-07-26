@@ -47,8 +47,8 @@
 			pureViewer={!$connectingInput.opened}
 		/>
 	{:else if $search.length > 0}
-		<div class="text-xs pl-2 text-gray-600">No results</div>
+		<div class="text-xs pl-2 text-tertiary">No results</div>
 	{:else}
-		<div class="text-xs pl-2 text-gray-600">No outputs</div>
+		<div class="text-xs pl-2 text-tertiary">No outputs</div>
 	{/if}
 {/if}

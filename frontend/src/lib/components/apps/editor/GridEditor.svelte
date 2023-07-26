@@ -47,15 +47,15 @@
 	<div
 		class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
 			? ''
-			: 'bg-gray-50 '} px-4 py-1 items-center gap-4"
+			: 'bg-surface'} px-4 py-1 items-center gap-4"
 		style="z-index: 1000;"
 	>
-		<h2 class="truncate">{$summary}</h2>
+		<h3 class="truncate">{$summary}</h3>
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="flex text-2xs text-gray-600 gap-8 items-center">
-			<div class="py-2 pr-2 text-gray-600 flex gap-1 items-center">
+		<div class="flex text-2xs gap-8 items-center">
+			<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
 				Hide bar on view
 				<Toggle size="xs" bind:checked={$app.norefreshbar} />
 			</div>

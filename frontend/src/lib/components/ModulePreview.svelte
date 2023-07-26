@@ -52,12 +52,24 @@
 		const val = mod.value
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
-			await testJobLoader?.runPreview(val.path, val.content, val.language, args, val.tag)
+			await testJobLoader?.runPreview(
+				val.path,
+				val.content,
+				val.language,
+				args,
+				$flowStore?.tag ?? val.tag
+			)
 		} else if (val.type == 'script') {
 			const script = val.hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
 				: await getScriptByPath(val.path)
-			await testJobLoader?.runPreview(val.path, script.content, script.language, args, script.tag)
+			await testJobLoader?.runPreview(
+				val.path,
+				script.content,
+				script.language,
+				args,
+				$flowStore?.tag ?? script.tag
+			)
 		} else {
 			throw Error('not testable module type')
 		}
@@ -114,7 +126,7 @@
 					isLoading={testIsLoading}
 				/>
 			</Pane>
-			<Pane size={50} minSize={10} class="text-sm text-gray-600">
+			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
 						<DisplayResult

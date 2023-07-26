@@ -99,7 +99,7 @@
 		{:else}
 			<div
 				out:fade={{ duration: 200 }}
-				class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
+				class="absolute inset-0 center-center flex-col bg-white text-tertiary border"
 			>
 				<Loader2 class="animate-spin" size={16} />
 				<span class="text-xs mt-1">Loading</span>

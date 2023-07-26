@@ -10,7 +10,7 @@
 <svelte:window bind:scrollY />
 
 <div
-	class={'bg-white py-3 ' +
+	class={'bg-surface py-3 ' +
 		(stickToTop
 			? 'lg:sticky lg:top-0 z-[500] border-b border-gray-200 border-opacity-0 duration-300 ' +
 			  (scrollY >= 30 ? 'border-opacity-100 ' : '')

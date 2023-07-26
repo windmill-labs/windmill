@@ -14,8 +14,8 @@
 		type NestedNodes,
 		type GraphModuleState
 	} from '.'
-	import { defaultIfEmptyString, encodeState, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { defaultIfEmptyString, encodeState } from '$lib/utils'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import Svelvet from './svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from './svelvet/types'
 	import MapItem from '../flows/map/MapItem.svelte'
@@ -23,6 +23,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 	import { deepEqual } from 'fast-equals'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -60,11 +61,12 @@
 	let dataflow = false
 
 	let dispatch = createEventDispatcher()
+	let renderCount = 1
 
 	$: {
 		dataflow
 		moving
-		width && height && minHeight && $selectedId && flowModuleStates
+		width && height && minHeight && $selectedId && flowModuleStates && renderCount
 		createGraph()
 	}
 
@@ -215,7 +217,7 @@
 			const branches = [
 				{ summary: 'Default Branch', modules: module.value.default, removable: false },
 				...module.value.branches.map((b, i) => ({
-					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)),
+					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)) + '\n`' + b.expr + '`',
 					modules: b.modules,
 					removable: true
 				}))
@@ -224,7 +226,7 @@
 				module,
 				modules,
 				branches,
-				['', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
+				[], //['', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
 				parent,
 				loopDepth,
 				false
@@ -268,32 +270,36 @@
 	}
 
 	function getStateColor(state: FlowStatusModule.type | undefined): string {
+		const isDark = document.documentElement.classList.contains('dark')
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return 'rgb(193, 255, 216)'
+				return isDark ? '#059669' : 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
-				return 'rgb(248 113 113)'
+				return isDark ? '#dc2626' : 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return 'rgb(253, 240, 176)'
+				return isDark ? '#f59e0b' : 'rgb(253, 240, 176)'
 			case FlowStatusModule.type.WAITING_FOR_EVENTS:
-				return 'rgb(229, 176, 253)'
+				return isDark ? '#db2777' : 'rgb(229, 176, 253)'
 			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
-				return 'rgb(255, 208, 193)'
+				return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 			default:
-				return '#fff'
+				return isDark ? '#2e3440' : '#fff'
 		}
 	}
 
 	function getResultColor(): string {
+		const isDark = document.documentElement.classList.contains('dark')
+
 		switch (success) {
 			case true:
 				return getStateColor(FlowStatusModule.type.SUCCESS)
 			case false:
 				return getStateColor(FlowStatusModule.type.FAILURE)
 			default:
-				return '#fff'
+				return isDark ? '#2e3440' : '#fff'
 		}
 	}
+
 	function flowModuleToNode(
 		parentIds: string[],
 		mod: FlowModule,
@@ -477,7 +483,8 @@
 					false,
 					removable ? { module, index: i } : undefined,
 					undefined,
-					undefined
+					undefined,
+					false
 				)
 			)
 			if (modules.length) {
@@ -636,7 +643,8 @@
 		selectable: boolean,
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
-		fixed_id: string | undefined
+		fixed_id: string | undefined,
+		center: boolean = true
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 		return {
@@ -655,14 +663,20 @@
 						label,
 						insertable,
 						modules,
-						bgColor: label == 'Result' ? getResultColor() : '#dfe6ee',
+						bgColor:
+							label == 'Result'
+								? getResultColor()
+								: document.documentElement.classList.contains('dark')
+								? '#2e3440'
+								: '#dfe6ee',
 						selected: $selectedId == label,
 						index,
 						selectable,
 						whereInsert,
 						deleteBranch,
 						id: mid,
-						moving
+						moving,
+						center
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
@@ -725,27 +739,38 @@
 			loopDepth: 0
 		}
 	}
+
+	function onThemeChange() {
+		renderCount++
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
 	{#if width && height}
-		<Svelvet
-			on:expand={() => {
-				localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
-				window.open('/view_graph', '_blank')
-			}}
-			{download}
-			highlightEdges={false}
-			locked
-			bind:dataflow
-			{nodes}
-			width={fullSize ? fullWidth : width}
-			{edges}
-			{height}
-			{scroll}
-			nodeSelected={showDataflow}
-			background={false}
-			bgColor="rgb(249 250 251)"
-		/>
+		{#key renderCount}
+			<Svelvet
+				on:expand={() => {
+					localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+					window.open('/view_graph', '_blank')
+				}}
+				{download}
+				highlightEdges={false}
+				locked
+				bind:dataflow
+				{nodes}
+				width={fullSize ? fullWidth : width}
+				{edges}
+				{height}
+				{scroll}
+				nodeSelected={showDataflow}
+				background={false}
+			/>
+		{/key}
 	{/if}
 </div>

@@ -71,9 +71,7 @@
 </Drawer>
 <div class="grid grid-cols-3 w-full h-full">
 	<div
-		class="{noSide
-			? 'col-span-3'
-			: 'sm:col-span-2 col-span-3'} w-full border border-gray-200 max-h-full"
+		class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph
@@ -91,7 +89,7 @@
 		>
 			{#if stepDetail == undefined}
 				<div>
-					<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					<p class="font-medium text-tertiary text-center pt-4 pb-8">
 						Click on a step to see its details
 					</p>
 					<h3 class="mb-2 font-semibold">Flow Inputs</h3>
@@ -100,10 +98,10 @@
 			{:else if stepDetail == 'Input'}
 				<SchemaViewer schema={flow?.schema} />
 			{:else if stepDetail == 'Result'}
-				<p class="font-medium text-gray-600 text-center pt-4 pb-8"> End of the flow </p>
+				<p class="font-medium text-tertiary text-center pt-4 pb-8"> End of the flow </p>
 			{:else if typeof stepDetail != 'string' && stepDetail.value}
 				<div class="">
-					<div class="sticky top-0 bg-white w-full flex items-center py-2">
+					<div class="sticky top-0 bg-surface w-full flex items-center py-2">
 						{#if stepDetail.id}
 							<Badge color="indigo">
 								{stepDetail.id}
@@ -141,7 +139,7 @@
 					{/if}
 				</div>
 				{#if stepDetail.value.type == 'identity'}
-					<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					<p class="font-medium text-tertiary text-center pt-4 pb-8">
 						An identity step returns its inputs as outputs
 					</p>
 				{:else if stepDetail.value.type == 'rawscript'}
@@ -189,7 +187,7 @@
 					{/if}
 				{:else if stepDetail.value.type == 'forloopflow'}
 					<div>
-						<p class="font-medium text-gray-600 pb-2"> Iterator expression: </p>
+						<p class="font-medium text-tertiary pb-2"> Iterator expression: </p>
 						{#if stepDetail.value.iterator.type == 'static'}
 							<ObjectViewer json={stepDetail.value.iterator.value} />
 						{:else}
@@ -199,18 +197,18 @@
 						{/if}
 					</div>
 				{:else if stepDetail.value.type == 'branchall'}
-					<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					<p class="font-medium text-tertiary text-center pt-4 pb-8">
 						All branches will run, regardless of the inputs
 					</p>
 				{:else if stepDetail.value.type == 'branchone'}
-					<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+					<p class="font-medium text-tertiary text-center pt-4 pb-8">
 						Only one branch will run based on a predicate
 					</p>
 				{:else if stepDetail.value.type == 'flow'}
 					<FlowPathViewer noSide path={stepDetail.value.path} />
 				{/if}
 			{:else}
-				<p class="font-medium text-gray-600 text-center pt-4 pb-8">
+				<p class="font-medium text-tertiary text-center pt-4 pb-8">
 					Step {stepDetail} selected
 				</p>
 			{/if}

@@ -71,7 +71,7 @@
 		<TestConnection {resource_type} {args} />
 	</div>
 {:else}
-	<p class="italic text-gray-500 text-xs mb-4"
+	<p class="italic text-tertiary text-xs mb-4"
 		>No corresponding resource type found in your workspace for {resource_type}. Define the value in
 		JSON directly</p
 	>
