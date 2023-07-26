@@ -53,6 +53,7 @@
 					width: w,
 					height: h,
 					margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 },
+
 					...resolvedConfig.layout
 				},
 				{ responsive: true, displayModeBar: false }

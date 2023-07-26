@@ -604,7 +604,7 @@
 											isLoading={false}
 										/>
 									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+									<Pane size={50} minSize={10} class="text-sm text-secondary">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
 											<DisplayResult
 												result={{
@@ -622,7 +622,7 @@
 											isLoading={false}
 										/>
 									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+									<Pane size={50} minSize={10} class="text-sm text-secondary">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
 											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
 										</pre>
@@ -654,7 +654,7 @@
 										<Pane size={50} minSize={10}>
 											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
 										</Pane>
-										<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<Pane size={50} minSize={10} class="text-sm text-secondary">
 											{#if job != undefined && 'result' in job && job.result != undefined}
 												<pre class="overflow-x-auto break-words relative h-full px-2"
 													><DisplayResult

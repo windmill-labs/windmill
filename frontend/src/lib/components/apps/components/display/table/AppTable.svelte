@@ -272,7 +272,7 @@
 			{/if}
 
 			<div class="overflow-x-auto flex-1 w-full">
-				<table class="relative w-full border-b border-b-gray-200">
+				<table class="relative w-full border-b">
 					<thead
 						class={twMerge(
 							'bg-surface-secondary text-left',
@@ -307,7 +307,7 @@
 						{/each}
 					</thead>
 					<tbody
-						class={twMerge('divide-y divide-gray-200 bg-surface', css?.tableBody?.class ?? '')}
+						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '')}
 						style={css?.tableBody?.style ?? ''}
 					>
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
@@ -319,8 +319,8 @@
 										: 'hover:bg-blue-50 dark:hover:bg-surface-hover',
 									'divide-x w-full',
 									selectedRowIndex === rowIndex
-										? 'divide-blue-200 hover:divide-blue-300'
-										: 'divide-gray-200'
+										? 'divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700'
+										: ''
 								)}
 							>
 								{#each safeVisibleCell(row) as cell, index (index)}

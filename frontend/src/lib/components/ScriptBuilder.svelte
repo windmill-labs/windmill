@@ -449,7 +449,7 @@
 						</select>
 					</div>
 				{:else}
-					<div class="text-sm text-gray-600 italic mb-2">
+					<div class="text-sm text-secondary italic mb-2">
 						No custom worker group defined on this instance. See <a
 							href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 							target="_blank">documentation</a

@@ -123,11 +123,11 @@
 				)}
 			>
 				<div
-					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
+					class="w-full sticky top-0 flex justify-between border-b bg-surface-secondary px-4 py-1 items-center gap-4"
 				>
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
-					<div class="text-2xs text-gray-600">
+					<div class="text-2xs text-secondary">
 						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
 					</div>
 				</div>
