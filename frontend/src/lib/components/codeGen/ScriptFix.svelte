@@ -6,9 +6,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import Popover from '../Popover.svelte'
 
 	// props
 	export let lang: SupportedLanguage
@@ -20,6 +21,7 @@
 	let genLoading: boolean = false
 	let openaiAvailable: boolean | undefined = undefined
 	let generatedCode = ''
+	let explanation = ''
 
 	async function onFix() {
 		if (!error) {
@@ -33,11 +35,14 @@
 			}
 
 			genLoading = true
-			generatedCode = await fixScript({
+			const result = await fixScript({
 				language: lang,
 				code: editor?.getCode() || '',
-				error
+				error,
+				dbSchema: lang === 'postgresql' ? $dbSchema : undefined
 			})
+			generatedCode = result.code
+			explanation = result.explanation
 		} catch (err) {
 			sendUserToast('Failed to generate code', true)
 			console.error(err)
@@ -50,11 +55,13 @@
 		editor?.setCode(diffEditor?.getModified() || '')
 		editor?.format()
 		generatedCode = ''
+		explanation = ''
 		error = ''
 	}
 
 	function rejectDiff() {
 		generatedCode = ''
+		explanation = ''
 	}
 
 	function checkIfOpenaiAvailable(
@@ -108,6 +115,13 @@
 					>
 						Accept
 					</Button>
+					{#if explanation}
+						<Popover>
+							<svelte:fragment slot="text">{explanation}</svelte:fragment>
+							<Button size="xs" color="light" variant="contained" spacingSize="xs2">Explain</Button
+							></Popover
+						>
+					{/if}
 				</div>
 			{:else}
 				<Button

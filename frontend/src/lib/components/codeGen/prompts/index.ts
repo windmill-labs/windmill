@@ -2,12 +2,7 @@ import editObj from './edit.yaml'
 import fixObj from './fix.yaml'
 import genObj from './gen.yaml'
 
-interface CommonConfig {
-	system: string
-	prompt: string
-}
-
-interface GenConfig {
+interface PromptsConfig {
 	system: string
 	prompts: {
 		[key: string]: {
@@ -16,10 +11,10 @@ interface GenConfig {
 	}
 }
 
-const EDIT_CONFIG = editObj as CommonConfig
+const EDIT_CONFIG = editObj as PromptsConfig
 
-const FIX_CONFIG = fixObj as CommonConfig
+const FIX_CONFIG = fixObj as PromptsConfig
 
-const GEN_CONFIG = genObj as GenConfig
+const GEN_CONFIG = genObj as PromptsConfig
 
 export { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG }
