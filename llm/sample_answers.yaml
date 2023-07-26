@@ -79,7 +79,7 @@
     ```python
     {code}
     ```
-    Additional information: We have to export a "main" function and specify the parameter types but do not need to not call it.
+    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
     You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
     Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
     I get the following error: {error}
@@ -110,7 +110,7 @@
     ```python
     {code}
     ```
-    Additional information: We have to export a "main" function and specify the parameter types but do not need to not call it.
+    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
     You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
     Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
     My instructions: {description}
@@ -473,7 +473,8 @@
     The WHERE clause filters for the specified username and only considers 'complete' operations.
 
     Finally, it orders the results by month.
-  description: compute the average number of completed jobs per month for the given
+  description:
+    compute the average number of completed jobs per month for the given
     username
   lang: postgresql
   template_prompt: |-

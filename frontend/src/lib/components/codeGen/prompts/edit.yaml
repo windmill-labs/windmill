@@ -11,7 +11,7 @@ prompts:
       ```python
       {code}
       ```
-      Additional information: We have to export a "main" function and specify the parameter types but do not need to not call it.
+      Additional information: We have to export a "main" function and specify the parameter types but do not call it.
       You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
       Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
       My instructions: {description}
@@ -21,7 +21,7 @@ prompts:
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not need to not call it.
+      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
       My instructions: {description}
@@ -63,7 +63,7 @@ prompts:
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not need to not call it.
+      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
       You should use fetch and are not allowed to import any libraries.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
@@ -74,7 +74,7 @@ prompts:
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not need to not call it.
+      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
       My instructions: {description}
