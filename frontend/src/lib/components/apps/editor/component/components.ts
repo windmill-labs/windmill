@@ -1785,6 +1785,11 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'date'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
 				}
 			}
 		}
