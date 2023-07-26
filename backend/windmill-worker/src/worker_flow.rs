@@ -1697,7 +1697,6 @@ async fn compute_next_flow_transform(
     };
     match &module.value {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
-        FlowModuleValue::Http => trivial_next_job(JobPayload::Http),
         FlowModuleValue::Flow { path, .. } => {
             let payload = JobPayload::Flow(path.to_string());
             Ok(NextFlowTransform::Continue(
