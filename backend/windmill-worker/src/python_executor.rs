@@ -180,8 +180,14 @@ pub async fn handle_python_job(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements =
-                windmill_parser_py_imports::parse_python_imports(&inner_content)?.join("\n");
+            let requirements = windmill_parser_py_imports::parse_python_imports(
+                &inner_content,
+                &job.workspace_id,
+                &job.script_path(),
+                &db,
+            )
+            .await?
+            .join("\n");
             if requirements.is_empty() {
                 "".to_string()
             } else {

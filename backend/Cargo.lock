@@ -7178,6 +7178,7 @@ dependencies = [
  "regex",
  "rustpython-parser",
  "serde_json",
+ "sqlx",
  "windmill-common",
  "windmill-parser",
 ]

@@ -2140,7 +2140,7 @@ async fn handle_flow_dependency_job(
     worker_name: &str,
     worker_dir: &str,
 ) -> error::Result<()> {
-    let path = job.script_path.clone().ok_or_else(|| {
+    let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
@@ -2159,7 +2159,7 @@ async fn handle_flow_dependency_job(
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content)?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.clone()), &db).await?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
@@ -2232,7 +2232,7 @@ async fn handle_flow_dependency_job(
     sqlx::query!(
         "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
         new_flow_value,
-        path,
+        job_path,
         job.workspace_id
     )
     .execute(db)
