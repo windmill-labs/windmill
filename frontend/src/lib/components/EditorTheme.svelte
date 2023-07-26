@@ -117,7 +117,6 @@
 		if (document.documentElement.classList.contains('dark')) {
 			meditor.setTheme('nord')
 			darkMode = true
-
 			each(Chart.instances, (instance) => {
 				instance.options = {
 					scales: {
