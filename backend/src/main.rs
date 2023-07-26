@@ -91,11 +91,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Database connected");
 
     let rsmq = if let Some(config) = rsmq_config {
-        let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
-
-        let _ = rsmq_async::RsmqConnection::create_queue(&mut rsmq, "main_queue", None, None, None)
-            .await;
-        Some(rsmq)
+        Some(rsmq_async::MultiplexedRsmq::new(config).await.unwrap())
     } else {
         None
     };
