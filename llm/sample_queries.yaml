@@ -27,7 +27,7 @@
   description: Convert a number to a word
 - lang: postgresql
   type: gen
-  description: Insert an email and a name in the users table
+  description: Insert an a new user
 - lang: mysql
   type: gen
   description: Insert an email and a name in the users table
@@ -46,3 +46,9 @@
 - lang: postgresql
   type: gen
   description: compute the average number of completed jobs per month for the given username
+- lang: postgresql
+  type: fix
+  code: |-
+    SELECT is_secret FROM account
+  error: |-
+    ExecutionError: db error: ERROR: column "is_secret" does not exist
