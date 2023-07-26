@@ -488,7 +488,9 @@ async fn create_script(
     if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
-                windmill_parser_py_imports::parse_python_imports(&ns.content)?.join("\n")
+                windmill_parser_py_imports::parse_python_imports(&ns.content, &w_id, &ns.path, &db)
+                    .await?
+                    .join("\n")
             }
             _ => ns.content,
         };

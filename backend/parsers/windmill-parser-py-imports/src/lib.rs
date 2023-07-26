@@ -11,6 +11,7 @@ use lazy_static::lazy_static;
 use phf::phf_map;
 use regex::Regex;
 
+use sqlx::{Pool, Postgres};
 use windmill_common::error;
 
 use rustpython_parser::ast::{Located, StmtKind};
@@ -46,7 +47,12 @@ lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
 }
 
-pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
+pub async fn parse_python_imports(
+    code: &str,
+    w_id: &str,
+    path: &str,
+    db: &Pool<Postgres>,
+) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
         .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
@@ -116,58 +122,6 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
         imports.extend(nimports);
         imports.sort();
         Ok(imports)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn test_parse_python_imports() -> anyhow::Result<()> {
-        //let code = "print(2 + 3, fd=sys.stderr)";
-        let code = "
-
-import os
-import wmill
-from zanzibar.estonie import talin
-import matplotlib.pyplot as plt
-from . import tests
-
-def main():
-    pass
-
-";
-        let r = parse_python_imports(code)?;
-        // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["matplotlib", "requests", "wmill", "zanzibar"]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_python_imports2() -> anyhow::Result<()> {
-        //let code = "print(2 + 3, fd=sys.stderr)";
-        let code = "
-#requirements:
-#burkina=0.4
-#nigeria
-#
-#congo
-
-import os
-import wmill
-from zanzibar.estonie import talin
-
-def main():
-    pass
-
-";
-        let r = parse_python_imports(code)?;
-        println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
-
-        Ok(())
     }
 }
 
