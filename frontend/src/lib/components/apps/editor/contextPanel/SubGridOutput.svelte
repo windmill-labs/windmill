@@ -49,7 +49,7 @@
 			<div
 				class={classNames(
 					'px-1 py-0.5 flex justify-between items-center font-semibold text-xs border-l border-y w-full cursor-pointer',
-					selected === index ? 'bg-gray-200' : 'bg-gray-50'
+					selected === index ? 'bg-surface-selected' : 'bg-surface'
 				)}
 				on:click={() => {
 					selected = index

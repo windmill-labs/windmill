@@ -171,7 +171,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="border rounded-md p-2 mb-2 bg-white">
+				<div class="border rounded-md p-2 mb-2 bg-surface">
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<input
 							on:keydown|stopPropagation

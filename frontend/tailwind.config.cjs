@@ -604,7 +604,7 @@ const config = {
 						fontSize: theme('fontSize.sm'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-						border: `1px solid ${theme('colors.gray.300')}`,
+						border: `1px solid `,
 						borderRadius: theme('borderRadius.md'),
 						'&:focus': {
 							'--tw-ring-color': theme('colors.frost.100'),

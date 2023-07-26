@@ -228,8 +228,7 @@
 		@apply flex flex-col justify-start items-end;
 	}
 	.ol-control button {
-		@apply w-7 h-7 center-center bg-white border border-gray-300 text-gray-700 
-		rounded mt-1 mr-1 shadow duration-200 hover:bg-gray-100 focus:bg-gray-100 
-		hover:border-gray-500 focus:border-gray-500;
+		@apply w-7 h-7 center-center bg-surface border  text-secondary 
+		rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
 	}
 </style>

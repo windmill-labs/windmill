@@ -79,7 +79,7 @@
 		{#if error != ''}
 			<div class="flex flex-col h-full w-full overflow-auto">
 				<Alert title="Plotly error" type="error" size="xs" class="h-full w-full ">
-					<pre class="w-full bg-white p-2 rounded-md whitespace-pre-wrap">{error}</pre>
+					<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap">{error}</pre>
 				</Alert>
 			</div>
 		{/if}

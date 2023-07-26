@@ -16,6 +16,7 @@
 		if (!document.documentElement.classList.contains('dark')) {
 			document.documentElement.classList.add('dark')
 			window.localStorage.setItem('dark-mode', 'dark')
+
 			darkMode = true
 		} else {
 			document.documentElement.classList.remove('dark')

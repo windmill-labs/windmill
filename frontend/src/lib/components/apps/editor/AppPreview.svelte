@@ -111,7 +111,7 @@
 	<div id="app-editor-select" />
 
 	<div
-		class="{$$props.class} {lockedClasses} {width} light h-full bg-white {app.fullscreen
+		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
 			: 'max-w-6xl'} mx-auto"
 	>

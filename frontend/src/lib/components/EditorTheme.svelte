@@ -4,6 +4,8 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import github from 'svelte-highlight/styles/github'
 	import nord from 'svelte-highlight/styles/nord'
+	import { each } from 'chart.js/helpers'
+	import { Chart } from 'chart.js'
 
 	meditor.defineTheme('nord', {
 		base: 'vs-dark',
@@ -115,9 +117,71 @@
 		if (document.documentElement.classList.contains('dark')) {
 			meditor.setTheme('nord')
 			darkMode = true
+
+			each(Chart.instances, (instance) => {
+				instance.options = {
+					scales: {
+						y: {
+							ticks: {
+								color: '#e0e7ed'
+							},
+							grid: {
+								color: '#4a5568'
+							}
+						},
+						x: {
+							ticks: {
+								color: '#e0e7ed'
+							},
+							grid: {
+								color: '#4a5568'
+							}
+						}
+					},
+					plugins: {
+						legend: {
+							labels: {
+								color: '#e0e7ed'
+							}
+						}
+					}
+				}
+				instance.update()
+			})
 		} else {
 			meditor.setTheme('myTheme')
 			darkMode = false
+
+			each(Chart.instances, (instance) => {
+				instance.options = {
+					scales: {
+						y: {
+							ticks: {
+								color: '#4a5568'
+							},
+							grid: {
+								color: '#e0e7ed'
+							}
+						},
+						x: {
+							ticks: {
+								color: '#4a5568'
+							},
+							grid: {
+								color: '#e0e7ed'
+							}
+						}
+					},
+					plugins: {
+						legend: {
+							labels: {
+								color: '#4a5568'
+							}
+						}
+					}
+				}
+				instance.update()
+			})
 		}
 	}
 

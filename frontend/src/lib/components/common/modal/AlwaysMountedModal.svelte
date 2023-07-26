@@ -36,7 +36,7 @@
 			<div
 				style={css?.popup?.style}
 				class={twMerge(
-					'bg-white max-w-5xl m-24 overflow-y-auto rounded-lg relative',
+					'bg-surface max-w-5xl m-24 overflow-y-auto rounded-lg relative',
 					css?.popup?.class
 				)}
 				use:clickOutside
@@ -60,7 +60,7 @@
 				</div>
 
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
+				<div class="relative bg-surface rounded-md" on:click|stopPropagation={() => {}}>
 					<div
 						class={twMerge(
 							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',

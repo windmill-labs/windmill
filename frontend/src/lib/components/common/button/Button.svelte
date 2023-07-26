@@ -82,7 +82,7 @@
 		},
 		gray: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-surface hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-primary focus:text-primary focus:ring-gray-300',
 			contained:
 				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300',
 			divider: 'divide-x divide-gray-700 dark:divide-gray-200'

@@ -114,13 +114,13 @@
 		</div>
 	{:else if resolvedConfig.tabsKind == 'sidebar'}
 		<div
-			class="flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-white text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400"
+			class="flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400"
 		>
 			{#each tabs ?? [] as res}
 				<button
 					class="rounded-sm !truncate text-sm hover:bg-gray-100 hover:border hover:text-black px-1 py-2 {selected ==
 					res
-						? 'outline outline-gray-500 outline-1 bg-white text-black'
+						? 'outline outline-gray-500 outline-1 bg-surface text-black'
 						: ''}"
 					on:pointerdown|stopPropagation
 					on:click={() => (selected = res)}>{res}</button

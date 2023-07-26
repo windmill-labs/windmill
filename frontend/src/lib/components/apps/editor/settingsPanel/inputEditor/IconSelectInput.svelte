@@ -75,7 +75,7 @@
 		wrapperClasses=" z-[1002]"
 	>
 		{#if !loading}
-			<div class="w-72 shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">
+			<div class="w-72 shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-surface rounded-md p-2">
 				{#if filteredItems}
 					<input
 						on:keydown={(event) => {
