@@ -115,12 +115,15 @@
 	} else {
 		error = ''
 	}
+
+	let title = ''
+	$: title = editing ? `Edit ${oldArgName} argument` : 'Add an argument'
 </script>
 
 <svelte:window on:keyup={handleKeyUp} />
 
 <Drawer bind:this={drawer} placement="right">
-	<DrawerContent on:close={clearModal} title="Add an argument">
+	<DrawerContent on:close={clearModal} {title}>
 		<div class="flex flex-col gap-6">
 			<div>
 				<label class="block">
