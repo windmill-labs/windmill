@@ -41,7 +41,8 @@
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		jobId: undefined
 	})
 
 	if (controls) {

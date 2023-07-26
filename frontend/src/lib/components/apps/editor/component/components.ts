@@ -475,12 +475,13 @@ export const components = {
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {},
-			componentInput: {
-				type: 'runnable',
-				fieldType: 'any',
-				fields: {},
-				runnable: undefined
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				}
 			}
 		}
 	},

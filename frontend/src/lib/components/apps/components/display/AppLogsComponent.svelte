@@ -1,26 +1,35 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { concatCustomCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'logcomponent'> | undefined = undefined
 	export let render: boolean
+	export let configuration: RichConfigurations
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
+	let resolvedConfig = initConfig(
+		components['logcomponent'].initialData.configuration,
+		configuration
+	)
+
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		jobId: undefined
 	})
 
 	initializing = false
@@ -30,19 +39,24 @@
 	let testJobLoader: TestJobLoader | undefined = undefined
 	let testIsLoading: boolean = false
 	let testJob: Job | undefined = undefined
+
+	$: if (resolvedConfig.jobId) {
+		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
+	}
 </script>
+
+{#each Object.keys(components['logcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
-<RunnableWrapper
-	on:started={(e) => {
-		testJobLoader?.watchJob(e.detail)
-	}}
-	{outputs}
-	{render}
-	{componentInput}
-	{id}
->
+<RunnableWrapper {outputs} {render} {componentInput} {id}>
 	<div class="flex flex-col w-full h-full">
 		<div
 			class={twMerge(

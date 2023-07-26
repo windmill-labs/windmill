@@ -30,7 +30,7 @@
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let outputs: { result: Output<any>; loading: Output<boolean>; jobId: Output<any> }
 	export let extraKey = ''
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
@@ -297,6 +297,10 @@
 		}
 	}
 
+	async function setJobId(jobId: string) {
+		outputs.jobId?.set(jobId)
+	}
+
 	async function setResult(res: any, jobId: string | undefined) {
 		dispatch('done')
 		const hasRes = res !== undefined && res !== null
@@ -458,7 +462,10 @@
 
 <ResultJobLoader
 	on:started={(e) => {
+		debugger
 		loading = true
+		setJobId(e.detail)
+
 		dispatch('started', e.detail)
 	}}
 	workspaceOverride={workspace}
