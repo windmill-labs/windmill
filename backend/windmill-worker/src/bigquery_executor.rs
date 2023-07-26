@@ -10,10 +10,13 @@ use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 struct BigqueryResponse {
     rows: Option<Vec<BigqueryResponseRow>>,
-    schema: BigqueryResponseSchema,
+    totalRows: Option<Value>,
+    schema: Option<BigqueryResponseSchema>,
+    jobComplete: bool,
 }
 
 #[derive(Deserialize)]
@@ -168,13 +171,39 @@ pub async fn do_bigquery(
                 .await
                 .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-            if result.rows.is_none() {
+            if !result.jobComplete {
+                return Err(Error::ExecutionErr(
+                    "BigQuery API did not answer query in time".to_string(),
+                ));
+            }
+
+            if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
                 return Ok(JobCompleted {
                     job: job,
                     result: Value::Array(vec![]),
                     logs: "".to_string(),
-                    success: false,
+                    success: true,
                 });
+            }
+
+            if result.schema.is_none() {
+                return Err(Error::ExecutionErr(
+                    "Incomplete response from BigQuery API".to_string(),
+                ));
+            }
+
+            if result
+                .totalRows
+                .unwrap_or(json!(""))
+                .as_str()
+                .unwrap_or("")
+                .parse::<i64>()
+                .unwrap_or(0)
+                > 10000
+            {
+                return Err(Error::ExecutionErr(
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
+                ));
             }
 
             let rows = result
@@ -185,7 +214,7 @@ pub async fn do_bigquery(
                     let mut row_map = serde_json::Map::new();
                     row.f
                         .iter()
-                        .zip(result.schema.fields.iter())
+                        .zip(result.schema.as_ref().unwrap().fields.iter())
                         .for_each(|(field, schema)| {
                             row_map.insert(
                                 schema.name.clone(),
