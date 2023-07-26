@@ -121,7 +121,7 @@
 		<div
 			style={css?.popup?.style}
 			class={twMerge(
-				'm-24 max-h-[80%] bg-white overflow-y-auto rounded-lg relative',
+				'm-24 max-h-[80%] bg-surface overflow-y-auto rounded-lg relative',
 				css?.popup?.class
 			)}
 			use:clickOutside={false}
@@ -139,9 +139,9 @@
 							open = false
 						}}
 						style={css?.button?.style}
-						class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 					>
-						<X class="text-gray-500" />
+						<X class="text-tertiary" />
 					</button>
 				</div>
 			</div>

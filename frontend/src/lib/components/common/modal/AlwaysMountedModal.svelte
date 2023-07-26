@@ -36,7 +36,7 @@
 			<div
 				style={css?.popup?.style}
 				class={twMerge(
-					'bg-white max-w-5xl m-24 overflow-y-auto rounded-lg relative',
+					'bg-surface max-w-5xl m-24 overflow-y-auto rounded-lg relative',
 					css?.popup?.class
 				)}
 				use:clickOutside
@@ -52,7 +52,7 @@
 								isOpen = false
 							}}
 							style={css?.button?.style}
-							class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 						>
 							<X class="text-tertiary" />
 						</button>
@@ -60,7 +60,7 @@
 				</div>
 
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div class="relative bg-white rounded-md" on:click|stopPropagation={() => {}}>
+				<div class="relative bg-surface rounded-md" on:click|stopPropagation={() => {}}>
 					<div
 						class={twMerge(
 							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',

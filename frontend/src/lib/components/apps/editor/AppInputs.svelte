@@ -47,7 +47,7 @@
 						const field = fields[fieldKey]
 						return field.fieldType === 'object' && field.format?.startsWith('resource-')
 					}).length === 0}
-					<span class="text-sm text-gray-600">No resource input</span>
+					<span class="text-sm text-secondary">No resource input</span>
 				{:else}
 					<InputsSpecsEditor
 						id={BG_PREFIX + index}

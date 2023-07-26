@@ -9,10 +9,10 @@
 
 {#if hasError}
 	<div class={classNames('bg-red-100 w-full h-full flex items-center justify-center text-red-500')}>
-		<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
+		<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 			<Bug size={14} />
 			<span slot="text">
-				<div class="bg-white">
+				<div class="bg-surface">
 					<Alert type="error" title="Error during execution">
 						<div class="flex flex-col gap-2">
 							One of the configuration of the component is invalid. Please check the configuration

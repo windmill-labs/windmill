@@ -585,7 +585,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-sm text-gray-500">No items</div>
+							<div class="text-sm text-tertiary">No items</div>
 						{/if}
 					</div>
 				</PanelSection>
@@ -604,7 +604,7 @@
 											isLoading={false}
 										/>
 									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+									<Pane size={50} minSize={10} class="text-sm text-secondary">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
 											<DisplayResult
 												result={{
@@ -622,7 +622,7 @@
 											isLoading={false}
 										/>
 									</Pane>
-									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+									<Pane size={50} minSize={10} class="text-sm text-secondary">
 										<pre class="overflow-x-auto break-words relative h-full px-2">
 											<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={jobResult.result} />
 										</pre>
@@ -654,7 +654,7 @@
 										<Pane size={50} minSize={10}>
 											<LogViewer jobId={job?.id} content={job?.logs} isLoading={testIsLoading} />
 										</Pane>
-										<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<Pane size={50} minSize={10} class="text-sm text-secondary">
 											{#if job != undefined && 'result' in job && job.result != undefined}
 												<pre class="overflow-x-auto break-words relative h-full px-2"
 													><DisplayResult
@@ -666,9 +666,9 @@
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>
 											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-												<div class="p-2 text-gray-500">Result is undefined</div>
+												<div class="p-2 text-tertiary">Result is undefined</div>
 											{:else}
-												<div class="p-2 text-gray-500">
+												<div class="p-2 text-tertiary">
 													<Loader2 size={14} class="animate-spin mr-2" />
 												</div>
 											{/if}
@@ -689,7 +689,7 @@
 							</div>
 						{/if}
 					{:else}
-						<div class="text-sm p-2 text-gray-500">Select a job to see its details</div>
+						<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
 					{/if}
 				</div>
 			</Pane>
@@ -812,7 +812,7 @@
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
 					<div> Debug runs</div>
-					<div class="text-2xs text-gray-500"
+					<div class="text-2xs text-tertiary"
 						>({$jobs?.length > 99 ? '99+' : $jobs?.length ?? 0})</div
 					>
 					{#if hasErrors}

@@ -61,7 +61,7 @@
 			{#if jobId}
 				<FlowStatusViewer workspaceId={workspace} {jobId} />
 			{:else}
-				<span class="text-gray-600 text-xs">No flow</span>
+				<span class="text-secondary text-xs">No flow</span>
 			{/if}
 		</div>
 	</div>

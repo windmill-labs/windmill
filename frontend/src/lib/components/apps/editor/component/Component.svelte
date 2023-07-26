@@ -120,7 +120,7 @@
 	{/if}
 	<div
 		class={twMerge(
-			'h-full bg-white/40 outline-1',
+			'h-full bg-surface/40 outline-1',
 			$hoverStore === component.id && $mode !== 'preview'
 				? $connectingInput.opened
 					? 'outline outline-orange-600'

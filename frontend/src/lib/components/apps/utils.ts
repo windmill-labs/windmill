@@ -285,6 +285,8 @@ export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
 			const compStyle = v?.style?.trim() || ''
 			const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
 
+			console.log(key, v)
+
 			return [
 				key,
 				{

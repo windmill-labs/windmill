@@ -23,6 +23,7 @@
 	import { dfs } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import { workspaceStore } from '$lib/stores'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let app: App
 	export let appPath: string = ''
@@ -63,6 +64,8 @@
 	resizeWindow()
 
 	const parentWidth = writable(0)
+	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
+
 	const state = writable({})
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(ncontext),
@@ -89,7 +92,8 @@
 		state: state,
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
-		allIdsInPath
+		allIdsInPath,
+		darkMode
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -102,7 +106,12 @@
 
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
+	function onThemeChange() {
+		$darkMode = document.documentElement.classList.contains('dark')
+	}
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
@@ -111,7 +120,7 @@
 	<div id="app-editor-select" />
 
 	<div
-		class="{$$props.class} {lockedClasses} {width} light h-full bg-white {app.fullscreen
+		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
 			: 'max-w-6xl'} mx-auto"
 	>
@@ -123,11 +132,11 @@
 				)}
 			>
 				<div
-					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
+					class="w-full sticky top-0 flex justify-between border-b bg-surface-secondary px-4 py-1 items-center gap-4"
 				>
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
-					<div class="text-2xs text-gray-600">
+					<div class="text-2xs text-secondary">
 						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
 					</div>
 				</div>
