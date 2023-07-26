@@ -449,7 +449,7 @@
 						</select>
 					</div>
 				{:else}
-					<div class="text-sm text-gray-600 italic mb-2">
+					<div class="text-sm text-secondary italic mb-2">
 						No custom worker group defined on this instance. See <a
 							href="https://www.windmill.dev/docs/core_concepts/worker_groups"
 							target="_blank">documentation</a
@@ -476,7 +476,7 @@
 								<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
 								<button
 									transition:fade|local={{ duration: 50 }}
-									class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+									class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200"
 									aria-label="Clear"
 									on:click={() => {
 										script.envs && script.envs.splice(i, 1)

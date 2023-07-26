@@ -45,6 +45,7 @@
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
 	import { BG_PREFIX, migrateApp } from '../utils'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let app: App
 	export let path: string
@@ -79,6 +80,7 @@
 		workspace: $workspaceStore,
 		mode: 'editor'
 	}
+	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const worldStore = buildWorld(context)
 	setContext<AppViewerContext>('AppViewerContext', {
@@ -106,7 +108,8 @@
 		state: writable({}),
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
-		allIdsInPath: writable([])
+		allIdsInPath: writable([]),
+		darkMode
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -200,7 +203,13 @@
 	} else {
 		secondaryMenu.close()
 	}
+
+	function onThemeChange() {
+		$darkMode = document.documentElement.classList.contains('dark')
+	}
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} />
 
@@ -243,7 +252,7 @@
 											$focusedGrid = undefined
 										}}
 										class={twMerge(
-											'bg-white h-full w-full relative',
+											'bg-surface h-full w-full relative',
 											$appStore.css?.['app']?.['viewer']?.class
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
@@ -348,7 +357,7 @@
 >
 	<div
 		slot="submission"
-		class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
 		<Button
 			variant="border"

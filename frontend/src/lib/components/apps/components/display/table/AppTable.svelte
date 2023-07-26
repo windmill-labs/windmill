@@ -255,7 +255,7 @@
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
-				'border border-gray-300 shadow-sm divide-y divide-gray-300 h-full',
+				'border  shadow-sm divide-y h-full',
 				css?.container?.class ?? '',
 				'flex flex-col'
 			)}
@@ -272,10 +272,10 @@
 			{/if}
 
 			<div class="overflow-x-auto flex-1 w-full">
-				<table class="relative w-full border-b border-b-gray-200">
+				<table class="relative w-full border-b">
 					<thead
 						class={twMerge(
-							'bg-gray-50 text-left',
+							'bg-surface-secondary text-left',
 							css?.tableHeader?.class ?? '',
 							'sticky top-0 z-40'
 						)}
@@ -307,7 +307,7 @@
 						{/each}
 					</thead>
 					<tbody
-						class={twMerge('divide-y divide-gray-200 bg-white', css?.tableBody?.class ?? '')}
+						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '')}
 						style={css?.tableBody?.style ?? ''}
 					>
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
@@ -315,12 +315,12 @@
 								class={classNames(
 									'last-of-type:!border-b-0',
 									selectedRowIndex === rowIndex
-										? 'bg-blue-100 hover:bg-blue-200'
-										: 'hover:bg-blue-50',
+										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover'
+										: 'hover:bg-blue-50 dark:hover:bg-surface-hover',
 									'divide-x w-full',
 									selectedRowIndex === rowIndex
-										? 'divide-blue-200 hover:divide-blue-300'
-										: 'divide-gray-200'
+										? 'divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700'
+										: ''
 								)}
 							>
 								{#each safeVisibleCell(row) as cell, index (index)}
@@ -331,7 +331,7 @@
 											<td
 												on:keydown={() => toggleRow(row, rowIndex)}
 												on:click={() => toggleRow(row, rowIndex)}
-												class="p-4 whitespace-pre-wrap truncate text-xs text-gray-900"
+												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
 											>
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
@@ -534,7 +534,7 @@
 		<div class="flex flex-col h-full w-full overflow-auto">
 			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
 				The result should be an array of objects. Received:
-				<pre class="w-full bg-white p-2 rounded-md whitespace-pre-wrap"
+				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
 					>{JSON.stringify(result, null, 4)}</pre
 				>
 			</Alert>

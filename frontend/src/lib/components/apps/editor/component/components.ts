@@ -1347,7 +1347,7 @@ Hello \${ctx.username}
 		name: 'Rich Text Editor',
 		icon: TextCursorInput,
 		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
-		dims: '2:1-2:1' as AppComponentDimensions,
+		dims: '2:1-4:4' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
 		},

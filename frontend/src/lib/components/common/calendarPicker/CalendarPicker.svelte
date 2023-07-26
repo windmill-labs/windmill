@@ -32,7 +32,7 @@
 <button
 	bind:this={button}
 	title="Open calendar picker"
-	class="absolute bottom-1 right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-white border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
+	class="absolute bottom-1 right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface border rounded center-center hover:bg-gray-50 transition-all cursor-pointer"
 	aria-label="Open calendar picker"
 	on:click={() => {
 		input.focus()
@@ -45,7 +45,7 @@
 	options={{ placement: 'top-start' }}
 	transition={fade}
 	wrapperClasses="!z-[1002]"
-	outerClasses="rounded shadow-xl bg-white border p-3"
+	outerClasses="rounded shadow-xl bg-surface border p-3"
 	closeOn={[]}
 >
 	<label class="block text-primary">

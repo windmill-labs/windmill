@@ -1,6 +1,8 @@
 <script lang="ts">
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
+
 	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
@@ -34,7 +36,7 @@
 			: [{ error: 'input was not an array' }]
 	}
 
-	const { worldStore, selectedComponent, componentControl } =
+	const { worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
@@ -121,7 +123,7 @@
 	{#if Array.isArray(value) && value.every(isObject)}
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
-				class="border border-gray-300 shadow-sm divide-y divide-gray-300 flex flex-col h-full"
+				class="border shadow-sm divide-y flex flex-col h-full"
 				bind:clientHeight
 				bind:clientWidth
 			>
@@ -132,6 +134,7 @@
 					style:height="{clientHeight}px"
 					style:width="{clientWidth}px"
 					class="ag-theme-alpine"
+					class:ag-theme-alpine-dark={$darkMode}
 				>
 					{#key extraConfig}
 						{#key resolvedConfig?.pagination}

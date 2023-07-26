@@ -20,11 +20,7 @@
 			<div class="flex flex-col">
 				<label for="tabId" class="text-xs font-semibold">Tab ID</label>
 
-				<select
-					id="tabId"
-					bind:value={componentInput.value.id}
-					class="border border-gray-300 rounded-md p-1 !w-16"
-				>
+				<select id="tabId" bind:value={componentInput.value.id} class="border rounded-md p-1 !w-16">
 					{#each tabComponents as tabComponent}
 						<option value={tabComponent.data.id}>
 							{tabComponent.data.id}
@@ -37,7 +33,7 @@
 				<select
 					id="tabIndex"
 					bind:value={componentInput.value.index}
-					class="border border-gray-300 rounded-md p-1 !w-16"
+					class="border rounded-md p-1 !w-16"
 				>
 					{#each tabComponents as tabComponent}
 						{#if tabComponent.data.id === componentInput.value.id}
