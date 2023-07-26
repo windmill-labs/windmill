@@ -25,6 +25,7 @@
 			'settings-retries',
 			'settings-same-worker',
 			'settings-graph',
+			'settings-worker-group',
 			'inputs',
 			'schedules',
 			'failure',

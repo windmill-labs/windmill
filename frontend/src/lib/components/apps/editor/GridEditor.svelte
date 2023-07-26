@@ -50,7 +50,7 @@
 			: 'bg-surface'} px-4 py-1 items-center gap-4"
 		style="z-index: 1000;"
 	>
-		<h2 class="truncate">{$summary}</h2>
+		<h3 class="truncate">{$summary}</h3>
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}

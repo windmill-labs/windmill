@@ -257,6 +257,19 @@
 				break
 		}
 	}
+
+	let path: Path | undefined = undefined
+	$: {
+		if (initialPath == '' && script.summary?.length > 0) {
+			path?.setName(
+				script.summary
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -264,21 +277,23 @@
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
-			<h2 class="border-b pb-1 mb-4">Path</h2>
-			<Path
-				bind:error={pathError}
-				bind:path={script.path}
-				{initialPath}
-				namePlaceholder="script"
-				kind="script"
-			/>
-			<h2 class="border-b pb-1 mt-10 mb-4">Summary</h2>
+			<h2 class="border-b pb-1 mb-4">Summary</h2>
 
 			<input
 				type="text"
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
 			/>
+			<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
+			<Path
+				bind:this={path}
+				bind:error={pathError}
+				bind:path={script.path}
+				{initialPath}
+				namePlaceholder="script"
+				kind="script"
+			/>
+
 			<h2 class="border-b pb-1 mt-10 mb-4">Language</h2>
 
 			{#if lockedLanguage}

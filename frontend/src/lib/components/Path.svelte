@@ -76,6 +76,13 @@
 		}
 	}
 
+	export function setName(x: string) {
+		if (meta) {
+			meta.name = x
+			onMetaChange()
+		}
+	}
+
 	export async function reset() {
 		if (path == '' || path == 'u//') {
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {

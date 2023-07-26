@@ -15,10 +15,11 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { Code2, Globe } from 'lucide-svelte'
 	import type { SupportedLanguage } from '$lib/common'
-	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faExternalLink, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { truncate } from '$lib/utils'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -44,13 +45,13 @@
 		if (itemKind == 'flow') {
 			items = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((flow) => ({
 				value: flow.path,
-				label: `${flow.path}${flow.summary ? ` | ${flow.summary}` : ''}`
+				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'script') {
 			items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind })).map(
 				(script) => ({
 					value: script.path,
-					label: `${script.path}${script.summary ? ` | ${script.summary}` : ''}`
+					label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
 				})
 			)
 		} else {
@@ -108,7 +109,7 @@
 	{:else}
 		<Select
 			value={items.find((x) => x.value == initialPath)}
-			class="grow"
+			class="grow shrink max-w-full"
 			on:change={() => {
 				dispatch('select', { path: scriptPath })
 			}}
@@ -136,28 +137,46 @@
 
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		{#if itemKind == 'flow'}
-			<Button
-				color="light"
-				size="xs"
-				on:click={async () => {
-					drawerFlowViewer.openDrawer()
-				}}
-			>
-				Show flow
-			</Button>
+			<div class="flex gap-2">
+				<Button
+					endIcon={{ icon: faExternalLink }}
+					target="_blank"
+					color="light"
+					size="xs"
+					href="/flows/edit/{scriptPath}">edit</Button
+				>
+				<Button
+					color="light"
+					size="xs"
+					on:click={async () => {
+						drawerFlowViewer.openDrawer()
+					}}
+				>
+					view
+				</Button>
+			</div>
 		{:else}
-			<Button
-				color="light"
-				size="xs"
-				on:click={async () => {
-					const { language, content } = await getScriptByPath(scriptPath ?? '')
-					code = content
-					lang = language
-					drawerViewer.openDrawer()
-				}}
-			>
-				Show code
-			</Button>
+			<div class="flex gap-2">
+				<Button
+					endIcon={{ icon: faExternalLink }}
+					target="_blank"
+					color="light"
+					size="xs"
+					href="/scripts/edit/{scriptPath}">edit</Button
+				>
+				<Button
+					color="light"
+					size="xs"
+					on:click={async () => {
+						const { language, content } = await getScriptByPath(scriptPath ?? '')
+						code = content
+						lang = language
+						drawerViewer.openDrawer()
+					}}
+				>
+					view
+				</Button>
+			</div>
 		{/if}
 	{/if}
 </div>

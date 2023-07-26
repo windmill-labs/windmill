@@ -14,7 +14,7 @@
 		type NestedNodes,
 		type GraphModuleState
 	} from '.'
-	import { defaultIfEmptyString, encodeState, truncateRev } from '$lib/utils'
+	import { defaultIfEmptyString, encodeState } from '$lib/utils'
 	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import Svelvet from './svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from './svelvet/types'
@@ -217,7 +217,7 @@
 			const branches = [
 				{ summary: 'Default Branch', modules: module.value.default, removable: false },
 				...module.value.branches.map((b, i) => ({
-					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)),
+					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)) + '\n`' + b.expr + '`',
 					modules: b.modules,
 					removable: true
 				}))
@@ -226,7 +226,7 @@
 				module,
 				modules,
 				branches,
-				['', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
+				[], //['', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
 				parent,
 				loopDepth,
 				false
@@ -483,7 +483,8 @@
 					false,
 					removable ? { module, index: i } : undefined,
 					undefined,
-					undefined
+					undefined,
+					false
 				)
 			)
 			if (modules.length) {
@@ -642,7 +643,8 @@
 		selectable: boolean,
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
-		fixed_id: string | undefined
+		fixed_id: string | undefined,
+		center: boolean = true
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 		return {
@@ -673,7 +675,8 @@
 						whereInsert,
 						deleteBranch,
 						id: mid,
-						moving
+						moving,
+						center
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
