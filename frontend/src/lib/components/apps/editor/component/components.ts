@@ -1788,8 +1788,8 @@ Hello \${ctx.username}
 				},
 				outputFormat: {
 					type: 'static',
-					value: 'dd.MM.yyyy',
-					fieldType: 'string'
+					value: undefined,
+					fieldType: 'text'
 				}
 			}
 		}
