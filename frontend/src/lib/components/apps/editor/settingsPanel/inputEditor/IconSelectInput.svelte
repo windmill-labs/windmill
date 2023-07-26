@@ -97,14 +97,14 @@
 							</span>
 						</button>
 					{:else}
-						<div class="col-span-4 text-center text-gray-700 text-sm p-2">
+						<div class="col-span-4 text-center text-secondary text-sm p-2">
 							No icons match your search
 						</div>
 					{/each}
 				</div>
 			</div>
 		{:else}
-			<div class="text-center text-sm text-gray-600 p-2"> Couldn't load options </div>
+			<div class="text-center text-sm text-secondary p-2"> Couldn't load options </div>
 		{/if}
 	{/if}
 </Popup>

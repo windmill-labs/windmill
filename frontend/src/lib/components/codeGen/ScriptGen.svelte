@@ -171,7 +171,7 @@
 						size="lg"
 						bind:element={button}
 						color="light"
-						btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+						btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 						loading={genLoading}
 						nonCaptureEvent={true}
 					>
@@ -180,7 +180,7 @@
 				{:else}
 					<Button
 						title="Generate code from prompt"
-						btnClasses="!font-medium text-gray-600"
+						btnClasses="!font-medium text-secondary"
 						size="xs"
 						color="light"
 						spacingSize="md"
@@ -194,8 +194,8 @@
 					</Button>
 				{/if}
 			</svelte:fragment>
-			<label class="block text-gray-900 w-96">
-				<div class="pb-1 text-sm text-gray-600">Prompt</div>
+			<label class="block text-primary w-96">
+				<div class="pb-1 text-sm text-secondary">Prompt</div>
 				<div class="flex w-full">
 					<input
 						type="text"
