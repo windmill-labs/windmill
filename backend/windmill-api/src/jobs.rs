@@ -11,6 +11,7 @@ use crate::{
     users::{check_scopes, require_owner_of_path, Authed, OptAuthed},
     utils::require_super_admin,
     variables::get_workspace_key,
+    workers::{CUSTOM_TAGS, CUSTOM_TAGS_PER_WORKSPACE},
     BASE_URL,
 };
 use anyhow::Context;
@@ -1403,6 +1404,33 @@ fn add_raw_string(
     return args;
 }
 
+fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> error::Result<()> {
+    if let Some(tag) = tag {
+        if tag == "" {
+            return Ok(());
+        }
+        let custom_tags_per_w = &*CUSTOM_TAGS_PER_WORKSPACE;
+        if custom_tags_per_w.0.contains(&tag.to_string()) {
+            Ok(())
+        } else if custom_tags_per_w.1.contains_key(tag)
+            && custom_tags_per_w
+                .1
+                .get(tag)
+                .unwrap()
+                .contains(&w_id.to_string())
+        {
+            Ok(())
+        } else {
+            return Err(error::Error::BadRequest(format!(
+                "Tag {tag} cannot be used on workspace {w_id}: (CUSTOM_TAGS: {:?})",
+                *CUSTOM_TAGS
+            )));
+        }
+    } else {
+        Ok(())
+    }
+}
+
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1424,6 +1452,7 @@ pub async fn run_flow_by_path(
     .fetch_optional(&mut tx)
     .await?
     .flatten();
+    check_tag_available_for_workspace(&w_id, &tag)?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
@@ -1469,6 +1498,7 @@ pub async fn run_job_by_path(
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -1669,6 +1699,7 @@ pub async fn run_wait_result_job_by_path_get(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (job_payload, tag) =
         script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -1798,6 +1829,7 @@ async fn run_wait_result_script_by_path_internal(
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -1851,6 +1883,7 @@ pub async fn run_wait_result_script_by_hash(
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -1951,6 +1984,15 @@ async fn run_wait_result_flow_by_path_internal(
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    let tag = sqlx::query_scalar!(
+        "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
+        flow_path,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .flatten();
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -1969,7 +2011,7 @@ async fn run_wait_result_flow_by_path_internal(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        None,
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -2002,6 +2044,7 @@ async fn run_preview_job(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
+    check_tag_available_for_workspace(&w_id, &preview.tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -2096,6 +2139,7 @@ async fn run_preview_flow_job(
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
+    check_tag_available_for_workspace(&w_id, &raw_flow.tag)?;
 
     let (uuid, tx) = push(
         tx,
@@ -2140,6 +2184,7 @@ pub async fn run_job_by_hash(
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    check_tag_available_for_workspace(&w_id, &tag)?;
 
     let (uuid, tx) = push(
         tx,

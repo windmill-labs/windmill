@@ -9,6 +9,7 @@
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
+use crate::tracing_init::MyOnFailure;
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -16,6 +17,7 @@ use crate::{
     users::{Authed, OptAuthed},
     webhook_util::WebhookShared,
 };
+use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
@@ -160,7 +162,8 @@ pub async fn run_server(
             TraceLayer::new_for_http()
                 .on_response(MyOnResponse {})
                 .make_span_with(MyMakeSpan {})
-                .on_request(()),
+                .on_request(())
+                .on_failure(MyOnFailure {}),
         )
         .layer(Extension(db.clone()))
         .layer(Extension(rsmq))
@@ -296,7 +299,8 @@ async fn is_up_to_date() -> Result<String, AppError> {
     let version = HTTP_CLIENT
         .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
         .send()
-        .await?
+        .await
+        .context("Impossible to reach api.github")?
         .json::<serde_json::Value>()
         .await?
         .get("tag_name")

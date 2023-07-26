@@ -115,11 +115,13 @@ pub struct AppError(anyhow::Error);
 // Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
-        )
-            .into_response()
+        let body = body::boxed(body::Full::from(self.0.to_string()));
+        tracing::error!(error = self.0.to_string());
+        axum::response::Response::builder()
+            .header("Content-Type", "text/plain")
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(body)
+            .unwrap()
     }
 }
 

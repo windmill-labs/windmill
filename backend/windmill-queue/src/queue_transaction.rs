@@ -1,4 +1,4 @@
-use std::{fmt::{Debug}};
+use std::fmt::Debug;
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
 use rsmq_async::{RedisBytes, RsmqConnection};
