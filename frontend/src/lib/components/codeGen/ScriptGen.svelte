@@ -7,7 +7,6 @@
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
-	import { fade } from 'svelte/transition'
 	import { Icon } from 'svelte-awesome'
 	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
@@ -38,12 +37,6 @@
 			return
 		}
 		try {
-			// close popup ^^
-			const elem = document.activeElement as HTMLElement
-			if (elem.blur) {
-				elem.blur()
-			}
-
 			genLoading = true
 			if (isEdit && selection) {
 				const selectedCode = editor?.getSelectedLines() || ''
@@ -171,41 +164,40 @@
 				</Button>
 			</div>
 		{/if}
-	{:else if inlineScript}
-		<Button
-			size="lg"
-			bind:element={button}
-			color="light"
-			btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
-			loading={genLoading}
-		>
-			<Icon scale={0.8} data={faMagicWandSparkles} />
-		</Button>
-	{:else}
-		<Button
-			title="Generate code from prompt"
-			btnClasses="!font-medium text-scondary"
-			size="xs"
-			color="light"
-			spacingSize="md"
-			bind:element={button}
-			startIcon={{ icon: faMagicWandSparkles }}
-			{iconOnly}
-			loading={genLoading}
-		>
-			{isEdit ? 'AI Edit' : 'AI Gen'}
-		</Button>
 	{/if}
 	{#if !generatedCode && !genLoading}
-		<Popup
-			ref={button}
-			options={{ placement: 'top-start' }}
-			transition={fade}
-			closeOn={[]}
-			wrapperClasses="!z-[1002]"
-			outerClasses="rounded shadow-xl bg-surface border p-3 w-96"
-		>
-			<label class="block text-primary">
+		<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }}>
+			<svelte:fragment slot="button">
+				{#if inlineScript}
+					<Button
+						size="lg"
+						bind:element={button}
+						color="light"
+						btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
+						loading={genLoading}
+						nonCaptureEvent={true}
+					>
+						<Icon scale={0.8} data={faMagicWandSparkles} />
+					</Button>
+				{:else}
+					<Button
+						title="Generate code from prompt"
+						btnClasses="!font-medium text-secondary"
+						size="xs"
+						color="light"
+						spacingSize="md"
+						bind:element={button}
+						startIcon={{ icon: faMagicWandSparkles }}
+						{iconOnly}
+						loading={genLoading}
+						nonCaptureEvent={true}
+					>
+						{isEdit ? 'AI Edit' : 'AI Gen'}
+					</Button>
+				{/if}
+			</svelte:fragment>
+			<label class="block text-primary w-96">
+				<div class="pb-1 text-sm text-secondary">Prompt</div>
 				<div class="flex w-full">
 					<input
 						type="text"
@@ -234,11 +226,12 @@
 					</Button>
 				</div>
 				{#if lang === 'postgresql' && $dbSchema}
-					<p class="text-sm mt-2"
-						>Will take into account the DB schema <Tooltip
-							>In order to better generate the script, we pass the selected DB schema to GPT-4.</Tooltip
-						></p
-					>
+					<p class="text-sm mt-2">
+						Will take into account the DB schema
+						<Tooltip>
+							In order to better generate the script, we pass the selected DB schema to GPT-4.
+						</Tooltip>
+					</p>
 				{/if}
 			</label>
 		</Popup>
