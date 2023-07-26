@@ -13,6 +13,8 @@ use axum::{
     Json, Router,
 };
 
+use itertools::Itertools;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
@@ -20,6 +22,7 @@ use windmill_common::{
     utils::{paginate, Pagination},
 };
 
+use std::collections::HashMap;
 #[cfg(feature = "benchmark")]
 use std::sync::atomic::Ordering;
 #[cfg(feature = "benchmark")]
@@ -45,6 +48,31 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
 
+    pub static ref CUSTOM_TAGS_PER_WORKSPACE: (Vec<String>, HashMap<String, Vec<String>>) =  process_custom_tags(std::env::var("CUSTOM_TAGS")
+        .ok());
+
+    pub static ref ALL_TAGS: Vec<String> = [CUSTOM_TAGS_PER_WORKSPACE.0.clone(), CUSTOM_TAGS_PER_WORKSPACE.1.keys().map(|x| x.to_string()).collect_vec()].concat();
+
+}
+
+fn process_custom_tags(o: Option<String>) -> (Vec<String>, HashMap<String, Vec<String>>) {
+    let regex = Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
+    if let Some(s) = o {
+        let mut global = vec![];
+        let mut specific: HashMap<String, Vec<String>> = HashMap::new();
+        for e in s.split(",") {
+            if let Some(cap) = regex.captures(e) {
+                let tag = cap.get(1).unwrap().as_str().to_string();
+                let workspaces = cap.get(2).unwrap().as_str().split("+");
+                specific.insert(tag, workspaces.map(|x| x.to_string()).collect_vec());
+            } else {
+                global.push(e.to_string());
+            }
+        }
+        (global, specific)
+    } else {
+        (vec![], HashMap::new())
+    }
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -91,5 +119,5 @@ async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
 }
 
 async fn get_custom_tags() -> Json<Vec<String>> {
-    Json(CUSTOM_TAGS.clone())
+    Json(ALL_TAGS.clone())
 }

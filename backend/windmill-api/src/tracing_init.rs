@@ -8,7 +8,7 @@
 
 use ::tracing::{field, Span};
 use hyper::Response;
-use tower_http::trace::{MakeSpan, OnResponse};
+use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
 
 #[derive(Clone)]
 pub struct MyOnResponse {}
@@ -28,6 +28,14 @@ impl<B> OnResponse<B> for MyOnResponse {
     }
 }
 
+#[derive(Clone)]
+pub struct MyOnFailure {}
+
+impl<B> OnFailure<B> for MyOnFailure {
+    fn on_failure(&mut self, _b: B, _latency: std::time::Duration, _span: &tracing::Span) {
+        // tracing::error!(latency = latency.as_millis(), "response")
+    }
+}
 #[derive(Clone)]
 pub struct MyMakeSpan {}
 
