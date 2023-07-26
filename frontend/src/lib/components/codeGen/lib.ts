@@ -4,7 +4,6 @@ import { ResourceService, Script, WorkspaceService } from '../../gen'
 
 import { existsOpenaiResourcePath, workspaceStore } from '$lib/stores'
 import { formatResourceTypes } from './utils'
-import { scriptLangToEditorLang } from '$lib/scripts'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 
@@ -21,20 +20,6 @@ const COMMENT_TYPES = {
 	[Script.language.NATIVETS]: '//',
 	[Script.language.BUN]: '//',
 	frontend: '//'
-}
-
-function scriptLangToEnvironment(lang: Script.language | 'frontend') {
-	if (lang === Script.language.DENO) {
-		return 'typescript in a deno running environment'
-	} else if (lang === Script.language.BUN) {
-		return 'typescript in a node.js running environment'
-	} else if (lang === Script.language.NATIVETS) {
-		return 'typescript where you should use fetch and are not allowed to import any libraries'
-	} else if (lang === 'frontend') {
-		return 'client-side javascript'
-	} else {
-		return lang
-	}
 }
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
@@ -55,6 +40,7 @@ workspaceStore.subscribe(async (value) => {
 
 interface BaseOptions {
 	language: Script.language | 'frontend'
+	dbSchema?: object
 }
 
 interface ScriptGenerationOptions extends BaseOptions {
@@ -71,7 +57,45 @@ interface FixScriptOpions extends BaseOptions {
 	error: string
 }
 
-export async function generateScript(scriptOptions: ScriptGenerationOptions): Promise<string> {
+async function addResourceTypes(scriptOptions: BaseOptions, workspace: string, prompt: string) {
+	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
+		const resourceTypes = await ResourceService.listResourceType({ workspace })
+		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
+		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
+	} else if (scriptOptions.language === 'python3') {
+		const resourceTypes = await ResourceService.listResourceType({ workspace })
+		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
+		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
+	}
+	return prompt
+}
+
+function addDBSChema(scriptOptions: BaseOptions, prompt: string) {
+	if (scriptOptions.language === 'postgresql' && scriptOptions.dbSchema) {
+		const { dbSchema } = scriptOptions
+		const smallerSchema = {}
+		for (const schemaKey in dbSchema) {
+			for (const tableKey in dbSchema[schemaKey]) {
+				smallerSchema[tableKey] = []
+				for (const colKey in dbSchema[schemaKey][tableKey]) {
+					const col = dbSchema[schemaKey][tableKey][colKey]
+					const p = [colKey, col.type, col.required]
+					if (col.default) {
+						p.push(col.default)
+					}
+					smallerSchema[tableKey].push(p)
+				}
+			}
+		}
+		prompt =
+			prompt +
+			"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
+			JSON.stringify(smallerSchema)
+	}
+	return prompt
+}
+
+export async function generateScript(scriptOptions: ScriptGenerationOptions) {
 	if (!workspace) {
 		throw new Error('No workspace selected')
 	}
@@ -90,15 +114,9 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		scriptOptions.description
 	)
 
-	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
-		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
-	} else if (scriptOptions.language === 'python3') {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
-		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
-	}
+	prompt = await addResourceTypes(scriptOptions, workspace, prompt)
+
+	prompt = addDBSChema(scriptOptions, prompt)
 
 	if (scriptOptions.language === 'postgresql' && scriptOptions.dbSchema) {
 		const { dbSchema } = scriptOptions
@@ -137,7 +155,7 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		]
 	})
 
-	let result = completion.choices[0]?.message?.content
+	const result = completion.choices[0]?.message?.content
 
 	if (!result) {
 		throw new Error('No result from OpenAI')
@@ -149,27 +167,30 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions): Pr
 		throw new Error('No code block found')
 	}
 
-	result = match[1]
+	const code = match[1]
 
 	if (scriptOptions.language == Script.language.GO) {
 		const warning = COMMENT_TYPES[scriptOptions.language] + ' ' + WARNING_MSG + '\n'
 
-		return result.trim().replace('package inner\n', 'package inner\n' + warning)
+		return { code: code.trim().replace('package inner\n', 'package inner\n' + warning) }
 	} else if (scriptOptions.language == Script.language.BASH) {
-		return (
-			'# shellcheck shell=bash\n' +
-			COMMENT_TYPES[scriptOptions.language] +
-			' ' +
-			WARNING_MSG +
-			'\n\n' +
-			result.trim()
-		)
+		return {
+			code:
+				'# shellcheck shell=bash\n' +
+				COMMENT_TYPES[scriptOptions.language] +
+				' ' +
+				WARNING_MSG +
+				'\n\n' +
+				code.trim()
+		}
 	} else {
-		return COMMENT_TYPES[scriptOptions.language] + ' ' + WARNING_MSG + '\n\n' + result.trim()
+		return {
+			code: COMMENT_TYPES[scriptOptions.language] + ' ' + WARNING_MSG + '\n\n' + code.trim()
+		}
 	}
 }
 
-export async function editScript(scriptOptions: EditScriptOptions): Promise<string> {
+export async function editScript(scriptOptions: EditScriptOptions) {
 	if (!workspace) {
 		throw new Error('No workspace selected')
 	}
@@ -183,16 +204,13 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 		}
 	})
 
-	let prompt = EDIT_CONFIG.prompt
-		.replace(
-			'{lang}',
-			scriptOptions.language === 'frontend'
-				? 'javascript'
-				: scriptLangToEditorLang(scriptOptions.language)
-		)
+	let prompt = EDIT_CONFIG.prompts[scriptOptions.language].prompt
 		.replace('{code}', scriptOptions.selectedCode)
 		.replace('{description}', scriptOptions.description)
-		.replace('{environment}', scriptLangToEnvironment(scriptOptions.language))
+
+	prompt = await addResourceTypes(scriptOptions, workspace, prompt)
+
+	prompt = addDBSChema(scriptOptions, prompt)
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',
@@ -210,7 +228,7 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 		temperature: 0.5
 	})
 
-	let result = completion.choices[0]?.message?.content
+	const result = completion.choices[0]?.message?.content
 
 	if (!result) {
 		throw new Error('No result from OpenAI')
@@ -222,9 +240,9 @@ export async function editScript(scriptOptions: EditScriptOptions): Promise<stri
 		throw new Error('No code block found')
 	}
 
-	result = match[1]
+	const code = match[1]
 
-	return result
+	return { code }
 }
 
 export async function fixScript(scriptOptions: FixScriptOpions) {
@@ -241,16 +259,13 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 		}
 	})
 
-	let prompt = FIX_CONFIG.prompt
-		.replace(
-			'{lang}',
-			scriptOptions.language === 'frontend'
-				? 'javascript'
-				: scriptLangToEditorLang(scriptOptions.language)
-		)
+	let prompt = FIX_CONFIG.prompts[scriptOptions.language].prompt
 		.replace('{code}', scriptOptions.code)
 		.replace('{error}', scriptOptions.error)
-		.replace('{environment}', scriptLangToEnvironment(scriptOptions.language))
+
+	prompt = await addResourceTypes(scriptOptions, workspace, prompt)
+
+	prompt = addDBSChema(scriptOptions, prompt)
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',
@@ -267,7 +282,7 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 		]
 	})
 
-	let result = completion.choices[0]?.message?.content
+	const result = completion.choices[0]?.message?.content
 
 	if (!result) {
 		throw new Error('No result from OpenAI')
@@ -279,7 +294,14 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 		throw new Error('No code block found')
 	}
 
-	result = match[1]
+	const explanationMatch = result.match(/explanation: "(.+)"/i)
 
-	return result
+	let explanation = ''
+	if (explanationMatch && explanationMatch.length > 1) {
+		explanation = explanationMatch[1]
+	}
+
+	const code = match[1]
+
+	return { code, explanation }
 }
