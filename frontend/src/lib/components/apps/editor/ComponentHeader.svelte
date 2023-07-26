@@ -127,14 +127,14 @@
 			'bg-red-100/80'
 		)}
 	>
-		<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
+		<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 			<Bug size={14} />
 			<span slot="text">
-				<div class="bg-white">
+				<div class="bg-surface">
 					<Alert type="error" title={`${json?.name}: ${json?.message}`}>
 						<div class="flex flex-col gap-2">
 							<div>
-								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs">
+								<pre class=" whitespace-pre-wrap text-primary bg-surface border w-full p-4 text-xs">
 									{json?.stack ?? ''}	
 								</pre>
 							</div>

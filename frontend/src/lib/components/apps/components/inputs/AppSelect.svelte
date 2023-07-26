@@ -34,7 +34,8 @@
 		connectingInput,
 		selectedComponent,
 		runnableComponents,
-		componentControl
+		componentControl,
+		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -190,9 +191,9 @@
 			items={listItems}
 			listAutoWidth={resolvedConfig.fullWidth}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={'border-color: #999;' +
-				SELECT_INPUT_DEFAULT_STYLE.containerStyles +
-				css?.input?.style}
+			containerStyles={'border-color: #999;' + $darkMode
+				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+				: SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input?.style}
 			{value}
 			placeholder={resolvedConfig.placeholder}
 			on:focus={() => {

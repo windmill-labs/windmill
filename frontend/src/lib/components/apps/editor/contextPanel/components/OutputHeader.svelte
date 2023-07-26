@@ -211,7 +211,7 @@
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
 			{name}
-			<div class={classNames('bg-gray-200 rounded-sm')}>
+			<div class={classNames('bg-surface-secondary rounded-sm')}>
 				{#if !open}
 					<ChevronDown size={14} color="gray" />
 				{:else if $manuallyOpened[id]}

@@ -19,7 +19,6 @@
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -81,12 +80,25 @@
 
 	$: data = {
 		labels: result?.labels ?? [],
+
 		datasets: [
 			{
 				data: result?.data ?? [],
 				backgroundColor
 			}
-		]
+		],
+		options: {
+			scales: {
+				y: {
+					ticks: {
+						// Include a dollar sign in the ticks
+						callback: function (value, index, ticks) {
+							return '$' + value
+						}
+					}
+				}
+			}
+		}
 	}
 
 	$: css = concatCustomCss($app.css?.barchartcomponent, customCss)

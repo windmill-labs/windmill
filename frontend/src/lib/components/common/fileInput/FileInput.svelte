@@ -97,7 +97,7 @@
 	class={twMerge(
 		`relative center-center flex-col text-center font-medium text-tertiary 
 		border-2 border-dashed border-gray-400 hover:border-blue-500 
-		focus-within:border-blue-500 hover:bg-blue-50 focus-within:bg-blue-50 
+		focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-within:bg-blue-50 
 		duration-200 rounded-lg p-1`,
 		c
 	)}
@@ -113,7 +113,7 @@
 					Selected file{files.length > 1 ? 's' : ''}:
 				</div>
 			</slot>
-			<ul class="relative z-20 max-w-[500px] bg-white rounded-lg overflow-hidden mx-auto">
+			<ul class="relative z-20 max-w-[500px] bg-surface rounded-lg overflow-hidden mx-auto">
 				{#each files as { name }, i}
 					<li
 						class="flex justify-between items-center font-normal text-sm

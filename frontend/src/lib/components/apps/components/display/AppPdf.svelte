@@ -206,9 +206,9 @@
 						? 'w-[calc(100%-2px)] top-[1px]'
 						: 'w-full top-0'} {wideView
 						? 'justify-center gap-14'
-						: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
+						: '!justify-between'} overflow-x-auto bg-surface border mx-auto py-1"
 				>
-					<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
+					<div class="flex justify-start items-center px-2 text-secondary text-sm">
 						<Button
 							on:click={() => zoom && (zoom -= 10)}
 							disabled={!doc}
@@ -260,7 +260,7 @@
 							<ZoomIn size={16} />
 						</Button>
 					</div>
-					<div class="center-center px-2 text-gray-600 text-sm">
+					<div class="center-center px-2 text-secondary text-sm">
 						<input
 							on:input={({ currentTarget }) => {
 								scrollToPage(currentTarget.valueAsNumber)
@@ -276,7 +276,7 @@
 							/ {pages.length}
 						</span>
 					</div>
-					<div class="flex justify-end items-center px-2 text-gray-600 text-sm">
+					<div class="flex justify-end items-center px-2 text-secondary text-sm">
 						<Button
 							on:click={downloadPdf}
 							disabled={!doc}
@@ -297,7 +297,7 @@
 			{:else}
 				<div
 					out:fade={{ duration: 200 }}
-					class="absolute inset-0 center-center flex-col text-center text-sm bg-white text-gray-600"
+					class="absolute inset-0 center-center flex-col text-center text-sm bg-surface text-secondary"
 				>
 					<Loader2 class="animate-spin mb-2" />
 					Loading PDF
@@ -322,7 +322,7 @@
 		{#if error}
 			<div
 				class="absolute inset-0 z-20 center-center
-		bg-gray-100 text-center text-gray-600 text-sm"
+		bg-gray-100 text-center text-secondary text-sm"
 			>
 				{error}
 			</div>

@@ -498,10 +498,10 @@
 					'bg-red-100/80'
 				)}
 			>
-				<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
+				<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 					<Bug size={14} />
 					<span slot="text">
-						<div class="bg-white">
+						<div class="bg-surface">
 							<Alert type="error" title="Error during execution">
 								<div class="flex flex-col gap-2">
 									An error occured, please contact the app author.

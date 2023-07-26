@@ -99,3 +99,23 @@
 		<div bind:this={editor} />
 	</div>
 {/if}
+
+<style>
+	:global(.ql-toolbar .ql-stroke) {
+		fill: none;
+		@apply stroke-primary;
+	}
+
+	:global(.ql-toolbar .ql-fill) {
+		@apply fill-primary;
+		stroke: none;
+	}
+
+	:global(.ql-toolbar .ql-picker) {
+		@apply text-primary;
+	}
+
+	:global(.ql-container) {
+		@apply text-primary;
+	}
+</style>

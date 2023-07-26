@@ -111,7 +111,7 @@
 					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 				</ListWrapper>
 				{#if !Array.isArray(result)}
-					<div class="text-center text-gray-500">Input data is not an array</div>
+					<div class="text-center text-tertiary">Input data is not an array</div>
 				{/if}
 			{/if}
 		{/if}

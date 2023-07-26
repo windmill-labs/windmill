@@ -81,7 +81,7 @@
 				<span
 					class={classNames(
 						'hidden sm:block',
-						selectedIndex === index ? 'font-semibold text-gray-900' : 'font-normal text-tertiary'
+						selectedIndex === index ? 'font-semibold text-primary' : 'font-normal text-tertiary'
 					)}
 				>
 					{step}

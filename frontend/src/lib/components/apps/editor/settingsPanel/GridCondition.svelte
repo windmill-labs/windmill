@@ -149,7 +149,7 @@
 				{#if index < items.length - 1}
 					{@const condition = item.value}
 					<div class="w-full flex flex-row gap-2 items-center relative">
-						<div class={twMerge('grow border p-3 my-2 rounded-md border-gray-200 bg-white')}>
+						<div class={twMerge('grow border p-3 my-2 rounded-md bg-surface')}>
 							<InputsSpecEditor
 								key={`Condition ${index + 1}`}
 								bind:componentInput={item.value}

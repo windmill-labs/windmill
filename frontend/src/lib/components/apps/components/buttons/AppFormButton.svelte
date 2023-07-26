@@ -91,7 +91,7 @@
 			{errorHandledByComponent}
 		>
 			{#if noInputs}
-				<div class="text-gray-600 italic text-sm my-4">
+				<div class="text-secondary italic text-sm my-4">
 					Run forms are associated with a runnable that has user inputs.
 					<br />
 					Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to

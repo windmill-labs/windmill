@@ -82,13 +82,13 @@
 		>
 			<div>
 				{#if noInputs}
-					<div class="text-gray-600 italic text-sm my-4">
+					<div class="text-secondary italic text-sm my-4">
 						Run forms are associated with a runnable that has user inputs.
 						<br />
 						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
 						<strong>
 							User Input
-							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+							<Icon data={faUser} scale={1.3} class="rounded-sm bg-surface-secondary p-1 ml-0.5" />
 						</strong>
 					</div>
 				{/if}

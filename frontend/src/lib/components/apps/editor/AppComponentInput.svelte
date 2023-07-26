@@ -21,7 +21,7 @@
 				}
 				return false
 			}).length === 0}
-			<span class="text-sm text-gray-600">No resource input</span>
+			<span class="text-sm text-secondary">No resource input</span>
 		{:else}
 			<InputsSpecsEditor
 				id={component.id}
