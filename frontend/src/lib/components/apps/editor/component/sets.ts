@@ -60,8 +60,8 @@ const display: ComponentSet = {
 		'htmlcomponent',
 		'pdfcomponent',
 		'displaycomponent',
-		'logcomponent',
-		'flowstatuscomponent'
+		'jobidlogcomponent',
+		'jobidflowstatuscomponent'
 	]
 } as const
 

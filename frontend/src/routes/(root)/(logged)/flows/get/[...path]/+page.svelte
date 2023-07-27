@@ -8,7 +8,7 @@
 		emptyString,
 		encodeState
 	} from '$lib/utils'
-	import { faCodeFork, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faEdit, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -32,6 +32,8 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
+	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
+	import { importStore } from '$lib/components/apps/store'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -114,6 +116,21 @@
 					size: 'xs',
 					disabled: !can_write,
 					startIcon: faCodeFork
+				}
+			})
+
+			buttons.push({
+				label: 'Build App',
+				buttonProps: {
+					onClick: async () => {
+						const app = createAppFromFlow(flow.path, flow.schema)
+						$importStore = JSON.parse(JSON.stringify(app))
+						await goto('/apps/add?nodraft=true')
+					},
+
+					size: 'xs',
+					color: 'light',
+					startIcon: faTableColumns
 				}
 			})
 

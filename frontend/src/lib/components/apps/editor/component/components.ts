@@ -93,7 +93,9 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
+export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
+export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
@@ -136,7 +138,9 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
+	| JobIdLogComponent
 	| FlowStatusComponent
+	| JobIdFlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
 	| TextareaInputComponent
@@ -465,6 +469,26 @@ export const components = {
 			configuration: {}
 		}
 	},
+	jobidlogcomponent: {
+		name: 'Log',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#log-display`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				}
+			}
+		}
+	},
 	logcomponent: {
 		name: 'Log',
 		icon: Monitor,
@@ -500,6 +524,26 @@ export const components = {
 				fieldType: 'any',
 				fields: {},
 				runnable: undefined
+			}
+		}
+	},
+	jobidflowstatuscomponent: {
+		name: 'Flow Status',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#flow-status`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				}
 			}
 		}
 	},
