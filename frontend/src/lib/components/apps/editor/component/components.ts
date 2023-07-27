@@ -1028,7 +1028,7 @@ Hello \${ctx.username}
 					value: {},
 					tooltip:
 						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information',
-					onlyStatic: true
+					onlyStatic: false
 				}
 			}
 		}
