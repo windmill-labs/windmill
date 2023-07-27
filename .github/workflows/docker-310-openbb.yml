@@ -2,7 +2,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-name: Build and push windmill with python 3.10 and openbb
+name: Build windmill:openbb
 on: workflow_dispatch
 
 concurrency:
@@ -13,7 +13,7 @@ permissions:
   contents: read
   id-token: write
   packages: write
-  
+
 jobs:
   build_ee:
     runs-on: ubuntu-22.04

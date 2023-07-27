@@ -2,11 +2,11 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-name: Build and push windmill with python 3.10
+name: Build windmill:python310
 on: workflow_dispatch
 
 concurrency:
-  group: ${{ github.ref }}-openbb
+  group: ${{ github.ref }}-python3.10
   cancel-in-progress: true
 
 permissions:
