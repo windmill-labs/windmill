@@ -9,13 +9,10 @@
 	export let resource_type: string | undefined
 	export let args: Record<string, any> | any = {}
 
-	let loading = false
-	async function testConnection() {
-		loading = true
-		const content = `
-import { Client } from 'https://deno.land/x/postgres/mod.ts'
+	const content = {
+		postgresql: `import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
 export async function main(args: any) {
-    const u = new URL("postgres://")
+  const u = new URL("postgres://")
 	u.hash = ''
 	u.search = '?sslmode=' + args.sslmode
 	u.pathname = args.dbname
@@ -26,13 +23,31 @@ export async function main(args: any) {
 	const client = new Client(u.toString())
 	await client.connect()
 	return 'Connection successful'
-}
-`
+}`,
+		mysql: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
+export async function main(args: any) {
+  const conn = await new Client().connect({
+    hostname: args.host,
+    port: args.port,
+    username: args.user,
+    db: args.database,
+    password: args.password,
+  });
+  await conn.query("SELECT 1");
+  return "Connection successful";
+}`
+	}
+
+	let loading = false
+	async function testConnection() {
+		if (!resource_type) return
+		loading = true
+
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
 			requestBody: {
 				language: 'deno' as Preview.language,
-				content,
+				content: content[resource_type],
 				args: {
 					args
 				}
@@ -53,7 +68,7 @@ export async function main(args: any) {
 	}
 </script>
 
-{#if resource_type == 'postgresql'}
+{#if resource_type == 'postgresql' || resource_type == 'mysql'}
 	<Button size="sm" on:click={testConnection}
 		>{#if loading}<Loader2 class="animate-spin mr-2" />{/if} Test connection</Button
 	>

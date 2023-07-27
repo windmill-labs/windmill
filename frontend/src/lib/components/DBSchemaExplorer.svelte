@@ -9,30 +9,25 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let resourceType: string | undefined
-	export let pg: String | undefined = undefined
+	export let resourcePath: String | undefined = undefined
 
 	let drawer: Drawer
 
-	async function getSchema() {
-		const content = `
-import { Client } from "https://deno.land/x/postgres/mod.ts";
-
-export async function main(pg: Postgresql) {
+	const content = {
+		postgresql: `import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
+export async function main(args: any) {
   // Create a new client with the provided connection details
   const u = new URL("postgres://")
 	u.hash = ''
-	u.search = '?sslmode=' + pg.sslmode
-	u.pathname = pg.dbname
-	u.host = pg.host
-	u.port = pg.port
-	u.password = pg.password
-	u.username = pg.user
-
+	u.search = '?sslmode=' + args.sslmode
+	u.pathname = args.dbname
+	u.host = args.host
+	u.port = args.port
+	u.password = args.password
+	u.username = args.user
   const client = new Client(u.toString())
-
   // Connect to the postgres database
   await client.connect();
-
   const result = await client.queryObject(\`SELECT 
       table_name, 
       column_name, 
@@ -44,7 +39,6 @@ export async function main(pg: Postgresql) {
       information_schema.columns
     WHERE table_schema != 'pg_catalog' AND 
       table_schema != 'information_schema'\`);
-
   const schemas = result.rows.reduce((acc, a) => {
     const table_schema = a.table_schema;
     delete a.table_schema;
@@ -52,7 +46,6 @@ export async function main(pg: Postgresql) {
     acc[table_schema].push(a);
     return acc;
   }, {});
-
   const data = {};
   for (const key in schemas) {
     data[key] = schemas[key].reduce((acc, a) => {
@@ -70,17 +63,59 @@ export async function main(pg: Postgresql) {
       return acc;
     }, {});
   }
-
+  return data;
+}`,
+		mysql: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
+export async function main(args: any) {
+  const conn = await new Client().connect({
+    hostname: args.host,
+    port: args.port,
+    username: args.user,
+    db: args.database,
+    password: args.password,
+  });
+  const result = await conn.execute(
+    "select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'information_schema'",
+  );
+  const schemas = result.rows.reduce((acc, a) => {
+    const table_schema = a.TABLE_SCHEMA;
+    delete a.TABLE_SCHEMA;
+    acc[table_schema] = acc[table_schema] || [];
+    acc[table_schema].push(a);
+    return acc;
+  }, {});
+  const data = {};
+  for (const key in schemas) {
+    data[key] = schemas[key].reduce((acc, a) => {
+      const table_name = a.TABLE_NAME;
+      delete a.TABLE_NAME;
+      acc[table_name] = acc[table_name] || {};
+      const p = {
+        type: a.DATA_TYPE,
+        required: a.is_nullable === "NO",
+      };
+      if (a.column_default) {
+        p.default = a.COLUMN_DEFAULT;
+      }
+      acc[table_name][a.COLUMN_NAME] = p;
+      return acc;
+    }, {});
+  }
   return data;
 }`
+	}
+
+	async function getSchema() {
+		if (!resourceType || !resourcePath) return
+		dbSchema.set(undefined)
 		try {
 			const job = await JobService.runScriptPreview({
 				workspace: $workspaceStore!,
 				requestBody: {
 					language: 'deno' as Preview.language,
-					content,
+					content: content[resourceType],
 					args: {
-						pg: '$res:' + pg
+						args: '$res:' + resourcePath
 					}
 				}
 			})
@@ -102,15 +137,15 @@ export async function main(pg: Postgresql) {
 		}
 	}
 
-	$: pg && resourceType === 'postgresql' && getSchema()
-	$: !pg && $dbSchema && dbSchema.set(undefined)
+	$: resourcePath && resourceType && ['postgresql', 'mysql'].includes(resourceType) && getSchema()
+	$: !resourcePath && $dbSchema && dbSchema.set(undefined)
 
 	onDestroy(() => {
 		dbSchema.set(undefined)
 	})
 </script>
 
-{#if $dbSchema && pg}
+{#if $dbSchema && resourcePath}
 	<Button
 		size="xs"
 		variant="border"
