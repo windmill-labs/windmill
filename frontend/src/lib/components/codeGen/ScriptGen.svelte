@@ -165,8 +165,8 @@
 			</div>
 		{/if}
 	{/if}
-	{#if !generatedCode && !genLoading}
-		<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }}>
+	{#if !generatedCode}
+		<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }} let:close>
 			<svelte:fragment slot="button">
 				{#if inlineScript}
 					<Button
@@ -197,7 +197,6 @@
 				{/if}
 			</svelte:fragment>
 			<label class="block text-primary w-96">
-				<div class="pb-1 text-sm text-secondary">Prompt</div>
 				<div class="flex w-full">
 					<input
 						type="text"
@@ -206,6 +205,7 @@
 						class="!w-auto grow"
 						on:keypress={({ key }) => {
 							if (key === 'Enter' && funcDesc.length > 0) {
+								close(input || null)
 								onGenerate()
 							}
 						}}
@@ -217,9 +217,12 @@
 						size="xs"
 						color="blue"
 						buttonType="button"
-						btnClasses="!p-1 !w-[34px] !ml-1"
+						btnClasses="!p-1 !w-[38px] !ml-2"
 						aria-label="Generate"
-						on:click={onGenerate}
+						on:click={() => {
+							close(input || null)
+							onGenerate()
+						}}
 						disabled={funcDesc.length <= 0}
 					>
 						<Icon data={faMagicWandSparkles} />
