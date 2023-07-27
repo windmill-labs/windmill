@@ -67,8 +67,11 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, bigquery_executor::do_bigquery,
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, 
 };
+
+#[cfg(feature = "enterprise")]
+use crate::bigquery_executor::do_bigquery;
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
@@ -1108,31 +1111,38 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     });
                     return Ok(());     
                 } else if job.language == Some(ScriptLang::Bigquery) {
-                    if cfg!(not(feature = "enterprise")) {
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
                         return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
                     }
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
 
-                    tokio::task::spawn(async move {
-                        let jc: std::result::Result<JobCompleted, Error> = do_bigquery(job.clone(), &client, &db).await;
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());   
+                    #[cfg(feature = "enterprise")] 
+                    {
+                        wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                        let client = client.get_authed().await;
+                        let db: Pool<Postgres> = db.clone();
+    
+                        tokio::task::spawn(async move {
+                            let jc: std::result::Result<JobCompleted, Error> = do_bigquery(job.clone(), &client, &db).await;
+                            parallel_count.fetch_sub(1, Ordering::SeqCst);
+    
+                            match jc {
+                                Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                                Err(e) => job_completed_tx.send(JobCompleted {
+                                    job: job,
+                                    result: json!({"error": {
+                                        "name": "ExecutionError",
+                                        "message": e.to_string()
+                                    }}),
+                                    logs: "".to_string(),
+                                    success: false
+                                }).await.expect("send job completed"),
+                            };
+                        });
+                        return Ok(());
+                    }
+                   
                 } else if job.language == Some(ScriptLang::Nativets) {
                     wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
                     logs.push_str("\n--- FETCH TS EXECUTION ---\n");
@@ -1255,11 +1265,16 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
                             Ok(jc.result)
                         } else if job.language == Some(ScriptLang::Bigquery) {
-                            if cfg!(not(feature = "enterprise")) {
-                                return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
+                            #[cfg(not(feature = "enterprise"))]
+                            {
+                                Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()))
                             }
-                            let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
-                            Ok(jc.result)
+
+                            #[cfg(feature = "enterprise")]
+                            {
+                                let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
+                                Ok(jc.result)
+                            }
                         } else if job.language == Some(ScriptLang::Nativets) {
                             logs.push_str("\n--- FETCH TS EXECUTION ---\n");
                             let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db).await?; 

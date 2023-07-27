@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 deno-lock = []
-enterprise = ["windmill-queue/enterprise"]
+enterprise = ["windmill-queue/enterprise", "dep:gcp_auth"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -63,7 +63,7 @@ postgres-native-tls.workspace = true
 native-tls.workspace = true
 mysql_async.workspace = true
 base64.workspace = true
-gcp_auth.workspace = true
+gcp_auth = { workspace = true, optional = true }
 
 [build-dependencies]
 deno_fetch.workspace = true
