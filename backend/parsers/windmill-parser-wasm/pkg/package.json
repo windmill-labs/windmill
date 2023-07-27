@@ -3,7 +3,7 @@
   "collaborators": [
     "Ruben Fiszel <ruben@windmill.dev>"
   ],
-  "version": "1.127.0",
+  "version": "1.134.2",
   "files": [
     "windmill_parser_wasm_bg.wasm",
     "windmill_parser_wasm.js",
