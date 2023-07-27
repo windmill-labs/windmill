@@ -9,7 +9,7 @@
 		displayDaysAgo,
 		truncateHash
 	} from '$lib/utils'
-	import { faEdit, faCodeFork, faHistory } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faCodeFork, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
@@ -55,6 +55,8 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
+	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
+	import { importStore } from '$lib/components/apps/store'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -227,6 +229,21 @@
 					}
 				})
 			}
+
+			buttons.push({
+				label: 'Build App',
+				buttonProps: {
+					onClick: async () => {
+						const app = createAppFromScript(script.path, script.schema)
+						$importStore = JSON.parse(JSON.stringify(app))
+						await goto('/apps/add?nodraft=true')
+					},
+
+					size: 'xs',
+					color: 'light',
+					startIcon: faTableColumns
+				}
+			})
 
 			buttons.push({
 				label: 'Edit',

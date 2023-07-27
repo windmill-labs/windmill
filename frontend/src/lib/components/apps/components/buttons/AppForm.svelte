@@ -25,13 +25,14 @@
 
 	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
-	export const staticOutputs: string[] = ['loading', 'result']
+	export const staticOutputs: string[] = ['loading', 'result', 'jobId']
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		jobId: undefined
 	})
 
 	const resolvedConfig = initConfig(

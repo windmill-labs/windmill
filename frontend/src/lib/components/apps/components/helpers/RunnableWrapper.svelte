@@ -59,7 +59,11 @@
 
 	export let render: boolean
 	export let recomputeIds: string[] = []
-	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let outputs: {
+		result: Output<any>
+		loading: Output<boolean>
+		jobId?: Output<any> | undefined
+	}
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
 	export let errorHandledByComponent: boolean = false
