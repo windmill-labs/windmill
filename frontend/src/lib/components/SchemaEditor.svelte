@@ -36,6 +36,7 @@
 	let oldArgName: string | undefined // when editing argument and changing name
 
 	let viewJsonSchema = false
+	let jsonEditor: SimpleEditor
 
 	// Binding is not enough because monaco Editor does not support two-way binding
 	export function getSchema(): Schema {
@@ -101,6 +102,7 @@
 		}
 		schema = schema
 		schemaString = JSON.stringify(schema, null, '\t')
+		jsonEditor.setCode(schemaString)
 		dispatch('change', schema)
 	}
 
@@ -300,11 +302,9 @@
 				{/if}
 			</div>
 		{:else}
-			{#if !emptyString(error)}<span class="text-red-400">{error}</span>{:else}<div
-					class="py-6"
-				/>{/if}
 			<div class="border rounded p-2">
 				<SimpleEditor
+					bind:this={jsonEditor}
 					fixedOverflowWidgets={false}
 					on:change={() => {
 						try {
@@ -319,6 +319,11 @@
 					class="small-editor"
 				/>
 			</div>
+			{#if !emptyString(error)}
+				<div class="text-red-400">{error}</div>
+			{:else}
+				<div><br /></div>
+			{/if}
 		{/if}
 	</div>
 </div>
