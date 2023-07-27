@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.137.1](https://github.com/windmill-labs/windmill/compare/v1.137.0...v1.137.1) (2023-07-27)
+
+
+### Bug Fixes
+
+* pin deno backend versions ([acf2765](https://github.com/windmill-labs/windmill/commit/acf27659a9fd619bfbb1f2edf9c6895bdabed083))
+
 ## [1.137.0](https://github.com/windmill-labs/windmill/compare/v1.136.0...v1.137.0) (2023-07-27)
 
 
