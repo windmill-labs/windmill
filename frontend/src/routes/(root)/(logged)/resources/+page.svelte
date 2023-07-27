@@ -21,6 +21,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -78,6 +79,7 @@
 	let resourceEditor: ResourceEditor | undefined
 	let shareModal: ShareModal
 	let appConnect: AppConnect
+	let supabaseConnect: SupabaseConnect
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
 	let loading = {
 		resources: true,
@@ -233,8 +235,15 @@
 		if ($oauthStore && resource_type) {
 			appConnect.openFromOauth?.(resource_type)
 		}
-		if ($page.url.searchParams.get('connect_app')) {
-			const rt = $page.url.searchParams.get('connect_app') ?? undefined
+
+		const callback = $page.url.searchParams.get('callback')
+		if (callback == 'supabase') {
+			supabaseConnect.open?.()
+		}
+
+		const connect_app = $page.url.searchParams.get('connect_app')
+		if (connect_app) {
+			const rt = connect_app ?? undefined
 			if (rt == 'undefined') {
 				appConnect.open?.()
 			} else {
@@ -778,6 +787,7 @@
 	{/if}
 </CenteredPage>
 
+<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditor bind:this={resourceEditor} on:refresh={loadResources} />
 
