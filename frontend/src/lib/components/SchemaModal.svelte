@@ -120,8 +120,6 @@
 	$: title = editing ? `Edit ${oldArgName} argument` : 'Add an argument'
 </script>
 
-<svelte:window on:keyup={handleKeyUp} />
-
 <Drawer bind:this={drawer} placement="right">
 	<DrawerContent on:close={clearModal} {title}>
 		<div class="flex flex-col gap-6">
@@ -138,6 +136,7 @@
 						type="text"
 						placeholder="Enter a name"
 						bind:value={property.name}
+						on:keyup={handleKeyUp}
 						class={error === ''
 							? ''
 							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
