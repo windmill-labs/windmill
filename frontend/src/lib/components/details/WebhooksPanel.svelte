@@ -61,12 +61,12 @@ fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
 	},
 	${requestType !== 'get_path' ? `body: body` : ''}
 }).then(
-	response => response.json()
+	response => response.${webhookType === 'sync' ? 'json' : 'text'}()
 ).then(data => {
 	${
 		webhookType === 'sync'
 			? 'console.log(data)'
-			: `let UUID = data.uuid;
+			: `let UUID = data;
     let checkCompletion = setInterval(() => {
 		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
 			method: 'GET',

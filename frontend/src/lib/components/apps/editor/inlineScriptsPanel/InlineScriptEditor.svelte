@@ -211,64 +211,66 @@
 		<!-- {inlineScript.content} -->
 
 		<div class="border-y h-full">
-			{#if inlineScript.language != 'frontend' && !drawerIsOpen}
-				<Editor
-					deno={inlineScript.language == 'deno'}
-					path={inlineScript.path}
-					bind:this={editor}
-					class="flex flex-1 grow h-full"
-					lang={scriptLangToEditorLang(inlineScript?.language)}
-					bind:code={inlineScript.content}
-					fixedOverflowWidgets={true}
-					cmdEnterAction={async () => {
-						if (inlineScript) {
-							inlineScript.content = editor?.getCode() ?? ''
-						}
-						runLoading = true
-						await Promise.all($runnableComponents[id]?.cb?.map((f) => f?.(inlineScript)) ?? [])
-						runLoading = false
-					}}
-					on:change={async (e) => {
-						if (inlineScript && inlineScript.language != 'frontend') {
-							const oldSchema = JSON.stringify(inlineScript.schema)
-							if (inlineScript.schema == undefined) {
-								inlineScript.schema = emptySchema()
+			{#if !drawerIsOpen}
+				{#if inlineScript.language != 'frontend'}
+					<Editor
+						deno={inlineScript.language == 'deno'}
+						path={inlineScript.path}
+						bind:this={editor}
+						class="flex flex-1 grow h-full"
+						lang={scriptLangToEditorLang(inlineScript?.language)}
+						bind:code={inlineScript.content}
+						fixedOverflowWidgets={true}
+						cmdEnterAction={async () => {
+							if (inlineScript) {
+								inlineScript.content = editor?.getCode() ?? ''
 							}
-							await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
-							if (JSON.stringify(inlineScript.schema) != oldSchema) {
-								inlineScript = inlineScript
-								loadSchemaAndInputsByName()
+							runLoading = true
+							await Promise.all($runnableComponents[id]?.cb?.map((f) => f?.(inlineScript)) ?? [])
+							runLoading = false
+						}}
+						on:change={async (e) => {
+							if (inlineScript && inlineScript.language != 'frontend') {
+								const oldSchema = JSON.stringify(inlineScript.schema)
+								if (inlineScript.schema == undefined) {
+									inlineScript.schema = emptySchema()
+								}
+								await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
+								if (JSON.stringify(inlineScript.schema) != oldSchema) {
+									inlineScript = inlineScript
+									loadSchemaAndInputsByName()
+								}
 							}
-						}
-						$app = $app
-					}}
-				/>
-			{:else}
-				<SimpleEditor
-					bind:this={simpleEditor}
-					class="h-full"
-					{extraLib}
-					bind:code={inlineScript.content}
-					lang="javascript"
-					cmdEnterAction={async () => {
-						runLoading = true
-						await await Promise.all(
-							$runnableComponents[id]?.cb?.map((f) => f(!transformer ? inlineScript : undefined))
-						)
-						runLoading = false
-					}}
-					on:change={() => {
-						$app = $app
-					}}
+							$app = $app
+						}}
+					/>
+				{:else}
+					<SimpleEditor
+						bind:this={simpleEditor}
+						class="h-full"
+						{extraLib}
+						bind:code={inlineScript.content}
+						lang="javascript"
+						cmdEnterAction={async () => {
+							runLoading = true
+							await await Promise.all(
+								$runnableComponents[id]?.cb?.map((f) => f(!transformer ? inlineScript : undefined))
+							)
+							runLoading = false
+						}}
+						on:change={() => {
+							$app = $app
+						}}
+					/>
+				{/if}
+
+				<DiffEditor
+					bind:this={diffEditor}
+					class="hidden h-full"
+					automaticLayout
+					fixedOverflowWidgets
 				/>
 			{/if}
-
-			<DiffEditor
-				bind:this={diffEditor}
-				class="hidden h-full"
-				automaticLayout
-				fixedOverflowWidgets
-			/>
 		</div>
 	</div>
 {/if}
