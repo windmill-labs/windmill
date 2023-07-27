@@ -45,13 +45,6 @@ use windmill_common::{
 };
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
-lazy_static::lazy_static! {
-    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>()).unwrap_or_default();
-
-}
-
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -495,7 +488,9 @@ async fn create_script(
     if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
-                windmill_parser_py_imports::parse_python_imports(&ns.content)?.join("\n")
+                windmill_parser_py_imports::parse_python_imports(&ns.content, &w_id, &ns.path, &db)
+                    .await?
+                    .join("\n")
             }
             _ => ns.content,
         };
@@ -516,7 +511,7 @@ async fn create_script(
             false,
             None,
             true,
-            None,
+            ns.tag,
         )
         .await?;
         tx = new_tx;

@@ -102,6 +102,7 @@ RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denol
 RUN unzip deno.zip && rm deno.zip
 
 FROM python:3.11.4-slim-buster
+
 ARG TARGETPLATFORM
 
 ARG APP=/usr/src/app

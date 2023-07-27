@@ -179,12 +179,12 @@
 					<span class="text-sm text-tertiary mr-4">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
-					{#if edit && variable.is_secret}<Button
-							variant="border"
-							size="xs"
-							on:click={() => loadVariable(initialPath)}
-							>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
-						>{/if}
+					{#if edit && variable.is_secret}{#if $userStore?.operator}
+							<div class="p-2 border">Operators cannot load secret value</div>
+						{:else}
+							<Button variant="border" size="xs" on:click={() => loadVariable(initialPath)}
+								>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
+							>{/if}{/if}
 				</div>
 				<div class="flex flex-col gap-2">
 					<ToggleButtonGroup bind:selected={editorKind}>

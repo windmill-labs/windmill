@@ -208,7 +208,7 @@
 />
 
 {#if flow}
-	<DetailPageLayout isOperator={$userStore?.operator}>
+	<DetailPageLayout isOperator={$userStore?.operator} flow_json={flow.value}>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}

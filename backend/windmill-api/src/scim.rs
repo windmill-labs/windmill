@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2023
@@ -7,11 +9,11 @@
  */
 
 use axum::{
-    extract::{Path, Query},
+    extract::Query,
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post},
-    Extension, Json, Router,
+    routing::get,
+    Extension, Router,
 };
 use bytes::{BufMut, BytesMut};
 use hyper::{header, http::HeaderValue, Request, StatusCode};
@@ -19,10 +21,13 @@ use mime_guess::mime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sql_builder::SqlBuilder;
-use windmill_common::{
-    error::{Error, Result},
-    utils::not_found_if_none,
-};
+use windmill_common::error::{Error, Result};
+
+#[cfg(feature = "enterprise")]
+use axum::{extract::Path, Json};
+
+#[cfg(feature = "enterprise")]
+use windmill_common::utils::not_found_if_none;
 
 use crate::db::DB;
 
@@ -77,8 +82,6 @@ pub async fn has_scim_token<B>(request: Request<B>, next: Next<B>) -> Response {
     )
         .into_response();
 }
-
-pub type JsonScimResult<T> = std::result::Result<JsonScim<T>, Error>;
 
 impl<T> IntoResponse for JsonScim<T>
 where
@@ -170,11 +173,12 @@ pub async fn get_users(
     ))
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct CreateUser {
     userName: String,
 }
-// #[cfg(feature = "enterprise")]
+#[cfg(feature = "enterprise")]
 pub async fn create_user(
     Extension(db): Extension<DB>,
     Json(body): Json<CreateUser>,
@@ -382,6 +386,7 @@ pub async fn update_group(
     }
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn delete_group(Extension(db): Extension<DB>, Path(id): Path<String>) -> Result<()> {
     tracing::info!("SCIM delete group: {:?}", id);
     sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", id)
@@ -393,6 +398,7 @@ pub async fn delete_group(Extension(db): Extension<DB>, Path(id): Path<String>) 
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 fn convert_name(name: &str) -> String {
     name.replace(" ", "_").to_lowercase()
 }

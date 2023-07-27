@@ -7172,12 +7172,14 @@ name = "windmill-parser-py-imports"
 version = "1.136.0"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "itertools 0.11.0",
  "lazy_static",
  "phf 0.11.2",
  "regex",
  "rustpython-parser",
  "serde_json",
+ "sqlx",
  "windmill-common",
  "windmill-parser",
 ]

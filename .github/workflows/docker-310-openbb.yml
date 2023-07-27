@@ -2,7 +2,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-name: Build and push windmill with python 3.10
+name: Build and push windmill with python 3.10 and openbb
 on: workflow_dispatch
 
 concurrency:
@@ -13,7 +13,7 @@ permissions:
   contents: read
   id-token: write
   packages: write
-
+  
 jobs:
   build_ee:
     runs-on: ubuntu-22.04
@@ -33,18 +33,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Edit python version
-        run: |
-          sed -i 's/python:3.11.4/python:3.10.12/g' Dockerfile
-
       - name: Build and push publicly ee
         uses: depot/build-push-action@v1
         with:
           context: .
           push: true
+          file: ./docker/DockerfileOpenbb
           build-args: |
             features=enterprise
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:python310
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:openbb
           labels: |
             org.opencontainers.image.licenses=Windmill-Enterprise-License

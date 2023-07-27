@@ -72,6 +72,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
       - ./oauth.json:/usr/src/app/oauth.json
+      - worker_dependency_cache:/tmp/windmill/cache
 
   ## This worker is specialized for "native" jobs. Jobs that are lightweight and run "in-process" and can thus be parallelized to more than 1 at a time on a given worker
   windmill_worker_native:

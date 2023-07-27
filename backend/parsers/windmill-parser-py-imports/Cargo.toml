@@ -18,3 +18,5 @@ regex.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 lazy_static.workspace = true
+sqlx.workspace = true
+async-recursion.workspace = true

@@ -1,9 +1,14 @@
 <script lang="ts">
-	import { Tabs, Tab, TabContent } from '$lib/components/common'
+	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
+	import { copyToClipboard } from '$lib/utils'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import { CalendarCheck2, Terminal, Webhook } from 'lucide-svelte'
+	import { Highlight } from 'svelte-highlight'
+	import json from 'svelte-highlight/languages/json'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	export let flow_json: any | undefined = undefined
 
 	export let isOperator: boolean = false
 </script>
@@ -14,6 +19,9 @@
 			<Tab value="saved_inputs">Saved inputs</Tab>
 			{#if !isOperator}
 				<Tab value="details">Details & Triggers</Tab>
+			{/if}
+			{#if flow_json}
+				<Tab value="flow_json">JSON</Tab>
 			{/if}
 			<svelte:fragment slot="content">
 				<div class="overflow-hidden" style="height:calc(100% - 32px);">
@@ -60,6 +68,25 @@
 								</div>
 							</Pane>
 						</Splitpanes>
+					</TabContent>
+					<TabContent value="flow_json" class="flex flex-col flex-1 h-full">
+						<div class="relative pt-2">
+							<Button
+								on:click={() => copyToClipboard(JSON.stringify(flow_json, null, 4))}
+								color="light"
+								variant="border"
+								size="xs"
+								startIcon={{ icon: faClipboard }}
+								btnClasses="absolute top-2 right-2 w-min"
+							>
+								Copy content
+							</Button>
+							<Highlight
+								language={json}
+								code={JSON.stringify(flow_json, null, 4)}
+								class="overflow-auto"
+							/>
+						</div>
 					</TabContent>
 				</div>
 			</svelte:fragment>

@@ -26,7 +26,7 @@ use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    flows::{FlowModuleValue, FlowValue},
+    flows::{FlowModuleValue, FlowValue, FlowModule},
     scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path},
     utils::{rd_string, StripPath},
     variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob, Metrics}, IS_READY,
@@ -130,6 +130,7 @@ pub async fn create_token_for_owner(
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
+pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
@@ -2140,7 +2141,7 @@ async fn handle_flow_dependency_job(
     worker_name: &str,
     worker_dir: &str,
 ) -> error::Result<()> {
-    let path = job.script_path.clone().ok_or_else(|| {
+    let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
@@ -2151,15 +2152,78 @@ async fn handle_flow_dependency_job(
         ))
     })?;
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
+
+    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
+
+    // Re-check cancelation to ensure we don't accidentially override a flow.
+    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        })
+    {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        new_flow_value,
+        job_path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+#[async_recursion]
+async fn lock_modules(
+    modules: Vec<FlowModule>,     
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    job_path: String) -> Result<Vec<FlowModule>> {
     let mut new_flow_modules = Vec::new();
-    for mut e in flow.modules.into_iter() {
+    for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
+            match e.value {
+                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel } => {
+                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?, skip_failures, parallel }
+                },
+                FlowModuleValue::BranchAll { branches, parallel } => {
+                    let mut nbranches = vec![];
+                    for mut b in branches {
+                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                        nbranches.push(b)
+                    }
+                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }
+                },
+                FlowModuleValue::BranchOne { branches, default } => {
+                    let mut nbranches = vec![];
+                    for mut b in branches {
+                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                        nbranches.push(b)
+                    }
+                    let default = lock_modules(default, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default};
+                }
+                _ => {
+                    ()
+                }
+            };
             new_flow_modules.push(e);
             continue;
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content)?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.clone()), &db).await?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
@@ -2213,33 +2277,8 @@ async fn handle_flow_dependency_job(
             }
         }
     }
-    flow.modules = new_flow_modules;
-    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
-
-    // Re-check cancelation to ensure we don't accidentially override a flow.
-    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-        .fetch_optional(db)
-        .await
-        .map(|v| Some(true) == v)
-        .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
-            false
-        })
-    {
-        return Ok(());
-    }
-
-    sqlx::query!(
-        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-        new_flow_value,
-        path,
-        job.workspace_id
-    )
-    .execute(db)
-    .await?;
-    Ok(())
+    Ok(new_flow_modules)
 }
-
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,

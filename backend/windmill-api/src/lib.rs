@@ -9,6 +9,8 @@
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
+use crate::tracing_init::MyOnFailure;
+use crate::workers::ALL_TAGS;
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -16,6 +18,7 @@ use crate::{
     users::{Authed, OptAuthed},
     webhook_util::WebhookShared,
 };
+use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
@@ -147,6 +150,15 @@ pub async fn run_server(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<u16>,
 ) -> anyhow::Result<()> {
+    if let Some(mut rsmq) = rsmq.clone() {
+        for tag in ALL_TAGS.clone() {
+            let r =
+                rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
+            if r.is_ok() {
+                tracing::info!("Redis queue {tag} created");
+            }
+        }
+    }
     let user_db = UserDB::new(db.clone());
 
     let auth_cache = Arc::new(users::AuthCache::new(
@@ -160,7 +172,8 @@ pub async fn run_server(
             TraceLayer::new_for_http()
                 .on_response(MyOnResponse {})
                 .make_span_with(MyMakeSpan {})
-                .on_request(()),
+                .on_request(())
+                .on_failure(MyOnFailure {}),
         )
         .layer(Extension(db.clone()))
         .layer(Extension(rsmq))
@@ -296,7 +309,8 @@ async fn is_up_to_date() -> Result<String, AppError> {
     let version = HTTP_CLIENT
         .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
         .send()
-        .await?
+        .await
+        .context("Impossible to reach api.github")?
         .json::<serde_json::Value>()
         .await?
         .get("tag_name")

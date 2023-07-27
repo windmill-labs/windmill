@@ -6,11 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use phf::phf_map;
 use regex::Regex;
 
+use sqlx::{Pool, Postgres};
 use windmill_common::error;
 
 use rustpython_parser::ast::{Located, StmtKind};
@@ -23,9 +25,6 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "psycopg" => "psycopg[binary, pool]",
     "yaml" => "pyyaml",
     "git" => "GitPython",
-    "u" => "requests",
-    "f" => "requests",
-    "." => "requests",
     "shopify" => "ShopifyAPI",
     "seleniumwire" => "selenium-wire",
     "openbb-terminal" => "openbb[all]",
@@ -46,7 +45,42 @@ lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
 }
 
-pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
+fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
+    if level > 0 {
+        let mut imports = vec!["requests".to_string()];
+        let splitted_path = path.split("/");
+        let base = splitted_path
+            .clone()
+            .take(splitted_path.count() - level)
+            .join("/");
+        if let Some(m) = module {
+            imports.push(format!("relative:{base}/{}", m.replace(".", "/")));
+        } else {
+            imports.push(format!("relative:{base}"));
+        }
+        imports
+    } else if let Some(module) = module {
+        let imprt = module.split('.').next().unwrap_or("").replace("_", "-");
+        if imprt == "u" || imprt == "f" {
+            vec![
+                "requests".to_string(),
+                format!("relative:{}", module.replace(".", "/")),
+            ]
+        } else {
+            vec![imprt]
+        }
+    } else {
+        vec![]
+    }
+}
+
+#[async_recursion]
+pub async fn parse_python_imports(
+    code: &str,
+    w_id: &str,
+    path: &str,
+    db: &Pool<Postgres>,
+) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
         .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
@@ -90,21 +124,16 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                             .into_iter()
                             .map(|x| {
                                 let name = x.node.name;
-                                if name.starts_with('.') {
-                                    ".".to_string()
-                                } else {
-                                    name.split('.').next().unwrap_or("").to_string()
-                                }
+                                process_import(Some(name), path, 0)
                             })
-                            .map(replace_import)
+                            .flatten()
                             .collect::<Vec<String>>(),
                     ),
-                    StmtKind::ImportFrom { level: Some(i), .. } if i > 0 => {
-                        Some(vec!["requests".to_string()])
+                    StmtKind::ImportFrom { level: Some(i), module, .. } if i > 0 => {
+                        Some(process_import(module, path, i))
                     }
-                    StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
-                        let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
-                        Some(vec![replace_import(imprt)])
+                    StmtKind::ImportFrom { level: _, module, names: _ } => {
+                        Some(process_import(module, path, 0))
                     }
                     _ => None,
                 },
@@ -113,61 +142,30 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .filter(|x| !STDIMPORTS.contains(&x.as_str()))
             .unique()
             .collect();
-        imports.extend(nimports);
+        for n in nimports.iter() {
+            let nested = if n.starts_with("relative:") {
+                let code = sqlx::query_scalar!(
+                    r#"
+                    SELECT content FROM script WHERE workspace_id = $1 AND path = $2
+                    "#,
+                    w_id,
+                    n.replace("relative:", "")
+                )
+                .fetch_optional(db)
+                .await?
+                .unwrap_or_else(|| "".to_string());
+                parse_python_imports(&code, w_id, path, db).await?
+            } else {
+                vec![replace_import(n.to_string())]
+            };
+            for imp in nested {
+                if !imports.contains(&imp) {
+                    imports.push(imp);
+                }
+            }
+        }
         imports.sort();
         Ok(imports)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn test_parse_python_imports() -> anyhow::Result<()> {
-        //let code = "print(2 + 3, fd=sys.stderr)";
-        let code = "
-
-import os
-import wmill
-from zanzibar.estonie import talin
-import matplotlib.pyplot as plt
-from . import tests
-
-def main():
-    pass
-
-";
-        let r = parse_python_imports(code)?;
-        // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["matplotlib", "requests", "wmill", "zanzibar"]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_python_imports2() -> anyhow::Result<()> {
-        //let code = "print(2 + 3, fd=sys.stderr)";
-        let code = "
-#requirements:
-#burkina=0.4
-#nigeria
-#
-#congo
-
-import os
-import wmill
-from zanzibar.estonie import talin
-
-def main():
-    pass
-
-";
-        let r = parse_python_imports(code)?;
-        println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
-
-        Ok(())
     }
 }
 

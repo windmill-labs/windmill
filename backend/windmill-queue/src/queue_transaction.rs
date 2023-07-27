@@ -1,12 +1,12 @@
-use std::{fmt::{Debug}};
+use std::fmt::Debug;
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
 use rsmq_async::{RedisBytes, RsmqConnection};
 use sqlx::{Postgres, Transaction};
 
 pub enum RedisOp {
-    SendMessage(RedisBytes, Option<chrono::DateTime<chrono::Utc>>),
-    DeleteMessage(String),
+    SendMessage(RedisBytes, Option<chrono::DateTime<chrono::Utc>>, String),
+    DeleteMessage(String, String),
 }
 
 unsafe impl Send for RedisOp {}
@@ -14,17 +14,17 @@ unsafe impl Send for RedisOp {}
 impl RedisOp {
     pub async fn apply<R: RsmqConnection>(self, rsmq: &mut R) -> Result<(), rsmq_async::RsmqError> {
         match self {
-            RedisOp::SendMessage(bytes, time) => {
+            RedisOp::SendMessage(bytes, time, queue) => {
                 rsmq.send_message(
-                    "main_queue",
+                    &queue,
                     bytes,
                     time.map(|t| (t - chrono::Utc::now()).num_seconds())
                         .and_then(|e| e.try_into().ok()),
                 )
                 .await?;
             }
-            RedisOp::DeleteMessage(id) => {
-                rsmq.delete_message("main_queue", &id).await?;
+            RedisOp::DeleteMessage(id, queue) => {
+                rsmq.delete_message(&queue, &id).await?;
             }
         };
 
@@ -56,13 +56,14 @@ impl<R: RsmqConnection> RedisTransaction<R> {
         &mut self,
         bytes: E,
         delay_until: Option<chrono::DateTime<chrono::Utc>>,
+        queue: String,
     ) {
         self.queued_ops
-            .push(RedisOp::SendMessage(bytes.into(), delay_until))
+            .push(RedisOp::SendMessage(bytes.into(), delay_until, queue))
     }
 
-    pub fn delete_message(&mut self, id: String) {
-        self.queued_ops.push(RedisOp::DeleteMessage(id))
+    pub fn delete_message(&mut self, id: String, queue: String) {
+        self.queued_ops.push(RedisOp::DeleteMessage(id, queue))
     }
 }
 

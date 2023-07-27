@@ -19,6 +19,10 @@ lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
+    static ref FLOCK_PATH: String =
+    std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
+
+
 
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
@@ -55,8 +59,8 @@ use crate::S3_CACHE_BUCKET;
 use crate::{
     common::{read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY, NO_PROXY,
-    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
+    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -180,8 +184,14 @@ pub async fn handle_python_job(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements =
-                windmill_parser_py_imports::parse_python_imports(&inner_content)?.join("\n");
+            let requirements = windmill_parser_py_imports::parse_python_imports(
+                &inner_content,
+                &job.workspace_id,
+                &job.script_path(),
+                &db,
+            )
+            .await?
+            .join("\n");
             if requirements.is_empty() {
                 "".to_string()
             } else {
@@ -563,7 +573,8 @@ pub async fn handle_python_reqs(
                 .stderr(Stdio::piped())
                 .spawn()?
         } else {
-            let mut args = vec![
+            let mut command_args = vec![
+                PYTHON_PATH.as_str(),
                 "-m",
                 "pip",
                 "install",
@@ -578,13 +589,13 @@ pub async fn handle_python_reqs(
                 venv_p.as_str(),
             ];
             if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
-                args.extend(["--extra-index-url", url]);
+                command_args.extend(["--extra-index-url", url]);
             }
             if let Some(url) = PIP_INDEX_URL.as_ref() {
-                args.extend(["--index-url", url]);
+                command_args.extend(["--index-url", url]);
             }
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-                args.extend(["--trusted-host", &host]);
+                command_args.extend(["--trusted-host", &host]);
             }
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
             if let Some(http_proxy) = HTTP_PROXY.as_ref() {
@@ -597,10 +608,15 @@ pub async fn handle_python_reqs(
                 envs.push(("NO_PROXY", no_proxy));
             }
 
-            Command::new(PYTHON_PATH.as_str())
+            Command::new(FLOCK_PATH.as_str())
                 .env_clear()
                 .envs(envs)
-                .args(args)
+                .args([
+                    "-x",
+                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, req),
+                    "--command",
+                    &command_args.join(" "),
+                ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
