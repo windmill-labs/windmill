@@ -10,7 +10,7 @@
 	export let args: Record<string, any> | any = {}
 
 	const content = {
-		postgresql: `import { Client } from 'https://deno.land/x/postgres/mod.ts'
+		postgresql: `import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
 export async function main(args: any) {
   const u = new URL("postgres://")
 	u.hash = ''
@@ -24,7 +24,7 @@ export async function main(args: any) {
 	await client.connect()
 	return 'Connection successful'
 }`,
-		mysql: `import { Client } from "https://deno.land/x/mysql/mod.ts";
+		mysql: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
 export async function main(args: any) {
   const conn = await new Client().connect({
     hostname: args.host,
