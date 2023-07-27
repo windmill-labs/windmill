@@ -39,6 +39,8 @@
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import { ScriptGen } from './codeGen'
 	import type DiffEditor from './DiffEditor.svelte'
+	import { initialCode } from '$lib/script_helpers'
+	import type { Script } from '$lib/gen'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -53,6 +55,7 @@
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let collabMode = false
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
@@ -173,6 +176,13 @@
 			}
 		}
 		return res
+	}
+
+	function clearContent() {
+		if (editor) {
+			const resetCode = initialCode(lang, kind as Script.kind, template)
+			editor.setCode(resetCode)
+		}
 	}
 
 	let historyBrowserDrawerOpen = false
@@ -472,7 +482,7 @@
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={editor?.clearContent}
+				on:click={clearContent}
 				{iconOnly}
 				startIcon={{ icon: faRotateLeft }}
 			>
