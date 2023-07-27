@@ -33,6 +33,7 @@ pub enum ScriptLang {
     Postgresql,
     Bun,
     Mysql,
+    Bigquery,
 }
 
 impl ScriptLang {
@@ -46,6 +47,7 @@ impl ScriptLang {
             ScriptLang::Bash => "bash",
             ScriptLang::Postgresql => "postgresql",
             ScriptLang::Mysql => "mysql",
+            ScriptLang::Bigquery => "bigquery",
         }
     }
 }

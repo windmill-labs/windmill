@@ -39,3 +39,8 @@ pub fn parse_sql(code: &str) -> String {
 pub fn parse_mysql(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_mysql_sig(code))
 }
+
+#[wasm_bindgen]
+pub fn parse_bigquery(code: &str) -> String {
+    wrap_sig(windmill_parser_sql::parse_bigquery_sig(code))
+}

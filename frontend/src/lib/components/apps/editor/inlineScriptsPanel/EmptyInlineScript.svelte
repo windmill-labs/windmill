@@ -100,7 +100,8 @@
 		'bash',
 		'nativets',
 		'postgresql',
-		'mysql'
+		'mysql',
+		'bigquery'
 	] as Script.language[]
 </script>
 

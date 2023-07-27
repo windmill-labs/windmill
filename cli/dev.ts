@@ -59,6 +59,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
           : ext == "sql"
           ? splitted.length > 2 && splitted[splitted.length - 2] == "my"
             ? "mysql"
+            : splitted.length > 2 && splitted[splitted.length - 2] == "bigquery"
+            ? "bigquery"
             : "postgresql"
           : "unknown";
       currentLastEdit = {
