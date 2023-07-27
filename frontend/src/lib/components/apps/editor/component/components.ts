@@ -93,6 +93,7 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
+export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
@@ -136,6 +137,7 @@ export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
+	| JobIdLogComponent
 	| FlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
@@ -465,7 +467,7 @@ export const components = {
 			configuration: {}
 		}
 	},
-	logcomponent: {
+	jobidlogcomponent: {
 		name: 'Log',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}#log-display`,
@@ -485,6 +487,26 @@ export const components = {
 			}
 		}
 	},
+	logcomponent: {
+		name: 'Log',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#log-display`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			}
+		}
+	},
+
 	flowstatuscomponent: {
 		name: 'Flow Status',
 		icon: Monitor,

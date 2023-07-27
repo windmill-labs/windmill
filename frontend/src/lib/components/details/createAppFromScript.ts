@@ -1,4 +1,4 @@
-export function createAppFromScript(path: string, schema: Schema) {
+export function createAppFromScript(path: string, schema: Record<string, any> | undefined) {
 	return {
 		grid: [
 			{
@@ -14,7 +14,7 @@ export function createAppFromScript(path: string, schema: Schema) {
 					x: 0,
 					y: 0,
 					w: 12,
-					h: 22,
+					h: 21,
 					id: 'a'
 				},
 				data: {
@@ -30,7 +30,64 @@ export function createAppFromScript(path: string, schema: Schema) {
 		],
 		fullscreen: false,
 		unusedInlineScripts: [],
-		hiddenInlineScripts: [],
+		hiddenInlineScripts: [
+			{
+				type: 'runnableByName',
+				inlineScript: {
+					content:
+						"\nexport async function main(required: string[], values: Record<string, any>) {\n  for (const field of required) {\n    if (values[field] === undefined || values[field] === null || values[field] === '') {\n      return false\n    }\n  }\n\n  return true\n}\n  \n\n",
+					language: 'deno',
+					path: '/ValidateForm',
+					schema: {
+						$schema: 'https://json-schema.org/draft/2020-12/schema',
+						properties: {
+							required: {
+								default: null,
+								description: '',
+								items: {
+									type: 'string',
+									enum: null
+								},
+								type: 'array'
+							},
+							values: {
+								default: null,
+								description: '',
+								format: 'resource-record',
+								type: 'object'
+							}
+						},
+						required: ['required', 'values'],
+						type: 'object'
+					}
+				},
+				name: 'ValidateForm',
+				fields: {
+					required: {
+						type: 'connected',
+						value: [],
+						fieldType: 'array',
+						connection: {
+							componentId: 'c',
+							path: 'result.required'
+						}
+					},
+					values: {
+						type: 'connected',
+						value: null,
+						fieldType: 'object',
+						format: 'resource-record',
+						connection: {
+							componentId: 'c',
+							path: 'values'
+						}
+					}
+				},
+				autoRefresh: true,
+				recomputeOnInputChanged: true,
+				recomputeIds: []
+			}
+		],
 		css: {},
 		norefreshbar: false,
 		subgrids: {
@@ -41,18 +98,56 @@ export function createAppFromScript(path: string, schema: Schema) {
 						x: 0,
 						y: 1,
 						w: 3,
-						h: 5
+						h: 8
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 21,
-						id: 'jn'
+						h: 19,
+						id: 'c'
 					},
 					data: {
-						type: 'formcomponent',
+						type: 'schemaformcomponent',
+						configuration: {
+							displayType: {
+								type: 'static',
+								value: false
+							},
+							largeGap: {
+								type: 'static',
+								value: false
+							}
+						},
+						componentInput: {
+							type: 'static',
+							fieldType: 'schema',
+							value: schema
+						},
+						customCss: {},
+						id: 'c'
+					},
+					id: 'c'
+				},
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						w: 1,
+						h: 1
+					},
+					'12': {
+						fixed: false,
+						x: 0,
+						y: 19,
+						w: 12,
+						h: 1,
+						id: 'd'
+					},
+					data: {
+						type: 'buttoncomponent',
 						configuration: {
 							label: {
 								type: 'static',
@@ -65,6 +160,26 @@ export function createAppFromScript(path: string, schema: Schema) {
 							size: {
 								type: 'static',
 								value: 'xs'
+							},
+							fillContainer: {
+								type: 'static',
+								value: false
+							},
+							disabled: {
+								type: 'eval',
+								expr: '!bg_0.result'
+							},
+							beforeIcon: {
+								type: 'static',
+								value: ''
+							},
+							afterIcon: {
+								type: 'static',
+								value: ''
+							},
+							triggerOnAppLoad: {
+								type: 'static',
+								value: false
 							},
 							onSuccess: {
 								type: 'oneOf',
@@ -156,47 +271,24 @@ export function createAppFromScript(path: string, schema: Schema) {
 						componentInput: {
 							type: 'runnable',
 							fieldType: 'any',
-							fields: {
-								a: {
-									type: 'user',
-									value: null,
-									fieldType: 'number'
-								},
-								b: {
-									type: 'user',
-									value: null,
-									fieldType: 'select',
-									selectOptions: ['my', 'enum']
-								},
-								d: {
-									type: 'user',
-									value: 'inferred type string from default arg',
-									fieldType: 'string'
-								},
-								e: {
-									type: 'user',
-									value: {
-										nested: 'object'
-									},
-									fieldType: 'object'
-								}
-							},
-							autoRefresh: false,
-							recomputeOnInputChanged: false,
+							fields: convertSchemaToFields(schema),
 							runnable: {
 								type: 'runnableByPath',
-								path,
+								path: path,
 								runType: 'script',
-								schema,
+								schema: schema,
 								name: path
-							}
+							},
+							autoRefresh: true,
+							recomputeOnInputChanged: true
 						},
 						customCss: {},
 						recomputeIds: [],
-						horizontalAlignment: 'center',
-						id: 'jn'
+						horizontalAlignment: 'right',
+						verticalAlignment: 'center',
+						id: 'd'
 					},
-					id: 'jn'
+					id: 'd'
 				}
 			],
 			'a-1': [
@@ -213,40 +305,53 @@ export function createAppFromScript(path: string, schema: Schema) {
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 9,
+						h: 20,
 						id: 'b'
 					},
 					data: {
-						type: 'logcomponent',
+						type: 'tabscomponent',
 						configuration: {
-							jobId: {
-								type: 'connected',
-								connection: {
-									componentId: 'jn',
-									path: 'jobId'
-								}
+							tabsKind: {
+								type: 'static',
+								value: 'tabs'
 							}
 						},
+						tabs: ['Result', 'Logs'],
 						customCss: {},
-						id: 'b'
+						numberOfSubgrids: 2,
+						id: 'b',
+						disabledTabs: [
+							{
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							},
+							{
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							}
+						]
 					},
 					id: 'b'
-				},
+				}
+			],
+			'b-0': [
 				{
 					'3': {
 						fixed: false,
 						x: 0,
-						y: 16,
+						y: 0,
 						w: 2,
 						h: 8
 					},
 					'12': {
 						fixed: false,
 						x: 0,
-						y: 9,
+						y: 0,
 						w: 12,
-						h: 12,
-						id: 'd'
+						h: 18,
+						id: 'e'
 					},
 					data: {
 						type: 'displaycomponent',
@@ -255,16 +360,82 @@ export function createAppFromScript(path: string, schema: Schema) {
 							type: 'connected',
 							fieldType: 'object',
 							connection: {
-								componentId: 'jn',
+								componentId: 'd',
 								path: 'result'
 							}
 						},
 						customCss: {},
-						id: 'd'
+						id: 'e'
 					},
-					id: 'd'
+					id: 'e'
+				}
+			],
+			'b-1': [
+				{
+					'3': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						w: 2,
+						h: 8
+					},
+					'12': {
+						fixed: false,
+						x: 0,
+						y: 0,
+						w: 12,
+						h: 18,
+						id: 'f'
+					},
+					data: {
+						type: 'jobidlogcomponent',
+						configuration: {
+							jobId: {
+								type: 'connected',
+								connection: {
+									componentId: 'd',
+									path: 'jobId'
+								}
+							}
+						},
+						customCss: {},
+						id: 'f'
+					},
+					id: 'f'
 				}
 			]
 		}
 	}
+}
+
+type Field = {
+	type: 'static' | 'connected'
+	value: any
+	fieldType?: string
+	connection?: {
+		componentId: string
+		path: string
+	}
+}
+
+function convertSchemaToFields(schema: Record<string, any> | undefined): { [key: string]: Field } {
+	const fields: { [key: string]: Field } = {}
+
+	if (!schema) {
+		return fields
+	}
+
+	Object.entries(schema.properties).forEach(([fieldName, fieldInfo]: [string, any]) => {
+		fields[fieldName] = {
+			type: 'connected',
+			value: fieldInfo.default,
+			fieldType: fieldInfo.type,
+			connection: {
+				componentId: 'c',
+				path: `values.${fieldName}`
+			}
+		}
+	})
+
+	return fields
 }

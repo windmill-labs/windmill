@@ -636,6 +636,10 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	jobidlogcomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
 	flowstatuscomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps

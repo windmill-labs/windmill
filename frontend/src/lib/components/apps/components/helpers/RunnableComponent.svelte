@@ -30,7 +30,11 @@
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let outputs: { result: Output<any>; loading: Output<boolean>; jobId: Output<any> }
+	export let outputs: {
+		result: Output<any>
+		loading: Output<boolean>
+		jobId?: Output<any> | undefined
+	}
 	export let extraKey = ''
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
