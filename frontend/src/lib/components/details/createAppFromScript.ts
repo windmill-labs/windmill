@@ -30,64 +30,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 		],
 		fullscreen: false,
 		unusedInlineScripts: [],
-		hiddenInlineScripts: [
-			{
-				type: 'runnableByName',
-				inlineScript: {
-					content:
-						"\nexport async function main(required: string[], values: Record<string, any>) {\n  for (const field of required) {\n    if (values[field] === undefined || values[field] === null || values[field] === '') {\n      return false\n    }\n  }\n\n  return true\n}\n  \n\n",
-					language: 'deno',
-					path: '/ValidateForm',
-					schema: {
-						$schema: 'https://json-schema.org/draft/2020-12/schema',
-						properties: {
-							required: {
-								default: null,
-								description: '',
-								items: {
-									type: 'string',
-									enum: null
-								},
-								type: 'array'
-							},
-							values: {
-								default: null,
-								description: '',
-								format: 'resource-record',
-								type: 'object'
-							}
-						},
-						required: ['required', 'values'],
-						type: 'object'
-					}
-				},
-				name: 'ValidateForm',
-				fields: {
-					required: {
-						type: 'connected',
-						value: [],
-						fieldType: 'array',
-						connection: {
-							componentId: 'c',
-							path: 'result.required'
-						}
-					},
-					values: {
-						type: 'connected',
-						value: null,
-						fieldType: 'object',
-						format: 'resource-record',
-						connection: {
-							componentId: 'c',
-							path: 'values'
-						}
-					}
-				},
-				autoRefresh: true,
-				recomputeOnInputChanged: true,
-				recomputeIds: []
-			}
-		],
+		hiddenInlineScripts: [],
 		css: {},
 		norefreshbar: false,
 		subgrids: {
@@ -167,7 +110,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							},
 							disabled: {
 								type: 'eval',
-								expr: '!bg_0.result'
+								expr: '!c.valid'
 							},
 							beforeIcon: {
 								type: 'static',
