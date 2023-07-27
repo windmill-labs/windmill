@@ -42,6 +42,8 @@
 
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
+	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
+	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -181,6 +183,8 @@
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
 						iconOnly={width < 850}
+						kind={scriptKind}
+						template={scriptTemplate}
 					/>
 				</div>
 			{/if}
