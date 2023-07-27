@@ -2516,7 +2516,6 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         .modules
         .into_iter()
         .for_each(|m| {
-            tracing::error!("Module: {:?}", m.value);
             assert!(matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::RawScript(RawScript {

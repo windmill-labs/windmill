@@ -19,6 +19,11 @@
     "token_url": "https://slack.com/api/oauth.access",
     "scopes": ["chat:write:user", "users:read", "users:read.email"]
   },
+  "supabase_management": {
+    "auth_url": "https://api.supabase.com/v1/oauth/authorize",
+    "token_url": "https://api.supabase.com/v1/oauth/token",
+    "scopes": ["all"]
+  },
   "gsheets": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
