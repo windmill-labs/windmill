@@ -644,6 +644,10 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	jobidflowstatuscomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
 	barchartcomponent: {
 		container: containerDefaultProps
 	},
