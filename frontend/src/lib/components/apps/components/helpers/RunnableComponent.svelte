@@ -466,10 +466,8 @@
 
 <ResultJobLoader
 	on:started={(e) => {
-		debugger
 		loading = true
 		setJobId(e.detail)
-
 		dispatch('started', e.detail)
 	}}
 	workspaceOverride={workspace}
