@@ -281,6 +281,7 @@
 
 			<input
 				type="text"
+				autofocus
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
 			/>
@@ -290,6 +291,7 @@
 				bind:error={pathError}
 				bind:path={script.path}
 				{initialPath}
+				autofocus={false}
 				namePlaceholder="script"
 				kind="script"
 			/>

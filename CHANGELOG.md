@@ -1,6 +1,37 @@
 # Changelog
 
 
+## [1.137.1](https://github.com/windmill-labs/windmill/compare/v1.137.0...v1.137.1) (2023-07-27)
+
+
+### Bug Fixes
+
+* pin deno backend versions ([acf2765](https://github.com/windmill-labs/windmill/commit/acf27659a9fd619bfbb1f2edf9c6895bdabed083))
+
+## [1.137.0](https://github.com/windmill-labs/windmill/compare/v1.136.0...v1.137.0) (2023-07-27)
+
+
+### Features
+
+* add workspace specific tags ([52f28b5](https://github.com/windmill-labs/windmill/commit/52f28b5173daffdbffeb45dbe94574fe54c73f4b))
+* extra_requirements ([93ac794](https://github.com/windmill-labs/windmill/commit/93ac7944b04b0e39043ed149df0dd3f50ff0e02a))
+* **frontend:** Add an output format ([#1939](https://github.com/windmill-labs/windmill/issues/1939)) ([e4506fe](https://github.com/windmill-labs/windmill/commit/e4506fef0ed3ece7702d677d4a82c87e8e7616a4))
+* **frontend:** AI edit / fix improvements ([#1923](https://github.com/windmill-labs/windmill/issues/1923)) ([0aa81e3](https://github.com/windmill-labs/windmill/commit/0aa81e39705d8c2109c8ec30855bb5f68eae133b))
+* **frontend:** App components dark mode ([#1937](https://github.com/windmill-labs/windmill/issues/1937)) ([71502c2](https://github.com/windmill-labs/windmill/commit/71502c2e0eced308fec3783450466c37007292e4))
+* **frontend:** Make Plotly layout dynamic ([#1942](https://github.com/windmill-labs/windmill/issues/1942)) ([9a539f9](https://github.com/windmill-labs/windmill/commit/9a539f909dd9e960f29901861dff674c416b4601))
+* handle worker groups with redis ([6f47bf9](https://github.com/windmill-labs/windmill/commit/6f47bf98065ff42d35078b9376fc670dbc868ea6))
+* lock depedency for the entire flow + dependency job depend on script/flow's tag ([90d57e2](https://github.com/windmill-labs/windmill/commit/90d57e2fadd9459d7fda6fad35aeb603e5074a65))
+* resolve dependencies across relative imports for python ([0f31ffe](https://github.com/windmill-labs/windmill/commit/0f31ffe174a8414393f8a2c3d0d9a0b4256667b6))
+* resolve dependencies across relative imports for python ([31141ce](https://github.com/windmill-labs/windmill/commit/31141ce52a73cdfa89127b9c4a03428bab6029cc))
+* use flock to avoid concurrency issues on pip and shared volume ([c22d2b9](https://github.com/windmill-labs/windmill/commit/c22d2b91a1d4257a6daeae1e29d77e9cc7fd3be5))
+* worker group for flows ([a099791](https://github.com/windmill-labs/windmill/commit/a0997911bf9da8651ddb830e9e09f2d3f82c73e4))
+
+
+### Bug Fixes
+
+* add property while viewing as JSON (+ ui tweaks) ([#1941](https://github.com/windmill-labs/windmill/issues/1941)) ([4f3b483](https://github.com/windmill-labs/windmill/commit/4f3b4836c2834d1f9975b92d8605bc6b046319fa))
+* respect FIFO order for concurrency limit ([601da7f](https://github.com/windmill-labs/windmill/commit/601da7f878ca039729e2ba1be734530b63bd773f))
+
 ## [1.136.0](https://github.com/windmill-labs/windmill/compare/v1.135.1...v1.136.0) (2023-07-24)
 
 

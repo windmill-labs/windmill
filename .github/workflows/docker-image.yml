@@ -3,7 +3,7 @@ env:
   ECR_REGISTRY: 976079455550.dkr.ecr.us-east-1.amazonaws.com
   IMAGE_NAME: ${{ github.repository }}
 
-name: Build and push docker image
+name: Build windmill:main
 on:
   push:
     branches: [main]

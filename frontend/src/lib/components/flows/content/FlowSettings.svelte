@@ -71,6 +71,7 @@
 								>
 								<input
 									type="text"
+									autofocus
 									bind:value={$flowStore.summary}
 									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
@@ -79,6 +80,7 @@
 
 							<span class="text-secondary text-sm font-bold"> Path </span>
 							<Path
+								autofocus={false}
 								bind:this={path}
 								bind:path={$flowStore.path}
 								{initialPath}
