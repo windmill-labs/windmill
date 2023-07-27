@@ -2535,3 +2535,25 @@ INSERT INTO public.workspace_key(workspace_id, kind, key) VALUES
 
 insert INTO public.token(token, email, label, super_admin) VALUES ('SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
 
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+import pandas as pd
+import pandas2
+',
+'{}',
+'',
+'',
+'f/foo/bar', -28028598712388162, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+import numpy as np
+',
+'{}',
+'',
+'',
+'f/foo/baz', -28028598712388161, 'python3', '');
