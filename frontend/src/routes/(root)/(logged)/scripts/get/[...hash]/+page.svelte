@@ -231,7 +231,7 @@
 			}
 
 			buttons.push({
-				label: 'Make app from script',
+				label: 'Build App',
 				buttonProps: {
 					onClick: async () => {
 						const app = createAppFromScript(script.path, script.schema)
