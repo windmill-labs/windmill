@@ -40,6 +40,7 @@
 			label: x.path
 		}))
 
+		// TODO check if this is needed
 		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
 			nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
 		}
@@ -140,7 +141,7 @@
 		<Icon scale={0.8} data={faRotateRight} />
 	</Button>
 </div>
-<DbSchemaExplorer {resourceType} pg={value} />
+<DbSchemaExplorer {resourceType} resourcePath={value} />
 
 <style>
 	:global(.svelte-select-list) {

@@ -71,7 +71,7 @@ async function addResourceTypes(scriptOptions: BaseOptions, workspace: string, p
 }
 
 function addDBSChema(scriptOptions: BaseOptions, prompt: string) {
-	if (scriptOptions.language === 'postgresql' && scriptOptions.dbSchema) {
+	if (['mysql', 'postgresql'].includes(scriptOptions.language) && scriptOptions.dbSchema) {
 		const { dbSchema } = scriptOptions
 		const smallerSchema = {}
 		for (const schemaKey in dbSchema) {
@@ -117,28 +117,6 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions) {
 	prompt = await addResourceTypes(scriptOptions, workspace, prompt)
 
 	prompt = addDBSChema(scriptOptions, prompt)
-
-	if (scriptOptions.language === 'postgresql' && scriptOptions.dbSchema) {
-		const { dbSchema } = scriptOptions
-		const smallerSchema = {}
-		for (const schemaKey in dbSchema) {
-			for (const tableKey in dbSchema[schemaKey]) {
-				smallerSchema[tableKey] = []
-				for (const colKey in dbSchema[schemaKey][tableKey]) {
-					const col = dbSchema[schemaKey][tableKey][colKey]
-					const p = [colKey, col.type, col.required]
-					if (col.default) {
-						p.push(col.default)
-					}
-					smallerSchema[tableKey].push(p)
-				}
-			}
-		}
-		prompt =
-			prompt +
-			"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
-			JSON.stringify(smallerSchema)
-	}
 
 	const completion = await openai.chat.completions.create({
 		model: 'gpt-4',
