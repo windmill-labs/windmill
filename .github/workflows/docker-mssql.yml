@@ -2,7 +2,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-name: BBuild windmill:mssql
+name: Build windmill:mssql
 on: workflow_dispatch
 
 concurrency:
