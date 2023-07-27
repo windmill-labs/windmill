@@ -29,9 +29,6 @@ use axum::{extract::Path, Json};
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::not_found_if_none;
 
-#[cfg(feature = "enterprise")]
-use axum::routing::post;
-
 use crate::db::DB;
 
 lazy_static::lazy_static! {
