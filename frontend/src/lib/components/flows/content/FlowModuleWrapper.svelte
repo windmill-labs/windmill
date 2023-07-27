@@ -22,6 +22,8 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
+	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
+	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 
 	// These pointers are used to easily access previewArgs of parent module, and previous module
 	// Pointer to parent module, only defined within Branches or Loops.
@@ -94,6 +96,8 @@
 						subkind,
 						flowModule.id
 					)
+					scriptKind = kind
+					scriptTemplate = subkind
 
 					if (kind == Script.kind.TRIGGER) {
 						if (!$schedule.cron) {
@@ -123,6 +127,8 @@
 			{parentModule}
 			{previousModule}
 			failureModule={$selectedId === 'failure'}
+			{scriptKind}
+			{scriptTemplate}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}

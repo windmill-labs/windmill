@@ -264,8 +264,6 @@
 						sortText: 'z'
 					})
 
-					// const
-
 					for (const tableKey in $dbSchema[schemaKey]) {
 						suggestions.push({
 							label: tableKey,
