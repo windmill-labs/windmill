@@ -37,7 +37,7 @@
 	export let error = ''
 	export let disabled = false
 	export let checkInitialPathExistence = false
-
+	export let autofocus = true
 	export let kind: PathKind
 
 	let inputP: HTMLInputElement | undefined = undefined
@@ -393,7 +393,7 @@
 					{disabled}
 					type="text"
 					id="path"
-					autofocus
+					{autofocus}
 					bind:this={inputP}
 					autocomplete="off"
 					on:keyup={handleKeyUp}

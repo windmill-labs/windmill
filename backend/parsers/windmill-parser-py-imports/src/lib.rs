@@ -146,10 +146,12 @@ pub async fn parse_python_imports(
             let nested = if n.starts_with("relative:") {
                 let code = sqlx::query_scalar!(
                     r#"
-                    SELECT content FROM script WHERE workspace_id = $1 AND path = $2
+                    SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND 
+                    workspace_id = $2)
                     "#,
-                    w_id,
-                    n.replace("relative:", "")
+                    n.replace("relative:", ""),
+                    w_id
                 )
                 .fetch_optional(db)
                 .await?
