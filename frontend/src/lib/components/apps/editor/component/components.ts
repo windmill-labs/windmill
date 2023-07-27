@@ -95,6 +95,7 @@ export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
+export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
@@ -139,6 +140,7 @@ export type TypedComponent =
 	| LogComponent
 	| JobIdLogComponent
 	| FlowStatusComponent
+	| JobIdFlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
 	| TextareaInputComponent
@@ -506,7 +508,6 @@ export const components = {
 			}
 		}
 	},
-
 	flowstatuscomponent: {
 		name: 'Flow Status',
 		icon: Monitor,
@@ -523,6 +524,26 @@ export const components = {
 				fieldType: 'any',
 				fields: {},
 				runnable: undefined
+			}
+		}
+	},
+	jobidflowstatuscomponent: {
+		name: 'Flow Status',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}#flow-status`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				}
 			}
 		}
 	},

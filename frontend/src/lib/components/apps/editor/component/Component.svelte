@@ -52,6 +52,7 @@
 	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
+	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -166,6 +167,15 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'jobidflowstatuscomponent'}
+			<AppJobIdFlowStatus
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
 				componentInput={component.componentInput}
 				{render}
 			/>
