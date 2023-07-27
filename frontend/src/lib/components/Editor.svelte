@@ -219,6 +219,9 @@
 	$: !$dbSchema && dbSchemaCompletor && dbSchemaCompletor.dispose()
 
 	function addDBSchemaCompletions() {
+		if (dbSchemaCompletor) {
+			dbSchemaCompletor.dispose()
+		}
 		dbSchemaCompletor = languages.registerCompletionItemProvider('sql', {
 			triggerCharacters: ['.', ' ', '('],
 			provideCompletionItems: function (model, position) {
