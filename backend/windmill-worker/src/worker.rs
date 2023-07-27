@@ -1108,12 +1108,15 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     });
                     return Ok(());     
                 } else if job.language == Some(ScriptLang::Bigquery) {
+                    if cfg!(not(feature = "enterprise")) {
+                        return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
+                    }
                     wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
                     let client = client.get_authed().await;
                     let db: Pool<Postgres> = db.clone();
 
                     tokio::task::spawn(async move {
-                        let jc = do_bigquery(job.clone(), &client, &db).await;
+                        let jc: std::result::Result<JobCompleted, Error> = do_bigquery(job.clone(), &client, &db).await;
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
 
                         match jc {
@@ -1252,6 +1255,9 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
                             Ok(jc.result)
                         } else if job.language == Some(ScriptLang::Bigquery) {
+                            if cfg!(not(feature = "enterprise")) {
+                                return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
+                            }
                             let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
                             Ok(jc.result)
                         } else if job.language == Some(ScriptLang::Nativets) {

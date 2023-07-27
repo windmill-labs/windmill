@@ -26,6 +26,7 @@
 	import Awareness from './Awareness.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
+	import Popover from './Popover.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -44,6 +45,8 @@
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
+
+	const enterpriseLangs = ['bigquery']
 
 	loadWorkerGroups()
 
@@ -290,21 +293,26 @@
 			<div class=" grid grid-cols-3 gap-2">
 				{#each langs as [label, lang]}
 					{@const isPicked = script.language == lang && template == 'script'}
-					<Button
-						size="sm"
-						variant="border"
-						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75' : 'm-[1px]'}
-						on:click={() => {
-							template = 'script'
-							initContent(lang, script.kind, template)
-							script.language = lang
-						}}
-						disabled={lockedLanguage}
-					>
-						<LanguageIcon {lang} />
-						<span class="ml-2 py-2 truncate">{label}</span>
-					</Button>
+					<Popover disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}>
+						<Button
+							size="sm"
+							variant="border"
+							color={isPicked ? 'blue' : 'light'}
+							btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75' : 'm-[1px]'}
+							on:click={() => {
+								template = 'script'
+								initContent(lang, script.kind, template)
+								script.language = lang
+							}}
+							disabled={lockedLanguage || (enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+						>
+							<LanguageIcon {lang} />
+							<span class="ml-2 py-2 truncate">{label}</span>
+						</Button>
+						<svelte:fragment slot="text"
+							>{label} is only available with an enterprise license</svelte:fragment
+						>
+					</Popover>
 				{/each}
 				<Button
 					size="sm"
