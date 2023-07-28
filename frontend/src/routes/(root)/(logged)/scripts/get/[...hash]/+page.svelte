@@ -197,9 +197,23 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 
 	function getMainButtons(script: Script | undefined, args: object | undefined) {
-		if (!script || $userStore?.operator) return []
-
 		const buttons: any = []
+
+		if (!topHash && script) {
+			buttons.push({
+				label: 'Fork',
+				buttonProps: {
+					href: `/scripts/add?template=${script.path}`,
+					size: 'xs',
+					color: 'light',
+					startIcon: faCodeFork
+				}
+			})
+		}
+
+		if (!script || $userStore?.operator || !can_write) {
+			return buttons
+		}
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
@@ -217,19 +231,6 @@
 		}
 
 		if (!$userStore?.operator) {
-			if (!topHash) {
-				buttons.push({
-					label: 'Fork',
-					buttonProps: {
-						href: `/scripts/add?template=${script.path}`,
-
-						size: 'xs',
-						color: 'light',
-						startIcon: faCodeFork
-					}
-				})
-			}
-
 			buttons.push({
 				label: 'Build App',
 				buttonProps: {
@@ -251,11 +252,11 @@
 					href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
 						topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 					}`,
-					disabled: !can_write,
 					size: 'xs',
 					startIcon: faEdit,
 					color: 'dark',
-					variant: 'contained'
+					variant: 'contained',
+					disabled: !can_write
 				}
 			})
 		}
