@@ -25,8 +25,8 @@
 	documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#recompute-others"
 >
 	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}
-		<table class="divide-y divide-gray-300 border w-full">
-			<thead class="bg-gray-50">
+		<table class="divide-y border w-full">
+			<thead class="bg-surface-secondary">
 				<tr>
 					<th scope="col" class="px-2 py-2 text-left text-xs font-medium text-tertiary">
 						Component

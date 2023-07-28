@@ -17,9 +17,9 @@
 	<div class="flex flex-row flex-wrap gap-2 items-center mb-2 w-full">
 		{#each options as [label, val]}
 			<label
-				class="text-center text-sm border border-gray-300 h-full rounded-sm cursor-pointer p-2 
-				grow whitespace-nowrap duration-200 hover:border-gray-600 hover:bg-gray-100
-				{val === value ? '!bg-blue-50 !border-blue-500' : ''} {inputClass}"
+				class="text-center text-sm border border-gray-300 h-full rounded-sm cursor-pointer p-2
+				grow whitespace-nowrap duration-200 hover:border-gray-600 hover:bg-surface-hover
+				{val === value ? '!bg-blue-50 !border-blue-500 dark:!bg-frost-900' : ''} {inputClass}"
 			>
 				<input
 					{disabled}
