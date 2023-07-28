@@ -16,7 +16,7 @@
 	export let customCss: ComponentCustomCSS<'carouselcomponent'> | undefined = undefined
 	export let componentContainerHeight: number
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['carouselcomponent'].initialData.configuration,
 		configuration
 	)
@@ -25,6 +25,13 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$: css = concatCustomCss($app.css?.carouselcomponent, customCss)
+
+	$: $selectedComponent?.includes(id) &&
+		$focusedGrid === undefined &&
+		($focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: 0
+		})
 </script>
 
 {#each Object.keys(components['carouselcomponent'].initialData.configuration) as key (key)}
@@ -81,3 +88,18 @@
 		{/if}
 	</div>
 {/key}
+
+<style lang="postcss">
+	:global(.sc-carousel-arrow__circle) {
+		background-color: rgb(var(--color-surface-inverse) / var(--tw-bg-opacity)) !important;
+	}
+
+	:global(.sc-carousel-arrow__arrow) {
+		--tw-border-opacity: 1 !important;
+		border-color: rgb(var(--color-text-primary-inverse) / var(--tw-border-opacity)) !important;
+	}
+
+	:global(.sc-carousel-dot__dot) {
+		background-color: rgb(var(--color-surface-inverse) / var(--tw-bg-opacity)) !important;
+	}
+</style>
