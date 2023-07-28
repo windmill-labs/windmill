@@ -1,6 +1,30 @@
 # Changelog
 
 
+## [1.138.0](https://github.com/windmill-labs/windmill/compare/v1.137.1...v1.138.0) (2023-07-28)
+
+
+### Features
+
+* add bigquery ([#1934](https://github.com/windmill-labs/windmill/issues/1934)) ([fd4c978](https://github.com/windmill-labs/windmill/commit/fd4c978874e6020d59e85b209d418435a0bcda1b))
+* add supabaze wizard ([24b0658](https://github.com/windmill-labs/windmill/commit/24b0658460453b6e8d241be3be9f11946c3cf84b))
+* **frontend:** Make app from scripts and flows ([#1938](https://github.com/windmill-labs/windmill/issues/1938)) ([9f9498d](https://github.com/windmill-labs/windmill/commit/9f9498dbd90349ad641487824d4d85ed73c43260))
+* **frontend:** schema explorer, autocomplete and db aware AI for mysql ([#1944](https://github.com/windmill-labs/windmill/issues/1944)) ([5061a87](https://github.com/windmill-labs/windmill/commit/5061a873760f232d7824f407d2d0fad5ee6891db))
+
+
+### Bug Fixes
+
+* add sync method for flows ([e03da23](https://github.com/windmill-labs/windmill/commit/e03da23f17a63dea30a93607a2986d9ddeb6c213))
+* **frontend:** AI gen popup ([#1950](https://github.com/windmill-labs/windmill/issues/1950)) ([029d017](https://github.com/windmill-labs/windmill/commit/029d0170995f3bc1f0fe43f3e5991b7513121439))
+* **frontend:** Fix Account settings unreadable texts ([#1958](https://github.com/windmill-labs/windmill/issues/1958)) ([3b90580](https://github.com/windmill-labs/windmill/commit/3b905800bff45eaa23dd69e5b60619bf1d289e3d))
+* **frontend:** Fix App Table select ([#1955](https://github.com/windmill-labs/windmill/issues/1955)) ([16d6815](https://github.com/windmill-labs/windmill/commit/16d6815945eccd1c671b73ffd2163973874bea5c))
+* **frontend:** Fix build app from flow ([#1954](https://github.com/windmill-labs/windmill/issues/1954)) ([5c66afe](https://github.com/windmill-labs/windmill/commit/5c66afeb8fec3829e1fcdc95afcc4c4050470793))
+* **frontend:** Fix dark mode issues ([#1953](https://github.com/windmill-labs/windmill/issues/1953)) ([4f0c94a](https://github.com/windmill-labs/windmill/commit/4f0c94aafbef08b7c5f44f4073a3adfb17956a95))
+* **frontend:** reset btn for all langs ([#1949](https://github.com/windmill-labs/windmill/issues/1949)) ([265b7d7](https://github.com/windmill-labs/windmill/commit/265b7d7fbe1402986492c02d200342596925bcab))
+* improve webhooks panel correctness ([adea8ff](https://github.com/windmill-labs/windmill/commit/adea8ff1b484e8653ae189312775cd0f34e321dd))
+* prevent error if json editor not mounted ([#1945](https://github.com/windmill-labs/windmill/issues/1945)) ([bdde59d](https://github.com/windmill-labs/windmill/commit/bdde59d7b385fbdbbac722f918672c7e3d601d56))
+* schema modal behavior when pressing enter ([#1947](https://github.com/windmill-labs/windmill/issues/1947)) ([3d54790](https://github.com/windmill-labs/windmill/commit/3d5479000a3732f7299ba79a57bd06303a359d90))
+
 ## [1.137.1](https://github.com/windmill-labs/windmill/compare/v1.137.0...v1.137.1) (2023-07-27)
 
 

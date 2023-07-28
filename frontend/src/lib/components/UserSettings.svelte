@@ -170,7 +170,7 @@
 					<div
 						class="{newToken
 							? ''
-							: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 flex flex-row flex-wrap"
+							: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
 					>
 						<div>
 							Added token: <button on:click={() => copyToClipboard(newToken ?? '')} class="inline"
