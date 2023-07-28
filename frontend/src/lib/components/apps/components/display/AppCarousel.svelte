@@ -59,6 +59,12 @@
 				dots={resolvedConfig.dots}
 				arrows={resolvedConfig.arrows}
 				swiping={$mode === 'preview' ? resolvedConfig.swiping : false}
+				on:pageChange={(event) => {
+					$focusedGrid = {
+						parentComponentId: id,
+						subGridIndex: event.detail
+					}
+				}}
 			>
 				{#if $app.subgrids}
 					{#each tabs ?? [] as _res, i}
