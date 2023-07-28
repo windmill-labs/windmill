@@ -245,20 +245,19 @@
 				}
 			})
 
-			if (can_write) {
-				buttons.push({
-					label: 'Edit',
-					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
-							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
-						}`,
-						size: 'xs',
-						startIcon: faEdit,
-						color: 'dark',
-						variant: 'contained'
-					}
-				})
-			}
+			buttons.push({
+				label: 'Edit',
+				buttonProps: {
+					href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
+					}`,
+					size: 'xs',
+					startIcon: faEdit,
+					color: 'dark',
+					variant: 'contained',
+					disabled: !can_write
+				}
+			})
 		}
 
 		return buttons

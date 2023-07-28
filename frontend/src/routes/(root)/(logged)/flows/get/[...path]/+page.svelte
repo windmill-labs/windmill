@@ -134,18 +134,17 @@
 				}
 			})
 
-			if (can_write) {
-				buttons.push({
-					label: 'Edit',
-					buttonProps: {
-						href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
-						variant: 'contained',
-						size: 'sm',
-						color: 'dark',
-						startIcon: faEdit
-					}
-				})
-			}
+			buttons.push({
+				label: 'Edit',
+				buttonProps: {
+					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					variant: 'contained',
+					size: 'sm',
+					color: 'dark',
+					disabled: !can_write,
+					startIcon: faEdit
+				}
+			})
 		}
 		return buttons
 	}
