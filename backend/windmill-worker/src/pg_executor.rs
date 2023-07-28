@@ -114,7 +114,6 @@ pub async fn do_postgresql(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
                 .to_owned();
-            tracing::info!("arg_t: {}", arg_t);
             let boxed: windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> = match value {
                 Value::Null => Ok(Box::new(None::<bool>)),
                 Value::Bool(b) => Ok(Box::new(b.clone())),
