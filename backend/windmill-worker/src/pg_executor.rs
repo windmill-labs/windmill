@@ -11,6 +11,7 @@ use tokio_postgres::{
     types::{FromSql, Type},
     Column,
 };
+use uuid::Uuid;
 use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
@@ -113,7 +114,6 @@ pub async fn do_postgresql(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
                 .to_owned();
-
             let boxed: windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> = match value {
                 Value::Null => Ok(Box::new(None::<bool>)),
                 Value::Bool(b) => Ok(Box::new(b.clone())),
@@ -142,6 +142,7 @@ pub async fn do_postgresql(
                     Ok(Box::new(n.as_f64().unwrap()))
                 }
                 Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
+                Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
                 Value::String(s) => Ok(Box::new(s.clone())),
                 _ => Err(Error::ExecutionErr(format!(
                     "Unsupported type in query: {:?} and signature {arg_t:?}",
