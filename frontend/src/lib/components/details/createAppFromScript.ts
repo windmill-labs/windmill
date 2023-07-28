@@ -451,7 +451,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						componentInput: {
 							type: 'static',
 							fieldType: 'schema',
-							value: convertSchemaToFields(schema)
+							value: schema
 						},
 						customCss: {},
 						id: 'c'
@@ -599,7 +599,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						componentInput: {
 							type: 'runnable',
 							fieldType: 'any',
-							fields: {},
+							fields: convertSchemaToFields(schema),
 							runnable: {
 								type: 'runnableByPath',
 								path: path,
