@@ -103,10 +103,9 @@
 	let runForm: RunForm
 
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
-		if (!flow || $userStore?.operator || !can_write) return []
-
 		const buttons: any = []
-		if (!$userStore?.operator) {
+
+		if (flow) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
@@ -114,11 +113,16 @@
 					variant: 'border',
 					color: 'light',
 					size: 'xs',
-					disabled: !can_write,
 					startIcon: faCodeFork
 				}
 			})
+		}
 
+		if (!flow || $userStore?.operator || !can_write) {
+			return buttons
+		}
+
+		if (!$userStore?.operator) {
 			buttons.push({
 				label: 'Build App',
 				buttonProps: {
