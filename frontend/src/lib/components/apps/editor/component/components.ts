@@ -73,6 +73,7 @@ export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
@@ -154,6 +155,7 @@ export type TypedComponent =
 	| BarChartComponent
 	| TimeseriesComponent
 	| HtmlComponent
+	| MarkdownComponent
 	| TableComponent
 	| TextComponent
 	| ButtonComponent
@@ -1002,6 +1004,28 @@ src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8
 <h1 class="absolute top-4 left-2 text-white">
 Hello \${ctx.username}
 </h1>`
+			},
+			configuration: {}
+		}
+	},
+	mardowncomponent: {
+		name: 'Markdown',
+		icon: Code2,
+		documentationLink: `${documentationBaseUrl}#html`,
+		dims: '1:2-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'template',
+				value: `# This is a header
+
+				This is a paragraph.
+				
+				* This is a list
+				* With two items`
 			},
 			configuration: {}
 		}

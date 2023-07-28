@@ -20,6 +20,7 @@
 		AppScatterChart,
 		AppTimeseries,
 		AppHtml,
+		AppMarkdown,
 		AppSliderInputs,
 		AppFormButton,
 		VegaLiteHtml,
@@ -199,6 +200,14 @@
 			/>
 		{:else if component.type === 'htmlcomponent'}
 			<AppHtml
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'mardowncomponent'}
+			<AppMarkdown
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
