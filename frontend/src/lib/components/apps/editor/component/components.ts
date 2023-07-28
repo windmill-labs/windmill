@@ -39,7 +39,8 @@ import {
 	Download,
 	PanelLeft,
 	PanelTopInactive,
-	ListIcon
+	ListIcon,
+	Heading1
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -1010,7 +1011,7 @@ Hello \${ctx.username}
 	},
 	mardowncomponent: {
 		name: 'Markdown',
-		icon: Code2,
+		icon: Heading1,
 		documentationLink: `${documentationBaseUrl}#html`,
 		dims: '1:2-1:2' as AppComponentDimensions,
 		customCss: {
@@ -1021,11 +1022,11 @@ Hello \${ctx.username}
 				type: 'static',
 				fieldType: 'template',
 				value: `# This is a header
-
-				This is a paragraph.
+## This is a subheader				
+This is a paragraph.
 				
-				* This is a list
-				* With two items`
+* This is a list
+* With two items`
 			},
 			configuration: {}
 		}

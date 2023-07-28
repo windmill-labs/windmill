@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'mardowncomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -30,7 +30,7 @@
 	on:pointerdown={(e) => {
 		e?.preventDefault()
 	}}
-	class={classNames('h-full w-full', css?.container?.class)}
+	class={classNames('h-full w-full overflow-y-auto', css?.container?.class)}
 >
 	<RunnableWrapper
 		{outputs}
@@ -44,9 +44,5 @@
 		{#key result}
 			<SvelteMarkdown source={result} />
 		{/key}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		{#if $mode == 'dnd'}
-			<div on:click|stopPropagation class="absolute top-0 h-full w-full" />
-		{/if}
 	</RunnableWrapper>
 </div>
