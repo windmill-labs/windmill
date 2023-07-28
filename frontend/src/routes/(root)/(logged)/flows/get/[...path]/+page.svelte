@@ -103,7 +103,7 @@
 	let runForm: RunForm
 
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
-		if (!flow || $userStore?.operator) return []
+		if (!flow || $userStore?.operator || !can_write) return []
 
 		const buttons: any = []
 		if (!$userStore?.operator) {

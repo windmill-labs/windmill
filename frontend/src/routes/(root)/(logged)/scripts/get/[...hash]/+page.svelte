@@ -197,7 +197,7 @@
 	let deploymentDrawer: DeployWorkspaceDrawer
 
 	function getMainButtons(script: Script | undefined, args: object | undefined) {
-		if (!script || $userStore?.operator) return []
+		if (!script || $userStore?.operator || !can_write) return []
 
 		const buttons: any = []
 
