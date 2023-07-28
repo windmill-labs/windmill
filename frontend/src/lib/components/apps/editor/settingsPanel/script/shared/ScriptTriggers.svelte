@@ -84,7 +84,7 @@
 	</Alert>
 {:else}
 	{#if triggerEvents.length > 0}
-		<div class="text-xs font-semibold text-slate-800 mb-1">Events</div>
+		<div class="text-xs font-semibold text-secondary mb-1">Events</div>
 		<div class="flex flex-row gap-2 flex-wrap">
 			{#each triggerEvents as triggerEvent}
 				<span class={classNames(badgeClass, colors['green'])}>{triggerEvent}</span>
@@ -92,7 +92,7 @@
 		</div>
 	{/if}
 	{#if changeEvents.length > 0 && shoudlDisplayChangeEvents}
-		<div class="text-xs font-semibold text-slate-800 mb-1 mt-2">Change on value</div>
+		<div class="text-xs font-semibold text-secondary mb-1 mt-2">Change on value</div>
 		<div class="flex flex-row gap-2 flex-wrap">
 			{#each changeEvents as changeEvent}
 				<span class={classNames(badgeClass, colors['blue'])}>
