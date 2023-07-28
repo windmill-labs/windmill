@@ -32,30 +32,32 @@
 				<slot />
 			</div>
 			<div class="flex gap-1 md:gap-2 items-center">
-				<Menu>
-					<svelte:fragment slot="items">
-						{#each menuItems as { label, Icon, onclick, color } (label)}
-							<MenuItem
-								on:click={() => {
-									const div = document.querySelector('[id^="headlessui-menu-items"]')
-									div?.parentElement?.remove()
+				{#if menuItems.length > 0}
+					<Menu>
+						<svelte:fragment slot="items">
+							{#each menuItems as { label, Icon, onclick, color } (label)}
+								<MenuItem
+									on:click={() => {
+										const div = document.querySelector('[id^="headlessui-menu-items"]')
+										div?.parentElement?.remove()
 
-									onclick()
-								}}
-							>
-								<div
-									class={classNames(
-										'text-xs flex items-center gap-2 flex-row-2 ',
-										color === 'red' ? 'text-red-500' : ''
-									)}
+										onclick()
+									}}
 								>
-									<Icon class="h-4" />
-									{label}
-								</div>
-							</MenuItem>
-						{/each}
-					</svelte:fragment>
-				</Menu>
+									<div
+										class={classNames(
+											'text-xs flex items-center gap-2 flex-row-2 ',
+											color === 'red' ? 'text-red-500' : ''
+										)}
+									>
+										<Icon class="h-4" />
+										{label}
+									</div>
+								</MenuItem>
+							{/each}
+						</svelte:fragment>
+					</Menu>
+				{/if}
 				{#each mainButtons as btn}
 					<Button
 						{...btn.buttonProps}
