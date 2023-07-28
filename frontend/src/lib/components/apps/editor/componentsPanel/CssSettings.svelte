@@ -91,7 +91,7 @@
 			<div class="h-[calc(100%-50px)] overflow-auto relative">
 				{#each search != '' ? entries.filter((x) => x.name
 								.toLowerCase()
-								.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name)}
+								.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name + type)}
 					{#if ids.length > 0}
 						<ListItem
 							title={name}

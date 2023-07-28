@@ -215,7 +215,7 @@
 
 											<Button
 												loading={i.isSaving}
-												color="gray"
+												color="light"
 												size="xs"
 												variant="border"
 												spacingSize="xs2"

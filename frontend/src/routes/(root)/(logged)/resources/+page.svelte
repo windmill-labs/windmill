@@ -366,7 +366,7 @@
 					<div class="flex flex-row items-center">
 						{#if !disableCustomPrefix}
 							<span
-								class="border border-gray-200 rounded-l py-1 text-sm bg-gray-200 inline-block w-8 h-8 px-2"
+								class="border border-r-0 rounded-l py-1 text-sm bg-surface-secondary inline-block w-8 h-8 px-2"
 							>
 								c_
 							</span>
@@ -377,10 +377,7 @@
 								id="inp"
 								type="text"
 								bind:value={newResourceType.name}
-								class={classNames(
-									'!h-8  !border !border-gray-200',
-									!disableCustomPrefix ? '!rounded-l-none' : ''
-								)}
+								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
 							/>
 						</div>
 					</div>
