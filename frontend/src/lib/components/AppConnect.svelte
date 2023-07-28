@@ -137,7 +137,11 @@
 	}
 
 	async function loadConnects() {
-		connects = await OauthService.listOAuthConnects()
+		const nconnects = await OauthService.listOAuthConnects()
+		if (nconnects['supabase_wizard']) {
+			delete nconnects['supabase_wizard']
+		}
+		connects = nconnects
 	}
 
 	const connectAndManual = ['gitlab']
@@ -341,6 +345,14 @@
 					{/each}
 				{/if}
 			</div>
+			{#if connects && Object.keys(connects).length == 0}
+				<div class="text-secondary text-sm w-full"
+					>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
+					types with the hub, then add oauth configuration. See <a
+						href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
+					>
+				</div>
+			{/if}
 			{#if manual == false && resource_type != ''}
 				<h3>Scopes</h3>
 				{#if !manual && resource_type != ''}

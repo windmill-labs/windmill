@@ -161,7 +161,7 @@
 							size="sm"
 							variant="border"
 							color={isSelected ? 'blue' : 'dark'}
-							btnClasses={isSelected ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							btnClasses={isSelected ? '!bg-blue-50/75 dark:!bg-frost-900/50 ' : ''}
 							on:click={() => {
 								property.selectedType = argType
 								property.format = undefined
@@ -182,7 +182,7 @@
 						size="sm"
 						variant="border"
 						color={!property.selectedType ? 'blue' : 'dark'}
-						btnClasses={!property.selectedType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						btnClasses={!property.selectedType ? '!bg-blue-50/75 dark:!bg-frost-900/50' : ']'}
 						on:click={() => {
 							property.selectedType = undefined
 						}}

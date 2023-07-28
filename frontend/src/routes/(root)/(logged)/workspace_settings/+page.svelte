@@ -772,10 +772,9 @@
 			{/if}
 			<h3 class="mt-5 text-secondary">
 				Script or flow to run on /windmill command
-				<Tooltip>
-					The script or flow to be triggered when the `/windmill` command is invoked. The script or
-					flow chosen is passed the parameters <pre>response_url: string, text: string</pre>
-					respectively the url to reply directly to the trigger and the text of the command.
+				<Tooltip
+				documentationLink="https://www.windmill.dev/docs/integrations/slack">
+					The script or flow to be triggered when the `/windmill` command is invoked.
 				</Tooltip>
 			</h3>
 			<ScriptPicker
@@ -786,6 +785,23 @@
 				{initialPath}
 				on:select={editSlackCommand}
 			/>
+			<br/>
+			<div class="text-tertiary text-sm">
+				Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/">script</a> and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+				
+				<br/><br/>
+				
+				The script or flow chosen is passed the parameters `response_url: string` and `text: string`
+				respectively the url to reply directly to the trigger and the text of the command.
+
+				<br/><br/>
+
+				The script or flow is permissioned as group "slack" that will be automatically created after connection to Slack.
+
+				<br/><br/>
+
+				See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
+			</div>
 		{:else if tab == 'export_delete'}
 			<PageHeader title="Export workspace" primary={false} />
 			<div class="flex justify-start">
