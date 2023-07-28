@@ -134,6 +134,9 @@ export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
+export type CarouselComponent = BaseComponent<'carouselcomponent'> & {
+	tabs: string[]
+}
 
 export type TypedComponent =
 	| DisplayComponent
@@ -189,6 +192,7 @@ export type TypedComponent =
 	| SelectStepComponent
 	| DownloadComponent
 	| ChartJsComponent
+	| CarouselComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1875,6 +1879,84 @@ Hello \${ctx.username}
 		},
 		initialData: {
 			configuration: {},
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			numberOfSubgrids: 2,
+			tabs: ['First', 'Second'] as string[]
+		}
+	},
+	carouselcomponent: {
+		name: 'Carousel',
+		icon: ListOrdered,
+		documentationLink: `${documentationBaseUrl}#carousel`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				particlesToShow: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number'
+				},
+				particlesToScroll: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number'
+				},
+				autoplay: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Enables auto play of pages'
+				},
+				autoplayDuration: {
+					type: 'static',
+					value: 3000,
+					fieldType: 'number',
+					tooltip: 'Autoplay change interval (ms)'
+				},
+				autoplayProgressVisible: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Shows autoplay duration progress indicator'
+				},
+				pauseOnFocus: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				timingFunction: {
+					type: 'static',
+					value: 'linear',
+					fieldType: 'text',
+					tooltip: 'CSS animation timing function'
+				},
+				dots: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Current page indicator dots'
+				},
+				arrows: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Enables next/prev arrows'
+				},
+				swiping: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Enables swiping'
+				}
+			},
 			componentInput: {
 				type: 'runnable',
 				fieldType: 'any',

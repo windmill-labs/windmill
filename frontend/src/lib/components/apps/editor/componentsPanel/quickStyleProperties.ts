@@ -640,6 +640,9 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	carouselcompoent: {
+		container: containerDefaultProps
+	},
 	flowstatuscomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps

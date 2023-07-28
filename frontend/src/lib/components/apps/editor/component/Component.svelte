@@ -595,8 +595,9 @@
 			<AppCarousel
 				configuration={component.configuration}
 				id={component.id}
+				tabs={component.tabs}
 				customCss={component.customCss}
-				{render}
+				{componentContainerHeight}
 			/>
 		{/if}
 	</div>
