@@ -683,6 +683,7 @@
 			lang={script.language}
 			{initialArgs}
 			kind={script.kind}
+			{template}
 			tag={script.tag}
 		/>
 	</div>

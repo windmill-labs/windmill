@@ -102,9 +102,7 @@
 		}
 		schema = schema
 		schemaString = JSON.stringify(schema, null, '\t')
-		if (jsonEditor) {
-			jsonEditor.setCode(schemaString)
-		}
+		jsonEditor?.setCode(schemaString)
 		dispatch('change', schema)
 	}
 

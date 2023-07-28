@@ -105,8 +105,10 @@
 
 	const uri =
 		lang == 'typescript'
-			? `file:///${filePath}.${langToExt(lang)}`
+			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
+
+	console.log('uri', uri)
 
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
@@ -263,8 +265,6 @@
 						range: range,
 						sortText: 'z'
 					})
-
-					// const
 
 					for (const tableKey in $dbSchema[schemaKey]) {
 						suggestions.push({

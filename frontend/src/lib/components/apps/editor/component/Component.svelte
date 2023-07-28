@@ -53,6 +53,7 @@
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
+	import AppCarousel from '../../components/display/AppCarousel.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -588,6 +589,13 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'carouselcomponent'}
+			<AppCarousel
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				{render}
 			/>
 		{/if}
