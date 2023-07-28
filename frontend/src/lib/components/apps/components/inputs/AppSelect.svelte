@@ -43,8 +43,6 @@
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
-	$: console.log($darkMode)
-
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			setValue(JSON.stringify(nvalue))
