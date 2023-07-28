@@ -53,17 +53,21 @@ export async function main(args: any) {
 				}
 			}
 		})
-		await new Promise((r) => setTimeout(r, 3000))
+		await new Promise((r) => setTimeout(r, 5000))
 		loading = false
-		const testResult = await JobService.getCompletedJob({
-			workspace: $workspaceStore!,
-			id: job
-		})
-		if (testResult) {
-			sendUserToast(
-				testResult.success ? testResult.result : testResult.result?.['error']?.['message'],
-				!testResult.success
-			)
+		try {
+			const testResult = await JobService.getCompletedJob({
+				workspace: $workspaceStore!,
+				id: job
+			})
+			if (testResult) {
+				sendUserToast(
+					testResult.success ? testResult.result : testResult.result?.['error']?.['message'],
+					!testResult.success
+				)
+			}
+		} catch (e) {
+			sendUserToast('Connection did not resolve after 5s')
 		}
 	}
 </script>

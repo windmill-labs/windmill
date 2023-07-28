@@ -4,6 +4,7 @@
 	export let password: string
 	export let placeholder = '******'
 	export let disabled = false
+	export let required = false
 
 	onMount(() => {
 		const passwordToggle = document.querySelector('.js-password-toggle')
@@ -26,6 +27,8 @@
 			throw Error('Password component is undefined')
 		}
 	})
+
+	$: red = required && (password == '' || password == undefined)
 </script>
 
 <div class="relative w-full">
@@ -37,7 +40,7 @@
 		>
 	</div>
 	<input
-		class="block w-full py-2 px-2 border rounded-md border-gray-300 shadow-sm; focus:ring focus:ring-indigo-100 focus:ring-opacity-50 text-sm js-password h-12"
+		class="block w-full py-2 px-2 {red ? '!border-red-500' : ''} text-sm js-password h-12"
 		id="password"
 		type="password"
 		bind:value={password}
@@ -46,3 +49,6 @@
 		{disabled}
 	/>
 </div>
+{#if red}
+	<div class="text-red-600 text-2xs grow">This field is required</div>
+{/if}

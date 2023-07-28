@@ -237,7 +237,7 @@
 		}
 
 		const callback = $page.url.searchParams.get('callback')
-		if (callback == 'supabase') {
+		if (callback == 'supabase_wizard') {
 			supabaseConnect.open?.()
 		}
 
