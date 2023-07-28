@@ -57,7 +57,7 @@
 	$: resourceValue = {
 		host: selectedDatabase?.database?.host,
 		user: 'postgres',
-		port: 6543,
+		port: 5432,
 		dbname: 'postgres',
 		sslmode: 'prefer',
 		password: `$var:${path}`
