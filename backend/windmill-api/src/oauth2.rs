@@ -10,8 +10,10 @@ use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::Context;
+use axum::body::StreamBody;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use axum::response::IntoResponse;
 use axum::{
     async_trait,
     body::Bytes,
@@ -22,7 +24,7 @@ use axum::{
 };
 use base64::Engine;
 use hmac::Mac;
-use hyper::StatusCode;
+use hyper::{HeaderMap, StatusCode};
 use itertools::Itertools;
 
 use oauth2::{Client as OClient, *};
@@ -62,6 +64,7 @@ pub fn global_service() -> Router {
             "/slack_command",
             post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
         )
+        .route("/list_supabase", get(list_supabase))
         .route("/list_logins", get(list_logins))
         .route("/list_connects", get(list_connects))
 }
@@ -201,7 +204,11 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 client_params.clone(),
                 false,
                 base_url,
-                None,
+                if k == "supabase_wizard" {
+                    Some(format!("{base_url}/oauth/callback_supabase"))
+                } else {
+                    None
+                },
             );
             (
                 named_client.0,
@@ -950,6 +957,24 @@ async fn exchange_code<T: DeserializeOwned>(
         .execute::<T>()
         .await
         .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
+}
+
+async fn list_supabase(headers: HeaderMap) -> impl IntoResponse {
+    let token = headers
+        .get("X-Supabase-Token")
+        .map(|x| x.to_str().unwrap_or(""))
+        .unwrap_or("");
+    let resp = HTTP_CLIENT
+        .get("https://api.supabase.com/v1/projects")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(to_anyhow)?;
+
+    let status_code = resp.status();
+    let stream = resp.bytes_stream();
+
+    Ok((status_code, StreamBody::new(stream))) as error::Result<(StatusCode, StreamBody<_>)>
 }
 
 #[derive(Deserialize)]

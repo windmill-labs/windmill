@@ -12,7 +12,8 @@ const lightTheme = {
 	textTertiary: '#718096',
 	textDisabled: '#a0aec0',
 
-	border: '#ccc'
+	border: '#ccc',
+	borderHover: '#ccc'
 }
 
 const lightThemeRgb = makeRgb(lightTheme)
@@ -29,7 +30,8 @@ const darkTheme = {
 	textTertiary: '#d8dee9',
 	textDisabled: '#a0aec0',
 
-	border: '#3e4c60'
+	border: '#3e4c60',
+	borderHover: '#3e4c60'
 }
 
 const darkThemeRgb = makeRgb(darkTheme)
@@ -491,6 +493,7 @@ const config = {
 					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
 
 					'--color-border': lightThemeRgb.border,
+					'--color-border-hover': lightThemeRgb.borderHover,
 
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
@@ -522,7 +525,8 @@ const config = {
 						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
 						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
 
-						'--color-border': darkThemeRgb.border
+						'--color-border': darkThemeRgb.border,
+						'--color-border-hover': darkThemeRgb.borderHover
 					}
 				},
 				h1: {
@@ -846,6 +850,7 @@ const config = {
 					justifyContent: 'center',
 					alignItems: 'center'
 				},
+
 				'.ellipsize': {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',

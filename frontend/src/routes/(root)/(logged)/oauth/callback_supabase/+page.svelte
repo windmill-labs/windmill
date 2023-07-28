@@ -9,7 +9,8 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
-	let client_name = 'supabase'
+	const client_name = 'supabase_wizard'
+
 	let error = $page.url.searchParams.get('error')
 	let code = $page.url.searchParams.get('code') ?? undefined
 	let state = $page.url.searchParams.get('state') ?? undefined

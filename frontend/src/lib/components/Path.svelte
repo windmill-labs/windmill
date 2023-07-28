@@ -31,6 +31,7 @@
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
+	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
 	export let initialPath: string
 	export let path = ''
@@ -88,7 +89,7 @@
 			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
 				meta = {
 					ownerKind: 'user',
-					name: random_adj() + '_' + namePlaceholder,
+					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
 				if ($userStore?.username?.includes('@')) {
@@ -97,13 +98,16 @@
 					meta.owner = $userStore!.username!
 				}
 			} else {
-				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
+				meta = {
+					...$lastMetaUsed,
+					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder
+				}
 			}
 			let newMeta = { ...meta }
 			while (await pathExists(metaToPath(newMeta), kind)) {
 				disabled = true
 				error = 'finding an available name...'
-				newMeta.name = random_adj() + '_' + namePlaceholder
+				newMeta.name = random_adj() + '_' + fullNamePlaceholder ?? namePlaceholder
 			}
 			error = ''
 			disabled = false
