@@ -39,7 +39,8 @@ import {
 	Download,
 	PanelLeft,
 	PanelTopInactive,
-	ListIcon
+	ListIcon,
+	Columns
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -1891,7 +1892,7 @@ Hello \${ctx.username}
 	},
 	carouselcomponent: {
 		name: 'Carousel',
-		icon: ListOrdered,
+		icon: Columns,
 		documentationLink: `${documentationBaseUrl}#carousel`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
