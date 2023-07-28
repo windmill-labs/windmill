@@ -261,6 +261,12 @@
 				bind:component={componentSettings.item.data}
 				word="Step"
 			/>
+		{:else if componentSettings.item.data.type === 'carouselcomponent'}
+			<GridTab
+				bind:tabs={componentSettings.item.data.tabs}
+				bind:component={componentSettings.item.data}
+				word="Slide"
+			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
 			<GridCondition
 				bind:conditions={componentSettings.item.data.conditions}

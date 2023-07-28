@@ -38,40 +38,46 @@
 
 <InitializeComponent {id} />
 
-<div class="w-full" style={`height: ${componentContainerHeight - 2}`}>
-	<Carousel
-		particlesToShow={resolvedConfig.particlesToShow}
-		particlesToScroll={resolvedConfig.particlesToScroll}
-		autoplay={resolvedConfig.autoplay}
-		autoplayDuration={resolvedConfig.autoplayDuration}
-		autoplayProgressVisible={resolvedConfig.autoplayProgressVisible}
-		pauseOnFocus={resolvedConfig.pauseOnFocus}
-		timingFunction={resolvedConfig.timingFunction}
-		dots={resolvedConfig.dots}
-		arrows={resolvedConfig.arrows}
-		swiping={$mode === 'preview' ? resolvedConfig.swiping : false}
-	>
-		{#if $app.subgrids}
-			{#each tabs ?? [] as _res, i}
-				<SubGridEditor
-					{id}
-					visible={true}
-					subGridId={`${id}-${i}`}
-					class={css?.container?.class}
-					style={css?.container?.style}
-					containerHeight={componentContainerHeight - 40}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-						}
+{#key tabs.join()}
+	<div class="w-full" style={`height: ${componentContainerHeight - 2}`}>
+		{#if tabs.length > 0}
+			<Carousel
+				particlesToShow={resolvedConfig.particlesToShow}
+				particlesToScroll={resolvedConfig.particlesToScroll}
+				autoplay={resolvedConfig.autoplay}
+				autoplayDuration={resolvedConfig.autoplayDuration}
+				autoplayProgressVisible={resolvedConfig.autoplayProgressVisible}
+				pauseOnFocus={resolvedConfig.pauseOnFocus}
+				timingFunction={resolvedConfig.timingFunction}
+				dots={resolvedConfig.dots}
+				arrows={resolvedConfig.arrows}
+				swiping={$mode === 'preview' ? resolvedConfig.swiping : false}
+			>
+				{#if $app.subgrids}
+					{#each tabs ?? [] as _res, i}
+						<SubGridEditor
+							{id}
+							visible={true}
+							subGridId={`${id}-${i}`}
+							class={css?.container?.class}
+							style={css?.container?.style}
+							containerHeight={resolvedConfig.dots
+								? componentContainerHeight - 40
+								: componentContainerHeight}
+							on:focus={() => {
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+								}
 
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: i
-						}
-					}}
-				/>
-			{/each}
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: i
+								}
+							}}
+						/>
+					{/each}
+				{/if}
+			</Carousel>
 		{/if}
-	</Carousel>
-</div>
+	</div>
+{/key}
