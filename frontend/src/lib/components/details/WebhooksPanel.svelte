@@ -44,21 +44,42 @@
 		requestType = 'hash'
 	}
 
-	$: url = webhooks[webhookType][requestType]
-
 	let token = 'YOUR_TOKEN'
 
-	$: codeContent = `${
-		requestType !== 'get_path'
-			? 'const body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');'
-			: ''
+	$: url =
+		webhooks[webhookType][requestType] +
+		(tokenType === 'query'
+			? `?token=${token}${
+					requestType === 'get_path'
+						? `&payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						: ''
+			  }`
+			: `${
+					requestType === 'get_path'
+						? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						: ''
+			  }`)
+
+	function headers() {
+		const headers = {}
+		if (requestType != 'get_path') {
+			headers['Content-Type'] = 'application/json'
+		}
+
+		if (tokenType === 'headers') {
+			headers['Authorization'] = `Bearer ${token}`
+		}
+		return headers
 	}
-fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
+	function fetchCode() {
+		return `${
+			requestType !== 'get_path'
+				? 'let body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');'
+				: ''
+		}
+fetch(\`${url}\`, {
 	method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-	headers: {
-		'Content-Type': 'application/json',
-		${tokenType === 'headers' ? `'Authorization': 'Bearer ${token}',` : ''}
-	},
+	headers: ${JSON.stringify(headers(), null, 2)},
 	${requestType !== 'get_path' ? `body: body` : ''}
 }).then(
 	response => response.${webhookType === 'sync' ? 'json' : 'text'}()
@@ -68,21 +89,55 @@ fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
 			? 'console.log(data)'
 			: `let UUID = data;
     let checkCompletion = setInterval(() => {
-		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
-			method: 'GET',
-			headers: {
-					'Authorization': 'Bearer ${token}'
-			}
-		}).then(response => response.json())
-		.then(data => {
-			if (data.completed) {
-				console.log('Job result: ', data);
-				clearInterval(checkCompletion);
-			}
-		});
-	}, 1000);`
+		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, 
+	{
+		method: 'GET',
+		headers: {
+				'Authorization': 'Bearer ${token}'
+		}
+	}).then(response => response.json())
+	.then(data => {
+		if (data.completed) {
+			console.log(data.result);
+			clearInterval(checkCompletion);
+		}
+	});
+}, 1000);`
 	}
 });`
+	}
+
+	function curlCode() {
+		return `${
+			requestType !== 'get_path'
+				? `TOKEN='${token}'
+BODY='${JSON.stringify(args)}'`
+				: ''
+		}
+URL='${url}'
+${webhookType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
+			requestType != 'get_path' ? "-H 'Content-Type: application/json'" : ''
+		} ${tokenType === 'headers' ? `-H "Authorization: Bearer $TOKEN"` : ''} -X ${
+			requestType === 'get_path' ? 'GET' : 'POST'
+		} ${requestType !== 'get_path' ? `-d "$BODY" ` : ''}$URL)
+
+${
+	webhookType === 'sync'
+		? 'echo $RESULT | jq'
+		: `
+URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
+while true; do
+	RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" $URL)
+	COMPLETED=$(echo $RESPONSE | jq .completed)
+	if [ "$COMPLETED" = "true" ]; then
+		echo $RESPONSE | jq .result
+		break
+	else
+		sleep 1
+	fi
+done`
+}`
+	}
 </script>
 
 <UserSettings bind:this={userSettings} {scopes} />
@@ -164,90 +219,57 @@ fetch(${tokenType === 'query' ? `\`${url}?token=${token}\`` : `\`${url}\``}, {
 		<svelte:fragment slot="content">
 			<TabContent value="rest" class="flex flex-col flex-1 h-full ">
 				<div class="flex flex-col gap-2">
-					<ClipboardPanel
-						title="Url"
-						content={tokenType === 'query'
-							? `${url}?token=${token}${
-									requestType === 'get_path'
-										? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
-										: ''
-							  }`
-							: `${url}${
-									requestType === 'get_path'
-										? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
-										: ''
-							  }`}
-					/>
+					<ClipboardPanel title="Url" content={url} />
 
 					{#if requestType !== 'get_path'}
 						<ClipboardPanel title="Body" content={JSON.stringify(args, null, 2)} />
 					{/if}
-
-					<ClipboardPanel
-						title="Headers"
-						content={JSON.stringify(
-							tokenType === 'query'
-								? {
-										'Content-Type': 'application/json'
-								  }
-								: {
-										'Content-Type': 'application/json',
-										Authorization: `Bearer ${token}`
-								  },
-							null,
-							2
-						)}
-					/>
+					{#key requestType}
+						{#key tokenType}
+							<ClipboardPanel title="Headers" content={JSON.stringify(headers(), null, 2)} />
+						{/key}
+					{/key}
 				</div>
 			</TabContent>
 			<TabContent value="curl" class="flex flex-col flex-1 h-full">
-				<div class="flex flex-col gap-2">
-					<Highlight
-						language={bash}
-						code={`${requestType !== 'get_path' ? `BODY='${JSON.stringify(args)}'` : ''}
-URL=${tokenType === 'query' ? `${url}?token=${token}` : url}\n
-curl -H 'Content-Type: application/json' ${
-							tokenType === 'headers' ? `-H 'Authorization: Bearer ${token}' ` : ''
-						}-X ${requestType === 'get_path' ? 'GET' : 'POST'} ${
-							requestType !== 'get_path' ? `-d "$BODY" ` : ''
-						}$URL
-`}
-						class="p-2 whitespace-pre-wrap border rounded-md"
-					/>
-
-					<Highlight
-						language={bash}
-						class="p-2 whitespace-pre-wrap border rounded-md"
-						code={`${
-							webhookType === 'sync'
-								? 'echo $RESPONSE'
-								: `UUID=$(echo $RESPONSE | jq -r .uuid)
-URL=${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID
-while true; do
-		RESULT=$(curl -H "Authorization: Bearer $TOKEN" $URL)
-		COMPLETED=$(echo $RESULT | jq .completed)
-		if [ "$COMPLETED" = "true" ]; then
-				echo 'Job result: ' $RESULT
-				break
-		else
-				sleep 1
-		fi
-done`
-						}`}
-					/>
+				<div class="relative">
+					{#key args}
+						{#key requestType}
+							{#key webhookType}
+								{#key tokenType}
+									<div
+										class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+										on:click={(e) => {
+											e.preventDefault()
+											copyToClipboard(curlCode())
+										}}
+									>
+										<Highlight language={bash} code={curlCode()} class="" />
+										<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+									</div>
+								{/key}
+							{/key}
+						{/key}
+					{/key}
 				</div>
 			</TabContent>
 			<TabContent value="fetch">
-				<div
-					class="flex flex-row flex-1 h-full border p-2 rounded-md"
-					on:click={(e) => {
-						e.preventDefault()
-						copyToClipboard(codeContent)
-					}}
-				>
-					<Highlight language={typescript} class="whitespace-pre-wrap " code={codeContent} />
-					<Clipboard size={14} class="w-8 " />
-				</div>
+				{#key args}
+					{#key requestType}
+						{#key webhookType}
+							{#key tokenType}
+								<div
+									class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+									on:click={(e) => {
+										e.preventDefault()
+										copyToClipboard(fetchCode())
+									}}
+								>
+									<Highlight language={typescript} code={fetchCode()} />
+									<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+								</div>
+							{/key}{/key}{/key}
+				{/key}
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
