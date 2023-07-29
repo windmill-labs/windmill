@@ -31,6 +31,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "riskfolio" => "riskfolio-lib",
     "smb" => "pysmb",
     "PIL" => "Pillow",
+    "googleapiclient" => "google-api-python-client",
 };
 
 fn replace_import(x: String) -> String {
