@@ -7,7 +7,7 @@
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { capitalize, emptySchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
 
 	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
@@ -94,15 +94,16 @@
 	}
 
 	const langs = [
-		'deno',
-		'python3',
-		'go',
-		'bash',
-		'nativets',
-		'postgresql',
-		'mysql',
-		'bigquery'
-	] as Script.language[]
+		['deno', 'TypeScript (Deno)'],
+		['python3', 'Python'],
+		['go', 'Go'],
+		['bash', 'Bash'],
+		['nativets', 'REST'],
+		['postgresql', 'PostgreSQL'],
+		['mysql', 'MySQL'],
+		['bigquery', 'BigQuery'],
+		['bun', 'TypeScript (Bun)']
+	] as [Script.language, string][]
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -182,14 +183,14 @@
 		</div>
 	</div>
 
-	<div class="flex flex-row w-full gap-24">
+	<div class="flex flex-row w-full gap-8">
 		<div class="">
 			<div class="mb-1 text-sm font-semibold">Backend</div>
 
-			<div class="gap-2 grid grid-cols-4">
-				{#each langs as lang}
+			<div class="flex flex-row flex-wrap gap-2">
+				{#each langs as [lang, label]}
 					<FlowScriptPicker
-						label={lang === 'deno' ? 'Typescript' : lang === 'nativets' ? 'REST' : capitalize(lang)}
+						{label}
 						{lang}
 						on:click={() => {
 							createInlineScriptByLanguage(lang, name)

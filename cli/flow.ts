@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions, isSuperset } from "./types.ts";
-
+import { log } from "./deps.ts";
 import {
   colors,
   Command,
@@ -68,10 +68,10 @@ export async function pushFlow(
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
-      console.log(colors.bold.green("Flow is up to date"));
+      log.info(colors.bold.green("Flow is up to date"));
       return;
     }
-    console.log(colors.bold.yellow(`Updating flow ${remotePath}...`));
+    log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
       path: remotePath,
@@ -81,7 +81,7 @@ export async function pushFlow(
       },
     });
   } else {
-    console.log(colors.bold.yellow("Creating new flow..."));
+    log.info(colors.bold.yellow("Creating new flow..."));
     await FlowService.createFlow({
       workspace: workspace,
       requestBody: {
@@ -102,7 +102,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   await requireLogin(opts);
 
   await pushFlow(workspace.workspaceId, remotePath, filePath);
-  console.log(colors.bold.underline.green("Flow pushed"));
+  log.info(colors.bold.underline.green("Flow pushed"));
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
@@ -164,11 +164,13 @@ async function run(
 
     if (module.job) {
       if (!opts.silent) {
-        console.log("====== Job " + (i + 1) + " ======");
+        log.info("====== Job " + (i + 1) + " ======");
         await track_job(workspace.workspaceId, module.job);
       }
     } else {
-      console.log(module.type);
+      if (!opts.silent) {
+        log.info(module.type);
+      }
       await new Promise((resolve, _) =>
         setTimeout(() => resolve(undefined), 100)
       );
@@ -178,14 +180,14 @@ async function run(
   }
 
   if (!opts.silent) {
-    console.log(colors.green.underline.bold("Flow ran to completion"));
-    console.log();
+    log.info(colors.green.underline.bold("Flow ran to completion"));
+    log.info("\n");
   }
   const jobInfo = await JobService.getCompletedJob({
     workspace: workspace.workspaceId,
     id,
   });
-  console.log(jobInfo.result ?? {});
+  log.info(jobInfo.result ?? {});
 }
 
 const command = new Command()

@@ -3,6 +3,7 @@ use chrono::Utc;
 use futures::TryStreamExt;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::{json, Value};
@@ -218,7 +219,11 @@ pub fn pg_cell_to_json_value(
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
         })?,
-        Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| Ok(f64_to_json_number(a)?))?,
+        Type::NUMERIC => get_basic(row, column, column_i, |a: Decimal| {
+            Ok(serde_json::to_value(a)
+                .map_err(|_| anyhow::anyhow!("Cannot convert decimal to json"))?)
+        })?,
+        Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| f64_to_json_number(a))?,
         // these types require a custom StringCollector struct as an intermediary (see struct at bottom)
         Type::TS_VECTOR => get_basic(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
@@ -282,7 +287,7 @@ fn get_basic<'a, T: FromSql<'a>>(
 ) -> Result<JSONValue, Error> {
     let raw_val = row.try_get::<_, Option<T>>(column_i).with_context(|| {
         format!(
-            "conversion issue for value at column_name:{} with type {:?}",
+            "conversion issue for value at column_name `{}` with type {:?}",
             column.name(),
             column.type_()
         )
@@ -299,7 +304,7 @@ fn get_array<'a, T: FromSql<'a>>(
         .try_get::<_, Option<Vec<T>>>(column_i)
         .with_context(|| {
             format!(
-                "conversion issue for array at column_name:{}",
+                "conversion issue for array at column_name `{}`",
                 column.name()
             )
         })?;

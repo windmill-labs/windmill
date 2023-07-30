@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.138.1](https://github.com/windmill-labs/windmill/compare/v1.138.0...v1.138.1) (2023-07-30)
+
+
+### Bug Fixes
+
+* **cli:** reassign -d to --verbose and --data ([5a354fc](https://github.com/windmill-labs/windmill/commit/5a354fcc2d166a4c98749f21e1026ff32a2fb111))
+* **frontend:** fix rename for runnable inputs ([3c0c05a](https://github.com/windmill-labs/windmill/commit/3c0c05a2eb16c9c37ffe334ff17fa976d7d0d74e))
+* **postgres:** add uuid support as input ([a3801d0](https://github.com/windmill-labs/windmill/commit/a3801d086de1fa7ca6afb7854ccfa86410341bd7))
+* **postgres:** add uuid support as input ([3dac295](https://github.com/windmill-labs/windmill/commit/3dac295d41666a3766bf1843e757e7946958c527))
+
 ## [1.138.0](https://github.com/windmill-labs/windmill/compare/v1.137.1...v1.138.0) (2023-07-28)
 
 
