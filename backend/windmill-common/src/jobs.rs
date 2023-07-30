@@ -86,6 +86,8 @@ pub struct QueuedJob {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 impl QueuedJob {
@@ -150,19 +152,36 @@ impl Default for QueuedJob {
             tag: "deno".to_string(),
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            timeout: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
-    ScriptHub { path: String },
-    ScriptHash { hash: ScriptHash, path: String, concurrent_limit: Option<i32>, concurrency_time_window_s: Option<i32> },
+    ScriptHub {
+        path: String,
+    },
+    ScriptHash {
+        hash: ScriptHash,
+        path: String,
+        concurrent_limit: Option<i32>,
+        concurrency_time_window_s: Option<i32>,
+    },
     Code(RawCode),
-    Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
-    FlowDependencies { path: String },
+    Dependencies {
+        hash: ScriptHash,
+        dependencies: String,
+        language: ScriptLang,
+    },
+    FlowDependencies {
+        path: String,
+    },
     Flow(String),
-    RawFlow { value: FlowValue, path: Option<String> },
+    RawFlow {
+        value: FlowValue,
+        path: Option<String>,
+    },
     Identity,
     Http,
     Noop,
@@ -188,9 +207,15 @@ pub async fn script_path_to_payload<'c>(
     let (job_payload, tag) = if script_path.starts_with("hub/") {
         (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
     } else {
-        let (script_hash, tag, concurrent_limit, concurrency_time_window_s) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
+            get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
-            JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned(), concurrent_limit, concurrency_time_window_s},
+            JobPayload::ScriptHash {
+                hash: script_hash,
+                path: script_path.to_owned(),
+                concurrent_limit,
+                concurrency_time_window_s,
+            },
             tag,
         )
     };
@@ -214,7 +239,11 @@ pub async fn script_hash_to_tag_and_limits<'c>(
             "querying getting tag for hash {script_hash}: {e}"
         ))
     })?;
-    Ok((script.tag, script.concurrent_limit, script.concurrency_time_window_s))
+    Ok((
+        script.tag,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+    ))
 }
 
 pub async fn get_payload_tag_from_prefixed_path<'c>(

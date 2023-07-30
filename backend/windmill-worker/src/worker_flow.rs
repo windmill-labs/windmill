@@ -1432,6 +1432,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } else {
                 Some(flow_job.tag.clone())
             },
+            module.timeout,
         )
         .await?;
         tx = inner_tx;

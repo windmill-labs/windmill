@@ -190,6 +190,7 @@ func Run(req Req) (interface{{}}, error){{
             worker_name,
             &job.workspace_id,
             "go build",
+            None,
         )
         .await?;
 
@@ -239,6 +240,7 @@ func Run(req Req) (interface{{}}, error){{
         worker_name,
         &job.workspace_id,
         "go run",
+        job.timeout,
     )
     .await?;
     read_result(job_dir).await
@@ -283,7 +285,18 @@ pub async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, child, false, worker_name, w_id, "go init").await?;
+        handle_child(
+            job_id,
+            db,
+            logs,
+            child,
+            false,
+            worker_name,
+            w_id,
+            "go init",
+            None,
+        )
+        .await?;
     }
 
     let mut new_lockfile = false;
@@ -331,6 +344,7 @@ pub async fn install_go_dependencies(
         worker_name,
         &w_id,
         &format!("go {mod_command}"),
+        None,
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lockfile generation failed: {e:?}")))?;

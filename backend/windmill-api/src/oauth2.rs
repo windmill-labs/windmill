@@ -840,6 +840,7 @@ async fn slack_command(
                 None,
                 true,
                 tag,
+                None,
             )
             .await?;
             let url = BASE_URL.to_owned();
