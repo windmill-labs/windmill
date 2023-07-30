@@ -108,6 +108,14 @@ export async function main(x: string) {
 }
 `
 
+export const BUN_INIT_CODE_CLEAR = `// import { setClient, getVariable } from "windmill-client@0.3.15"
+
+export async function main(x: string) {
+  // setClient()
+  return x
+}
+`
+
 export const DENO_FAILURE_MODULE_CODE = `// flow is considered recovered and a success unless an exception is thrown
 
 export async function main(message: string, name: string) {
@@ -327,6 +335,9 @@ export function initialCode(
 	} else if (language == 'bigquery') {
 		return BIGQUERY_INIT_CODE
 	} else if (language == 'bun') {
+		if (subkind === 'flow') {
+			return BUN_INIT_CODE_CLEAR
+		}
 		return BUN_INIT_CODE
 	} else {
 		if (kind === 'failure') {

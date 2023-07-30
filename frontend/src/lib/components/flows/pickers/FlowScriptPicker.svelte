@@ -25,7 +25,7 @@
 
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>
 	<Button
-		btnClasses="w-24 truncate"
+		btnClasses="w-32 truncate"
 		on:click
 		size="sm"
 		spacingSize="md"

@@ -80,7 +80,7 @@
 		<div class="flex flex-row">
 			<div class="flex flex-row flex-wrap gap-2">
 				<FlowScriptPicker
-					label="Typescript"
+					label="TypeScript (Deno)"
 					lang={Script.language.DENO}
 					on:click={() => {
 						dispatch('new', {
@@ -216,6 +216,18 @@
 						/> -->
 					{/if}
 				{/if}
+
+				<FlowScriptPicker
+					label="TypeScript (Bun)"
+					lang={Script.language.DENO}
+					on:click={() => {
+						dispatch('new', {
+							language: RawScript.language.DENO,
+							kind,
+							subkind: 'flow'
+						})
+					}}
+				/>
 			</div>
 		</div>
 
