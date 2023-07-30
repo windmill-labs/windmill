@@ -109,6 +109,13 @@
 			}
 		} else if (componentInput?.type == 'runnable') {
 			processRunnable(from, to, componentInput.runnable)
+			Object.values(componentInput.fields).forEach((field) => {
+				if (field.type == 'connected') {
+					if (field.connection?.componentId === from) {
+						field.connection.componentId = to
+					}
+				}
+			})
 		}
 
 		Object.values(data.configuration ?? {}).forEach((config) => {
