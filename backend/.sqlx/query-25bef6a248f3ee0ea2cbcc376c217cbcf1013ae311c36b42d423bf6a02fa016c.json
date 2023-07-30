@@ -68,7 +68,8 @@
                 "nativets",
                 "Nativets",
                 "bun",
-                "mysql"
+                "mysql",
+                "bigquery"
               ]
             }
           }
