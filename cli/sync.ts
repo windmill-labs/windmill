@@ -825,6 +825,9 @@ async function push(
 }
 
 const command = new Command()
+  .action(() =>
+    log.info("2 actions available, pull and push. Use -h to display help.")
+  )
   .command("pull")
   .description(
     "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking."
