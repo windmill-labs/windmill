@@ -97,26 +97,25 @@ You can build your entire infra on top of Windmill!
 
 ```typescript
 //import any dependency  from npm
-import * as wmill from "https://deno.land/x/windmill@v1.136.0/mod.ts"
+import * as wmill from "https://deno.land/x/windmill@v1.136.0/mod.ts";
 import cowsay from "npm:cowsay@1.5.0";
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 type Postgresql = {
-  host: string,
-  port: number,
-  user: string,
-  dbname: string,
-  sslmode: string,
-  password: string
-  
-}
+  host: string;
+  port: number;
+  user: string;
+  dbname: string;
+  sslmode: string;
+  password: string;
+};
 
 export async function main(
   a: number,
   b: "my" | "enum",
   c: Postgresql,
   d = "inferred type string from default arg",
-  e = { nested: "object" },
+  e = { nested: "object" }
   //f: wmill.Base64
 ) {
   const email = Deno.env.get("WM_EMAIL");
@@ -399,6 +398,7 @@ it being synced automatically everyday.
 | GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE | None                                       | Path to a script to run when a root job fails. The script will be run in and from the admins workspace                                                                                             | Server                |
 | WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
 | SAML_METADATA                                 | None                                       | SAML Metadata URL to enable SAML SSO (EE only)                                                                                                                                                     | Server                |
+| SECRET_SALT                                   | None                                       | Secret Salt used for encryption and decryption of secrets. If defined, the secrets will not be decryptable unless the right salt is passed in, which is the case for the workers and the server    | Server + Worker       |
 
 ## Run a local dev setup
 

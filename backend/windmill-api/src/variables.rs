@@ -27,9 +27,14 @@ use windmill_common::{
     variables::{get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable},
 };
 
+use lazy_static::lazy_static;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+
+lazy_static! {
+    pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -485,7 +490,12 @@ pub async fn build_crypt<'c>(
     w_id: &str,
 ) -> Result<MagicCrypt256> {
     let key = get_workspace_key(w_id, db).await?;
-    Ok(magic_crypt::new_magic_crypt!(key, 256))
+    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}", key, salt)
+    } else {
+        key
+    };
+    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
 }
 
 pub async fn get_workspace_key<'c>(
