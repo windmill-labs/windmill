@@ -2474,7 +2474,6 @@ async fn get_completed_job(
     .fetch_optional(&db)
     .await?;
 
-    tracing::info!("job_o: {:?}", job_o);
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     Ok(Json(job))
 }

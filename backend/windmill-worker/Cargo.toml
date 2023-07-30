@@ -64,6 +64,7 @@ native-tls.workspace = true
 mysql_async.workspace = true
 base64.workspace = true
 gcp_auth = { workspace = true, optional = true }
+rust_decimal.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true
