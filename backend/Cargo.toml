@@ -184,3 +184,4 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 samael = { version = "0.0.12", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
+rust_decimal = {version = "1.31.0", features = ["db-postgres"]}
