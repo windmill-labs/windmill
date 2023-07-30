@@ -9,6 +9,7 @@
 	import { initConfig } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { onMount } from 'svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -32,6 +33,17 @@
 			parentComponentId: id,
 			subGridIndex: 0
 		})
+
+	let width = 0
+	function getWidthOfPagesWindow() {
+		const elements = document.getElementsByClassName('sc-carousel__pages-window')
+
+		if (elements.length > 0) {
+			width = elements[0].getBoundingClientRect().width
+		}
+	}
+
+	onMount(getWidthOfPagesWindow)
 </script>
 
 {#each Object.keys(components['carouselcomponent'].initialData.configuration) as key (key)}
@@ -77,6 +89,7 @@
 							containerHeight={resolvedConfig.dots
 								? componentContainerHeight - 40
 								: componentContainerHeight}
+							containerWidth={width}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]

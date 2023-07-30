@@ -93,6 +93,7 @@
 				cols={columnConfiguration}
 				fastStart={true}
 				gap={[4, 2]}
+				getComputedCols={$breakpoint === 'lg' ? 12 : 3}
 			>
 				<ComponentWrapper
 					id={dataItem.id}

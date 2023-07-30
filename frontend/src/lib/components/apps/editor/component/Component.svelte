@@ -54,6 +54,7 @@
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
 	import AppCarousel from '../../components/display/AppCarousel.svelte'
+	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -598,6 +599,15 @@
 				tabs={component.tabs}
 				customCss={component.customCss}
 				{componentContainerHeight}
+			/>
+		{:else if component.type === 'carousellistcomponent'}
+			<AppCarouselList
+				id={component.id}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
 			/>
 		{/if}
 	</div>

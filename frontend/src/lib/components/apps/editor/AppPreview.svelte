@@ -156,6 +156,7 @@
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
+					getComputedCols={$breakpoint === 'lg' ? 12 : 3}
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div

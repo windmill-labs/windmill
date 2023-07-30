@@ -21,12 +21,12 @@
 
 	export let parentWidth: number | undefined = undefined
 
-	let getComputedCols
+	export let getComputedCols: number
 	let container
 
 	$: [gapX, gapY] = gap
 
-	let xPerPx = 0
+	$: xPerPx = containerWidth ? containerWidth / getComputedCols : undefined
 	let yPerPx = rowHeight
 
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)

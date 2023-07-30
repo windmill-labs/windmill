@@ -139,6 +139,10 @@ export type CarouselComponent = BaseComponent<'carouselcomponent'> & {
 	tabs: string[]
 }
 
+export type CarouselListComponent = BaseComponent<'carousellistcomponent'> & {
+	tabs: string[]
+}
+
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
@@ -194,6 +198,7 @@ export type TypedComponent =
 	| DownloadComponent
 	| ChartJsComponent
 	| CarouselComponent
+	| CarouselListComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -1966,6 +1971,83 @@ Hello \${ctx.username}
 			},
 			numberOfSubgrids: 2,
 			tabs: ['First', 'Second'] as string[]
+		}
+	},
+	carousellistcomponent: {
+		name: 'Carousel List',
+		icon: ListIcon,
+		documentationLink: `${documentationBaseUrl}#list`,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				particlesToShow: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number'
+				},
+				particlesToScroll: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number'
+				},
+				autoplay: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Enables auto play of pages'
+				},
+				autoplayDuration: {
+					type: 'static',
+					value: 3000,
+					fieldType: 'number',
+					tooltip: 'Autoplay change interval (ms)'
+				},
+				autoplayProgressVisible: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Shows autoplay duration progress indicator'
+				},
+				pauseOnFocus: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				timingFunction: {
+					type: 'static',
+					value: 'linear',
+					fieldType: 'text',
+					tooltip: 'CSS animation timing function'
+				},
+				dots: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Current page indicator dots'
+				},
+				arrows: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Enables next/prev arrows'
+				},
+				swiping: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip: 'Enables swiping'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
+			numberOfSubgrids: 1
 		}
 	},
 	iconcomponent: {

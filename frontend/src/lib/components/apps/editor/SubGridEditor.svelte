@@ -99,6 +99,7 @@
 					scroller={container}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
+					getComputedCols={$breakpoint === 'lg' ? 12 : 3}
 				>
 					<ComponentWrapper
 						id={dataItem.id}
@@ -147,6 +148,7 @@
 				gap={[4, 2]}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}
+				getComputedCols={$breakpoint === 'lg' ? 12 : 3}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
