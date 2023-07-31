@@ -280,7 +280,8 @@ export const selectOptions = {
 		'polarArea',
 		'radar',
 		'scatter'
-	] as ChartType[]
+	] as ChartType[],
+	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
 }
 const labels = {
 	none: 'Do nothing',
@@ -1029,11 +1030,13 @@ This is a paragraph.
 * With two items`
 			},
 			configuration: {
-				compact: {
+				size: {
+					fieldType: 'select',
 					type: 'static',
+					selectOptions: selectOptions.prose,
+					value: 'Default',
 					onlyStatic: true,
-					fieldType: 'boolean',
-					value: false
+					tooltip: 'See Tailwind documentation: https://tailwindcss.com/docs/typography-plugin'
 				}
 			}
 		}

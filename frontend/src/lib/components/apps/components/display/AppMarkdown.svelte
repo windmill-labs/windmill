@@ -32,6 +32,14 @@
 	let result: string | undefined = undefined
 
 	$: css = concatCustomCss($app.css?.mardowncomponent, customCss)
+
+	const proseMapping = {
+		sm: 'prose-sm',
+		Default: 'prose-base',
+		lg: 'prose-lg',
+		xl: 'prose-xl',
+		'2xl': 'prose-2xl'
+	}
 </script>
 
 {#each Object.keys(components['mardowncomponent'].initialData.configuration) as key (key)}
@@ -48,8 +56,8 @@
 		e?.preventDefault()
 	}}
 	class={classNames(
-		'h-full w-full overflow-y-auto',
-		resolvedConfig?.compact ? 'prose prose-sm' : 'prose',
+		'h-full w-full overflow-y-auto prose',
+		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
 		css?.container?.class
 	)}
 >
