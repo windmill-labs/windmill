@@ -46,14 +46,20 @@
 
 	let inputs = {}
 	let width = 0
+	let container: HTMLDivElement
+	let targetElement: HTMLDivElement | null = null
 
 	onMount(() => {
-		const elements = document.getElementsByClassName('sc-carousel__pages-window')
-
-		if (elements.length > 0) {
-			width = elements[0].getBoundingClientRect().width
-		}
+		// Get the first element with class 'svlt-grid-container' inside the container
+		targetElement = container.querySelector('.svlt-grid-container')
+		updateWidth()
 	})
+
+	function updateWidth() {
+		if (targetElement) {
+			width = targetElement.clientWidth
+		}
+	}
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
@@ -76,7 +82,7 @@
 	bind:initializing
 	bind:result
 >
-	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
+	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full" bind:this={container}>
 		{#if $app.subgrids?.[`${id}-0`]}
 			{#if Array.isArray(result) && result.length > 0}
 				<Carousel
@@ -108,15 +114,15 @@
 								{index}
 							>
 								<SubGridEditor
-									visible={render}
 									{id}
+									visible={render}
 									class={css?.container?.class}
 									style={css?.container?.style}
 									subGridId={`${id}-0`}
+									containerWidth={width}
 									containerHeight={resolvedConfig.dots
 										? componentContainerHeight - 40
 										: componentContainerHeight}
-									containerWidth={width}
 									on:focus={() => {
 										if (!$connectingInput.opened) {
 											$selectedComponent = [id]

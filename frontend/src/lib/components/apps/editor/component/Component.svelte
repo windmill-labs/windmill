@@ -53,7 +53,6 @@
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
-	import AppCarousel from '../../components/display/AppCarousel.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 
 	export let component: AppComponent
@@ -591,14 +590,6 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				{render}
-			/>
-		{:else if component.type === 'carouselcomponent'}
-			<AppCarousel
-				configuration={component.configuration}
-				id={component.id}
-				tabs={component.tabs}
-				customCss={component.customCss}
-				{componentContainerHeight}
 			/>
 		{:else if component.type === 'carousellistcomponent'}
 			<AppCarouselList

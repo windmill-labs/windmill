@@ -18,7 +18,6 @@ const layout: ComponentSet = {
 		'horizontalsplitpanescomponent',
 		'modalcomponent',
 		'steppercomponent',
-		'carouselcomponent',
 		'carousellistcomponent'
 	]
 } as const
