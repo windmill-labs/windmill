@@ -58,6 +58,7 @@ const display: ComponentSet = {
 		'imagecomponent',
 		'mapcomponent',
 		'htmlcomponent',
+		'mardowncomponent',
 		'pdfcomponent',
 		'displaycomponent',
 		'jobidlogcomponent',
