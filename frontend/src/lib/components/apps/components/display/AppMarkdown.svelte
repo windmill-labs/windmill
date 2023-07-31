@@ -5,7 +5,7 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
+	import Markdown from 'svelte-exmarkdown'
 	import { classNames } from '$lib/utils'
 
 	export let id: string
@@ -41,8 +41,10 @@
 		bind:initializing
 		bind:result
 	>
-		{#key result}
-			<SvelteMarkdown source={result} />
-		{/key}
+		{#if result}
+			{#key result}
+				<Markdown md={result} />
+			{/key}
+		{/if}
 	</RunnableWrapper>
 </div>
