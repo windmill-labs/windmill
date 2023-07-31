@@ -656,13 +656,9 @@
 										</Pane>
 										<Pane size={50} minSize={10} class="text-sm text-secondary">
 											{#if job != undefined && 'result' in job && job.result != undefined}
-												<pre class="overflow-x-auto break-words relative h-full px-2"
-													><DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={job.result}
-													/></pre
-												>
+												<pre class="overflow-x-auto break-words relative h-full px-2">
+													<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={job?.result} />
+												</pre>
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>
 											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
@@ -673,6 +669,28 @@
 												</div>
 											{/if}
 										</Pane>
+										{#if job != undefined && 'result' in job && job.result != undefined && $errorByComponent[job?.id]?.error && !(job?.result ?? {}).hasOwnProperty('error')}
+											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
+												<span class="font-bold text-md mb-4">Transformer</span>
+												{#if job != undefined && 'result' in job && job.result != undefined}
+													<DisplayResult
+														workspaceId={$workspaceStore}
+														jobId={selectedJobId}
+														result={{
+															error: $errorByComponent[job?.id]?.error
+														}}
+													/>
+												{:else if testIsLoading}
+													<div class="p-2"><Loader2 class="animate-spin" /> </div>
+												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+													<div class="p-2 text-tertiary">Result is undefined</div>
+												{:else}
+													<div class="p-2 text-tertiary">
+														<Loader2 size={14} class="animate-spin mr-2" />
+													</div>
+												{/if}
+											</Pane>
+										{/if}
 									</Splitpanes>
 								{:else}
 									<div class="mt-10" />
