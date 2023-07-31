@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.137.1
+  version: 1.138.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -89,6 +89,8 @@ components:
         sleep:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
+          type: number
+        timeout:
           type: number
         summary:
           type: string

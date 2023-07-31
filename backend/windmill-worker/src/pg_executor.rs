@@ -3,6 +3,7 @@ use chrono::Utc;
 use futures::TryStreamExt;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::{json, Value};
@@ -11,6 +12,7 @@ use tokio_postgres::{
     types::{FromSql, Type},
     Column,
 };
+use uuid::Uuid;
 use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
@@ -113,7 +115,6 @@ pub async fn do_postgresql(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
                 .to_owned();
-
             let boxed: windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> = match value {
                 Value::Null => Ok(Box::new(None::<bool>)),
                 Value::Bool(b) => Ok(Box::new(b.clone())),
@@ -142,6 +143,7 @@ pub async fn do_postgresql(
                     Ok(Box::new(n.as_f64().unwrap()))
                 }
                 Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
+                Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
                 Value::String(s) => Ok(Box::new(s.clone())),
                 _ => Err(Error::ExecutionErr(format!(
                     "Unsupported type in query: {:?} and signature {arg_t:?}",
@@ -217,7 +219,11 @@ pub fn pg_cell_to_json_value(
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
         })?,
-        Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| Ok(f64_to_json_number(a)?))?,
+        Type::NUMERIC => get_basic(row, column, column_i, |a: Decimal| {
+            Ok(serde_json::to_value(a)
+                .map_err(|_| anyhow::anyhow!("Cannot convert decimal to json"))?)
+        })?,
+        Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| f64_to_json_number(a))?,
         // these types require a custom StringCollector struct as an intermediary (see struct at bottom)
         Type::TS_VECTOR => get_basic(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
@@ -281,7 +287,7 @@ fn get_basic<'a, T: FromSql<'a>>(
 ) -> Result<JSONValue, Error> {
     let raw_val = row.try_get::<_, Option<T>>(column_i).with_context(|| {
         format!(
-            "conversion issue for value at column_name:{} with type {:?}",
+            "conversion issue for value at column_name `{}` with type {:?}",
             column.name(),
             column.type_()
         )
@@ -298,7 +304,7 @@ fn get_array<'a, T: FromSql<'a>>(
         .try_get::<_, Option<Vec<T>>>(column_i)
         .with_context(|| {
             format!(
-                "conversion issue for array at column_name:{}",
+                "conversion issue for array at column_name `{}`",
                 column.name()
             )
         })?;

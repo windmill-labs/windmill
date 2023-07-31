@@ -30,16 +30,20 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.137.1";
+export const VERSION = "v1.138.1";
 
 let command: any = new Command()
   .name("wmill")
+  .action(() =>
+    log.info(`Welcome to Windmill CLI ${VERSION}. Use -h for help.`)
+  )
   .description("A simple CLI tool for windmill.")
+
   .globalOption(
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace."
   )
-  .globalOption("-d --debug", "Show debug logs")
+  .globalOption("--debug --verbose", "Show debug/verbose logs")
   .globalOption(
     "--show-diffs",
     "Show diff informations when syncing (may show sensitive informations)"
@@ -90,7 +94,6 @@ let command: any = new Command()
     })
   )
   .command("completions", new CompletionsCommand());
-
 if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
   command = command.command("push", push).command("pull", pull);
 }
@@ -98,7 +101,7 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
 export let showDiffs = false;
 try {
   const LOG_LEVEL =
-    Deno.args.includes("--debug") || Deno.args.includes("-d")
+    Deno.args.includes("--verbose") || Deno.args.includes("--debug")
       ? "DEBUG"
       : "INFO";
   // const NO_COLORS = Deno.args.includes("--no-colors");

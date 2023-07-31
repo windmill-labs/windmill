@@ -472,6 +472,7 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
         None,
         true,
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -672,6 +673,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         None,
         true,
         tag,
+        None,
     )
     .await?;
     tracing::info!(
@@ -1016,6 +1018,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
     mut tag: Option<String>,
+    custom_timeout: Option<i32>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = if let Some(job_id) = job_id {
@@ -1303,6 +1306,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 sleep: None,
                 suspend: None,
                 cache_ttl: None,
+                timeout: None,
             });
             raw_flow = Some(FlowValue { modules, ..flow.clone() });
         }
@@ -1345,8 +1349,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -1374,6 +1378,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tag,
         concurrent_limit,
         concurrency_time_window_s,
+        custom_timeout,
     )
     .fetch_one(&mut tx)
     .await

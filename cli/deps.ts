@@ -3,7 +3,7 @@ export { setClient } from "https://deno.land/x/windmill@v1.95.1/mod.ts";
 export * from "https://deno.land/x/windmill@v1.95.1/windmill-api/index.ts";
 
 // cliffy
-export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/command.ts";
+export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/mod.ts";
 export { Table } from "https://deno.land/x/cliffy@v1.0.0-rc.2/table/table.ts";
 export { colors } from "https://deno.land/x/cliffy@v1.0.0-rc.2/ansi/colors.ts";
 export { Secret } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/secret.ts";

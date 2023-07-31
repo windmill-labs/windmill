@@ -54,11 +54,9 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/p/*script_path",
-            post(run_wait_result_script_by_path).head(|| async { "" }),
-        )
-        .route(
-            "/run_wait_result/p/*script_path",
-            get(run_wait_result_job_by_path_get),
+            post(run_wait_result_script_by_path)
+                .get(run_wait_result_job_by_path_get)
+                .head(|| async { "" }),
         )
         .route(
             "/run_wait_result/h/:hash",
@@ -66,7 +64,9 @@ pub fn workspaced_service() -> Router {
         )
         .route(
             "/run_wait_result/f/*script_path",
-            post(run_wait_result_flow_by_path).head(|| async { "" }),
+            post(run_wait_result_flow_by_path)
+                .get(run_wait_result_flow_by_path_get)
+                .head(|| async { "" }),
         )
         .route(
             "/openai_sync/p/*script_path",
@@ -1240,6 +1240,7 @@ impl From<UnifiedJob> for Job {
                 tag: uj.tag,
                 concurrent_limit: uj.concurrent_limit,
                 concurrency_time_window_s: uj.concurrency_time_window_s,
+                timeout: None,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1474,6 +1475,7 @@ pub async fn run_flow_by_path(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1518,6 +1520,7 @@ pub async fn run_job_by_path(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1719,6 +1722,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1729,6 +1733,45 @@ pub async fn run_wait_result_job_by_path_get(
         *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, script_path)),
+    )
+    .await
+}
+
+pub async fn run_wait_result_flow_by_path_get(
+    method: hyper::http::Method,
+    authed: Authed,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    headers: HeaderMap,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::JsonResult<serde_json::Value> {
+    if method == http::Method::HEAD {
+        return Ok(Json(serde_json::json!("")));
+    }
+    let payload_r = run_query
+        .payload
+        .clone()
+        .map(decode_payload)
+        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+
+    let args = if let Some(payload) = payload_r {
+        payload?
+    } else {
+        serde_json::Map::new()
+    };
+    run_wait_result_flow_by_path_internal(
+        db,
+        run_query,
+        flow_path,
+        authed,
+        rsmq,
+        user_db,
+        headers,
+        Some(args),
+        None,
+        w_id,
     )
     .await
 }
@@ -1849,6 +1892,7 @@ async fn run_wait_result_script_by_path_internal(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1908,6 +1952,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2012,6 +2057,7 @@ async fn run_wait_result_flow_by_path_internal(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2076,6 +2122,7 @@ async fn run_preview_job(
         None,
         true,
         preview.tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2111,6 +2158,7 @@ async fn add_noop_jobs(
             false,
             None,
             true,
+            None,
             None,
         )
         .await?;
@@ -2159,6 +2207,7 @@ async fn run_preview_flow_job(
         None,
         true,
         raw_flow.tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2209,6 +2258,7 @@ pub async fn run_job_by_hash(
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
         tag,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -2435,7 +2485,6 @@ async fn get_completed_job(
     .fetch_optional(&db)
     .await?;
 
-    tracing::info!("job_o: {:?}", job_o);
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     Ok(Json(job))
 }

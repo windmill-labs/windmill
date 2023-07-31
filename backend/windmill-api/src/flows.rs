@@ -264,6 +264,7 @@ async fn create_flow(
         None,
         true,
         nf.tag,
+        None,
     )
     .await?;
 
@@ -433,6 +434,7 @@ async fn update_flow(
         false,
         None,
         true,
+        None,
         None,
     )
     .await?;
@@ -657,6 +659,7 @@ mod tests {
                     sleep: None,
                     cache_ttl: None,
                     mock: None,
+                    timeout: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -680,6 +683,7 @@ mod tests {
                     sleep: None,
                     cache_ttl: None,
                     mock: None,
+                    timeout: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -699,6 +703,7 @@ mod tests {
                     sleep: None,
                     cache_ttl: None,
                     mock: None,
+                    timeout: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -718,6 +723,7 @@ mod tests {
                 sleep: None,
                 cache_ttl: None,
                 mock: None,
+                timeout: None,
             }),
             same_worker: false,
         };
