@@ -80,87 +80,89 @@
 	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
 		{#if $app.subgrids?.[`${id}-0`]}
 			{#if Array.isArray(result) && result.length > 0}
-				<Carousel
-					particlesToShow={resolvedConfig.particlesToShow}
-					particlesToScroll={resolvedConfig.particlesToScroll}
-					autoplay={false}
-					autoplayProgressVisible={false}
-					timingFunction={resolvedConfig.timingFunction}
-					dots={true}
-					arrows={true}
-					swiping={false}
-					on:pageChange={(event) => {
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: event.detail
-						}
-					}}
-					bind:this={carousel}
-					let:currentPageIndex
-				>
-					<div slot="prev" class="h-full flex justify-center flex-col p-2">
-						<div>
-							<Button
-								color="light"
-								on:click={() => {
-									const pagesCount = result?.length ?? 0
+				{#key JSON.stringify(resolvedConfig)}
+					<Carousel
+						particlesToShow={1}
+						particlesToScroll={1}
+						autoplay={false}
+						autoplayProgressVisible={false}
+						timingFunction={resolvedConfig.timingFunction}
+						dots={true}
+						arrows={true}
+						swiping={false}
+						bind:this={carousel}
+						let:currentPageIndex
+						on:pageChange={(event) => {
+							$focusedGrid = {
+								parentComponentId: id,
+								subGridIndex: event.detail
+							}
+						}}
+					>
+						<div slot="prev" class="h-full flex justify-center flex-col p-2">
+							<div>
+								<Button
+									color="light"
+									on:click={() => {
+										const pagesCount = result?.length ?? 0
 
-									if (currentPageIndex > 0) {
-										carousel.goTo(currentPageIndex - 1)
-									} else {
-										carousel.goTo(pagesCount - 1)
-									}
-								}}
-							>
-								<ArrowLeftCircle size={16} />
-							</Button>
-						</div>
-					</div>
-					<div slot="next" class="h-full flex justify-center flex-col p-2">
-						<div>
-							<Button
-								color="light"
-								on:click={() => {
-									const pagesCount = result?.length ?? 0
-									if (currentPageIndex < pagesCount - 1) {
-										carousel.goTo(currentPageIndex + 1)
-									} else {
-										carousel.goTo(0)
-									}
-								}}
-							>
-								<ArrowRightCircle size={16} />
-							</Button>
-						</div>
-					</div>
-					{#each result ?? [] as value, index}
-						<div class="overflow-auto w-full">
-							<ListWrapper
-								on:inputsChange={() => {
-									outputs?.inputs.set(inputs, true)
-								}}
-								bind:inputs
-								{value}
-								{index}
-							>
-								<SubGridEditor
-									{id}
-									visible={render}
-									class={css?.container?.class}
-									style={css?.container?.style}
-									subGridId={`${id}-0`}
-									containerHeight={componentContainerHeight - 40}
-									on:focus={() => {
-										if (!$connectingInput.opened) {
-											$selectedComponent = [id]
+										if (currentPageIndex > 0) {
+											carousel.goTo(currentPageIndex - 1)
+										} else {
+											carousel.goTo(pagesCount - 1)
 										}
-										onFocus()
 									}}
-								/>
-							</ListWrapper>
+								>
+									<ArrowLeftCircle size={16} />
+								</Button>
+							</div>
 						</div>
-					{/each}
-				</Carousel>
+						<div slot="next" class="h-full flex justify-center flex-col p-2">
+							<div>
+								<Button
+									color="light"
+									on:click={() => {
+										const pagesCount = result?.length ?? 0
+										if (currentPageIndex < pagesCount - 1) {
+											carousel.goTo(currentPageIndex + 1)
+										} else {
+											carousel.goTo(0)
+										}
+									}}
+								>
+									<ArrowRightCircle size={16} />
+								</Button>
+							</div>
+						</div>
+						{#each result ?? [] as value, index}
+							<div class="overflow-auto w-full">
+								<ListWrapper
+									on:inputsChange={() => {
+										outputs?.inputs.set(inputs, true)
+									}}
+									bind:inputs
+									{value}
+									{index}
+								>
+									<SubGridEditor
+										{id}
+										visible={render}
+										class={css?.container?.class}
+										style={css?.container?.style}
+										subGridId={`${id}-0`}
+										containerHeight={componentContainerHeight - 40}
+										on:focus={() => {
+											if (!$connectingInput.opened) {
+												$selectedComponent = [id]
+											}
+											onFocus()
+										}}
+									/>
+								</ListWrapper>
+							</div>
+						{/each}
+					</Carousel>
+				{/key}
 			{:else}
 				<ListWrapper disabled value={undefined} index={0}>
 					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />

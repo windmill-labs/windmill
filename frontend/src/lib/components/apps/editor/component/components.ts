@@ -1899,24 +1899,13 @@ Hello \${ctx.username}
 		},
 		initialData: {
 			configuration: {
-				particlesToShow: {
-					type: 'static',
-					value: 1,
-					fieldType: 'number',
-					tooltip: 'Number of elements to show'
-				},
-				particlesToScroll: {
-					type: 'static',
-					value: 1,
-					fieldType: 'number',
-					tooltip: 'Number of elements to scroll'
-				},
 				timingFunction: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.animationTimingFunctionOptions,
-					value: 'linear'
+					value: 'linear',
+					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
 				}
 			},
 			componentInput: {
