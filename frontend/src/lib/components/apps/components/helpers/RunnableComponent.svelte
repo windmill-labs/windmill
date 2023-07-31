@@ -346,6 +346,19 @@
 					}
 				}
 			}
+
+			if (jobId) {
+				const jobIndex = $jobs.findIndex((j) => j.job === jobId)
+				if (jobIndex > -1) {
+					const transformerLog = {}
+					if (res?.error) {
+						transformerLog['error'] = res?.error?.stack
+					} else {
+						transformerLog['result'] = res
+					}
+					$jobs[jobIndex].transformer = transformerLog
+				}
+			}
 		}
 
 		// console.log('setr', id)

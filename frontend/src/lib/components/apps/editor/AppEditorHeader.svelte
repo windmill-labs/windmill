@@ -632,6 +632,7 @@
 								<Skeleton layout={[[40]]} />
 							{/if}
 						{:else}
+							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
 							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
 								{#if job?.['running']}
 									<div class="flex flex-row-reverse w-full">
@@ -656,9 +657,13 @@
 										</Pane>
 										<Pane size={50} minSize={10} class="text-sm text-secondary">
 											{#if job != undefined && 'result' in job && job.result != undefined}
-												<pre class="overflow-x-auto break-words relative h-full px-2">
-													<DisplayResult workspaceId={$workspaceStore} jobId={selectedJobId} result={job?.result} />
-												</pre>
+												<pre class="overflow-x-auto break-words relative h-full px-2"
+													><DisplayResult
+														workspaceId={$workspaceStore}
+														jobId={selectedJobId}
+														result={job.result}
+													/></pre
+												>
 											{:else if testIsLoading}
 												<div class="p-2"><Loader2 class="animate-spin" /> </div>
 											{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
@@ -669,17 +674,19 @@
 												</div>
 											{/if}
 										</Pane>
-										{#if job != undefined && 'result' in job && job.result != undefined && $errorByComponent[job?.id]?.error && !(job?.result ?? {}).hasOwnProperty('error')}
+										{#if jobResult?.transformer}
 											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
-												<span class="font-bold text-md mb-4">Transformer</span>
+												<div class="font-bold mb-4">Transformer results</div>
+
 												{#if job != undefined && 'result' in job && job.result != undefined}
-													<DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={{
-															error: $errorByComponent[job?.id]?.error
-														}}
-													/>
+													{JSON.stringify(jobResult?.transformer)}
+													<pre class="overflow-x-auto break-words relative h-full px-2"
+														><DisplayResult
+															workspaceId={$workspaceStore}
+															jobId={selectedJobId}
+															result={jobResult?.transformer}
+														/></pre
+													>
 												{:else if testIsLoading}
 													<div class="p-2"><Loader2 class="animate-spin" /> </div>
 												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
