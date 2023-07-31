@@ -135,9 +135,7 @@ export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
-export type CarouselListComponent = BaseComponent<'carousellistcomponent'> & {
-	tabs: string[]
-}
+export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
 
 export type TypedComponent =
 	| DisplayComponent
@@ -1903,12 +1901,14 @@ Hello \${ctx.username}
 				particlesToShow: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: 'Number of elements to show'
 				},
 				particlesToScroll: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					particlesToScroll: 'Number of elements to scroll'
 				},
 				autoplay: {
 					type: 'static',
@@ -1964,8 +1964,7 @@ Hello \${ctx.username}
 				subFieldType: 'object',
 				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
 			},
-			numberOfSubgrids: 2,
-			tabs: ['First', 'Second'] as string[]
+			numberOfSubgrids: 1
 		}
 	},
 	iconcomponent: {
