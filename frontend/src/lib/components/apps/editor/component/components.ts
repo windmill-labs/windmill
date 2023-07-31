@@ -280,7 +280,8 @@ export const selectOptions = {
 		'polarArea',
 		'radar',
 		'scatter'
-	] as ChartType[]
+	] as ChartType[],
+	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']
 }
 const labels = {
 	none: 'Do nothing',
@@ -1908,13 +1909,14 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					particlesToScroll: 'Number of elements to scroll'
+					tooltip: 'Number of elements to scroll'
 				},
 				timingFunction: {
+					fieldType: 'select',
 					type: 'static',
-					value: 'linear',
-					fieldType: 'text',
-					tooltip: 'CSS animation timing function'
+					onlyStatic: true,
+					selectOptions: selectOptions.animationTimingFunctionOptions,
+					value: 'linear'
 				}
 			},
 			componentInput: {

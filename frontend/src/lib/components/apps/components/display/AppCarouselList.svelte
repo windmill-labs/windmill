@@ -48,6 +48,13 @@
 
 	let inputs = {}
 	let carousel: Carousel
+
+	$: $selectedComponent?.includes(id) &&
+		$focusedGrid === undefined &&
+		($focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: 0
+		})
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
