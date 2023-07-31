@@ -122,7 +122,7 @@ urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0", features = ["json"] }
-time = "0.3.16"
+time = "0.3.24"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
 tempfile = "^3"
