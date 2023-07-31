@@ -640,9 +640,6 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
-	carouselcomponent: {
-		container: containerDefaultProps
-	},
 	carousellistcomponent: {
 		container: containerDefaultProps
 	},

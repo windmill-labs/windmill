@@ -261,7 +261,7 @@
 				bind:component={componentSettings.item.data}
 				word="Step"
 			/>
-		{:else if componentSettings.item.data.type === 'carouselcomponent'}
+		{:else if componentSettings.item.data.type === 'carousellistcomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
 				bind:component={componentSettings.item.data}
