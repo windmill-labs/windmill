@@ -22,7 +22,7 @@
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
@@ -76,14 +76,12 @@
 				<Carousel
 					particlesToShow={resolvedConfig.particlesToShow}
 					particlesToScroll={resolvedConfig.particlesToScroll}
-					autoplay={resolvedConfig.autoplay}
-					autoplayDuration={resolvedConfig.autoplayDuration}
-					autoplayProgressVisible={resolvedConfig.autoplayProgressVisible}
-					pauseOnFocus={resolvedConfig.pauseOnFocus}
+					autoplay={false}
+					autoplayProgressVisible={false}
 					timingFunction={resolvedConfig.timingFunction}
-					dots={resolvedConfig.dots}
-					arrows={resolvedConfig.arrows}
-					swiping={$mode === 'preview' ? resolvedConfig.swiping : false}
+					dots={true}
+					arrows={true}
+					swiping={false}
 					on:pageChange={(event) => {
 						$focusedGrid = {
 							parentComponentId: id,
@@ -144,9 +142,7 @@
 									class={css?.container?.class}
 									style={css?.container?.style}
 									subGridId={`${id}-0`}
-									containerHeight={resolvedConfig.dots
-										? componentContainerHeight - 40
-										: componentContainerHeight}
+									containerHeight={componentContainerHeight - 40}
 									on:focus={() => {
 										if (!$connectingInput.opened) {
 											$selectedComponent = [id]

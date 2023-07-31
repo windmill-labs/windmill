@@ -1910,52 +1910,11 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					particlesToScroll: 'Number of elements to scroll'
 				},
-				autoplay: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					tooltip: 'Enables auto play of pages'
-				},
-				autoplayDuration: {
-					type: 'static',
-					value: 3000,
-					fieldType: 'number',
-					tooltip: 'Autoplay change interval (ms)'
-				},
-				autoplayProgressVisible: {
-					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					tooltip: 'Shows autoplay duration progress indicator'
-				},
-				pauseOnFocus: {
-					type: 'static',
-					value: true,
-					fieldType: 'boolean'
-				},
 				timingFunction: {
 					type: 'static',
 					value: 'linear',
 					fieldType: 'text',
 					tooltip: 'CSS animation timing function'
-				},
-				dots: {
-					type: 'static',
-					value: true,
-					fieldType: 'boolean',
-					tooltip: 'Current page indicator dots'
-				},
-				arrows: {
-					type: 'static',
-					value: true,
-					fieldType: 'boolean',
-					tooltip: 'Enables next/prev arrows'
-				},
-				swiping: {
-					type: 'static',
-					value: true,
-					fieldType: 'boolean',
-					tooltip: 'Enables swiping'
 				}
 			},
 			componentInput: {
