@@ -1,20 +1,28 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { classNames } from '$lib/utils'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'mardowncomponent'> | undefined = undefined
 	export let render: boolean
+	export let configuration: RichConfigurations
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	const resolvedConfig = initConfig(
+		components['mardowncomponent'].initialData.configuration,
+		configuration
+	)
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -26,11 +34,24 @@
 	$: css = concatCustomCss($app.css?.mardowncomponent, customCss)
 </script>
 
+{#each Object.keys(components['mardowncomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
+
 <div
 	on:pointerdown={(e) => {
 		e?.preventDefault()
 	}}
-	class={classNames('h-full w-full overflow-y-auto prose', css?.container?.class)}
+	class={classNames(
+		'h-full w-full overflow-y-auto',
+		resolvedConfig?.compact ? 'prose prose-sm' : 'prose',
+		css?.container?.class
+	)}
 >
 	<RunnableWrapper
 		{outputs}

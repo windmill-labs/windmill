@@ -1028,7 +1028,14 @@ This is a paragraph.
 * This is a list
 * With two items`
 			},
-			configuration: {}
+			configuration: {
+				compact: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				}
+			}
 		}
 	},
 	vegalitecomponent: {
