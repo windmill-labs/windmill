@@ -90,6 +90,8 @@ components:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
           type: number
+        timeout:
+          type: number
         summary:
           type: string
         mock:

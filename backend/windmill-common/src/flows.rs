@@ -184,6 +184,8 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 impl FlowModule {

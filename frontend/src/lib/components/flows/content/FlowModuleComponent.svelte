@@ -33,6 +33,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -290,6 +291,7 @@
 										<Tab value="sleep">Sleep</Tab>
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
+										<Tab value="timeout">Timeout</Tab>
 									{/if}
 								</Tabs>
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
@@ -312,6 +314,10 @@
 									{:else if advancedSelected === 'mock'}
 										<div>
 											<FlowModuleMock bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'timeout'}
+										<div>
+											<FlowModuleTimeout bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'concurrency'}
 										<div>
