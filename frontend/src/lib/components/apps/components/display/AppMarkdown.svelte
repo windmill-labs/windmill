@@ -30,7 +30,7 @@
 	on:pointerdown={(e) => {
 		e?.preventDefault()
 	}}
-	class={classNames('h-full w-full overflow-y-auto', css?.container?.class)}
+	class={classNames('h-full w-full overflow-y-auto prose', css?.container?.class)}
 >
 	<RunnableWrapper
 		{outputs}
