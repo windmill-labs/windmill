@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -11,6 +11,8 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import ListWrapper from '../layout/ListWrapper.svelte'
 	import Carousel from 'svelte-carousel'
+	import { ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -45,21 +47,7 @@
 	let result: any[] | undefined = undefined
 
 	let inputs = {}
-	let width = 0
-	let container: HTMLDivElement
-	let targetElement: HTMLDivElement | null = null
-
-	onMount(() => {
-		// Get the first element with class 'svlt-grid-container' inside the container
-		targetElement = container.querySelector('.svlt-grid-container')
-		updateWidth()
-	})
-
-	function updateWidth() {
-		if (targetElement) {
-			width = targetElement.clientWidth
-		}
-	}
+	let carousel: Carousel
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
@@ -82,7 +70,7 @@
 	bind:initializing
 	bind:result
 >
-	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full" bind:this={container}>
+	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
 		{#if $app.subgrids?.[`${id}-0`]}
 			{#if Array.isArray(result) && result.length > 0}
 				<Carousel
@@ -102,7 +90,44 @@
 							subGridIndex: event.detail
 						}
 					}}
+					bind:this={carousel}
+					let:currentPageIndex
 				>
+					<div slot="prev" class="h-full flex justify-center flex-col p-2">
+						<div>
+							<Button
+								color="light"
+								on:click={() => {
+									const pagesCount = result?.length ?? 0
+
+									if (currentPageIndex > 0) {
+										carousel.goTo(currentPageIndex - 1)
+									} else {
+										carousel.goTo(pagesCount - 1)
+									}
+								}}
+							>
+								<ArrowLeftCircle size={16} />
+							</Button>
+						</div>
+					</div>
+					<div slot="next" class="h-full flex justify-center flex-col p-2">
+						<div>
+							<Button
+								color="light"
+								on:click={() => {
+									const pagesCount = result?.length ?? 0
+									if (currentPageIndex < pagesCount - 1) {
+										carousel.goTo(currentPageIndex + 1)
+									} else {
+										carousel.goTo(0)
+									}
+								}}
+							>
+								<ArrowRightCircle size={16} />
+							</Button>
+						</div>
+					</div>
 					{#each result ?? [] as value, index}
 						<div class="overflow-auto w-full">
 							<ListWrapper
@@ -119,7 +144,6 @@
 									class={css?.container?.class}
 									style={css?.container?.style}
 									subGridId={`${id}-0`}
-									containerWidth={width}
 									containerHeight={resolvedConfig.dots
 										? componentContainerHeight - 40
 										: componentContainerHeight}

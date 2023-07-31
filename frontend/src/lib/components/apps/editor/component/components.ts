@@ -1964,7 +1964,8 @@ Hello \${ctx.username}
 				subFieldType: 'object',
 				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
 			},
-			numberOfSubgrids: 1
+			numberOfSubgrids: 2,
+			tabs: ['First', 'Second'] as string[]
 		}
 	},
 	iconcomponent: {
