@@ -137,6 +137,8 @@ export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
+export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
+
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
@@ -192,6 +194,7 @@ export type TypedComponent =
 	| SelectStepComponent
 	| DownloadComponent
 	| ChartJsComponent
+	| CarouselListComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -281,6 +284,7 @@ export const selectOptions = {
 		'radar',
 		'scatter'
 	] as ChartType[],
+	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
 }
 const labels = {
@@ -1918,6 +1922,34 @@ This is a paragraph.
 			},
 			numberOfSubgrids: 2,
 			tabs: ['First', 'Second'] as string[]
+		}
+	},
+	carousellistcomponent: {
+		name: 'Carousel List',
+		icon: ListIcon,
+		documentationLink: `${documentationBaseUrl}#list`,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				timingFunction: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.animationTimingFunctionOptions,
+					value: 'linear',
+					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
+			numberOfSubgrids: 1
 		}
 	},
 	iconcomponent: {
