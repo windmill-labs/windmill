@@ -80,7 +80,7 @@
 	<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
 		{#if $app.subgrids?.[`${id}-0`]}
 			{#if Array.isArray(result) && result.length > 0}
-				{#key JSON.stringify(resolvedConfig)}
+				{#key result}
 					<Carousel
 						particlesToShow={1}
 						particlesToScroll={1}
