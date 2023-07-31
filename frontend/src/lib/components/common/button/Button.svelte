@@ -123,7 +123,9 @@
 </script>
 
 <div
-	class="{dropdownItems ? colorVariants[color].divider : ''} {wrapperClasses} flex flex-row"
+	class="{dropdownItems && variant === 'contained'
+		? colorVariants[color].divider
+		: ''} {wrapperClasses} flex flex-row"
 	style={wrapperStyle}
 >
 	{#if href}
@@ -197,7 +199,9 @@
 	{/if}
 
 	{#if dropdownItems}
-		<div class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
+		<div
+			class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto !w-10 border-l-0')}
+		>
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}
