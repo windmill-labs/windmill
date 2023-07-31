@@ -1,7 +1,7 @@
-import type { MainArgSignature } from '$lib/gen'
+import { ScriptService, type MainArgSignature, FlowService } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
-import { sortObject } from './utils.js'
+import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 import init, {
 	parse_deno,
@@ -181,5 +181,41 @@ function argSigToJsonSchemaType(
 
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
+	}
+}
+
+export async function loadSchema(
+	workspace: string,
+	path: string,
+	runType: 'script' | 'flow' | 'hubscript'
+): Promise<{ schema: Schema; summary: string | undefined }> {
+	if (runType === 'script') {
+		const script = await ScriptService.getScriptByPath({
+			workspace,
+			path
+		})
+
+		return { schema: script.schema as any, summary: script.summary }
+	} else if (runType === 'flow') {
+		const flow = await FlowService.getFlowByPath({
+			workspace,
+			path
+		})
+
+		return { schema: flow.schema as any, summary: flow.summary }
+	} else {
+		const script = await ScriptService.getHubScriptByPath({
+			path
+		})
+		if (
+			script.schema == undefined ||
+			Object.keys(script.schema).length == 0 ||
+			typeof script.schema != 'object'
+		) {
+			script.schema = emptySchema()
+		}
+
+		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
+		return { schema: script.schema, summary: script.summary }
 	}
 }
