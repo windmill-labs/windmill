@@ -570,6 +570,9 @@ export const quickStyleProperties: Record<
 			backgroundGrouping
 		]
 	},
+	mardowncomponent: {
+		container: containerDefaultProps
+	},
 	iconcomponent: {
 		container: containerDefaultProps,
 		icon: [

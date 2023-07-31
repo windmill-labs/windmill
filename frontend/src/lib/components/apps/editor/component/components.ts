@@ -39,7 +39,8 @@ import {
 	Download,
 	PanelLeft,
 	PanelTopInactive,
-	ListIcon
+	ListIcon,
+	Heading1
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -73,6 +74,7 @@ export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
@@ -156,6 +158,7 @@ export type TypedComponent =
 	| BarChartComponent
 	| TimeseriesComponent
 	| HtmlComponent
+	| MarkdownComponent
 	| TableComponent
 	| TextComponent
 	| ButtonComponent
@@ -281,7 +284,8 @@ export const selectOptions = {
 		'radar',
 		'scatter'
 	] as ChartType[],
-	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out']
+	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
+	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
 }
 const labels = {
 	none: 'Do nothing',
@@ -1008,6 +1012,37 @@ Hello \${ctx.username}
 </h1>`
 			},
 			configuration: {}
+		}
+	},
+	mardowncomponent: {
+		name: 'Markdown',
+		icon: Heading1,
+		documentationLink: `${documentationBaseUrl}#html`,
+		dims: '1:2-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'template',
+				value: `# This is a header
+## This is a subheader				
+This is a paragraph.
+				
+* This is a list
+* With two items`
+			},
+			configuration: {
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.prose,
+					value: 'Default',
+					onlyStatic: true,
+					tooltip: 'See Tailwind documentation: https://tailwindcss.com/docs/typography-plugin'
+				}
+			}
 		}
 	},
 	vegalitecomponent: {

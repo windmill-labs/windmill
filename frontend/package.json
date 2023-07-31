@@ -99,6 +99,7 @@
 		"svelte-carousel": "^1.0.25",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-dnd-action": "^0.9.22",
+		"svelte-exmarkdown": "^2.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.13.2",

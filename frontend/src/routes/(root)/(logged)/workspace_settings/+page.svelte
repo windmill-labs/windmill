@@ -301,11 +301,7 @@
 				</Tab>
 
 				<Tab size="md" value="openai">
-					<div class="flex gap-2 items-center my-1"
-						>Windmill AI <span class="text-white px-2 py-1 rounded-full text-xs bg-red-500"
-							>Beta</span
-						></div
-					>
+					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 			</Tabs>
 		</div>
@@ -772,8 +768,7 @@
 			{/if}
 			<h3 class="mt-5 text-secondary">
 				Script or flow to run on /windmill command
-				<Tooltip
-				documentationLink="https://www.windmill.dev/docs/integrations/slack">
+				<Tooltip documentationLink="https://www.windmill.dev/docs/integrations/slack">
 					The script or flow to be triggered when the `/windmill` command is invoked.
 				</Tooltip>
 			</h3>
@@ -785,20 +780,24 @@
 				{initialPath}
 				on:select={editSlackCommand}
 			/>
-			<br/>
+			<br />
 			<div class="text-tertiary text-sm">
-				Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/">script</a> and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
-				
-				<br/><br/>
-				
+				Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
+				connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/">script</a
+				>
+				and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+
+				<br /><br />
+
 				The script or flow chosen is passed the parameters `response_url: string` and `text: string`
 				respectively the url to reply directly to the trigger and the text of the command.
 
-				<br/><br/>
+				<br /><br />
 
-				The script or flow is permissioned as group "slack" that will be automatically created after connection to Slack.
+				The script or flow is permissioned as group "slack" that will be automatically created after
+				connection to Slack.
 
-				<br/><br/>
+				<br /><br />
 
 				See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
 			</div>
@@ -923,9 +922,8 @@
 		{:else if tab == 'openai'}
 			<PageHeader title="Windmill AI" primary={false} />
 			<div class="mt-2">
-				<Alert type="info" title="Experimental feature">
-					Select an OpenAI resource to unlock Windmill AI features! <br /> Windmill AI currently only
-					supports OpenAI's GPT-4.
+				<Alert type="info" title="Select an OpenAI resource to unlock Windmill AI features!">
+					Windmill AI currently only supports OpenAI's GPT-4.
 				</Alert>
 			</div>
 			<div class="mt-5">
