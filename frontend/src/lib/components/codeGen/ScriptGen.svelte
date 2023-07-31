@@ -115,94 +115,93 @@
 	$: selection && (isEdit = !selection.isEmpty())
 </script>
 
-{#if openaiAvailable}
-	{#if generatedCode}
-		{#if inlineScript}
-			<div class="flex gap-1">
-				<Button
-					title="Discard generated code"
-					btnClasses="!font-medium px-2 w-7"
-					size="xs"
-					color="red"
-					on:click={rejectDiff}
-					variant="contained"
-				>
-					<Icon data={faClose} />
-				</Button><Button
-					title="Accept generated code"
-					btnClasses="!font-medium px-2 w-7"
-					size="xs"
-					color="green"
-					on:click={acceptDiff}
-				>
-					<Icon data={faCheck} /></Button
-				>
-			</div>
-		{:else}
-			<div class="flex gap-1 px-2">
-				<Button
-					title="Discard generated code"
-					btnClasses="!font-medium px-2"
-					size="xs"
-					color="red"
-					on:click={rejectDiff}
-					variant="contained"
-					startIcon={{ icon: faClose }}
-					{iconOnly}
-				>
-					Discard
-				</Button><Button
-					title="Accept generated code"
-					btnClasses="!font-medium px-2"
-					size="xs"
-					color="green"
-					on:click={acceptDiff}
-					startIcon={{ icon: faCheck }}
-					{iconOnly}
-				>
-					Accept
-				</Button>
-			</div>
-		{/if}
+{#if generatedCode}
+	{#if inlineScript}
+		<div class="flex gap-1">
+			<Button
+				title="Discard generated code"
+				btnClasses="!font-medium px-2 w-7"
+				size="xs"
+				color="red"
+				on:click={rejectDiff}
+				variant="contained"
+			>
+				<Icon data={faClose} />
+			</Button><Button
+				title="Accept generated code"
+				btnClasses="!font-medium px-2 w-7"
+				size="xs"
+				color="green"
+				on:click={acceptDiff}
+			>
+				<Icon data={faCheck} /></Button
+			>
+		</div>
+	{:else}
+		<div class="flex gap-1 px-2">
+			<Button
+				title="Discard generated code"
+				btnClasses="!font-medium px-2"
+				size="xs"
+				color="red"
+				on:click={rejectDiff}
+				variant="contained"
+				startIcon={{ icon: faClose }}
+				{iconOnly}
+			>
+				Discard
+			</Button><Button
+				title="Accept generated code"
+				btnClasses="!font-medium px-2"
+				size="xs"
+				color="green"
+				on:click={acceptDiff}
+				startIcon={{ icon: faCheck }}
+				{iconOnly}
+			>
+				Accept
+			</Button>
+		</div>
 	{/if}
-	{#if !generatedCode}
-		<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }} let:close>
-			<svelte:fragment slot="button">
-				{#if inlineScript}
-					<Button
-						size="lg"
-						bind:element={button}
-						color="light"
-						btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
-						loading={genLoading}
-						nonCaptureEvent={true}
-					>
-						<Icon scale={0.8} data={faMagicWandSparkles} />
-					</Button>
-				{:else}
-					<Button
-						title="Generate code from prompt"
-						btnClasses="!font-medium text-secondary"
-						size="xs"
-						color="light"
-						spacingSize="md"
-						bind:element={button}
-						startIcon={{ icon: faMagicWandSparkles }}
-						{iconOnly}
-						loading={genLoading}
-						nonCaptureEvent={true}
-					>
-						{isEdit ? 'AI Edit' : 'AI Gen'}
-					</Button>
-				{/if}
-			</svelte:fragment>
-			<label class="block text-primary w-96">
-				<div class="flex w-full">
+{/if}
+{#if !generatedCode}
+	<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }} let:close>
+		<svelte:fragment slot="button">
+			{#if inlineScript}
+				<Button
+					size="lg"
+					bind:element={button}
+					color="light"
+					btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
+					loading={genLoading}
+					nonCaptureEvent={true}
+				>
+					<Icon scale={0.8} data={faMagicWandSparkles} />
+				</Button>
+			{:else}
+				<Button
+					title="Generate code from prompt"
+					btnClasses="!font-medium text-secondary"
+					size="xs"
+					color="light"
+					spacingSize="md"
+					bind:element={button}
+					startIcon={{ icon: faMagicWandSparkles }}
+					{iconOnly}
+					loading={genLoading}
+					nonCaptureEvent={true}
+				>
+					{isEdit ? 'AI Edit' : 'AI Gen'}
+				</Button>
+			{/if}
+		</svelte:fragment>
+		<label class="block text-primary">
+			{#if openaiAvailable}
+				<div class="flex w-96">
 					<input
 						type="text"
 						bind:this={input}
 						bind:value={funcDesc}
-						class="!w-auto grow"
 						on:keypress={({ key }) => {
 							if (key === 'Enter' && funcDesc.length > 0) {
 								close(input || null)
@@ -236,7 +235,12 @@
 						</Tooltip>
 					</p>
 				{/if}
-			</label>
-		</Popup>
-	{/if}
+			{:else}
+				<p class="text-sm"
+					>Enable Windmill AI in the <a href="/workspace_settings?tab=openai">workspace settings.</a
+					></p
+				>
+			{/if}
+		</label>
+	</Popup>
 {/if}
