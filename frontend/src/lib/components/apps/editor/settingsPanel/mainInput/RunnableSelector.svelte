@@ -10,8 +10,9 @@
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
-	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
+	import { getAllScriptNames, schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
+	import { loadSchema } from '$lib/infer'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 

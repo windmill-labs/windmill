@@ -1,7 +1,5 @@
-import type { Schema, SupportedLanguage } from '$lib/common'
-import { FlowService, ScriptService } from '$lib/gen'
-import { inferArgs } from '$lib/infer'
-import { emptySchema } from '$lib/utils'
+import type { Schema } from '$lib/common'
+
 import { twMerge } from 'tailwind-merge'
 import type { AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
@@ -37,42 +35,6 @@ export function allItems(
 		return grid
 	}
 	return [...grid, ...Object.values(subgrids).flat()]
-}
-
-export async function loadSchema(
-	workspace: string,
-	path: string,
-	runType: 'script' | 'flow' | 'hubscript'
-): Promise<{ schema: Schema; summary: string | undefined }> {
-	if (runType === 'script') {
-		const script = await ScriptService.getScriptByPath({
-			workspace,
-			path
-		})
-
-		return { schema: script.schema as any, summary: script.summary }
-	} else if (runType === 'flow') {
-		const flow = await FlowService.getFlowByPath({
-			workspace,
-			path
-		})
-
-		return { schema: flow.schema as any, summary: flow.summary }
-	} else {
-		const script = await ScriptService.getHubScriptByPath({
-			path
-		})
-		if (
-			script.schema == undefined ||
-			Object.keys(script.schema).length == 0 ||
-			typeof script.schema != 'object'
-		) {
-			script.schema = emptySchema()
-		}
-
-		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
-		return { schema: script.schema, summary: script.summary }
-	}
 }
 
 export function schemaToInputsSpec(
