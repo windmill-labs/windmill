@@ -119,7 +119,6 @@
 				argName,
 				schema.required.includes(argName)
 			)
-			console.log(modalProperty.format)
 			oldArgName = argName
 			schemaModal.openDrawer(modalProperty)
 		} else {

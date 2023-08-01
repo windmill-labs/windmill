@@ -36,7 +36,6 @@
 			}
 			code = JSON.stringify(flowModule.mock?.return_value, null, 2)
 		}
-		console.log(isMockEnabled, flowModule.mock)
 	}}
 	options={{
 		right: 'Enable step mocking'
