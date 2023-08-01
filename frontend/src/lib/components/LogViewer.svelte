@@ -52,7 +52,7 @@
 </Drawer>
 
 <div class="relative w-full h-full {wrapperClass}">
-	<div bind:this={div} class="w-full h-full overflow-auto relative secondaryBackground">
+	<div bind:this={div} class="w-full h-full overflow-auto relative bg-surface-secondary">
 		<div class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-1">
 				<button on:click={logViewer.openDrawer}>Expand</button>

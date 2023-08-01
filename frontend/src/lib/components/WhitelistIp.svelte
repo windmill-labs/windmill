@@ -18,7 +18,7 @@
 </script>
 
 {#if ips}
-	<div class="mt-2" />
+	<div class="mt-4" />
 	<Alert size="xs" type="info" title="IPs to whitelist">
 		<span class="text-tertiary">If necessary, the workers IPs to whitelist are:</span>
 		{ips.join(', ')}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
 
-	import { Loader2 } from 'lucide-svelte'
+	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
@@ -73,7 +73,19 @@ export async function main(args: any) {
 </script>
 
 {#if resource_type == 'postgresql' || resource_type == 'mysql'}
-	<Button size="sm" on:click={testConnection}
-		>{#if loading}<Loader2 class="animate-spin mr-2" />{/if} Test connection</Button
+	<Button
+		spacingSize="sm"
+		size="xs"
+		btnClasses="h-8"
+		color="light"
+		variant="border"
+		on:click={testConnection}
 	>
+		{#if loading}
+			<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+		{:else}
+			<Database class="mr-2 !h-4 !w-4" />
+		{/if}
+		Test connection
+	</Button>
 {/if}
