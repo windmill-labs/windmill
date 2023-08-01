@@ -677,16 +677,14 @@
 										{#if jobResult?.transformer}
 											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
 												<div class="font-bold mb-4">Transformer results</div>
-
 												{#if job != undefined && 'result' in job && job.result != undefined}
-													{JSON.stringify(jobResult?.transformer)}
-													<pre class="overflow-x-auto break-words relative h-full px-2"
-														><DisplayResult
+													<pre class="overflow-x-auto break-words relative h-full px-2">
+														<DisplayResult
 															workspaceId={$workspaceStore}
 															jobId={selectedJobId}
 															result={jobResult?.transformer}
-														/></pre
-													>
+														/>
+													</pre>
 												{:else if testIsLoading}
 													<div class="p-2"><Loader2 class="animate-spin" /> </div>
 												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
