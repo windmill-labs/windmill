@@ -143,7 +143,8 @@
 				bind:error={pathError}
 				bind:path
 				initialPath=""
-				fullNamePlaceholder={'supabase_' + selectedDatabase?.name}
+				fullNamePlaceholder={'supabase_' +
+					selectedDatabase?.name?.replace(/\s+/g, '').replace(/[^\w\s]/gi, '')}
 				kind="resource"
 			/>
 
