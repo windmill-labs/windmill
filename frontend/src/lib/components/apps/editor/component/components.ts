@@ -39,7 +39,8 @@ import {
 	Download,
 	PanelLeft,
 	PanelTopInactive,
-	ListIcon
+	ListIcon,
+	Heading1
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -73,6 +74,7 @@ export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
@@ -135,6 +137,8 @@ export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
 export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
+export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
+
 export type TypedComponent =
 	| DisplayComponent
 	| LogComponent
@@ -154,6 +158,7 @@ export type TypedComponent =
 	| BarChartComponent
 	| TimeseriesComponent
 	| HtmlComponent
+	| MarkdownComponent
 	| TableComponent
 	| TextComponent
 	| ButtonComponent
@@ -189,6 +194,7 @@ export type TypedComponent =
 	| SelectStepComponent
 	| DownloadComponent
 	| ChartJsComponent
+	| CarouselListComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -277,7 +283,9 @@ export const selectOptions = {
 		'polarArea',
 		'radar',
 		'scatter'
-	] as ChartType[]
+	] as ChartType[],
+	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
+	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
 }
 const labels = {
 	none: 'Do nothing',
@@ -1004,6 +1012,37 @@ Hello \${ctx.username}
 </h1>`
 			},
 			configuration: {}
+		}
+	},
+	mardowncomponent: {
+		name: 'Markdown',
+		icon: Heading1,
+		documentationLink: `${documentationBaseUrl}#html`,
+		dims: '1:2-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'template',
+				value: `# This is a header
+## This is a subheader				
+This is a paragraph.
+				
+* This is a list
+* With two items`
+			},
+			configuration: {
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.prose,
+					value: 'Default',
+					onlyStatic: true,
+					tooltip: 'See Tailwind documentation: https://tailwindcss.com/docs/typography-plugin'
+				}
+			}
 		}
 	},
 	vegalitecomponent: {
@@ -1883,6 +1922,34 @@ Hello \${ctx.username}
 			},
 			numberOfSubgrids: 2,
 			tabs: ['First', 'Second'] as string[]
+		}
+	},
+	carousellistcomponent: {
+		name: 'Carousel List',
+		icon: ListIcon,
+		documentationLink: `${documentationBaseUrl}#list`,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				timingFunction: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					selectOptions: selectOptions.animationTimingFunctionOptions,
+					value: 'linear',
+					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
+			numberOfSubgrids: 1
 		}
 	},
 	iconcomponent: {

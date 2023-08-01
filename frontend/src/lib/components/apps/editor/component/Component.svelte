@@ -20,6 +20,7 @@
 		AppScatterChart,
 		AppTimeseries,
 		AppHtml,
+		AppMarkdown,
 		AppSliderInputs,
 		AppFormButton,
 		VegaLiteHtml,
@@ -53,6 +54,7 @@
 	import AppList from '../../components/layout/AppList.svelte'
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
+	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -203,6 +205,15 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'mardowncomponent'}
+			<AppMarkdown
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				configuration={component.configuration}
 				{render}
 			/>
 		{:else if component.type === 'vegalitecomponent'}
@@ -589,6 +600,15 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				{render}
+			/>
+		{:else if component.type === 'carousellistcomponent'}
+			<AppCarouselList
+				id={component.id}
+				configuration={component.configuration}
+				componentInput={component.componentInput}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
 			/>
 		{/if}
 	</div>

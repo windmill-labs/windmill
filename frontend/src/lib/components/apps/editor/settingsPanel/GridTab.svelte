@@ -18,7 +18,7 @@
 	export let canDisableTabs: boolean = false
 
 	// Migration code
-	$: if (tabs.length !== disabledTabs?.length && canDisableTabs) {
+	$: if (tabs?.length !== disabledTabs?.length && canDisableTabs) {
 		disabledTabs = Array(tabs.length).fill({
 			type: 'static',
 			value: false,
