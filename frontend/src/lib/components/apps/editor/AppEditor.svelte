@@ -260,7 +260,7 @@
 										<div id="app-editor-top-level-drawer" />
 										<div
 											class={classNames(
-												'relative mx-auto w-full h-full overflow-auto',
+												'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
 												app.fullscreen ? '' : 'max-w-6xl'
 											)}
 										>
