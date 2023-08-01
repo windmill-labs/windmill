@@ -397,7 +397,7 @@
 			return
 		}
 
-		updateResult(res)
+		updateResult(transformerResult ?? res)
 		recordJob(jobId!, result, undefined, transformerResult)
 		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
 
