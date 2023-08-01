@@ -380,7 +380,7 @@
 		if (errors) {
 			const transformerResult = transformer
 				? { error: 'Transformer could not be run because of previous errors' }
-				: {}
+				: undefined
 
 			recordJob(jobId!, undefined, errors, transformerResult)
 			updateResult(res)
