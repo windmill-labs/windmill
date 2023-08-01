@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, RichConfigurations } from '../../types'
-	import '../../../../../../node_modules/quill/dist/quill.snow.css'
+	import 'quill/dist/quill.snow.css'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
