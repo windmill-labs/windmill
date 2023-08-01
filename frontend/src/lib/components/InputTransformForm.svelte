@@ -7,7 +7,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
-	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
+	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button } from './common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -17,7 +17,7 @@
 	import type ItemPicker from './ItemPicker.svelte'
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
-	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
 	import { Code, Plug } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 

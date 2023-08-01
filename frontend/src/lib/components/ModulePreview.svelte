@@ -19,6 +19,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
+	import ScriptFix from './codeGen/ScriptFix.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -129,14 +130,16 @@
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
-						<DisplayResult
-							workspaceId={testJob?.workspace_id}
-							jobId={testJob?.id}
-							result={testJob.result}
-							{editor}
-							{diffEditor}
-							{lang}
-						/>
+						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result}>
+						{#if lang && editor && diffEditor && testJob?.result?.error}
+								<ScriptFix
+									error={JSON.stringify(testJob.result.error)}
+									{lang}
+									{editor}
+									{diffEditor}
+								/>
+							{/if}
+					</DisplayResult>
 					</pre>
 				{:else}
 					<div class="p-2">

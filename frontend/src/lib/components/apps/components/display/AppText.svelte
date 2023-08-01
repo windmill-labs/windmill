@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { isCodeInjection } from '$lib/components/flows/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Clipboard } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { copyToClipboard } from '../../../../utils'
+	import { copyToClipboard, isCodeInjection } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
