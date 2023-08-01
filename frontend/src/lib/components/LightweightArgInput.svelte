@@ -6,8 +6,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
-	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import ResourcePicker from './ResourcePicker.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
@@ -17,6 +15,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
+	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
+	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -274,7 +274,7 @@
 					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
-				<ObjectResourceInput {format} bind:value />
+				<LightweightObjectResourceInput {format} bind:value />
 			{:else if inputCat == 'object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
@@ -320,12 +320,14 @@
 					multiple={false}
 				/>
 			{:else if inputCat == 'resource-string'}
-				<ResourcePicker
-					bind:value
-					resourceType={format.split('-').length > 1
-						? format.substring('resource-'.length)
-						: undefined}
-				/>
+				<div class="flex flex-row gap-x-1 w-full">
+					<LightweightResourcePicker
+						bind:value
+						resourceType={format.split('-').length > 1
+							? format.substring('resource-'.length)
+							: undefined}
+					/>
+				</div>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between">

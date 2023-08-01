@@ -394,7 +394,6 @@
 				}
 			} else {
 				const tsSchema = compile(resourceType.schema)
-				console.log(tsSchema)
 				editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
 			}
 			sendUserToast(`${name} inserted at cursor`)

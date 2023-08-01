@@ -21,6 +21,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
+	import ScriptFix from '../codeGen/ScriptFix.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false
@@ -96,10 +97,16 @@
 									workspaceId={previewJob?.workspace_id}
 									jobId={previewJob?.id}
 									result={previewJob.result}
-									{editor}
-									{diffEditor}
-									{lang}
-								/>
+								>
+									{#if lang && editor && diffEditor && previewJob?.result?.error}
+										<ScriptFix
+											error={JSON.stringify(previewJob.result.error)}
+											{lang}
+											{editor}
+											{diffEditor}
+										/>
+									{/if}
+								</DisplayResult>
 							</div>
 						{:else}
 							<div class="text-sm text-tertiary p-2">

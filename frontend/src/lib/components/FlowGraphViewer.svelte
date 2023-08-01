@@ -8,10 +8,10 @@
 	import { Highlight } from 'svelte-highlight'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import typescript from 'svelte-highlight/languages/typescript'
-	import { cleanExpr } from './flows/utils'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
+	import { cleanExpr } from '$lib/utils'
 	export let flow: {
 		summary: string
 		description?: string

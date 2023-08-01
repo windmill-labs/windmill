@@ -142,7 +142,6 @@
 		let processed: { kind: Kind; path: string }[] = []
 		while (toProcess.length > 0) {
 			const { kind, path } = toProcess.pop()!
-			console.log('BAR', kind, path)
 			toProcess.push(...(await rec(kind, path)))
 			processed.push({ kind, path })
 		}
