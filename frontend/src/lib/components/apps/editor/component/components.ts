@@ -2091,6 +2091,13 @@ This is a paragraph.
 					value: 'Drag and drop files or click to select them',
 					fieldType: 'text',
 					onlyStatic: true
+				},
+				includeMimeType: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'If enabled, the mime type of the file will be included.',
+					onlyStatic: true
 				}
 			}
 		}

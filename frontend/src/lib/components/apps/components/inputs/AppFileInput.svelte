@@ -18,6 +18,7 @@
 	let acceptedFileTypes: string[] | undefined = undefined
 	let allowMultiple: boolean | undefined = undefined
 	let text: string | undefined = undefined
+	let includeMimeType: boolean | undefined = undefined
 
 	let outputs = initOutput($worldStore, id, {
 		result: [] as { name: string; data: string }[] | undefined
@@ -25,6 +26,13 @@
 
 	// Receives Base64 encoded strings from the input component
 	async function handleChange(files: { name: string; data: string }[] | undefined) {
+		if (includeMimeType === false) {
+			files = files?.map((file) => {
+				const [_, data] = file.data.split('base64,')
+				return { name: file.name, data }
+			})
+		}
+
 		outputs?.result.set(files)
 	}
 
@@ -34,6 +42,7 @@
 <InputValue {id} input={configuration.acceptedFileTypes} bind:value={acceptedFileTypes} />
 <InputValue {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
 <InputValue {id} input={configuration.text} bind:value={text} />
+<InputValue {id} input={configuration.includeMimeType} bind:value={includeMimeType} />
 
 <InitializeComponent {id} />
 
