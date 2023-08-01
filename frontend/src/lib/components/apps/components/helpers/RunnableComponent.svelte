@@ -186,26 +186,14 @@
 					$worldStore,
 					$runnableComponents
 				)
-				await setResult(r, undefined)
 
-				$state = $state
 				const job = generateNextFrontendJobId()
-				const njobs = [{ job, component: id, result: r }, ...$jobs]
-				$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
+				await setResult(r, job)
+				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-
-				// Manually add a fake job to the job list to show the error
-
 				const job = generateNextFrontendJobId()
-				const error = e.body ?? e.message
-
-				$errorByComponent[job] = {
-					error,
-					componentId: id
-				}
-
-				$jobs = [{ job, component: id, error }, ...$jobs]
+				await setResult({ error: { message: e.body ?? e.message } }, job)
 			}
 			loading = false
 			donePromise?.()
@@ -227,7 +215,7 @@
 		}
 
 		try {
-			let njob = await resultJobLoader?.abstractRun(async () => {
+			await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
@@ -272,12 +260,8 @@
 					requestBody
 				})
 			})
-			if (njob) {
-				const njobs = [{ job: njob, component: id }, ...$jobs]
-				$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
-			}
 		} catch (e) {
-			setResult({ error: e.body ?? e.message }, undefined)
+			updateResult({ error: e.body ?? e.message })
 			loading = false
 		}
 	}
@@ -290,7 +274,7 @@
 				executeComponent()
 			}
 		} catch (e) {
-			setResult({ error: e.body ?? e.message }, undefined)
+			updateResult({ error: e.body ?? e.message })
 		}
 	}
 
@@ -305,14 +289,50 @@
 		outputs.jobId?.set(jobId)
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('done')
-		const hasRes = res !== undefined && res !== null
+	function recordJob(
+		jobId: string,
+		result?: string,
+		error?: string,
+		transformer?: { result?: string; error?: string }
+	) {
+		const job = {
+			...(result ? { result } : {}),
+			...(error ? { error } : {}),
+			...(transformer ? { transformer } : {}),
+			job: jobId,
+			component: id
+		}
 
+		if (error) {
+			recordError(error, jobId)
+		} else if (job?.transformer?.error) {
+			recordError(job.transformer.error, jobId)
+		}
+
+		const njobs = [job, ...$jobs]
+		// Only keep the last 100 jobs
+		$jobs = $jobs?.length > 100 ? njobs.slice(0, 100) : njobs
+	}
+
+	function getResultErrors(result: any | any[]): string | undefined {
+		const errorAsArray = Array.isArray(result) ? result.flat() : [result]
+		const hasErrors = errorAsArray.some((r) => r?.error)
+
+		if (!hasErrors) {
+			return undefined
+		}
+
+		return errorAsArray
+			.map((r) => r?.error?.message)
+			.filter(Boolean)
+			.join('\n')
+	}
+
+	async function runTransformer(res) {
 		if (transformer) {
 			try {
 				let raw = $worldStore.newOutput(id, 'raw', res)
-				res = await eval_like(
+				const transformerResult = await eval_like(
 					transformer.content,
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
@@ -326,9 +346,10 @@
 					$worldStore,
 					$runnableComponents
 				)
-				raw.set(res)
+				raw.set(transformerResult)
+				return transformerResult
 			} catch (err) {
-				res = {
+				return {
 					error: {
 						name: 'TransformerError',
 						message: 'An error occured in the transformer',
@@ -336,65 +357,51 @@
 					}
 				}
 			}
-
-			if (hasRes && res === undefined) {
-				res = {
-					error: {
-						name: 'TransformerError',
-						message: 'An error occured in the transformer',
-						stack: 'Transformer returned undefined'
-					}
-				}
-			}
-
-			if (jobId) {
-				const jobIndex = $jobs.findIndex((j) => j.job === jobId)
-				if (jobIndex > -1) {
-					const transformerLog = {}
-					if (res?.error) {
-						transformerLog['error'] = res?.error?.stack
-					} else {
-						transformerLog['result'] = res
-					}
-					$jobs[jobIndex].transformer = transformerLog
-				}
-			}
 		}
+	}
 
-		// console.log('setr', id)
-
+	function updateResult(res) {
 		outputs.result?.set(res)
-
 		result = res
+	}
 
-		// Flows with loops can have multiple results
-		const errorAsArray = Array.isArray(result) ? result.flat() : [result]
+	async function setResult(res: any, jobId: string | undefined) {
+		dispatch('done')
+		const hasRes = res !== undefined && res !== null
 
-		// As soon as we have an error, we consider the component errored
-		const hasErrors = errorAsArray.some((r) => r?.error)
-
-		if (hasErrors) {
-			const errorMessages = errorAsArray
-				.map((r) => r?.error?.message)
-				.filter(Boolean)
-				.join('\n')
-
-			jobId && recordError(errorMessages, jobId)
-
-			dispatch('handleError', errorMessages)
-		} else {
-			dispatch('success')
+		if (!jobId && !hasRes) {
+			return
 		}
 
-		const previousJobId = Object.keys($errorByComponent).find(
-			(key) => $errorByComponent[key].componentId === id
-		)
+		const errors = getResultErrors(res)
 
-		if (previousJobId && !hasErrors) {
-			delete $errorByComponent[previousJobId]
-			$errorByComponent = $errorByComponent
+		console.log('errors', errors)
+
+		if (errors) {
+			const transformerResult = transformer
+				? { error: 'Transformer could not be run because of previous errors' }
+				: {}
+
+			recordJob(jobId!, undefined, errors, transformerResult)
+			updateResult(res)
+			dispatch('handleError', errors)
+			return
 		}
 
+		const transformerResult = await runTransformer(res)
+
+		if (transformerResult?.error) {
+			recordJob(jobId!, res, undefined, transformerResult)
+			updateResult(transformerResult)
+			dispatch('handleError', transformerResult.error)
+			return
+		}
+
+		updateResult(res)
+		recordJob(jobId!, result, undefined, transformerResult)
+		$errorByComponent = clearErrorByComponentId(id, $errorByComponent)
+
+		dispatch('success')
 		donePromise?.()
 	}
 
@@ -490,7 +497,7 @@
 		loading = false
 	}}
 	on:doneError={(e) => {
-		setResult({ error: e.detail }, e.detail.id)
+		setResult({ error: e.detail.error }, e.detail.id)
 		loading = false
 	}}
 	bind:this={resultJobLoader}
