@@ -53,7 +53,11 @@
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
-		instance_group = await GroupService.getInstanceGroup({ name })
+		try {
+			instance_group = await GroupService.getInstanceGroup({ name })
+		} catch (e) {
+			instance_group = undefined
+		}
 	}
 
 	async function loadGroup(): Promise<void> {

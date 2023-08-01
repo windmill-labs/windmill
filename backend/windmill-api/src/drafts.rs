@@ -42,6 +42,26 @@ pub struct Draft {
     pub typ: DraftType,
 }
 
+pub async fn require_writer_of_path(
+    authed: &Authed,
+    path: &str,
+    w_id: &str,
+    db: DB,
+    kind: &DraftType,
+) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    } else if require_owner_of_path(authed, path).is_ok() {
+        return Ok(());
+    } else {
+        match kind {
+            DraftType::Script => crate::scripts::require_is_writer(authed, path, w_id, db).await,
+            DraftType::Flow => crate::flows::require_is_writer(authed, path, w_id, db).await,
+            DraftType::App => crate::apps::require_is_writer(authed, path, w_id, db).await,
+        }
+    }
+}
+
 async fn create_draft(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -53,7 +73,7 @@ async fn create_draft(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    require_owner_of_path(&authed, &draft.path)?;
+    require_writer_of_path(&authed, &draft.path, &w_id, db, &draft.typ).await?;
 
     sqlx::query!(
         "INSERT INTO draft

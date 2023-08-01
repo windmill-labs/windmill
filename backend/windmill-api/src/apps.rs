@@ -840,6 +840,18 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
     Ok((permissioned_as, email))
 }
 
+pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+    return crate::users::require_is_writer(
+        authed,
+        path,
+        w_id,
+        db,
+        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+        "app",
+    )
+    .await;
+}
+
 async fn exists_app(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
