@@ -632,6 +632,7 @@
 								<Skeleton layout={[[40]]} />
 							{/if}
 						{:else}
+							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
 							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
 								{#if job?.['running']}
 									<div class="flex flex-row-reverse w-full">
@@ -673,6 +674,28 @@
 												</div>
 											{/if}
 										</Pane>
+										{#if jobResult?.transformer}
+											<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
+												<div class="font-bold mb-4">Transformer results</div>
+												{#if job != undefined && 'result' in job && job.result != undefined}
+													<pre class="overflow-x-auto break-words relative h-full px-2">
+														<DisplayResult
+															workspaceId={$workspaceStore}
+															jobId={selectedJobId}
+															result={jobResult?.transformer}
+														/>
+													</pre>
+												{:else if testIsLoading}
+													<div class="p-2"><Loader2 class="animate-spin" /> </div>
+												{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
+													<div class="p-2 text-tertiary">Result is undefined</div>
+												{:else}
+													<div class="p-2 text-tertiary">
+														<Loader2 size={14} class="animate-spin mr-2" />
+													</div>
+												{/if}
+											</Pane>
+										{/if}
 									</Splitpanes>
 								{:else}
 									<div class="mt-10" />
