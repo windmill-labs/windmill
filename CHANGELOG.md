@@ -1,6 +1,32 @@
 # Changelog
 
 
+## [1.139.0](https://github.com/windmill-labs/windmill/compare/v1.138.1...v1.139.0) (2023-08-01)
+
+
+### Features
+
+* add bun to flow and apps ([0081f54](https://github.com/windmill-labs/windmill/commit/0081f54c777e7586a6b55a020cd9134fc66837d9))
+* add SECRET_SALT for secure environments ([7afb686](https://github.com/windmill-labs/windmill/commit/7afb6869d0cbdded2f0c0e395f77c9f9889788a3))
+* add step's custom timeout ([4c87027](https://github.com/windmill-labs/windmill/commit/4c870272d487e8deef9b22c2dfe829b0a92afc44))
+* add support for postgresql numeric ([e51d67f](https://github.com/windmill-labs/windmill/commit/e51d67f843b6a6849dd9b8fb496d0c20c34d9c9c))
+* **frontend:** Add config to optionally include mimetype ([#1978](https://github.com/windmill-labs/windmill/issues/1978)) ([654efb7](https://github.com/windmill-labs/windmill/commit/654efb7ec47887d61b25b4fcbf6d03d42882b240))
+* **frontend:** add markdown component ([#1959](https://github.com/windmill-labs/windmill/issues/1959)) ([a69aa22](https://github.com/windmill-labs/windmill/commit/a69aa2275f04eca82eff6590cc6296f0ed8d6fc1))
+* **frontend:** App carousel ([#1956](https://github.com/windmill-labs/windmill/issues/1956)) ([3a40b19](https://github.com/windmill-labs/windmill/commit/3a40b19cdbf608f7aa3cd81e10ed583bb5e24394))
+* **frontend:** Sanitize Supabase resource name ([#1975](https://github.com/windmill-labs/windmill/issues/1975)) ([aeb1131](https://github.com/windmill-labs/windmill/commit/aeb1131a3d553f128295ae11338a9d454bbe85c4))
+* unveil windmill AI ([#1972](https://github.com/windmill-labs/windmill/issues/1972)) ([b479cd6](https://github.com/windmill-labs/windmill/commit/b479cd6fca8ac74bb8df4f126552f455d689b75f))
+
+
+### Bug Fixes
+
+* **cli:** add support for inlining native ts ([87326b7](https://github.com/windmill-labs/windmill/commit/87326b7d16c8c4c2ae1d0a369ab621db23e8d664))
+* fix draft permissions (require writer instead of owner) ([bf57c3a](https://github.com/windmill-labs/windmill/commit/bf57c3a628d78af18bcc4c4051e2425313d2d6f7))
+* **frontend:** Display transformer errors ([#1971](https://github.com/windmill-labs/windmill/issues/1971)) ([d67cfa4](https://github.com/windmill-labs/windmill/commit/d67cfa4aa9fc09834a3704a37ffd9df539283cc4))
+* **frontend:** Fix app icons ([#1977](https://github.com/windmill-labs/windmill/issues/1977)) ([1a15372](https://github.com/windmill-labs/windmill/commit/1a1537265accb4be7f24ea0e755979ff1333f9b1))
+* **frontend:** Fix dropdown buttons ([#1970](https://github.com/windmill-labs/windmill/issues/1970)) ([eea36b5](https://github.com/windmill-labs/windmill/commit/eea36b5bfc541d10e1adfbfdf9b97883a6d3fd7e))
+* **frontend:** Fix script settings overflow ([#1969](https://github.com/windmill-labs/windmill/issues/1969)) ([b576686](https://github.com/windmill-labs/windmill/commit/b57668610cae73d85a974493d8c0a5f3125f7007))
+* improve code structure to reduce unecessary dependency of apppreview on heavy packages ([3410e66](https://github.com/windmill-labs/windmill/commit/3410e66b22b4b0d8fdf12ed9144ff694bd258656))
+
 ## [1.138.1](https://github.com/windmill-labs/windmill/compare/v1.138.0...v1.138.1) (2023-07-30)
 
 
