@@ -79,7 +79,7 @@
 		}}
 		bind:clientWidth={$parentWidth}
 	>
-		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
+		<div class={!$focusedGrid && $mode !== 'preview' ? ' border border-dashed' : ''}>
 			<Grid
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
@@ -98,7 +98,7 @@
 					id={dataItem.id}
 					type={dataItem.data.type}
 					class={classNames(
-						'h-full w-full center-center',
+						'h-full w-full center-center outline outline-surface-secondary',
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>

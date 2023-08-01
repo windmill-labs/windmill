@@ -6,7 +6,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
-	import { Button } from './common'
+	import SupabaseIcon from './icons/SupabaseIcon.svelte'
 
 	export let resource_type: string
 	export let args: Record<string, any> | any = {}
@@ -69,7 +69,7 @@
 </script>
 
 {#if !notFound}
-	<div class="w-full flex gap-4 flex-row-reverse">
+	<div class="w-full flex gap-4 flex-row-reverse items-center">
 		<Toggle
 			on:change={(e) => switchTab(e.detail)}
 			options={{
@@ -78,9 +78,14 @@
 		/>
 		<TestConnection {resource_type} {args} />
 		{#if resource_type == 'postgresql' && supabaseWizard}
-			<Button variant="border" target="_blank" href="/api/oauth/connect/supabase_wizard">
-				Add a Supabase DB
-			</Button>
+			<a
+				target="_blank"
+				href="/api/oauth/connect/supabase_wizard"
+				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
+			>
+				<SupabaseIcon height="16px" width="16px" />
+				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
+			</a>
 		{/if}
 	</div>
 {:else}

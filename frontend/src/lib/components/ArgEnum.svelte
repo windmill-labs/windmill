@@ -34,7 +34,7 @@
 		on:focus
 		type="text"
 		class={twMerge(
-			'secondaryBackground',
+			'bg-surface-secondary',
 			valid
 				? ''
 				: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'
