@@ -434,7 +434,7 @@ async fn create_app(
     .await?;
 
     sqlx::query!(
-        "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2",
+        "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE id = $2",
         v_id,
         id
     )
@@ -628,7 +628,7 @@ async fn update_app(
         .await?;
 
         sqlx::query!(
-            "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+            "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3",
             v_id,
             npath,
             w_id
