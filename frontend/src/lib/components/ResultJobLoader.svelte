@@ -151,7 +151,14 @@
 					if (currentId === id) {
 						job = { ...maybe_job, id }
 						await tick()
-						dispatch('done', job)
+						if ('error' in job ?? {}) {
+							dispatch('doneError', {
+								id,
+								error: job.result.error
+							})
+						} else {
+							dispatch('done', job)
+						}
 						currentId = undefined
 					}
 				}

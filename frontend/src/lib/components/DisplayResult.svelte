@@ -217,7 +217,9 @@
 					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div class="flex flex-col items-start">
+		{:else if !forceJson && resultKind == 'error' && result?.error}<div
+				class="flex flex-col items-start"
+			>
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
