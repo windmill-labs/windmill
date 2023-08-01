@@ -7,10 +7,10 @@ import {
 	type InputTransform,
 	type Job
 } from '$lib/gen'
-import { inferArgs } from '$lib/infer'
-import { loadSchema, loadSchemaFlow } from '$lib/scripts'
+import { inferArgs, loadSchemaFromPath } from '$lib/infer'
+import { loadSchemaFlow } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema } from '$lib/utils'
+import { cleanExpr, emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import type { PickableProperties } from './previousResults'
@@ -91,13 +91,6 @@ export function cleanInputs(flow: Flow | any): Flow {
 	return newFlow
 }
 
-export function cleanExpr(expr: string): string {
-	return expr
-		.split('\n')
-		.filter((x) => x != '' && !x.startsWith(`import `))
-		.join('\n')
-}
-
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
@@ -110,7 +103,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			schema = emptySchema()
 			await inferArgs(mod.language!, mod.content ?? '', schema)
 		} else if (mod.type == 'script' && mod.path && mod.path != '') {
-			schema = await loadSchema(mod.path!, mod.hash)
+			schema = await loadSchemaFromPath(mod.path!, mod.hash)
 		} else if (mod.type == 'flow' && mod.path && mod.path != '') {
 			schema = await loadSchemaFlow(mod.path!)
 		} else {
@@ -149,16 +142,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		input_transforms: {},
 		schema: emptySchema()
 	}
-}
-
-const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
-
-export function isCodeInjection(expr: string | undefined): boolean {
-	if (!expr) {
-		return false
-	}
-
-	return dynamicTemplateRegex.test(expr)
 }
 
 export function getDefaultExpr(

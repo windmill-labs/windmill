@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { InputTransform } from '$lib/gen'
+	import { cleanExpr } from '$lib/utils'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { cleanExpr } from './flows/utils'
 
 	export let inputTransforms: Record<string, InputTransform>
 	$: entries = Object.entries(inputTransforms)
