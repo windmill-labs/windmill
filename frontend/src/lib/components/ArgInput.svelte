@@ -122,7 +122,7 @@
 		if (t && 'files' in t && t.files.length > 0) {
 			let reader = new FileReader()
 			reader.onload = (e: any) => {
-				cb(e.target.result.split('base64,')[1])
+				cb(e.target.result)
 			}
 			reader.readAsDataURL(t.files[0])
 		} else {
