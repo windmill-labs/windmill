@@ -534,10 +534,17 @@
 							<Alert type="error" title="Error during execution">
 								<div class="flex flex-col gap-2">
 									An error occured, please contact the app author.
+
+									{#if lastJobId && $errorByComponent[lastJobId]?.error}
+										<div class="font-bold">{$errorByComponent[lastJobId]?.error}</div>
+									{/if}
 									<a
 										href={`/run/${lastJobId}?workspace=${workspace}`}
-										class="font-semibold text-red-800 underline">Job id: {lastJobId}</a
+										class="font-semibold text-red-800 underline"
+										target="_blank"
 									>
+										Job id: {lastJobId}
+									</a>
 								</div>
 							</Alert>
 						</div>
