@@ -34,12 +34,6 @@
 		langToExt,
 		updateOptions
 	} from '$lib/editorUtils'
-	import {
-		BASH_INIT_CODE,
-		DENO_INIT_CODE_CLEAR,
-		GO_INIT_CODE,
-		PYTHON_INIT_CODE_CLEAR
-	} from '$lib/script_helpers'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
@@ -196,20 +190,6 @@
 			}
 			if (formatAction) {
 				formatAction()
-			}
-		}
-	}
-
-	export async function clearContent() {
-		if (editor) {
-			if (lang == 'typescript') {
-				setCode(DENO_INIT_CODE_CLEAR)
-			} else if (lang == 'python') {
-				setCode(PYTHON_INIT_CODE_CLEAR)
-			} else if (lang == 'go') {
-				setCode(GO_INIT_CODE)
-			} else if (lang == 'shell') {
-				setCode(BASH_INIT_CODE)
 			}
 		}
 	}
