@@ -15,6 +15,8 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Slider from '$lib/components/Slider.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -39,6 +41,7 @@
 	import { capitalize, setQueryWithoutLoad } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { Slack } from 'lucide-svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -314,6 +317,7 @@
 					tooltip="Manage users manually or enable SSO authentication."
 					documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
 				/>
+
 				<div class="flex flex-row items-center gap-2">
 					<input placeholder="Search users" bind:value={userFilter} class="input" />
 
@@ -322,31 +326,47 @@
 			</div>
 
 			<div class="max-h-screen mb-20">
-				<TableCustom>
-					<tr slot="header-row">
-						<th>email</th>
-						<th>username</th>
-						<th>
-							executions (<abbr title="past 5 weeks">5w</abbr>) <Tooltip
-								>An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
-								the first one
-							</Tooltip>
-						</th>
-						<th />
-						<th>Role</th>
-						<th>Actions</th>
-					</tr>
-					<tbody slot="body">
+				<DataTable>
+					<Head>
+						<tr>
+							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary sm:pl-6">
+								Email
+							</th>
+							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Username</th>
+
+							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">
+								Executions (<abbr title="past 5 weeks">5w</abbr>)
+								<Tooltip light>
+									An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
+									the first one
+								</Tooltip>
+							</th>
+							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Status</th>
+							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Role</th>
+							<th class="relative py-3.5 pl-3 pr-4 sm:pr-6">
+								<span class="sr-only">Actions</span>
+							</th>
+						</tr>
+					</Head>
+					<tbody class="divide-y bg-surface">
 						{#if filteredUsers}
 							{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, usage, disabled } (email)}
-								<tr class="border">
-									<td>{email}</td>
-									<td>{username}</td>
-									<td>{usage?.executions}</td>
-									<td>
+								<tr>
+									<td
+										class="whitespace-nowrap py-2 pl-2 pr-2 text-xs font-medium text-primary sm:pl-6"
+									>
+										{email}
+									</td>
+									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">{username}</td>
+									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">
+										{usage?.executions}
+									</td>
+									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">
 										<div class="flex gap-1">
 											{#if disabled}
-												<Badge color="red">disabled</Badge>
+												<Badge color="red">Disabled</Badge>
+											{:else}
+												<Badge color="green">Enabled</Badge>
 											{/if}
 										</div>
 									</td>
@@ -401,10 +421,14 @@
 											</ToggleButtonGroup>
 										</div>
 									</td>
-									<td>
+									<td
+										class="relative whitespace-nowrap py-2 pl-2 pr-2 text-right text-xs font-medium sm:pr-6"
+									>
 										<div class="flex gap-1">
-											<button
-												class="text-blue-500"
+											<Button
+												color="light"
+												variant="border"
+												size="xs"
 												on:click={async () => {
 													await UserService.updateUser({
 														workspace: $workspaceStore ?? '',
@@ -414,11 +438,15 @@
 														}
 													})
 													listUsers()
-												}}>{disabled ? 'enable' : 'disable'}</button
+												}}
 											>
-											|
-											<button
-												class="text-red-500"
+												{disabled ? 'Enable' : 'Disable'}
+											</Button>
+
+											<Button
+												color="red"
+												variant="border"
+												size="xs"
 												on:click={async () => {
 													await UserService.deleteUser({
 														workspace: $workspaceStore ?? '',
@@ -426,8 +454,10 @@
 													})
 													sendUserToast('User removed')
 													listUsers()
-												}}>remove</button
+												}}
 											>
+												Remove
+											</Button>
 										</div>
 									</td>
 								</tr>
@@ -451,7 +481,7 @@
 							{/each}
 						{/if}
 					</tbody>
-				</TableCustom>
+				</DataTable>
 			</div>
 			<PageHeader
 				title="Invites ({invites.length ?? ''})"
@@ -473,8 +503,12 @@
 						{#each invites as { email, is_admin, operator }}
 							<tr class="border">
 								<td>{email}</td>
-								<td
-									>{#if operator}<Badge>operator</Badge>{:else if is_admin}<Badge>admin</Badge>{/if}
+								<td>
+									{#if operator}
+										<Badge>operator</Badge>
+									{:else if is_admin}
+										<Badge>admin</Badge>
+									{/if}
 								</td>
 								<td>
 									<button
@@ -489,9 +523,11 @@
 												}
 											})
 											listInvites()
-										}}>cancel</button
-									></td
-								>
+										}}
+									>
+										Cancel
+									</button>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -555,7 +591,7 @@
 				{/if}
 			</div>
 			{#if !allowedAutoDomain}
-				<div class="text-red-400 text-sm mb-2">{domain} domain not allowed for auto-invite</div>
+				<div class="text-red-400 text-xs mb-2">{domain} domain not allowed for auto-invite</div>
 			{/if}
 		{:else if tab == 'deploy_to'}
 			<div class="my-2"
@@ -588,7 +624,7 @@
 					</div>
 				{/if}
 
-				<div class="text-sm mb-4 box p-2 max-w-3xl">
+				<div class="text-xs mb-4 box p-2 max-w-3xl">
 					{#if premium_info?.premium}
 						<div class="flex flex-col gap-0.5">
 							{#if plan}
@@ -682,7 +718,7 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-sm flex flex-col h-full overflow-hidden">
+						<div class="box p-4 text-xs flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
 							<ul class="list-disc text-lg p-4">
 								{#each planDesc as item}
@@ -725,85 +761,94 @@
 				</div>
 			{/if}
 		{:else if tab == 'slack'}
-			<div class="mt-2"
-				><Alert type="info" title="Send commands from slack"
-					>Connect your windmill workspace to your slack workspace to trigger a script or a flow
-					with a '/windmill' command.</Alert
-				></div
-			>
-			<p class="text-xs text-secondary my-1 mt-2">
-				Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
-					connected{/if}
-			</p>
-			{#if team_name}
-				<div class="flex flex-col gap-2 max-w-sm">
-					<Button
-						size="sm"
-						endIcon={{ icon: faSlack }}
-						btnClasses="mt-2"
-						variant="border"
-						on:click={async () => {
-							await OauthService.disconnectSlack({
-								workspace: $workspaceStore ?? ''
-							})
-							loadSettings()
-							sendUserToast('Disconnected Slack')
-						}}
-					>
-						Disconnect Slack
-					</Button>
-					<Button
-						size="sm"
-						endIcon={{ icon: faScroll }}
-						href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-					>
-						Create a script to handle slack commands
-					</Button>
-					<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
-						Create a flow to handle slack commands
-					</Button>
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-md font-semibold"> Send commands from slack </div>
+					<div class="text-tertiary text-xs">
+						Connect your windmill workspace to your slack workspace to trigger a script or a flow
+						with a '/windmill' command.
+					</div>
 				</div>
-			{:else}
-				<div class="flex">
-					<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
-						Connect to Slack
-					</Button>
+
+				{#if team_name}
+					<div class="flex flex-col gap-2 max-w-sm">
+						<Button
+							size="sm"
+							endIcon={{ icon: faSlack }}
+							btnClasses="mt-2"
+							variant="border"
+							on:click={async () => {
+								await OauthService.disconnectSlack({
+									workspace: $workspaceStore ?? ''
+								})
+								loadSettings()
+								sendUserToast('Disconnected Slack')
+							}}
+						>
+							Disconnect Slack
+						</Button>
+						<Button
+							size="sm"
+							endIcon={{ icon: faScroll }}
+							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						>
+							Create a script to handle slack commands
+						</Button>
+						<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
+							Create a flow to handle slack commands
+						</Button>
+					</div>
+				{:else}
+					<div class="flex flex-row gap-2">
+						<Button size="xs" color="dark" href="/api/oauth/connect_slack">
+							<div class="flex flex-row gap-1 items-center">
+								<Slack size={14} />
+								Connect to Slack
+							</div>
+						</Button>
+						<Badge color="red">Not connnected</Badge>
+					</div>
+				{/if}
+			</div>
+			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
+				<div class="text-primary font-md font-semibold">
+					Script or flow to run on /windmill command
 				</div>
-			{/if}
-			<h3 class="mt-5 text-secondary">
-				Script or flow to run on /windmill command
-				<Tooltip documentationLink="https://www.windmill.dev/docs/integrations/slack">
-					The script or flow to be triggered when the `/windmill` command is invoked.
-				</Tooltip>
-			</h3>
-			<ScriptPicker
-				kind={Script.kind.SCRIPT}
-				allowFlow
-				bind:itemKind
-				bind:scriptPath
-				{initialPath}
-				on:select={editSlackCommand}
-			/>
-			<br />
-			<div class="text-tertiary text-sm">
-				Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-				connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/">script</a
-				>
-				and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+				<div class="relative">
+					{#if !team_name}
+						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
+					{/if}
+					<ScriptPicker
+						kind={Script.kind.SCRIPT}
+						allowFlow
+						bind:itemKind
+						bind:scriptPath
+						{initialPath}
+						on:select={editSlackCommand}
+					/>
+				</div>
 
-				<br /><br />
+				<div class="prose text-2xs text-tertiary">
+					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
+					connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/"
+						>script</a
+					>
+					and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
 
-				The script or flow chosen is passed the parameters `response_url: string` and `text: string`
-				respectively the url to reply directly to the trigger and the text of the command.
+					<br /><br />
 
-				<br /><br />
+					The script or flow chosen is passed the parameters `response_url: string` and `text:
+					string` respectively the url to reply directly to the trigger and the text of the command.
 
-				The script or flow is permissioned as group "slack" that will be automatically created after
-				connection to Slack.
+					<br /><br />
 
-				<br /><br />
+					The script or flow is permissioned as group "slack" that will be automatically created
+					after connection to Slack.
 
-				See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
+					<br /><br />
+
+					See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
+				</div>
 			</div>
 		{:else if tab == 'export_delete'}
 			<PageHeader title="Export workspace" primary={false} />
@@ -896,7 +941,7 @@
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
-					<div class="text-tertiary text-sm">
+					<div class="text-tertiary text-xs">
 						The following args will be passed to the error handler:
 						<ul class="mt-1 ml-2">
 							<li><b>path</b>: The path of the script or flow that errored.</li>
