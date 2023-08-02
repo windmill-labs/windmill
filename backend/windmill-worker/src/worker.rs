@@ -963,13 +963,17 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 
-async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &sqlx::Pool<sqlx::Postgres>,) -> windmill_common::error::Result<JobCompleted> {
+async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &sqlx::Pool<sqlx::Postgres>, hub_code: Option<String>) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
-    let code = get_content(&job, db).await?;
+    let code =  if let Some(code) = hub_code {
+        code
+    } else {
+        get_content(&job, db).await?
+    };
 
     let args = args
         .as_ref()
@@ -1153,7 +1157,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
                     tokio::task::spawn(async move {
 
-                        let jc = do_nativets(job.clone(), logs, &client, &db).await;
+                        let jc = do_nativets(job.clone(), logs, &client, &db, None).await;
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
                         match jc {
                             Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
@@ -1278,7 +1282,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             }
                         } else if job.language == Some(ScriptLang::Nativets) {
                             logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-                            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db).await?; 
+                            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db, None).await?; 
                             logs = jc.logs;
                             Ok(jc.result)
                         } else {
@@ -1655,7 +1659,13 @@ mount {{
             )
             .await
         },
-        _ => panic!("unreachable"),
+        Some(ScriptLang::Nativets) => {
+            logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db, Some(inner_content)).await?; 
+            *logs = jc.logs;
+            Ok(jc.result)
+        },
+        _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
         worker_name = %worker_name,
