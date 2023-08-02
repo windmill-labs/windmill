@@ -751,10 +751,7 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<div
-	bind:clientWidth={width}
-	class={fullSize ? 'overflow-hidden' : 'w-full h-full overflow-hidden relative'}
->
+<div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
 	{#if width && height}
 		{#key renderCount}
 			<Svelvet
