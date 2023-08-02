@@ -23,7 +23,6 @@ pub enum JobKind {
     FlowPreview,
     Identity,
     FlowDependencies,
-    Http,
     Noop,
 }
 
@@ -183,7 +182,6 @@ pub enum JobPayload {
         path: Option<String>,
     },
     Identity,
-    Http,
     Noop,
 }
 

@@ -2097,7 +2097,6 @@ async fn run_preview_job(
         &w_id,
         match preview.kind {
             Some(PreviewKind::Identity) => JobPayload::Identity,
-            Some(PreviewKind::Http) => JobPayload::Http,
             Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
                 content: preview.content.unwrap_or_default(),

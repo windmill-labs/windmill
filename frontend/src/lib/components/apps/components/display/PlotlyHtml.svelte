@@ -47,7 +47,15 @@
 		shouldeUpdate++
 	})
 
-	$: Plotly && render && result && divEl && h && w && shouldeUpdate && plot()
+	$: Plotly &&
+		render &&
+		result &&
+		resolvedConfig.layout &&
+		divEl &&
+		h &&
+		w &&
+		shouldeUpdate &&
+		plot()
 
 	let error = ''
 	function plot() {

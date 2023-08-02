@@ -162,7 +162,6 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
-        - $ref: "#/components/schemas/Http"
         - $ref: "#/components/schemas/Graphql"
       discriminator:
         propertyName: type
@@ -174,7 +173,6 @@ components:
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
-          http: "#/components/schemas/Http"
           graphql: "#/components/schemas/Graphql"
 
     RawScript:

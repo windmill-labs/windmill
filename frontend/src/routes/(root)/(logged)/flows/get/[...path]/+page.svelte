@@ -8,7 +8,7 @@
 		emptyString,
 		encodeState
 	} from '$lib/utils'
-	import { faCodeFork, faEdit, faTableColumns } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faEdit, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -121,6 +121,16 @@
 		if (!flow || $userStore?.operator || !can_write) {
 			return buttons
 		}
+
+		buttons.push({
+			label: `View runs`,
+			buttonProps: {
+				href: `/runs/${flow.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: faHistory
+			}
+		})
 
 		if (!$userStore?.operator) {
 			buttons.push({
