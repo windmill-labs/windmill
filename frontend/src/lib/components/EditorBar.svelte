@@ -39,7 +39,7 @@
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import { ScriptGen } from './codeGen'
 	import type DiffEditor from './DiffEditor.svelte'
-	import { initialCode } from '$lib/script_helpers'
+	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
 
 	export let lang: SupportedLanguage
@@ -180,7 +180,7 @@
 
 	function clearContent() {
 		if (editor) {
-			const resetCode = initialCode(lang, kind as Script.kind, template)
+			const resetCode = getResetCode(lang, kind as Script.kind, template)
 			editor.setCode(resetCode)
 		}
 	}
