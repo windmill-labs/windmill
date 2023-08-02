@@ -215,6 +215,16 @@
 			return buttons
 		}
 
+		buttons.push({
+			label: `View runs`,
+			buttonProps: {
+				href: `/runs/${script.path}`,
+				size: 'xs',
+				color: 'light',
+				startIcon: faHistory
+			}
+		})
+
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
