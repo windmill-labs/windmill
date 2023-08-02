@@ -10,7 +10,7 @@ use windmill_common::{
 };
 use windmill_parser_sql::parse_mysql_sig;
 
-use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
+use crate::{transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
 struct MysqlDatabase {
@@ -25,7 +25,7 @@ struct MysqlDatabase {
 pub async fn do_mysql(
     job: QueuedJob,
     client: &AuthedClient,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    query: &str,
 ) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
@@ -68,8 +68,6 @@ pub async fn do_mysql(
         .map(|x| x.to_owned())
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
     let mut statement_values: Vec<mysql_async::Value> = vec![];
-
-    let query: String = get_content(&job, db).await?;
 
     let sig = parse_mysql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?

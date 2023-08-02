@@ -17,7 +17,7 @@ use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
+use crate::{transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
 struct PgDatabase {
@@ -32,7 +32,7 @@ struct PgDatabase {
 pub async fn do_postgresql(
     job: QueuedJob,
     client: &AuthedClient,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    query: &str,
 ) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
@@ -96,8 +96,6 @@ pub async fn do_postgresql(
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
     let mut statement_values: Vec<serde_json::Value> = vec![];
 
-    let query: String = get_content(&job, db).await?;
-
     let sig = parse_pgsql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
@@ -155,7 +153,7 @@ pub async fn do_postgresql(
         .collect::<windmill_common::error::Result<Vec<_>>>()?;
     // Now we can execute a simple statement that just returns its parameter.
     let rows = client
-        .query_raw(&query, query_params)
+        .query_raw(query, query_params)
         .await
         .map_err(to_anyhow)?;
 
