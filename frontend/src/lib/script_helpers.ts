@@ -349,3 +349,19 @@ export function initialCode(
 		}
 	}
 }
+
+export function getResetCode(
+	language: SupportedLanguage,
+	kind: Script.kind | undefined,
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
+) {
+	if (language === 'deno') {
+		return DENO_INIT_CODE_CLEAR
+	} else if (language === 'python3') {
+		return PYTHON_INIT_CODE_CLEAR
+	} else if (language === 'bun') {
+		return BUN_INIT_CODE_CLEAR
+	} else {
+		return initialCode(language, kind, subkind)
+	}
+}
