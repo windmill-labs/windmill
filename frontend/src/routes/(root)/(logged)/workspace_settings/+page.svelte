@@ -5,8 +5,9 @@
 	import AddUser from '$lib/components/AddUser.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -272,66 +273,68 @@
 					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
 				}}
 			>
-				<Tab size="md" value="users">
+				<Tab value="users">
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
-				<Tab size="md" value="deploy_to">
+				<Tab value="deploy_to">
 					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-					<Tab size="md" value="slack">
+					<Tab value="slack">
 						<div class="flex gap-2 items-center my-1"> Slack Command </div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
-					<Tab size="md" value="premium">
+					<Tab value="premium">
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-				<Tab size="md" value="export_delete">
+				<Tab value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-					<Tab size="md" value="webhook">
+					<Tab value="webhook">
 						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
-				<Tab size="md" value="error_handler">
+				<Tab value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
 
-				<Tab size="md" value="openai">
+				<Tab value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
-			<PageHeader
-				title="Members ({users?.length ?? ''})"
-				primary={false}
-				tooltip="Manage users manually or enable SSO authentication."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
-			/>
+			<div class="flex flex-row justify-between items-center">
+				<PageHeader
+					title="Members ({users?.length ?? ''})"
+					primary={false}
+					tooltip="Manage users manually or enable SSO authentication."
+					documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
+				/>
+				<div class="flex flex-row items-center gap-2">
+					<input placeholder="Search users" bind:value={userFilter} class="input" />
 
-			<AddUser on:new={listUsers} />
-
-			<div class="pt-2 pb-1">
-				<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
+					<AddUser on:new={listUsers} />
+				</div>
 			</div>
-			<div class="overflow-auto max-h-screen mb-20">
+
+			<div class="max-h-screen mb-20">
 				<TableCustom>
 					<tr slot="header-row">
 						<th>email</th>
 						<th>username</th>
-						<th
-							>executions (<abbr title="past 5 weeks">5w</abbr>) <Tooltip
+						<th>
+							executions (<abbr title="past 5 weeks">5w</abbr>) <Tooltip
 								>An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
-								the first one</Tooltip
-							>
+								the first one
+							</Tooltip>
 						</th>
 						<th />
-						<th />
-						<th />
+						<th>Role</th>
+						<th>Actions</th>
 					</tr>
 					<tbody slot="body">
 						{#if filteredUsers}
@@ -340,13 +343,13 @@
 									<td>{email}</td>
 									<td>{username}</td>
 									<td>{usage?.executions}</td>
-									<td
-										><div class="flex gap-1"
-											>{#if disabled}
+									<td>
+										<div class="flex gap-1">
+											{#if disabled}
 												<Badge color="red">disabled</Badge>
-											{/if}</div
-										></td
-									>
+											{/if}
+										</div>
+									</td>
 									<td>
 										<div>
 											<ToggleButtonGroup
@@ -375,25 +378,26 @@
 													listUsers()
 												}}
 											>
-												<ToggleButton position="left" value="operator" size="xs"
-													>Operator <Tooltip
-														>An operator can only execute and view scripts/flows/apps from your
-														workspace, and only those that he has visibility on.</Tooltip
-													></ToggleButton
-												>
-												<ToggleButton position="center" value="author" size="xs"
-													>Author <Tooltip
-														>An Author can execute and view scripts/flows/apps, but he can also
-														create new ones.</Tooltip
-													></ToggleButton
-												>
-												<ToggleButton position="right" value="admin" size="xs"
-													>Admin<Tooltip
-														>An admin has full control over a specific Windmill workspace, including
-														the ability to manage users, edit entities, and control permissions
-														within the workspace.</Tooltip
-													></ToggleButton
-												>
+												<ToggleButton
+													value="operator"
+													size="xs"
+													label="Operator"
+													tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+												/>
+
+												<ToggleButton
+													value="author"
+													size="xs"
+													label="Author"
+													tooltip="An Author can execute and view scripts/flows/apps, but he can also create new ones."
+												/>
+
+												<ToggleButton
+													value="admin"
+													size="xs"
+													label="Admin"
+													tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+												/>
 											</ToggleButtonGroup>
 										</div>
 									</td>
@@ -458,12 +462,12 @@
 				<InviteUser on:new={listInvites} />
 			</PageHeader>
 
-			<div class="overflow-auto max-h-screen">
+			<div class="max-h-screen">
 				<TableCustom>
 					<tr slot="header-row">
 						<th>email</th>
 						<th>role</th>
-						<th />
+						<th>Actions</th>
 					</tr>
 					<tbody slot="body">
 						{#each invites as { email, is_admin, operator }}
@@ -878,9 +882,7 @@
 
 			<div class="flex gap-2">
 				<input class="justify-start" type="text" bind:value={webhook} />
-				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
-					>Set Webhook</Button
-				>
+				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set Webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
 			<PageHeader title="Script to run as error handler" primary={false} />
