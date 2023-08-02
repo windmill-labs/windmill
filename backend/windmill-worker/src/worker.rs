@@ -938,16 +938,11 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 
-async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &sqlx::Pool<sqlx::Postgres>, hub_code: Option<String>) -> windmill_common::error::Result<JobCompleted> {
+async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, code: String) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
         None
-    };
-    let code =  if let Some(code) = hub_code {
-        code
-    } else {
-        get_content(&job, db).await?
     };
 
     let args = args
@@ -1024,13 +1019,20 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             set_logs(&logs, &job.id, db).await;
 
             if !job.is_flow_step {
-            if job.language == Some(ScriptLang::Postgresql) {
+                if job.language == Some(ScriptLang::Postgresql) {
                     wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
                     let client = client.get_authed().await;
                     let db: Pool<Postgres> = db.clone();
 
                     tokio::task::spawn(async move {
-                        let jc = do_postgresql(job.clone(), &client, &db).await;
+                        let jc = {
+                            let query = get_content(&job, &db).await;
+                            if query.is_err() {
+                                Err(query.err().unwrap())
+                            } else {
+                                do_postgresql(job.clone(), &client, &query.ok().unwrap()).await
+                            }
+                        };
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
 
                         match jc {
@@ -1053,7 +1055,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     let db: Pool<Postgres> = db.clone();
 
                     tokio::task::spawn(async move {
-                        let jc = do_mysql(job.clone(), &client, &db).await;
+                        let jc = {
+                            let query = get_content(&job, &db).await;
+                            if query.is_err() {
+                                Err(query.err().unwrap())
+                            } else {
+                                do_mysql(job.clone(), &client,  &query.ok().unwrap()).await
+                            }
+                        };
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
 
                         match jc {
@@ -1084,7 +1093,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         let db: Pool<Postgres> = db.clone();
     
                         tokio::task::spawn(async move {
-                            let jc: std::result::Result<JobCompleted, Error> = do_bigquery(job.clone(), &client, &db).await;
+                            let jc: std::result::Result<JobCompleted, Error> = {
+                                let query = get_content(&job, &db).await;
+                                if query.is_err() {
+                                    Err(query.err().unwrap())
+                                } else {
+                                    do_bigquery(job.clone(), &client, &db).await
+                                }
+                            };
                             parallel_count.fetch_sub(1, Ordering::SeqCst);
     
                             match jc {
@@ -1112,7 +1128,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
                     tokio::task::spawn(async move {
 
-                        let jc = do_nativets(job.clone(), logs, &client, &db, None).await;
+                        let jc = {
+                            let query = get_content(&job, &db).await;
+                            if query.is_err() {
+                                Err(query.err().unwrap())
+                            } else {
+                                do_nativets(job.clone(), logs, &client, query.ok().unwrap()).await
+                            }
+                        };
                         parallel_count.fetch_sub(1, Ordering::SeqCst);
                         match jc {
                             Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
@@ -1213,40 +1236,16 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
                     },
                     _ => {
-                        if job.language == Some(ScriptLang::Postgresql) {
-                            let jc = do_postgresql(job.clone(), &client.get_authed().await, &db).await?;
-                            Ok(jc.result)
-                        } else if job.language == Some(ScriptLang::Mysql) {
-                            let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
-                            Ok(jc.result)
-                        } else if job.language == Some(ScriptLang::Bigquery) {
-                            #[cfg(not(feature = "enterprise"))]
-                            {
-                                Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()))
-                            }
-
-                            #[cfg(feature = "enterprise")]
-                            {
-                                let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
-                                Ok(jc.result)
-                            }
-                        } else if job.language == Some(ScriptLang::Nativets) {
-                            logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-                            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db, None).await?; 
-                            logs = jc.logs;
-                            Ok(jc.result)
-                        } else {
-                            handle_code_execution_job(
-                                &job,
-                                db,
-                                client,
-                                job_dir,
-                                worker_dir,
-                                &mut logs,
-                                base_internal_url,
-                                worker_name                            )
-                            .await
-                        }
+                        handle_code_execution_job(
+                            &job,
+                            db,
+                            client,
+                            job_dir,
+                            worker_dir,
+                            &mut logs,
+                            base_internal_url,
+                            worker_name                            )
+                        .await
                     }
                 }
             };
@@ -1469,6 +1468,31 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    if language == Some(ScriptLang::Postgresql) {
+        let jc = do_postgresql(job.clone(), &client.get_authed().await, &inner_content).await?;
+        return Ok(jc.result)
+    } else if language == Some(ScriptLang::Mysql) {
+        let jc = do_mysql(job.clone(), &client.get_authed().await, &inner_content).await?;
+        return Ok(jc.result)
+    } else if language == Some(ScriptLang::Bigquery) {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()))
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
+            return Ok(jc.result)
+        }
+    } else if language == Some(ScriptLang::Nativets) {
+        logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, inner_content).await?; 
+        *logs = jc.logs;
+        return Ok(jc.result)
+    }
+
     let lang_str = job
         .language
         .as_ref()
@@ -1608,12 +1632,6 @@ mount {{
                 envs
             )
             .await
-        },
-        Some(ScriptLang::Nativets) => {
-            logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db, Some(inner_content)).await?; 
-            *logs = jc.logs;
-            Ok(jc.result)
         },
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
