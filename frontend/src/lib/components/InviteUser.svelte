@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { MailPlus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -63,7 +64,12 @@
 
 <Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true}>Invite</Button>
+		<Button color="dark" size="xs" nonCaptureEvent={true}>
+			<div class="flex flex-row gap-1 items-center">
+				<MailPlus size={16} />
+				Invite
+			</div>
+		</Button>
 	</svelte:fragment>
 
 	<div class="flex flex-col gap-2">

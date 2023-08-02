@@ -7,13 +7,15 @@
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { canWrite } from '$lib/utils'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -95,19 +97,23 @@
 	</PageHeader>
 
 	<div class="relative mb-20 pt-8">
-		<TableCustom>
-			<tr slot="header-row">
-				<th class="!px-0" />
-				<th>Name</th>
-				<th class="!text-center">Scripts</th>
-				<th class="!text-center">Flows</th>
-				<th class="!text-center">Apps</th>
-				<th class="!text-center">Schedules</th>
-				<th class="!text-center">Variables</th>
-				<th class="!text-center">Resources</th>
-				<th>Participants</th>
-			</tr>
-			<tbody slot="body">
+		<DataTable>
+			<Head>
+				<tr>
+					<Cell head first>Can write</Cell>
+
+					<Cell head>Name</Cell>
+					<Cell head>Scripts</Cell>
+					<Cell head>Flows</Cell>
+					<Cell head>Apps</Cell>
+					<Cell head>Schedules</Cell>
+					<Cell head>Variables</Cell>
+					<Cell head>Resources</Cell>
+					<Cell head>Participants</Cell>
+					<Cell head last>Actions</Cell>
+				</tr>
+			</Head>
+			<tbody>
 				{#if folders === undefined}
 					{#each new Array(4) as _}
 						<tr>
@@ -119,29 +125,30 @@
 				{:else}
 					{#if folders.length === 0}
 						<tr>
-							<td colspan="4" class="text-tertiary mt-2"> No folders yet, create one! </td>
+							<td colspan="4" class="text-tertiary mt-2">No folders yet, create one!</td>
 						</tr>
 					{/if}
 
 					{#each folders as { name, extra_perms, owners, canWrite }}
 						<tr>
-							<td class="!px-0 text-center">
+							<Cell>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</td>
-							<td>
+							</Cell>
+							<Cell>
 								<a
 									href="#{name}"
 									on:click={() => {
 										editFolderName = name
 										folderDrawer.openDrawer()
 									}}
-									>{name}
+								>
+									{name}
 								</a>
-							</td>
+							</Cell>
 							<FolderUsageInfo {name} tabular />
 
-							<td><FolderInfo members={computeMembers(owners, extra_perms)} /></td>
-							<td>
+							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
+							<Cell>
 								<Dropdown
 									placement="bottom-end"
 									dropdownItems={[
@@ -170,11 +177,11 @@
 										}
 									]}
 								/>
-							</td>
+							</Cell>
 						</tr>
 					{/each}
 				{/if}
 			</tbody>
-		</TableCustom>
+		</DataTable>
 	</div>
 </CenteredPage>

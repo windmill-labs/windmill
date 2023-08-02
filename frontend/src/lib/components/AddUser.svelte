@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { UserPlus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -63,26 +64,29 @@
 	let selected: 'operator' | 'author' | 'admin' = 'author'
 </script>
 
-<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+<Popup
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+>
 	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true}>Add new user</Button>
+		<Button color="dark" size="xs" nonCaptureEvent={true}>
+			<div class="flex flex-row gap-1 items-center">
+				<UserPlus size={16} />
+				Add new user
+			</div>
+		</Button>
 	</svelte:fragment>
-	<div class="flex flex-col gap-2">
-		<input
-			type="email"
-			on:keyup={handleKeyUp}
-			placeholder="email"
-			bind:value={email}
-			class="mr-4"
-		/>
-		<input
-			type="text"
-			on:keyup={handleKeyUp}
-			placeholder="username"
-			bind:value={username}
-			class="mr-4"
-		/>
-		<ToggleButtonGroup bind:selected>
+	<div class="flex flex-col w-72 p-2">
+		<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
+
+		<span class="text-xs mb-1 leading-6">Email</span>
+		<input type="email mb-1" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
+
+		<span class="text-xs mb-1 pt-2 leading-6">Username</span>
+		<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
+
+		<span class="text-xs mb-1 pt-2 leading-6">Role</span>
+		<ToggleButtonGroup bind:selected class="mb-4">
 			<ToggleButton
 				value="operator"
 				size="sm"
@@ -108,7 +112,13 @@
 			variant="contained"
 			color="blue"
 			size="sm"
-			on:click={addUser}
+			on:click={() => {
+				addUser()
+				// @ts-ignore
+				email = undefined
+				// @ts-ignore
+				username = undefined
+			}}
 			disabled={email === undefined}
 		>
 			Add

@@ -3,7 +3,9 @@
 	import { Skeleton } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService, type WorkerPing } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -65,44 +67,53 @@
 			<p>No workers seems to be available</p>
 		{/if}
 		{#each groupedWorkers as [section, workers]}
-			<div class="mt-6">
-				Instance: {section} | IP:
-				<Badge large color="gray">{workers[0].ip}</Badge>
+			<div class="mt-6 mb-2 text-sm">
+				Instance: <Badge color="gray">{section}</Badge>
+				IP: <Badge color="gray">{workers[0].ip}</Badge>
 			</div>
 
-			<TableCustom>
-				<tr slot="header-row">
-					<th>Worker</th>
-					<th
-						>Custom Tags <Tooltip
-							documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
-							>If defined, the workers only pull jobs with the same corresponding tag</Tooltip
-						></th
-					>
-					<th>Last ping</th>
-					<th>Worker start</th>
-					<th>Nb of jobs executed</th>
-					<th>Liveness</th>
-				</tr>
-				<tbody slot="body">
+			<DataTable>
+				<Head>
+					<tr>
+						<Cell head first>Worker</Cell>
+						<Cell head>
+							<div class="flex flex-row items-center gap-1">
+								Custom Tags
+								<Tooltip
+									light
+									documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+								>
+									If defined, the workers only pull jobs with the same corresponding tag
+								</Tooltip>
+							</div>
+						</Cell>
+						<Cell head>Last ping</Cell>
+						<Cell head>Worker start</Cell>
+						<Cell head>Nb of jobs executed</Cell>
+						<Cell head last>Liveness</Cell>
+					</tr>
+				</Head>
+				<tbody>
 					{#if workers}
 						{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
 							<tr>
-								<td class="py-1">{worker}</td>
-								<td class="py-1">{custom_tags?.join(', ') ?? ''}</td>
-								<td class="py-1"
-									>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</td
-								>
-								<td class="py-1">{displayDate(started_at)}</td>
-								<td class="py-1">{jobs_executed}</td>
-								<td class="py-1"
-									>{last_ping != undefined ? (last_ping < 60 ? 'Alive' : 'Dead') : 'Unknown'}</td
-								>
+								<Cell first>{worker}</Cell>
+								<Cell>{custom_tags?.join(', ') ?? ''}</Cell>
+								<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
+								<Cell>{displayDate(started_at)}</Cell>
+								<Cell>{jobs_executed}</Cell>
+								<Cell last>
+									<Badge
+										color={last_ping != undefined ? (last_ping < 60 ? 'green' : 'red') : 'gray'}
+									>
+										{last_ping != undefined ? (last_ping < 60 ? 'Alive' : 'Dead') : 'Unknown'}
+									</Badge>
+								</Cell>
 							</tr>
 						{/each}
 					{/if}
 				</tbody>
-			</TableCustom>
+			</DataTable>
 		{/each}
 	{:else}
 		<div class="flex flex-col">

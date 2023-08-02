@@ -2,33 +2,20 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import AddUser from '$lib/components/AddUser.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
-	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Slider from '$lib/components/Slider.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import type { User } from '$lib/gen'
-	import {
-		OauthService,
-		Script,
-		UserService,
-		WorkspaceService,
-		type WorkspaceInvite
-	} from '$lib/gen'
+	import { OauthService, Script, WorkspaceService } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		existsOpenaiResourcePath,
@@ -44,17 +31,11 @@
 	import { Slack } from 'lucide-svelte'
 
 	let users: User[] | undefined = undefined
-	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] | undefined = undefined
-	let userFilter = ''
 	let initialPath: string
 	let scriptPath: string
 	let team_name: string | undefined
-	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
-	let operatorOnly: boolean | undefined = undefined
 	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
-	let nbDisplayed = 30
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
@@ -155,8 +136,7 @@
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
-		auto_invite_domain = settings.auto_invite_domain
-		operatorOnly = settings.auto_invite_operator
+
 		if (settings.slack_command_script) {
 			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
 		}
@@ -171,52 +151,17 @@
 		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsers({ workspace: $workspaceStore! })
-	}
-
-	async function listInvites(): Promise<void> {
-		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
-	}
-
-	let allowedAutoDomain = false
-
-	async function getDisallowedAutoDomain() {
-		allowedAutoDomain = await WorkspaceService.isDomainAllowed()
-	}
-
 	async function loadPremiumInfo() {
 		if (isCloudHosted()) {
 			premium_info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
 		}
 	}
-	$: domain = $userStore?.email.split('@')[1]
 
 	$: {
 		if ($workspaceStore) {
-			getDisallowedAutoDomain()
-			listUsers()
-			listInvites()
 			loadSettings()
 			loadPremiumInfo()
 		}
-	}
-
-	async function removeAllInvitesFromDomain() {
-		await Promise.all(
-			invites
-				.filter((x) => x.email.endsWith('@' + auto_invite_domain ?? ''))
-				.map(({ email, is_admin, operator }) =>
-					WorkspaceService.deleteInvite({
-						workspace: $workspaceStore ?? '',
-						requestBody: {
-							email,
-							is_admin,
-							operator
-						}
-					})
-				)
-		)
 	}
 
 	async function editErrorHandler() {
@@ -258,16 +203,9 @@
 	}
 </script>
 
-<SearchItems
-	filter={userFilter}
-	items={users}
-	bind:filteredItems={filteredUsers}
-	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
-/>
-
 <CenteredPage>
 	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace Settings of {$workspaceStore}" />
+		<PageHeader title="Workspace settings: {$workspaceStore}" />
 
 		<div class="overflow-x-auto scrollbar-hidden">
 			<Tabs
@@ -276,323 +214,41 @@
 					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
 				}}
 			>
-				<Tab value="users">
+				<Tab size="xs" value="users">
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
-				<Tab value="deploy_to">
+				<Tab size="xs" value="deploy_to">
 					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-					<Tab value="slack">
+					<Tab size="xs" value="slack">
 						<div class="flex gap-2 items-center my-1"> Slack Command </div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
-					<Tab value="premium">
+					<Tab size="xs" value="premium">
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-				<Tab value="export_delete">
+				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-					<Tab value="webhook">
+					<Tab size="xs" value="webhook">
 						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
-				<Tab value="error_handler">
+				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
 
-				<Tab value="openai">
+				<Tab size="xs" value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
-			<div class="flex flex-row justify-between items-center">
-				<PageHeader
-					title="Members ({users?.length ?? ''})"
-					primary={false}
-					tooltip="Manage users manually or enable SSO authentication."
-					documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
-				/>
-
-				<div class="flex flex-row items-center gap-2">
-					<input placeholder="Search users" bind:value={userFilter} class="input" />
-
-					<AddUser on:new={listUsers} />
-				</div>
-			</div>
-
-			<div class="max-h-screen mb-20">
-				<DataTable>
-					<Head>
-						<tr>
-							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary sm:pl-6">
-								Email
-							</th>
-							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Username</th>
-
-							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">
-								Executions (<abbr title="past 5 weeks">5w</abbr>)
-								<Tooltip light>
-									An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
-									the first one
-								</Tooltip>
-							</th>
-							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Status</th>
-							<th class="px-3 py-3.5 text-left text-xs font-semibold text-primary">Role</th>
-							<th class="relative py-3.5 pl-3 pr-4 sm:pr-6">
-								<span class="sr-only">Actions</span>
-							</th>
-						</tr>
-					</Head>
-					<tbody class="divide-y bg-surface">
-						{#if filteredUsers}
-							{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, usage, disabled } (email)}
-								<tr>
-									<td
-										class="whitespace-nowrap py-2 pl-2 pr-2 text-xs font-medium text-primary sm:pl-6"
-									>
-										{email}
-									</td>
-									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">{username}</td>
-									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">
-										{usage?.executions}
-									</td>
-									<td class="whitespace-nowrap px-2 py-2 text-xs text-secondary">
-										<div class="flex gap-1">
-											{#if disabled}
-												<Badge color="red">Disabled</Badge>
-											{:else}
-												<Badge color="green">Enabled</Badge>
-											{/if}
-										</div>
-									</td>
-									<td>
-										<div>
-											<ToggleButtonGroup
-												selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
-												on:selected={async (e) => {
-													if (is_admin && email == $userStore?.email && e.detail != 'admin') {
-														sendUserToast(
-															'Admins cannot be demoted by themselves, ask another admin to demote you',
-															true
-														)
-														e.preventDefault()
-														listUsers()
-														return
-													}
-													const body =
-														e.detail == 'admin'
-															? { is_admin: true, operator: false }
-															: e.detail == 'operator'
-															? { is_admin: false, operator: true }
-															: { is_admin: false, operator: false }
-													await UserService.updateUser({
-														workspace: $workspaceStore ?? '',
-														username,
-														requestBody: body
-													})
-													listUsers()
-												}}
-											>
-												<ToggleButton
-													value="operator"
-													size="xs"
-													label="Operator"
-													tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-												/>
-
-												<ToggleButton
-													value="author"
-													size="xs"
-													label="Author"
-													tooltip="An Author can execute and view scripts/flows/apps, but he can also create new ones."
-												/>
-
-												<ToggleButton
-													value="admin"
-													size="xs"
-													label="Admin"
-													tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-												/>
-											</ToggleButtonGroup>
-										</div>
-									</td>
-									<td
-										class="relative whitespace-nowrap py-2 pl-2 pr-2 text-right text-xs font-medium sm:pr-6"
-									>
-										<div class="flex gap-1">
-											<Button
-												color="light"
-												variant="border"
-												size="xs"
-												on:click={async () => {
-													await UserService.updateUser({
-														workspace: $workspaceStore ?? '',
-														username,
-														requestBody: {
-															disabled: !disabled
-														}
-													})
-													listUsers()
-												}}
-											>
-												{disabled ? 'Enable' : 'Disable'}
-											</Button>
-
-											<Button
-												color="red"
-												variant="border"
-												size="xs"
-												on:click={async () => {
-													await UserService.deleteUser({
-														workspace: $workspaceStore ?? '',
-														username
-													})
-													sendUserToast('User removed')
-													listUsers()
-												}}
-											>
-												Remove
-											</Button>
-										</div>
-									</td>
-								</tr>
-							{/each}
-							{#if filteredUsers?.length > 50}
-								<span class="text-xs"
-									>{nbDisplayed} items out of {filteredUsers.length}
-									<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button
-									></span
-								>
-							{/if}
-						{:else}
-							{#each new Array(6) as _}
-								<tr class="border">
-									{#each new Array(4) as _}
-										<td>
-											<Skeleton layout={[[2]]} />
-										</td>
-									{/each}
-								</tr>
-							{/each}
-						{/if}
-					</tbody>
-				</DataTable>
-			</div>
-			<PageHeader
-				title="Invites ({invites.length ?? ''})"
-				primary={false}
-				tooltip="Manage invites on your workspace."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
-			>
-				<InviteUser on:new={listInvites} />
-			</PageHeader>
-
-			<div class="max-h-screen">
-				<TableCustom>
-					<tr slot="header-row">
-						<th>email</th>
-						<th>role</th>
-						<th>Actions</th>
-					</tr>
-					<tbody slot="body">
-						{#each invites as { email, is_admin, operator }}
-							<tr class="border">
-								<td>{email}</td>
-								<td>
-									{#if operator}
-										<Badge>operator</Badge>
-									{:else if is_admin}
-										<Badge>admin</Badge>
-									{/if}
-								</td>
-								<td>
-									<button
-										class="ml-2 text-red-500"
-										on:click={async () => {
-											await WorkspaceService.deleteInvite({
-												workspace: $workspaceStore ?? '',
-												requestBody: {
-													email,
-													is_admin,
-													operator
-												}
-											})
-											listInvites()
-										}}
-									>
-										Cancel
-									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</TableCustom>
-			</div>
-
-			<div class="mt-10" />
-			<PageHeader
-				title="Auto Invite"
-				tooltip="Auto invite to the workspace users from your domain."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite"
-				primary={false}
-			/>
-			<div class="flex gap-2">
-				{#if auto_invite_domain != domain}
-					<div>
-						<Button
-							disabled={!allowedAutoDomain}
-							on:click={async () => {
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: { operator: false }
-								})
-								loadSettings()
-								listInvites()
-							}}>Set auto-invite to {domain}</Button
-						>
-					</div>
-				{/if}
-				{#if auto_invite_domain}
-					<div class="flex flex-col gap-y-2">
-						<Toggle
-							bind:checked={operatorOnly}
-							options={{
-								right: `Auto-invited users to join as operators`
-							}}
-							on:change={async (e) => {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: { operator: e.detail }
-								})
-								loadSettings()
-								listInvites()
-							}}
-						/>
-						<div>
-							<Button
-								on:click={async () => {
-									await removeAllInvitesFromDomain()
-									await WorkspaceService.editAutoInvite({
-										workspace: $workspaceStore ?? '',
-										requestBody: { operator: undefined }
-									})
-									loadSettings()
-									listInvites()
-								}}>Unset auto-invite from {auto_invite_domain} domain</Button
-							>
-						</div>
-					</div>
-				{/if}
-			</div>
-			{#if !allowedAutoDomain}
-				<div class="text-red-400 text-xs mb-2">{domain} domain not allowed for auto-invite</div>
-			{/if}
+			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
 			<div class="my-2"
 				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
