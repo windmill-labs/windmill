@@ -79,7 +79,8 @@ pub async fn do_snowflake(
     )
     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let qualified_username = format!("{}.{}", database.account_identifier, database.username);
+    let qualified_username =
+        format!("{}.{}", database.account_identifier, database.username).to_uppercase();
 
     let public_key = pem::parse(database.public_key.as_bytes()).map_err(|e| {
         Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
@@ -132,16 +133,28 @@ pub async fn do_snowflake(
 
     let mut body = serde_json::Map::new();
     if database.schema.is_some() {
-        body.insert("schema".to_string(), json!(database.schema.unwrap()));
+        body.insert(
+            "schema".to_string(),
+            json!(database.schema.unwrap().to_uppercase()),
+        );
     }
     if database.warehouse.is_some() {
-        body.insert("warehouse".to_string(), json!(database.warehouse.unwrap()));
+        body.insert(
+            "warehouse".to_string(),
+            json!(database.warehouse.unwrap().to_uppercase()),
+        );
     }
     if database.role.is_some() {
-        body.insert("role".to_string(), json!(database.role.unwrap()));
+        body.insert(
+            "role".to_string(),
+            json!(database.role.unwrap().to_uppercase()),
+        );
     }
     if database.database.is_some() {
-        body.insert("database".to_string(), json!(database.database.unwrap()));
+        body.insert(
+            "database".to_string(),
+            json!(database.database.unwrap().to_uppercase()),
+        );
     }
     body.insert("statement".to_string(), json!(query));
     body.insert("timeout".to_string(), json!(10)); // in seconds
@@ -153,7 +166,7 @@ pub async fn do_snowflake(
     let response = HTTP_CLIENT
         .post(format!(
             "https://{}.snowflakecomputing.com/api/v2/statements/",
-            database.account_identifier
+            database.account_identifier.to_uppercase()
         ))
         .bearer_auth(token)
         .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
