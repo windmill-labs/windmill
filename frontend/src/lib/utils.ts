@@ -604,3 +604,30 @@ export function isCodeInjection(expr: string | undefined): boolean {
 
 	return dynamicTemplateRegex.test(expr)
 }
+
+export async function tryEvery({
+	tryCode,
+	timeoutCode,
+	interval,
+	timeout
+}: {
+	tryCode: () => Promise<any>
+	timeoutCode: () => void
+	interval: number
+	timeout: number
+}) {
+	const times = Math.floor(timeout / interval)
+
+	let i = 0
+	while (i < times) {
+		await sleep(interval)
+		try {
+			await tryCode()
+			break
+		} catch (err) {}
+		i++
+	}
+	if (i >= times) {
+		timeoutCode()
+	}
+}
