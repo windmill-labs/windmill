@@ -4,8 +4,12 @@
 	import type { ActionKind } from '$lib/common'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Alert } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Row from '$lib/components/table/Row.svelte'
 	import { AuditLog, AuditService, UserService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
@@ -113,7 +117,7 @@
 		</label>
 	</div>
 
-	<TableCustom
+	<DataTable
 		on:next={() => {
 			gotoPage((pageIndex ?? 1) + 1)
 		}}
@@ -123,48 +127,47 @@
 		currentPage={pageIndex}
 		paginated={true}
 	>
-		<tr slot="header-row">
-			<th>id</th>
-			<th>timestamp</th>
-
-			<th class="px-1">op kind</th>
-			<th>username</th>
-			<th>operation name</th>
-			<th>resource</th>
-			<th>parameters</th>
-		</tr>
-		<tbody slot="body">
+		<Head>
+			<Cell first head>id</Cell>
+			<Cell head>Timestamp</Cell>
+			<Cell head>Op kind</Cell>
+			<Cell head>Username</Cell>
+			<Cell head>Operation name</Cell>
+			<Cell head>Resource</Cell>
+			<Cell head>Parameters</Cell>
+		</Head>
+		<tbody class="divide-y">
 			{#if logs}
 				{#each logs as { id, timestamp, username, operation, action_kind, resource, parameters }}
-					<tr>
-						<td>{id}</td>
-						<td class="">
+					<Row>
+						<Cell first>{id}</Cell>
+						<Cell>
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-xs">
 								{displayDate(timestamp)}
 							</div>
-						</td>
-						<td class="">
+						</Cell>
+						<Cell>
 							<Icon class="inline m-1" data={kindToIcon(action_kind)} scale={1} />
-						</td>
-						<td class="">
+						</Cell>
+						<Cell>
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
 								{username}
 							</div>
-						</td>
-						<td class=""><pre>{operation}</pre></td>
-						<td class="">{resource}</td>
-						<td class="">
+						</Cell>
+						<Cell><Badge>{operation}</Badge></Cell>
+						<Cell>{resource}</Cell>
+						<Cell last>
 							{#if parameters}
 								<div class="overflow-x-auto no-scrollbar max-w-xs">
 									<pre>{JSON.stringify(parameters, null)}</pre>
 								</div>
 							{/if}
-						</td>
-					</tr>
+						</Cell>
+					</Row>
 				{/each}
 			{/if}
 		</tbody>
-	</TableCustom>
+	</DataTable>
 
 	{#if logs?.length == 0}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
