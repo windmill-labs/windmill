@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
 	import { dbSchema, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -108,33 +107,52 @@ export async function main(args: any) {
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
 		dbSchema.set(undefined)
-		try {
-			const job = await JobService.runScriptPreview({
-				workspace: $workspaceStore!,
-				requestBody: {
-					language: 'deno' as Preview.language,
-					content: content[resourceType],
-					args: {
-						args: '$res:' + resourcePath
-					}
-				}
-			})
-			await new Promise((r) => setTimeout(r, 3000))
-			const testResult = await JobService.getCompletedJob({
-				workspace: $workspaceStore!,
-				id: job
-			})
-			if (testResult) {
-				if (!testResult.success) {
-					throw new Error('Could not query DB schema')
-				} else {
-					dbSchema.set(testResult.result)
+
+		const job = await JobService.runScriptPreview({
+			workspace: $workspaceStore!,
+			requestBody: {
+				language: 'deno' as Preview.language,
+				content: content[resourceType],
+				args: {
+					args: '$res:' + resourcePath
 				}
 			}
-		} catch (err) {
-			console.error(err)
-			sendUserToast('Could not query DB schema', true)
-		}
+		})
+		let i = 1
+		const inter = setInterval(async () => {
+			try {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: job
+				})
+				if (testResult) {
+					if (!testResult.success) {
+						console.error(testResult.result?.['error']?.['message'])
+					} else {
+						dbSchema.set(testResult.result)
+					}
+					clearInterval(inter)
+				}
+			} catch (err) {
+				if (i >= 5) {
+					console.error('Could not query DB schema within 5s')
+					clearInterval(inter)
+					try {
+						await JobService.cancelQueuedJob({
+							workspace: $workspaceStore!,
+							id: job,
+							requestBody: {
+								reason: 'Could not query DB schema within 5s'
+							}
+						})
+					} catch (err) {
+						console.error(err)
+					}
+				}
+			} finally {
+				i += 1
+			}
+		}, 1000)
 	}
 
 	$: resourcePath && resourceType && ['postgresql', 'mysql'].includes(resourceType) && getSchema()

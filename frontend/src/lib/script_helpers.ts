@@ -141,6 +141,11 @@ export const BIGQUERY_INIT_CODE = `-- @name1 (string) = default arg
 INSERT INTO \`demodb.demo\` VALUES (@name1, @name2)
 `
 
+export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
+-- ? name2 (int)
+INSERT INTO demo VALUES (?, ?)
+`
+
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -262,6 +267,9 @@ const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE_TRIGGER,
 	DENO_INIT_CODE,
 	POSTGRES_INIT_CODE,
+	MYSQL_INIT_CODE,
+	BIGQUERY_INIT_CODE,
+	SNOWFLAKE_INIT_CODE,
 	DENO_INIT_CODE_TRIGGER,
 	DENO_INIT_CODE_CLEAR,
 	PYTHON_INIT_CODE_CLEAR,
@@ -334,6 +342,8 @@ export function initialCode(
 		return MYSQL_INIT_CODE
 	} else if (language == 'bigquery') {
 		return BIGQUERY_INIT_CODE
+	} else if (language == 'snowflake') {
+		return SNOWFLAKE_INIT_CODE
 	} else if (language == 'bun') {
 		if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR

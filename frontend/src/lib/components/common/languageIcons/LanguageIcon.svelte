@@ -11,6 +11,7 @@
 	import { Script } from '$lib/gen'
 	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
 	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
+	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -48,6 +49,7 @@
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
 		bigquery: BigQueryIcon,
+		snowflake: SnowflakeIcon,
 		javascript: JavaScript,
 		fetch: FetchIcon,
 		docker: DockerIcon,

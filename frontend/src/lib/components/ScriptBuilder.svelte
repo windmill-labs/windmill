@@ -46,7 +46,7 @@
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 
-	const enterpriseLangs = ['bigquery']
+	const enterpriseLangs = ['bigquery', 'snowflake']
 
 	loadWorkerGroups()
 
@@ -70,6 +70,7 @@
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
+	langs.push(['Snowflake', Script.language.SNOWFLAKE])
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}
