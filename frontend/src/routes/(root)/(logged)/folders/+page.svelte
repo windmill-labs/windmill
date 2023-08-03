@@ -101,13 +101,13 @@
 			<Head>
 				<tr>
 					<Cell head first>Name</Cell>
-					<Cell head>Scripts</Cell>
-					<Cell head>Flows</Cell>
-					<Cell head>Apps</Cell>
-					<Cell head>Schedules</Cell>
-					<Cell head>Variables</Cell>
-					<Cell head>Resources</Cell>
-					<Cell head>Participants</Cell>
+					<Cell head class="w-20">Scripts</Cell>
+					<Cell head class="w-20">Flows</Cell>
+					<Cell head class="w-20">Apps</Cell>
+					<Cell head class="w-20">Schedules</Cell>
+					<Cell head class="w-20">Variables</Cell>
+					<Cell head class="w-20">Resources</Cell>
+					<Cell head class="w-20">Participants</Cell>
 					<Cell head last />
 				</tr>
 			</Head>

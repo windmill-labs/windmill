@@ -18,7 +18,7 @@
 
 {#if tabular}
 	{#each order as key}
-		<Cell>
+		<Cell class="w-20">
 			{usage[key] ?? ''}
 		</Cell>
 	{/each}
