@@ -1263,7 +1263,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             )
         }
         JobPayload::Identity => (None, None, None, JobKind::Identity, None, None, None, None),
-        JobPayload::Http => (None, None, None, JobKind::Http, None, None, None, None),
         JobPayload::Noop => (None, None, None, JobKind::Noop, None, None, None, None),
     };
 
@@ -1406,7 +1405,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
-            JobKind::Http => "jobs.run.http",
             JobKind::Noop => "jobs.run.noop",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };

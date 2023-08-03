@@ -160,6 +160,11 @@
 			"svelte": "./package/components/RadioButton.svelte",
 			"default": "./package/components/RadioButton.svelte"
 		},
+		"./components/Toggle.svelte": {
+			"types": "./package/components/Toggle.svelte.d.ts",
+			"svelte": "./package/components/Toggle.svelte",
+			"default": "./package/components/Toggle.svelte"
+		},
 		"./components/common/tabs/Tabs.svelte": {
 			"types": "./package/components/common/tabs/Tabs.svelte.d.ts",
 			"svelte": "./package/components/common/tabs/Tabs.svelte",
@@ -294,6 +299,9 @@
 			],
 			"components/RadioButton.svelte": [
 				"./package/components/RadioButton.svelte.d.ts"
+			],
+			"components/Toggle.svelte": [
+				"./package/components/Toggle.svelte.d.ts"
 			],
 			"components/common/tabs/Tabs.svelte": [
 				"./package/components/common/tabs/Tabs.svelte.d.ts"

@@ -131,6 +131,9 @@
 	})
 
 	let forceReload = 0
+
+	let editorPanelSize = flowModule.value.type == 'script' ? 30 : 50
+	let editorSettingsPanelSize = 100 - editorPanelSize
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -196,7 +199,7 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={flowModule.value.type == 'script' ? 30 : 50} minSize={20}>
+					<Pane bind:size={editorPanelSize} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}
 							{#key flowModule.id}
 								<Editor
@@ -248,7 +251,7 @@
 							<FlowPathViewer path={flowModule.value.path} />
 						{/if}
 					</Pane>
-					<Pane size={flowModule.value.type == 'script' ? 70 : 50} minSize={20}>
+					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
