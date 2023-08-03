@@ -12,6 +12,8 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	export let flow: {
 		summary: string
 		description?: string
@@ -21,9 +23,12 @@
 	export let overflowAuto = false
 	export let noSide = false
 	export let download = false
+	export let noGraph = false
 
-	let stepDetail: FlowModule | string | undefined = undefined
+	export let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -70,22 +75,29 @@
 	</DrawerContent>
 </Drawer>
 <div class="grid grid-cols-3 w-full h-full">
-	<div
-		class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
-		class:overflow-auto={overflowAuto}
-	>
-		<FlowGraph
-			{download}
-			minHeight={400}
-			modules={flow?.value?.modules}
-			failureModule={flow?.value?.failure_module}
-			on:select={(e) => (stepDetail = e.detail)}
-		/>
-	</div>
+	{#if !noGraph}
+		<div
+			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
+			class:overflow-auto={overflowAuto}
+		>
+			<FlowGraph
+				{download}
+				minHeight={400}
+				modules={flow?.value?.modules}
+				failureModule={flow?.value?.failure_module}
+				on:select={(e) => {
+					stepDetail = e.detail
+					dispatch('select', stepDetail)
+				}}
+			/>
+		</div>
+	{/if}
 	{#if !noSide}
 		<div
-			class="relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t border-gray-400
-			p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4"
+			class={twMerge(
+				'relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4',
+				noGraph ? 'border-0 w-max' : ''
+			)}
 		>
 			{#if stepDetail == undefined}
 				<div>
