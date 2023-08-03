@@ -18,53 +18,28 @@
 	import { Search } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
+	import Row from '../table/Row.svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
 	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
-	let scriptPath: string
 	let auto_invite_domain: string | undefined
-	let itemKind: 'flow' | 'script' = 'flow'
 	let operatorOnly: boolean | undefined = undefined
 	let nbDisplayed = 30
-	let customer_id: string | undefined = undefined
-	let webhook: string | undefined = undefined
-	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerInitialPath: string
-	let errorHandlerScriptPath: string
-	let openaiResourceInitialPath: string | undefined = undefined
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		auto_invite_domain = settings.auto_invite_domain
 		operatorOnly = settings.auto_invite_operator
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
-		customer_id = settings.customer_id
-		workspaceToDeployTo = settings.deploy_to
-		webhook = settings.webhook
-		openaiResourceInitialPath = settings.openai_resource_path
-		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerInitialPath = errorHandlerScriptPath
 	}
-
-	let userLoading: boolean = false
 
 	async function listUsers(): Promise<void> {
-		userLoading = true
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
-		userLoading = false
 	}
 
-	let invitesLoading: boolean = false
-
 	async function listInvites(): Promise<void> {
-		invitesLoading = true
 		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
-		invitesLoading = false
 	}
 
 	let allowedAutoDomain = false
@@ -111,7 +86,7 @@
 
 <div class="flex flex-row justify-between items-center">
 	<PageHeader
-		title="Members ({users?.length ?? ''})"
+		title="Members ({filteredUsers?.length ?? users?.length ?? ''})"
 		primary={false}
 		tooltip="Manage users manually or enable SSO authentication."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
@@ -125,8 +100,14 @@
 	</div>
 </div>
 
-<div class="max-h-screen mb-20">
-	<DataTable>
+<div class="">
+	<DataTable
+		shouldLoadMore={(filteredUsers?.length ?? 0) > 30}
+		loadMore={30}
+		on:loadMore={() => {
+			nbDisplayed += 30
+		}}
+	>
 		<Head>
 			<tr>
 				<Cell head first>Email</Cell>
@@ -217,8 +198,9 @@
 							<div class="flex gap-1">
 								<Button
 									color="light"
-									variant="border"
+									variant="contained"
 									size="xs"
+									spacingSize="xs2"
 									on:click={async () => {
 										await UserService.updateUser({
 											workspace: $workspaceStore ?? '',
@@ -234,9 +216,11 @@
 								</Button>
 
 								<Button
-									color="red"
-									variant="border"
+									color="light"
+									variant="contained"
+									btnClasses="text-red-500"
 									size="xs"
+									spacingSize="xs2"
 									on:click={async () => {
 										await UserService.deleteUser({
 											workspace: $workspaceStore ?? '',
@@ -252,20 +236,12 @@
 						</Cell>
 					</tr>
 				{/each}
-				{#if filteredUsers?.length > 50}
-					<span class="text-xs"
-						>{nbDisplayed} items out of {filteredUsers.length}
-						<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-					>
-				{/if}
 			{:else}
 				{#each new Array(6) as _}
 					<tr class="border">
-						{#each new Array(6) as _}
-							<td>
-								<Skeleton layout={[[2]]} />
-							</td>
-						{/each}
+						<td colspan={6}>
+							<Skeleton layout={[[4]]} />
+						</td>
 					</tr>
 				{/each}
 			{/if}
@@ -286,20 +262,22 @@
 		<Head>
 			<tr>
 				<Cell head first>Email</Cell>
-				<Cell>head Role</Cell>
+				<Cell head>Role</Cell>
 				<Cell head last><span class="sr-only">Actions</span></Cell>
 			</tr>
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if invites?.length > 0}
 				{#each invites as { email, is_admin, operator }}
-					<tr class="border">
+					<Row>
 						<Cell first>{email}</Cell>
 						<Cell>
 							{#if operator}
-								<Badge>operator</Badge>
+								<Badge>Operator</Badge>
 							{:else if is_admin}
-								<Badge>admin</Badge>
+								<Badge>Admin</Badge>
+							{:else}
+								<Badge>Author</Badge>
 							{/if}
 						</Cell>
 						<Cell last>
@@ -320,15 +298,12 @@
 								Cancel
 							</button>
 						</Cell>
-					</tr>
+					</Row>
 				{/each}
 			{:else}
 				<tr>
 					<td colspan="3" class="text-center py-8">
-						<div class="text-xs text-secondary">
-							No invites yet. Invite users to your workspace by clicking on the
-							<code>Invite</code> button above.
-						</div>
+						<div class="text-xs text-secondary"> No invites yet </div>
 					</td>
 				</tr>
 			{/if}

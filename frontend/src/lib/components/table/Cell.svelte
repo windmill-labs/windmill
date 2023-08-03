@@ -11,12 +11,14 @@
 
 <svelte:element
 	this={Tag}
+	{...$$restProps}
 	class={twMerge(
 		'px-2 py-3.5 text-left text-xs text-primary font-normal whitespace-nowrap',
 		first ? 'sm:pl-6' : '',
 		last ? 'sm:pr-6' : '',
 		numeric ? 'text-right' : '',
-		head ? 'font-semibold ' : ''
+		head ? 'font-semibold ' : '',
+		$$restProps.class
 	)}
 >
 	<slot />

@@ -57,6 +57,8 @@
 			}
 		}
 		dispatch('new')
+
+		email = ''
 	}
 
 	let selected: 'operator' | 'author' | 'admin' = 'author'

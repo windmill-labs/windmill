@@ -66,34 +66,37 @@
 		{#if groupedWorkers.length == 0}
 			<p>No workers seems to be available</p>
 		{/if}
-		{#each groupedWorkers as [section, workers]}
-			<div class="mt-6 mb-2 text-sm">
-				Instance: <Badge color="gray">{section}</Badge>
-				IP: <Badge color="gray">{workers[0].ip}</Badge>
-			</div>
 
-			<DataTable>
-				<Head>
-					<tr>
-						<Cell head first>Worker</Cell>
-						<Cell head>
-							<div class="flex flex-row items-center gap-1">
-								Custom Tags
-								<Tooltip
-									light
-									documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
-								>
-									If defined, the workers only pull jobs with the same corresponding tag
-								</Tooltip>
-							</div>
+		<DataTable>
+			<Head>
+				<tr>
+					<Cell head first>Worker</Cell>
+					<Cell head>
+						<div class="flex flex-row items-center gap-1">
+							Custom Tags
+							<Tooltip
+								light
+								documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+							>
+								If defined, the workers only pull jobs with the same corresponding tag
+							</Tooltip>
+						</div>
+					</Cell>
+					<Cell head>Last ping</Cell>
+					<Cell head>Worker start</Cell>
+					<Cell head>Nb of jobs executed</Cell>
+					<Cell head last>Liveness</Cell>
+				</tr>
+			</Head>
+			<tbody>
+				{#each groupedWorkers as [section, workers]}
+					<tr class="border-t">
+						<Cell first colspan="6" scope="colgroup" class="bg-surface-secondary/60 py-2 border-b">
+							Instance: <Badge color="gray">{section}</Badge>
+							IP: <Badge color="gray">{workers[0].ip}</Badge>
 						</Cell>
-						<Cell head>Last ping</Cell>
-						<Cell head>Worker start</Cell>
-						<Cell head>Nb of jobs executed</Cell>
-						<Cell head last>Liveness</Cell>
 					</tr>
-				</Head>
-				<tbody>
+
 					{#if workers}
 						{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
 							<tr>
@@ -112,9 +115,9 @@
 							</tr>
 						{/each}
 					{/if}
-				</tbody>
-			</DataTable>
-		{/each}
+				{/each}
+			</tbody>
+		</DataTable>
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(4) as _}

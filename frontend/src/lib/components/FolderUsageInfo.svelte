@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import Cell from './table/Cell.svelte'
 
 	export let name: string
 	export let tabular = false
@@ -17,9 +18,9 @@
 
 {#if tabular}
 	{#each order as key}
-		<td class="text-center">
+		<Cell>
 			{usage[key] ?? ''}
-		</td>
+		</Cell>
 	{/each}
 {:else}
 	<div class="flex flex-col text-xs text-tertiary">

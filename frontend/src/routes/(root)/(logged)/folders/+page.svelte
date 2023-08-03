@@ -6,7 +6,6 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
@@ -16,6 +15,7 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import Row from '$lib/components/table/Row.svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
@@ -100,9 +100,7 @@
 		<DataTable>
 			<Head>
 				<tr>
-					<Cell head first>Can write</Cell>
-
-					<Cell head>Name</Cell>
+					<Cell head first>Name</Cell>
 					<Cell head>Scripts</Cell>
 					<Cell head>Flows</Cell>
 					<Cell head>Apps</Cell>
@@ -110,10 +108,10 @@
 					<Cell head>Variables</Cell>
 					<Cell head>Resources</Cell>
 					<Cell head>Participants</Cell>
-					<Cell head last>Actions</Cell>
+					<Cell head last />
 				</tr>
 			</Head>
-			<tbody>
+			<tbody class="divide-y">
 				{#if folders === undefined}
 					{#each new Array(4) as _}
 						<tr>
@@ -130,20 +128,15 @@
 					{/if}
 
 					{#each folders as { name, extra_perms, owners, canWrite }}
-						<tr>
-							<Cell>
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</Cell>
-							<Cell>
-								<a
-									href="#{name}"
-									on:click={() => {
-										editFolderName = name
-										folderDrawer.openDrawer()
-									}}
-								>
-									{name}
-								</a>
+						<Row
+							hoverable
+							on:click={() => {
+								editFolderName = name
+								folderDrawer.openDrawer()
+							}}
+						>
+							<Cell first>
+								<span class="text-blue-500">{name}</span>
 							</Cell>
 							<FolderUsageInfo {name} tabular />
 
@@ -178,7 +171,7 @@
 									]}
 								/>
 							</Cell>
-						</tr>
+						</Row>
 					{/each}
 				{/if}
 			</tbody>
