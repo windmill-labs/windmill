@@ -399,6 +399,7 @@ it being synced automatically everyday.
 | WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
 | SAML_METADATA                                 | None                                       | SAML Metadata URL to enable SAML SSO (EE only)                                                                                                                                                     | Server                |
 | SECRET_SALT                                   | None                                       | Secret Salt used for encryption and decryption of secrets. If defined, the secrets will not be decryptable unless the right salt is passed in, which is the case for the workers and the server    | Server + Worker       |
+| OPENAI_AZURE_BASE_PATH                        | None                                       | Azure OpenAI API base path (no trailing slash)                                                                                                                                                     | Server                |
 
 ## Run a local dev setup
 
