@@ -20,6 +20,8 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'sql'
 	} else if (lang == 'bigquery') {
 		return 'sql'
+	} else if (lang == "snowflake") {
+		return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {

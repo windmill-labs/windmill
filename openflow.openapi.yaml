@@ -197,6 +197,7 @@ components:
             - postgresql
             - mysql
             - bigquery
+            - snowflake
             - graphql
             - nativets
         path:

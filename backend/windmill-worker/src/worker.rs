@@ -71,7 +71,7 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
-use crate::bigquery_executor::do_bigquery;
+use crate::{bigquery_executor::do_bigquery, snowflake_executor::do_snowflake};
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
@@ -356,6 +356,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Postgresql),
         Some(ScriptLang::Mysql),
         Some(ScriptLang::Bigquery),
+        Some(ScriptLang::Snowflake),
         Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
@@ -1144,6 +1145,39 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         return Ok(());
                     }
                    
+                } else if job.language == Some(ScriptLang::Snowflake) {
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        return Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()));
+                    }
+
+                    #[cfg(feature = "enterprise")] 
+                    {
+                        wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
+                        let client = client.get_authed().await;
+                        let db: Pool<Postgres> = db.clone();
+    
+                        tokio::task::spawn(async move {
+                            let jc: std::result::Result<JobCompleted, Error> = do_snowflake(job.clone(), &client, &db).await;
+                            parallel_count.fetch_sub(1, Ordering::SeqCst);
+    
+                            match jc {
+                                Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
+                                Err(e) => job_completed_tx.send(JobCompleted {
+                                    job: job,
+                                    result: json!({"error": {
+                                        "name": "ExecutionError",
+                                        "message": e.to_string()
+                                    }}),
+                                    logs: "".to_string(),
+                                    success: false
+                                }).await.expect("send job completed"),
+                            };
+                        });
+                        return Ok(());
+                    }
+                   
                 } else if job.language == Some(ScriptLang::Nativets) {
                     wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
                     logs.push_str("\n--- FETCH TS EXECUTION ---\n");
@@ -1274,6 +1308,17 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             #[cfg(feature = "enterprise")]
                             {
                                 let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
+                                Ok(jc.result)
+                            }
+                        } else if job.language == Some(ScriptLang::Snowflake) {
+                            #[cfg(not(feature = "enterprise"))]
+                            {
+                                Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()))
+                            }
+
+                            #[cfg(feature = "enterprise")]
+                            {
+                                let jc = do_snowflake(job.clone(), &client.get_authed().await, &db).await?;
                                 Ok(jc.result)
                             }
                         } else if job.language == Some(ScriptLang::Nativets) {
@@ -2383,6 +2428,7 @@ async fn capture_dependency_job(
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),
+        ScriptLang::Snowflake => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
 

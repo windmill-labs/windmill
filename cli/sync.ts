@@ -136,6 +136,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "postgresql") ext = "pg.sql";
       else if (language == "mysql") ext = "my.sql";
       else if (language == "bigquery") ext = "bq.sql";
+      else if (language == "snowflake") ext = "sf.sql";
       else if (language == "bun") ext = "bun.ts";
 
       return `${name}.inline_script.${ext}`;

@@ -10,7 +10,8 @@ import init, {
 	parse_python,
 	parse_sql,
 	parse_mysql,
-	parse_bigquery
+	parse_bigquery,
+	parse_snowflake
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 
@@ -53,6 +54,12 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_bigquery(code))
 			inferedSchema.args = [
 				{ name: 'database', typ: { resource: 'gcp_service_account' } },
+				...inferedSchema.args
+			]
+		} else if (language == 'snowflake') {
+			inferedSchema = JSON.parse(parse_snowflake(code))
+			inferedSchema.args = [
+				{ name: 'database', typ: { resource: 'snowflake' } },
 				...inferedSchema.args
 			]
 		} else if (language == 'go') {

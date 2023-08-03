@@ -122,7 +122,7 @@ pub async fn do_bigquery(
                         .unwrap_or(&vec![])
                         .iter()
                         .map(|x| {
-                            convert_val(base_type.to_string(), x.clone()).ok().unwrap()
+                            convert_val(base_type.to_string(), x.clone())
                         })
                         .collect::<Vec<Value>>()
                 }
@@ -134,7 +134,7 @@ pub async fn do_bigquery(
                     "type": arg_t.to_uppercase()
                 },
                 "parameterValue": {
-                    "value": convert_val(arg_t, arg_v)?,
+                    "value": convert_val(arg_t, arg_v),
                 }
             })
         };
@@ -239,7 +239,7 @@ pub async fn do_bigquery(
     }
 }
 
-fn convert_val(arg_t: String, arg_v: Value) -> Result<Value, Error> {
+fn convert_val(arg_t: String, arg_v: Value) -> Value {
     match arg_t.as_str() {
         "timestamp" | "datetime" | "date" | "time" => {
             let mut v: String = arg_v.as_str().unwrap_or("").to_owned();
@@ -269,7 +269,7 @@ fn convert_val(arg_t: String, arg_v: Value) -> Result<Value, Error> {
                 _ => {}
             }
 
-            Ok(json!({ "value": json!(v) }))
+            json!({ "value": json!(v) })
         }
         _ => {
             let mut v = arg_v;
@@ -279,10 +279,10 @@ fn convert_val(arg_t: String, arg_v: Value) -> Result<Value, Error> {
                 v = json!(v.to_string());
             }
 
-            Ok(json!({
+            json!({
                     "value": v,
                 }
-            ))
+            )
         }
     }
 }
