@@ -7,19 +7,23 @@
 	export let primary: boolean = true
 </script>
 
-<div class="flex flex-row flex-wrap justify-between mt-4 mb-2 min-h-[48px]">
+<div class="flex flex-row flex-wrap justify-between pt-6 pb-2 my-4">
 	{#if primary}
-		<span class="flex items-center space-x-2 mb-2">
-			<h1>{title}</h1>
+		<span class="flex items-center space-x-2">
+			<h1 class="!text-2xl font-semibold leading-6 tracking-tight">{title}</h1>
 			{#if tooltip != '' || documentationLink}
-				<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+				<Tooltip light {documentationLink} scale={0.9} wrapperClass="flex items-center">
+					{tooltip}
+				</Tooltip>
 			{/if}
 		</span>
 	{:else}
 		<span class="flex items-center space-x-2">
-			<h2>{title}</h2>
+			<h2 class="!text-sm font-semibold">{title}</h2>
 			{#if tooltip != '' || documentationLink}
-				<Tooltip>{tooltip}</Tooltip>
+				<Tooltip light {documentationLink} scale={0.9} wrapperClass="flex items-center">
+					{tooltip}
+				</Tooltip>
 			{/if}
 		</span>
 	{/if}

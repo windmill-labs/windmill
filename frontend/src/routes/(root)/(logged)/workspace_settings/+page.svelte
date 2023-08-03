@@ -2,30 +2,20 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import AddUser from '$lib/components/AddUser.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
-	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Slider from '$lib/components/Slider.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import type { User } from '$lib/gen'
-	import {
-		OauthService,
-		Script,
-		UserService,
-		WorkspaceService,
-		type WorkspaceInvite
-	} from '$lib/gen'
+	import { OauthService, Script, WorkspaceService } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		existsOpenaiResourcePath,
@@ -38,19 +28,14 @@
 	import { capitalize, setQueryWithoutLoad } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { Slack } from 'lucide-svelte'
 
 	let users: User[] | undefined = undefined
-	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] | undefined = undefined
-	let userFilter = ''
 	let initialPath: string
 	let scriptPath: string
 	let team_name: string | undefined
-	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
-	let operatorOnly: boolean | undefined = undefined
 	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
-	let nbDisplayed = 30
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
@@ -151,8 +136,7 @@
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
-		auto_invite_domain = settings.auto_invite_domain
-		operatorOnly = settings.auto_invite_operator
+
 		if (settings.slack_command_script) {
 			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
 		}
@@ -167,52 +151,17 @@
 		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsers({ workspace: $workspaceStore! })
-	}
-
-	async function listInvites(): Promise<void> {
-		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
-	}
-
-	let allowedAutoDomain = false
-
-	async function getDisallowedAutoDomain() {
-		allowedAutoDomain = await WorkspaceService.isDomainAllowed()
-	}
-
 	async function loadPremiumInfo() {
 		if (isCloudHosted()) {
 			premium_info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
 		}
 	}
-	$: domain = $userStore?.email.split('@')[1]
 
 	$: {
 		if ($workspaceStore) {
-			getDisallowedAutoDomain()
-			listUsers()
-			listInvites()
 			loadSettings()
 			loadPremiumInfo()
 		}
-	}
-
-	async function removeAllInvitesFromDomain() {
-		await Promise.all(
-			invites
-				.filter((x) => x.email.endsWith('@' + auto_invite_domain ?? ''))
-				.map(({ email, is_admin, operator }) =>
-					WorkspaceService.deleteInvite({
-						workspace: $workspaceStore ?? '',
-						requestBody: {
-							email,
-							is_admin,
-							operator
-						}
-					})
-				)
-		)
 	}
 
 	async function editErrorHandler() {
@@ -254,16 +203,9 @@
 	}
 </script>
 
-<SearchItems
-	filter={userFilter}
-	items={users}
-	bind:filteredItems={filteredUsers}
-	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
-/>
-
 <CenteredPage>
 	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace Settings of {$workspaceStore}" />
+		<PageHeader title="Workspace settings: {$workspaceStore}" />
 
 		<div class="overflow-x-auto scrollbar-hidden">
 			<Tabs
@@ -272,287 +214,41 @@
 					setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
 				}}
 			>
-				<Tab size="md" value="users">
+				<Tab size="xs" value="users">
 					<div class="flex gap-2 items-center my-1"> Users</div>
 				</Tab>
-				<Tab size="md" value="deploy_to">
+				<Tab size="xs" value="deploy_to">
 					<div class="flex gap-2 items-center my-1"> Dev/Staging/Prod</div>
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
-					<Tab size="md" value="slack">
+					<Tab size="xs" value="slack">
 						<div class="flex gap-2 items-center my-1"> Slack Command </div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
-					<Tab size="md" value="premium">
+					<Tab size="xs" value="premium">
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-				<Tab size="md" value="export_delete">
+				<Tab size="xs" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
 				</Tab>
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-					<Tab size="md" value="webhook">
+					<Tab size="xs" value="webhook">
 						<div class="flex gap-2 items-center my-1">Webhook</div>
 					</Tab>
 				{/if}
-				<Tab size="md" value="error_handler">
+				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
 
-				<Tab size="md" value="openai">
+				<Tab size="xs" value="openai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
-			<PageHeader
-				title="Members ({users?.length ?? ''})"
-				primary={false}
-				tooltip="Manage users manually or enable SSO authentication."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
-			/>
-
-			<AddUser on:new={listUsers} />
-
-			<div class="pt-2 pb-1">
-				<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
-			</div>
-			<div class="overflow-auto max-h-screen mb-20">
-				<TableCustom>
-					<tr slot="header-row">
-						<th>email</th>
-						<th>username</th>
-						<th
-							>executions (<abbr title="past 5 weeks">5w</abbr>) <Tooltip
-								>An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
-								the first one</Tooltip
-							>
-						</th>
-						<th />
-						<th />
-						<th />
-					</tr>
-					<tbody slot="body">
-						{#if filteredUsers}
-							{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, usage, disabled } (email)}
-								<tr class="border">
-									<td>{email}</td>
-									<td>{username}</td>
-									<td>{usage?.executions}</td>
-									<td
-										><div class="flex gap-1"
-											>{#if disabled}
-												<Badge color="red">disabled</Badge>
-											{/if}</div
-										></td
-									>
-									<td>
-										<div>
-											<ToggleButtonGroup
-												selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
-												on:selected={async (e) => {
-													if (is_admin && email == $userStore?.email && e.detail != 'admin') {
-														sendUserToast(
-															'Admins cannot be demoted by themselves, ask another admin to demote you',
-															true
-														)
-														e.preventDefault()
-														listUsers()
-														return
-													}
-													const body =
-														e.detail == 'admin'
-															? { is_admin: true, operator: false }
-															: e.detail == 'operator'
-															? { is_admin: false, operator: true }
-															: { is_admin: false, operator: false }
-													await UserService.updateUser({
-														workspace: $workspaceStore ?? '',
-														username,
-														requestBody: body
-													})
-													listUsers()
-												}}
-											>
-												<ToggleButton position="left" value="operator" size="xs"
-													>Operator <Tooltip
-														>An operator can only execute and view scripts/flows/apps from your
-														workspace, and only those that he has visibility on.</Tooltip
-													></ToggleButton
-												>
-												<ToggleButton position="center" value="author" size="xs"
-													>Author <Tooltip
-														>An Author can execute and view scripts/flows/apps, but he can also
-														create new ones.</Tooltip
-													></ToggleButton
-												>
-												<ToggleButton position="right" value="admin" size="xs"
-													>Admin<Tooltip
-														>An admin has full control over a specific Windmill workspace, including
-														the ability to manage users, edit entities, and control permissions
-														within the workspace.</Tooltip
-													></ToggleButton
-												>
-											</ToggleButtonGroup>
-										</div>
-									</td>
-									<td>
-										<div class="flex gap-1">
-											<button
-												class="text-blue-500"
-												on:click={async () => {
-													await UserService.updateUser({
-														workspace: $workspaceStore ?? '',
-														username,
-														requestBody: {
-															disabled: !disabled
-														}
-													})
-													listUsers()
-												}}>{disabled ? 'enable' : 'disable'}</button
-											>
-											|
-											<button
-												class="text-red-500"
-												on:click={async () => {
-													await UserService.deleteUser({
-														workspace: $workspaceStore ?? '',
-														username
-													})
-													sendUserToast('User removed')
-													listUsers()
-												}}>remove</button
-											>
-										</div>
-									</td>
-								</tr>
-							{/each}
-							{#if filteredUsers?.length > 50}
-								<span class="text-xs"
-									>{nbDisplayed} items out of {filteredUsers.length}
-									<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button
-									></span
-								>
-							{/if}
-						{:else}
-							{#each new Array(6) as _}
-								<tr class="border">
-									{#each new Array(4) as _}
-										<td>
-											<Skeleton layout={[[2]]} />
-										</td>
-									{/each}
-								</tr>
-							{/each}
-						{/if}
-					</tbody>
-				</TableCustom>
-			</div>
-			<PageHeader
-				title="Invites ({invites.length ?? ''})"
-				primary={false}
-				tooltip="Manage invites on your workspace."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
-			>
-				<InviteUser on:new={listInvites} />
-			</PageHeader>
-
-			<div class="overflow-auto max-h-screen">
-				<TableCustom>
-					<tr slot="header-row">
-						<th>email</th>
-						<th>role</th>
-						<th />
-					</tr>
-					<tbody slot="body">
-						{#each invites as { email, is_admin, operator }}
-							<tr class="border">
-								<td>{email}</td>
-								<td
-									>{#if operator}<Badge>operator</Badge>{:else if is_admin}<Badge>admin</Badge>{/if}
-								</td>
-								<td>
-									<button
-										class="ml-2 text-red-500"
-										on:click={async () => {
-											await WorkspaceService.deleteInvite({
-												workspace: $workspaceStore ?? '',
-												requestBody: {
-													email,
-													is_admin,
-													operator
-												}
-											})
-											listInvites()
-										}}>cancel</button
-									></td
-								>
-							</tr>
-						{/each}
-					</tbody>
-				</TableCustom>
-			</div>
-
-			<div class="mt-10" />
-			<PageHeader
-				title="Auto Invite"
-				tooltip="Auto invite to the workspace users from your domain."
-				documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#auto-invite"
-				primary={false}
-			/>
-			<div class="flex gap-2">
-				{#if auto_invite_domain != domain}
-					<div>
-						<Button
-							disabled={!allowedAutoDomain}
-							on:click={async () => {
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: { operator: false }
-								})
-								loadSettings()
-								listInvites()
-							}}>Set auto-invite to {domain}</Button
-						>
-					</div>
-				{/if}
-				{#if auto_invite_domain}
-					<div class="flex flex-col gap-y-2">
-						<Toggle
-							bind:checked={operatorOnly}
-							options={{
-								right: `Auto-invited users to join as operators`
-							}}
-							on:change={async (e) => {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: { operator: e.detail }
-								})
-								loadSettings()
-								listInvites()
-							}}
-						/>
-						<div>
-							<Button
-								on:click={async () => {
-									await removeAllInvitesFromDomain()
-									await WorkspaceService.editAutoInvite({
-										workspace: $workspaceStore ?? '',
-										requestBody: { operator: undefined }
-									})
-									loadSettings()
-									listInvites()
-								}}>Unset auto-invite from {auto_invite_domain} domain</Button
-							>
-						</div>
-					</div>
-				{/if}
-			</div>
-			{#if !allowedAutoDomain}
-				<div class="text-red-400 text-sm mb-2">{domain} domain not allowed for auto-invite</div>
-			{/if}
+			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
 			<div class="my-2"
 				><Alert type="info" title="Link this workspace to another Staging/Prod workspace"
@@ -584,7 +280,7 @@
 					</div>
 				{/if}
 
-				<div class="text-sm mb-4 box p-2 max-w-3xl">
+				<div class="text-xs mb-4 box p-2 max-w-3xl">
 					{#if premium_info?.premium}
 						<div class="flex flex-col gap-0.5">
 							{#if plan}
@@ -678,7 +374,7 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-sm flex flex-col h-full overflow-hidden">
+						<div class="box p-4 text-xs flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
 							<ul class="list-disc text-lg p-4">
 								{#each planDesc as item}
@@ -721,85 +417,94 @@
 				</div>
 			{/if}
 		{:else if tab == 'slack'}
-			<div class="mt-2"
-				><Alert type="info" title="Send commands from slack"
-					>Connect your windmill workspace to your slack workspace to trigger a script or a flow
-					with a '/windmill' command.</Alert
-				></div
-			>
-			<p class="text-xs text-secondary my-1 mt-2">
-				Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
-					connected{/if}
-			</p>
-			{#if team_name}
-				<div class="flex flex-col gap-2 max-w-sm">
-					<Button
-						size="sm"
-						endIcon={{ icon: faSlack }}
-						btnClasses="mt-2"
-						variant="border"
-						on:click={async () => {
-							await OauthService.disconnectSlack({
-								workspace: $workspaceStore ?? ''
-							})
-							loadSettings()
-							sendUserToast('Disconnected Slack')
-						}}
-					>
-						Disconnect Slack
-					</Button>
-					<Button
-						size="sm"
-						endIcon={{ icon: faScroll }}
-						href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-					>
-						Create a script to handle slack commands
-					</Button>
-					<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
-						Create a flow to handle slack commands
-					</Button>
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-md font-semibold"> Send commands from slack </div>
+					<div class="text-tertiary text-xs">
+						Connect your windmill workspace to your slack workspace to trigger a script or a flow
+						with a '/windmill' command.
+					</div>
 				</div>
-			{:else}
-				<div class="flex">
-					<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
-						Connect to Slack
-					</Button>
+
+				{#if team_name}
+					<div class="flex flex-col gap-2 max-w-sm">
+						<Button
+							size="sm"
+							endIcon={{ icon: faSlack }}
+							btnClasses="mt-2"
+							variant="border"
+							on:click={async () => {
+								await OauthService.disconnectSlack({
+									workspace: $workspaceStore ?? ''
+								})
+								loadSettings()
+								sendUserToast('Disconnected Slack')
+							}}
+						>
+							Disconnect Slack
+						</Button>
+						<Button
+							size="sm"
+							endIcon={{ icon: faScroll }}
+							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						>
+							Create a script to handle slack commands
+						</Button>
+						<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
+							Create a flow to handle slack commands
+						</Button>
+					</div>
+				{:else}
+					<div class="flex flex-row gap-2">
+						<Button size="xs" color="dark" href="/api/oauth/connect_slack">
+							<div class="flex flex-row gap-1 items-center">
+								<Slack size={14} />
+								Connect to Slack
+							</div>
+						</Button>
+						<Badge color="red">Not connnected</Badge>
+					</div>
+				{/if}
+			</div>
+			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
+				<div class="text-primary font-md font-semibold">
+					Script or flow to run on /windmill command
 				</div>
-			{/if}
-			<h3 class="mt-5 text-secondary">
-				Script or flow to run on /windmill command
-				<Tooltip documentationLink="https://www.windmill.dev/docs/integrations/slack">
-					The script or flow to be triggered when the `/windmill` command is invoked.
-				</Tooltip>
-			</h3>
-			<ScriptPicker
-				kind={Script.kind.SCRIPT}
-				allowFlow
-				bind:itemKind
-				bind:scriptPath
-				{initialPath}
-				on:select={editSlackCommand}
-			/>
-			<br />
-			<div class="text-tertiary text-sm">
-				Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-				connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/">script</a
-				>
-				and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+				<div class="relative">
+					{#if !team_name}
+						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
+					{/if}
+					<ScriptPicker
+						kind={Script.kind.SCRIPT}
+						allowFlow
+						bind:itemKind
+						bind:scriptPath
+						{initialPath}
+						on:select={editSlackCommand}
+					/>
+				</div>
 
-				<br /><br />
+				<div class="prose text-2xs text-tertiary">
+					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
+					connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/"
+						>script</a
+					>
+					and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
 
-				The script or flow chosen is passed the parameters `response_url: string` and `text: string`
-				respectively the url to reply directly to the trigger and the text of the command.
+					<br /><br />
 
-				<br /><br />
+					The script or flow chosen is passed the parameters `response_url: string` and `text:
+					string` respectively the url to reply directly to the trigger and the text of the command.
 
-				The script or flow is permissioned as group "slack" that will be automatically created after
-				connection to Slack.
+					<br /><br />
 
-				<br /><br />
+					The script or flow is permissioned as group "slack" that will be automatically created
+					after connection to Slack.
 
-				See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
+					<br /><br />
+
+					See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
+				</div>
 			</div>
 		{:else if tab == 'export_delete'}
 			<PageHeader title="Export workspace" primary={false} />
@@ -878,9 +583,7 @@
 
 			<div class="flex gap-2">
 				<input class="justify-start" type="text" bind:value={webhook} />
-				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
-					>Set Webhook</Button
-				>
+				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set Webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
 			<PageHeader title="Script to run as error handler" primary={false} />
@@ -894,7 +597,7 @@
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
-					<div class="text-tertiary text-sm">
+					<div class="text-tertiary text-xs">
 						The following args will be passed to the error handler:
 						<ul class="mt-1 ml-2">
 							<li><b>path</b>: The path of the script or flow that errored.</li>
