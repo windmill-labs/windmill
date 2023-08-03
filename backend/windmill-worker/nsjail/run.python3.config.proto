@@ -58,14 +58,6 @@ mount {
 }
 
 mount {
-    src: "/nsjail_data/python/nltk_data"
-    dst: "/tmp/nltk_data"
-    is_bind: true
-    rw: false
-    mandatory: false
-}
-
-mount {
     src: "{JOB_DIR}/{MAIN}.py"
     dst: "/tmp/{MAIN}.py"
     is_bind: true
