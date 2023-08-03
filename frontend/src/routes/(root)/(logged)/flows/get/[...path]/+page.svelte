@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, JobService, type Flow } from '$lib/gen'
+	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import {
 		canWrite,
 		defaultIfEmptyString,
@@ -220,6 +220,7 @@
 				break
 		}
 	}
+	let stepDetail: FlowModule | string | undefined = undefined
 </script>
 
 <Skeleton
@@ -239,7 +240,11 @@
 />
 
 {#if flow}
-	<DetailPageLayout isOperator={$userStore?.operator} flow_json={flow.value}>
+	<DetailPageLayout
+		isOperator={$userStore?.operator}
+		flow_json={flow.value}
+		hasStepDetails={Boolean(stepDetail)}
+	>
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
@@ -288,7 +293,19 @@
 					</Pane>
 					<Pane size={40} minSize={20}>
 						<div class="!bg-surface-secondary h-full">
-							<FlowGraphViewer download {flow} overflowAuto noSide={true} />
+							<FlowGraphViewer
+								download
+								{flow}
+								overflowAuto
+								noSide={true}
+								on:select={(e) => {
+									if (e.detail.id) {
+										stepDetail = e.detail
+									} else {
+										stepDetail = undefined
+									}
+								}}
+							/>
 						</div>
 					</Pane>
 				</Splitpanes>
@@ -333,6 +350,12 @@
 				<InlineCodeCopy content={cliCommand} />
 				<CliHelpBox />
 			</div>
+		</svelte:fragment>
+
+		<svelte:fragment slot="flow_step">
+			{#if stepDetail}
+				<FlowGraphViewer download {flow} overflowAuto noSide={false} noGraph={true} {stepDetail} />
+			{/if}
 		</svelte:fragment>
 	</DetailPageLayout>
 {/if}
