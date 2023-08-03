@@ -119,7 +119,7 @@
 				// @ts-ignore
 				username = undefined
 			}}
-			disabled={email === undefined}
+			disabled={email === undefined || username === undefined}
 		>
 			Add
 		</Button>
