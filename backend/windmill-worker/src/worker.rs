@@ -16,7 +16,7 @@ use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::Duration,
-    sync::{Arc, atomic::{Ordering, AtomicUsize}},
+    sync::{Arc, atomic::Ordering},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
 };
@@ -166,10 +166,6 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or(DEFAULT_SLEEP_QUEUE);
 
-    static ref PARALLEL_NATIVE_JOBS: usize = std::env::var("PARALLEL_NATIVE_JOBS")
-    .ok()
-    .and_then(|x| x.parse::<usize>().ok())
-    .unwrap_or(DEFAULT_NATIVE_JOBS);
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
     .ok()
@@ -483,7 +479,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
-    let current_native_jobs = Arc::new(AtomicUsize::new(0));
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
@@ -713,7 +708,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url,
                         rsmq.clone(),
                         job_completed_tx.clone(),
-                        current_native_jobs.clone(),
                     )
                     .await
                     .err()
@@ -961,13 +955,6 @@ async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, code: 
     });
 }
 
-async fn wait_available_worker_for_native_job(parallel_count: Arc<AtomicUsize>, job: &QueuedJob) {
-    while parallel_count.load(Ordering::SeqCst) >= *PARALLEL_NATIVE_JOBS {
-        tracing::info!("Waiting for an available worker of a native job for {}", job.id);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    parallel_count.fetch_add(1, Ordering::SeqCst);
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -982,7 +969,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<JobCompleted>,
-    parallel_count: Arc<AtomicUsize>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -1017,142 +1003,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             logs.push_str(&format!("job {} on worker {} (tag: {})\n", &job.id, &worker_name, &job.tag));
 
             set_logs(&logs, &job.id, db).await;
-
-            if !job.is_flow_step {
-                if job.language == Some(ScriptLang::Postgresql) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-                        let jc = {
-                            let query = get_content(&job, &db).await;
-                            if query.is_err() {
-                                Err(query.err().unwrap())
-                            } else {
-                                do_postgresql(job.clone(), &client, &query.ok().unwrap()).await
-                            }
-                        };
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } else if job.language == Some(ScriptLang::Mysql) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-                        let jc = {
-                            let query = get_content(&job, &db).await;
-                            if query.is_err() {
-                                Err(query.err().unwrap())
-                            } else {
-                                do_mysql(job.clone(), &client,  &query.ok().unwrap()).await
-                            }
-                        };
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } else if job.language == Some(ScriptLang::Bigquery) {
-
-                    #[cfg(not(feature = "enterprise"))]
-                    {
-                        return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
-                    }
-
-                    #[cfg(feature = "enterprise")] 
-                    {
-                        wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                        let client = client.get_authed().await;
-                        let db: Pool<Postgres> = db.clone();
-    
-                        tokio::task::spawn(async move {
-                            let jc: std::result::Result<JobCompleted, Error> = {
-                                let query = get_content(&job, &db).await;
-                                if query.is_err() {
-                                    Err(query.err().unwrap())
-                                } else {
-                                    do_bigquery(job.clone(), &client, &db).await
-                                }
-                            };
-                            parallel_count.fetch_sub(1, Ordering::SeqCst);
-    
-                            match jc {
-                                Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                                Err(e) => job_completed_tx.send(JobCompleted {
-                                    job: job,
-                                    result: json!({"error": {
-                                        "name": "ExecutionError",
-                                        "message": e.to_string()
-                                    }}),
-                                    logs: "".to_string(),
-                                    success: false
-                                }).await.expect("send job completed"),
-                            };
-                        });
-                        return Ok(());
-                    }
-                   
-                } else if job.language == Some(ScriptLang::Nativets) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-
-                        let jc = {
-                            let query = get_content(&job, &db).await;
-                            if query.is_err() {
-                                Err(query.err().unwrap())
-                            } else {
-                                do_nativets(job.clone(), logs, &client, query.ok().unwrap()).await
-                            }
-                        };
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } 
-            };
 
 
             let (cache_ttl, step) = if job.is_flow_step {
