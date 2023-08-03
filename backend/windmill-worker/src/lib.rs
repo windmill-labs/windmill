@@ -1,5 +1,7 @@
 #[cfg(feature = "enterprise")]
 mod bigquery_executor;
+#[cfg(feature = "enterprise")]
+mod snowflake_executor;
 
 mod common;
 mod global_cache;

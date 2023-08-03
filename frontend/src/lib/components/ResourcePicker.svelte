@@ -94,54 +94,55 @@
 		}
 	}}
 />
+<div class="flex flex-col w-full items-start">
+	<div class="flex flex-row gap-x-1 w-full">
+		<Select
+			portal={!disablePortal}
+			value={valueSelect}
+			on:change={(e) => {
+				value = e.detail.value
+				valueSelect = e.detail
+			}}
+			on:clear={() => {
+				value = undefined
+				valueSelect = undefined
+			}}
+			items={collection}
+			class="text-clip grow min-w-0"
+			placeholder="{resourceType ?? 'any'} resource"
+			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+			containerStyles={darkMode
+				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		/>
 
-<div class="flex flex-row gap-x-1 w-full">
-	<Select
-		portal={!disablePortal}
-		value={valueSelect}
-		on:change={(e) => {
-			value = e.detail.value
-			valueSelect = e.detail
-		}}
-		on:clear={() => {
-			value = undefined
-			valueSelect = undefined
-		}}
-		items={collection}
-		class="text-clip grow min-w-0"
-		placeholder="{resourceType ?? 'any'} resource"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-	/>
+		{#if value && value != ''}
+			<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
+				<Icon scale={0.8} data={faPen} /></Button
+			>
+		{/if}
 
-	{#if value && value != ''}
-		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
-			<Icon scale={0.8} data={faPen} /></Button
+		<Button
+			color="light"
+			variant="border"
+			size="xs"
+			on:click={() => appConnect?.open?.(resourceType)}
 		>
-	{/if}
-
-	<Button
-		color="light"
-		variant="border"
-		size="xs"
-		on:click={() => appConnect?.open?.(resourceType)}
-	>
-		<Icon scale={0.8} data={faPlus} />
-	</Button>
-	<Button
-		variant="border"
-		color="light"
-		size="xs"
-		on:click={() => {
-			loadResources(resourceType)
-		}}
-	>
-		<Icon scale={0.8} data={faRotateRight} />
-	</Button>
+			<Icon scale={0.8} data={faPlus} />
+		</Button>
+		<Button
+			variant="border"
+			color="light"
+			size="xs"
+			on:click={() => {
+				loadResources(resourceType)
+			}}
+		>
+			<Icon scale={0.8} data={faRotateRight} />
+		</Button>
+	</div>
+	<DbSchemaExplorer {resourceType} resourcePath={value} />
 </div>
-<DbSchemaExplorer {resourceType} resourcePath={value} />
 
 <style>
 	:global(.svelte-select-list) {

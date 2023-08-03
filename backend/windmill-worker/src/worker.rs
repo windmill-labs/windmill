@@ -70,7 +70,7 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
-use crate::bigquery_executor::do_bigquery;
+use crate::{bigquery_executor::do_bigquery, snowflake_executor::do_snowflake};
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
@@ -351,6 +351,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         Some(ScriptLang::Postgresql),
         Some(ScriptLang::Mysql),
         Some(ScriptLang::Bigquery),
+        Some(ScriptLang::Snowflake),
         Some(ScriptLang::Bun)];
 
     let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
@@ -1336,6 +1337,17 @@ async fn handle_code_execution_job(
             let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
             return Ok(jc.result)
         }
+    } else if language == Some(ScriptLang::Snowflake) {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            return Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()))
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            let jc = do_snowflake(job.clone(), &client.get_authed().await, &db).await?;
+            return Ok(jc.result)
+        }
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, inner_content).await?; 
@@ -2211,6 +2223,7 @@ async fn capture_dependency_job(
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),
+        ScriptLang::Snowflake => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
 

@@ -75,6 +75,7 @@ lazy_static::lazy_static! {
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
+        "snowflake".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
         "hub".to_string(),
