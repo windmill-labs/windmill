@@ -587,3 +587,20 @@ export function toCamel(s: string) {
 		return $1.toUpperCase().replace('-', '').replace('_', '')
 	})
 }
+
+export function cleanExpr(expr: string): string {
+	return expr
+		.split('\n')
+		.filter((x) => x != '' && !x.startsWith(`import `))
+		.join('\n')
+}
+
+const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
+
+export function isCodeInjection(expr: string | undefined): boolean {
+	if (!expr) {
+		return false
+	}
+
+	return dynamicTemplateRegex.test(expr)
+}

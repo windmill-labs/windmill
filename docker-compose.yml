@@ -32,7 +32,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
-      ## You can set the number of workers to > 0 and not need any separate worker service but not recommended
+      ## You can set the number of workers to 1 and not need any separate worker service but not recommended
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false
@@ -74,13 +74,17 @@ services:
       - ./oauth.json:/usr/src/app/oauth.json
       - worker_dependency_cache:/tmp/windmill/cache
 
-  ## This worker is specialized for "native" jobs. Jobs that are lightweight and run "in-process" and can thus be parallelized to more than 1 at a time on a given worker
+  ## This worker is specialized for "native" jobs. They run in-process and can thus be parallelized to more than 1 at a time on a given worker which is why NUM_WORKERS is set to 4
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 1
+      resources:
+          limits:
+            cpus: "0.25"
+            memory: 512M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -89,7 +93,7 @@ services:
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
-      - PARALLEL_NATIVE_JOBS=12
+      - NUM_WORKERS=4
       - WORKER_TAGS=nativets,postgresql,mysql,graphql
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}

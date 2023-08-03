@@ -102,7 +102,6 @@
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
 			if (s.on_failure) {
-				console.log(s.on_failure)
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')

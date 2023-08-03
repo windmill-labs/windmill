@@ -570,6 +570,9 @@ export const quickStyleProperties: Record<
 			backgroundGrouping
 		]
 	},
+	mardowncomponent: {
+		container: containerDefaultProps
+	},
 	iconcomponent: {
 		container: containerDefaultProps,
 		icon: [
@@ -638,6 +641,9 @@ export const quickStyleProperties: Record<
 	},
 	jobidlogcomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
+	carousellistcomponent: {
 		container: containerDefaultProps
 	},
 	flowstatuscomponent: {

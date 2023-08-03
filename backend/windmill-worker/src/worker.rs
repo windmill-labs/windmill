@@ -10,14 +10,13 @@ use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use windmill_parser::Typ;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::Duration,
-    sync::{Arc, atomic::{Ordering, AtomicUsize}},
+    sync::{Arc, atomic::Ordering},
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
 };
@@ -167,10 +166,6 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or(DEFAULT_SLEEP_QUEUE);
 
-    static ref PARALLEL_NATIVE_JOBS: usize = std::env::var("PARALLEL_NATIVE_JOBS")
-    .ok()
-    .and_then(|x| x.parse::<usize>().ok())
-    .unwrap_or(DEFAULT_NATIVE_JOBS);
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
     .ok()
@@ -485,7 +480,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
-    let current_native_jobs = Arc::new(AtomicUsize::new(0));
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
@@ -715,7 +709,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url,
                         rsmq.clone(),
                         job_completed_tx.clone(),
-                        current_native_jobs.clone(),
                     )
                     .await
                     .err()
@@ -921,30 +914,6 @@ fn hash_args(v: &serde_json::Value) -> i64 {
     dh.finish() as i64
 }
 
-#[derive(Deserialize)]
-struct HttpArgs {
-    url: String
-}
-
-
-
-async fn do_http_req(job: QueuedJob) -> windmill_common::error::Result<JobCompleted> {
-    let http_args: HttpArgs = serde_json::from_value(job.args.clone().unwrap_or_else(|| json!({})))
-    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let res = HTTP_CLIENT.get(http_args.url).send().await.map_err(|e| Error::ExecutionErr(format!("Invalid http request: {e}")))?;
-    let res = if res.headers().get("Content-Type").is_some_and(|x| x == "application/json") {
-        res.json().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?
-    } else {
-        serde_json::Value::String(res.text().await.map_err(|e| Error::ExecutionErr(format!("Invalid http response: {e}")))?)
-    };
-    return Ok(JobCompleted {
-        job: job,
-        result: res,
-        logs: "".to_string(),
-        success: true
-    });
-}
-
 
 
 pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String, Error> {
@@ -964,13 +933,12 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 
-async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &sqlx::Pool<sqlx::Postgres>,) -> windmill_common::error::Result<JobCompleted> {
+async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, code: String) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
-    let code = get_content(&job, db).await?;
 
     let args = args
         .as_ref()
@@ -988,13 +956,6 @@ async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, db: &s
     });
 }
 
-async fn wait_available_worker_for_native_job(parallel_count: Arc<AtomicUsize>, job: &QueuedJob) {
-    while parallel_count.load(Ordering::SeqCst) >= *PARALLEL_NATIVE_JOBS {
-        tracing::info!("Waiting for an available worker of a native job for {}", job.id);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    parallel_count.fetch_add(1, Ordering::SeqCst);
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -1009,7 +970,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: Sender<JobCompleted>,
-    parallel_count: Arc<AtomicUsize>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -1044,167 +1004,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             logs.push_str(&format!("job {} on worker {} (tag: {})\n", &job.id, &worker_name, &job.tag));
 
             set_logs(&logs, &job.id, db).await;
-
-            if !job.is_flow_step {
-                if matches!(job.job_kind, JobKind::Http) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    tokio::task::spawn(async move {
-                        let jc = do_http_req(job.clone()).await;
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                        });
-                        return Ok(());      
-                } else if job.language == Some(ScriptLang::Postgresql) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-                        let jc = do_postgresql(job.clone(), &client, &db).await;
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } else if job.language == Some(ScriptLang::Mysql) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-                        let jc = do_mysql(job.clone(), &client, &db).await;
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } else if job.language == Some(ScriptLang::Bigquery) {
-
-                    #[cfg(not(feature = "enterprise"))]
-                    {
-                        return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()));
-                    }
-
-                    #[cfg(feature = "enterprise")] 
-                    {
-                        wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                        let client = client.get_authed().await;
-                        let db: Pool<Postgres> = db.clone();
-    
-                        tokio::task::spawn(async move {
-                            let jc: std::result::Result<JobCompleted, Error> = do_bigquery(job.clone(), &client, &db).await;
-                            parallel_count.fetch_sub(1, Ordering::SeqCst);
-    
-                            match jc {
-                                Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                                Err(e) => job_completed_tx.send(JobCompleted {
-                                    job: job,
-                                    result: json!({"error": {
-                                        "name": "ExecutionError",
-                                        "message": e.to_string()
-                                    }}),
-                                    logs: "".to_string(),
-                                    success: false
-                                }).await.expect("send job completed"),
-                            };
-                        });
-                        return Ok(());
-                    }
-                   
-                } else if job.language == Some(ScriptLang::Snowflake) {
-
-                    #[cfg(not(feature = "enterprise"))]
-                    {
-                        return Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()));
-                    }
-
-                    #[cfg(feature = "enterprise")] 
-                    {
-                        wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                        let client = client.get_authed().await;
-                        let db: Pool<Postgres> = db.clone();
-    
-                        tokio::task::spawn(async move {
-                            let jc: std::result::Result<JobCompleted, Error> = do_snowflake(job.clone(), &client, &db).await;
-                            parallel_count.fetch_sub(1, Ordering::SeqCst);
-    
-                            match jc {
-                                Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                                Err(e) => job_completed_tx.send(JobCompleted {
-                                    job: job,
-                                    result: json!({"error": {
-                                        "name": "ExecutionError",
-                                        "message": e.to_string()
-                                    }}),
-                                    logs: "".to_string(),
-                                    success: false
-                                }).await.expect("send job completed"),
-                            };
-                        });
-                        return Ok(());
-                    }
-                   
-                } else if job.language == Some(ScriptLang::Nativets) {
-                    wait_available_worker_for_native_job(parallel_count.clone(), &job).await;
-                    logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-
-                    let client = client.get_authed().await;
-                    let db: Pool<Postgres> = db.clone();
-
-                    tokio::task::spawn(async move {
-
-                        let jc = do_nativets(job.clone(), logs, &client, &db).await;
-                        parallel_count.fetch_sub(1, Ordering::SeqCst);
-                        match jc {
-                            Ok(jc) => job_completed_tx.send(jc).await.expect("send job completed"),
-                            Err(e) => job_completed_tx.send(JobCompleted {
-                                job: job,
-                                result: json!({"error": {
-                                    "name": "ExecutionError",
-                                    "message": e.to_string()
-                                }}),
-                                logs: "".to_string(),
-                                success: false
-                            }).await.expect("send job completed"),
-                        };
-                    });
-                    return Ok(());     
-                } 
-            };
 
 
             let (cache_ttl, step) = if job.is_flow_step {
@@ -1287,57 +1086,17 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         }
                         args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
                     },
-                    JobKind::Http => {
-                        panic!("should not be here")
-                    },
                     _ => {
-                        if matches!(job.job_kind, JobKind::Http) {
-                            unreachable!()     
-                        } else if job.language == Some(ScriptLang::Postgresql) {
-                            let jc = do_postgresql(job.clone(), &client.get_authed().await, &db).await?;
-                            Ok(jc.result)
-                        } else if job.language == Some(ScriptLang::Mysql) {
-                            let jc = do_mysql(job.clone(), &client.get_authed().await, &db).await?;
-                            Ok(jc.result)
-                        } else if job.language == Some(ScriptLang::Bigquery) {
-                            #[cfg(not(feature = "enterprise"))]
-                            {
-                                Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()))
-                            }
-
-                            #[cfg(feature = "enterprise")]
-                            {
-                                let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
-                                Ok(jc.result)
-                            }
-                        } else if job.language == Some(ScriptLang::Snowflake) {
-                            #[cfg(not(feature = "enterprise"))]
-                            {
-                                Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()))
-                            }
-
-                            #[cfg(feature = "enterprise")]
-                            {
-                                let jc = do_snowflake(job.clone(), &client.get_authed().await, &db).await?;
-                                Ok(jc.result)
-                            }
-                        } else if job.language == Some(ScriptLang::Nativets) {
-                            logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-                            let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, &db).await?; 
-                            logs = jc.logs;
-                            Ok(jc.result)
-                        } else {
-                            handle_code_execution_job(
-                                &job,
-                                db,
-                                client,
-                                job_dir,
-                                worker_dir,
-                                &mut logs,
-                                base_internal_url,
-                                worker_name                            )
-                            .await
-                        }
+                        handle_code_execution_job(
+                            &job,
+                            db,
+                            client,
+                            job_dir,
+                            worker_dir,
+                            &mut logs,
+                            base_internal_url,
+                            worker_name                            )
+                        .await
                     }
                 }
             };
@@ -1560,6 +1319,42 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    if language == Some(ScriptLang::Postgresql) {
+        let jc = do_postgresql(job.clone(), &client.get_authed().await, &inner_content).await?;
+        return Ok(jc.result)
+    } else if language == Some(ScriptLang::Mysql) {
+        let jc = do_mysql(job.clone(), &client.get_authed().await, &inner_content).await?;
+        return Ok(jc.result)
+    } else if language == Some(ScriptLang::Bigquery) {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            return Err(Error::ExecutionErr("Bigquery is only available with an enterprise license".to_string()))
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            let jc = do_bigquery(job.clone(), &client.get_authed().await, &db).await?;
+            return Ok(jc.result)
+        }
+    } else if language == Some(ScriptLang::Snowflake) {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            return Err(Error::ExecutionErr("Snowflake is only available with an enterprise license".to_string()))
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            let jc = do_snowflake(job.clone(), &client.get_authed().await, &db).await?;
+            return Ok(jc.result)
+        }
+    } else if language == Some(ScriptLang::Nativets) {
+        logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, inner_content).await?; 
+        *logs = jc.logs;
+        return Ok(jc.result)
+    }
+
     let lang_str = job
         .language
         .as_ref()
@@ -1700,7 +1495,7 @@ mount {{
             )
             .await
         },
-        _ => panic!("unreachable"),
+        _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
         worker_name = %worker_name,

@@ -6,11 +6,13 @@
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Alert, Button, Drawer, ToggleButton, ToggleButtonGroup } from './common'
+	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner } from '$lib/utils'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -117,8 +119,8 @@
 					<div class="flex flex-row flex-wrap gap-2 items-center">
 						<div>
 							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
-								<ToggleButton position="left" value="user" size="xs">User</ToggleButton>
-								<ToggleButton position="right" value="group" size="xs">Group</ToggleButton>
+								<ToggleButton value="user" size="xs" label="User" />
+								<ToggleButton value="group" size="xs" label="Group" />
 							</ToggleButtonGroup>
 						</div>
 						{#key ownerKind}
@@ -155,9 +157,8 @@
 													loadAcls()
 												}}
 											>
-												<ToggleButton position="left" value="viewer" size="xs">Viewer</ToggleButton>
-												<ToggleButton position="right" value="writer" size="xs">Writer</ToggleButton
-												>
+												<ToggleButton value="viewer" size="xs" label="Viewer" />
+												<ToggleButton value="writer" size="xs" label="Writer" />
 											</ToggleButtonGroup>
 										</div>
 									{:else}{write}{/if}</td

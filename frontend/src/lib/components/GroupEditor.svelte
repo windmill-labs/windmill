@@ -10,12 +10,13 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import { Button, ToggleButton, ToggleButtonGroup } from './common'
+	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import TableCustom from './TableCustom.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let name: string
 	let can_write = false
@@ -53,7 +54,11 @@
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
-		instance_group = await GroupService.getInstanceGroup({ name })
+		try {
+			instance_group = await GroupService.getInstanceGroup({ name })
+		} catch (e) {
+			instance_group = undefined
+		}
 	}
 
 	async function loadGroup(): Promise<void> {
@@ -211,24 +216,26 @@
 											loadGroup()
 										}}
 									>
-										<ToggleButton position="left" value="member" size="xs"
-											>Member <Tooltip
-												>A Member of a group can see everything the group can see, write to
-												everything the group can write, and generally act on behalf of the group</Tooltip
-											></ToggleButton
-										>
+										<ToggleButton
+											value="member"
+											size="xs"
+											label="Member"
+											tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
+										/>
+
 										<!-- <ToggleButton position="center" value="manager" size="xs"
 											>Manager <Tooltip
 												>A manager of a group can manage the group, adding and removing users and
 												change their roles. Being a manager does not make you a member.</Tooltip
 											></ToggleButton
 										> -->
-										<ToggleButton position="right" value="admin" size="xs"
-											>Admin <Tooltip
-												>An admin of a group is a member of a group that can also add and remove
-												members to the group, or make them admin.</Tooltip
-											></ToggleButton
-										>
+										<ToggleButton
+											position="right"
+											value="admin"
+											size="xs"
+											label="Admin"
+											tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
+										/>
 									</ToggleButtonGroup>
 								</div>
 							{:else}

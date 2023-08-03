@@ -1,9 +1,7 @@
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, Script, ScriptService } from './gen'
-import { inferArgs } from './infer'
 import { workspaceStore, hubScripts } from './stores'
-import { emptySchema } from './utils'
 
 export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
@@ -30,41 +28,6 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'graphql'
 	} else {
 		return lang
-	}
-}
-
-export async function loadSchema(path: string, hash?: string): Promise<Schema> {
-	if (path.startsWith('hub/')) {
-		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
-		if (language == 'deno') {
-			const newSchema = emptySchema()
-			await inferArgs('deno' as SupportedLanguage, content ?? '', newSchema)
-			return newSchema
-		} else {
-			return schema ?? emptySchema()
-		}
-	} else if (hash) {
-		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
-			hash
-		})
-		return inferSchemaIfNecessary(script)
-	} else {
-		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
-			path: path ?? ''
-		})
-		return inferSchemaIfNecessary(script)
-	}
-}
-
-async function inferSchemaIfNecessary(script: Script) {
-	if (script.schema) {
-		return script.schema as any
-	} else {
-		const newSchema = emptySchema()
-		await inferArgs(script.language, script.content ?? '', newSchema)
-		return newSchema
 	}
 }
 
@@ -103,7 +66,7 @@ export async function getScriptByPath(path: string): Promise<{
 			description: '',
 			tag: undefined,
 			concurrent_limit: undefined,
-			concurrency_time_window_s: undefined,
+			concurrency_time_window_s: undefined
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -117,7 +80,7 @@ export async function getScriptByPath(path: string): Promise<{
 			description: script.description,
 			tag: script.tag,
 			concurrent_limit: script.concurrent_limit,
-			concurrency_time_window_s: script.concurrency_time_window_s,
+			concurrency_time_window_s: script.concurrency_time_window_s
 		}
 	}
 }

@@ -288,7 +288,9 @@ async fn update_folder(
     let sql = sqlb
         .sql()
         .map_err(|e| error::Error::InternalErr(e.to_string()))?;
-    let nfolder = sqlx::query_as::<_, Folder>(&sql).fetch_one(&mut *tx).await?;
+    let nfolder = sqlx::query_as::<_, Folder>(&sql)
+        .fetch_one(&mut *tx)
+        .await?;
 
     if let Some(extra_perms) = nfolder.extra_perms.as_object() {
         for o in nfolder.owners {
@@ -493,7 +495,7 @@ async fn add_owner(
     require_is_owner(&authed, &name)?;
 
     sqlx::query!(
-        "UPDATE folder SET owners = array_append(owners, $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name",
+        "UPDATE folder SET owners = array_append(owners::text[], $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name",
         owner,
         name,
         &w_id,

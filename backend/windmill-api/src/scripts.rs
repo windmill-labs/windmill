@@ -738,6 +738,20 @@ async fn get_deployment_status(
     Ok(Json(status))
 }
 
+pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+    return crate::users::require_is_writer(
+        authed,
+        path,
+        w_id,
+        db,
+        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
+             workspace_id = $2)",
+        "script",
+    )
+    .await;
+}
+
 async fn archive_script_by_path(
     authed: Authed,
     Extension(webhook): Extension<WebhookShared>,

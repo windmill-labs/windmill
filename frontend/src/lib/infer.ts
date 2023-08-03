@@ -1,4 +1,4 @@
-import { ScriptService, type MainArgSignature, FlowService } from '$lib/gen'
+import { ScriptService, type MainArgSignature, FlowService, Script } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
@@ -14,6 +14,7 @@ import init, {
 	parse_snowflake
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
+import { workspaceStore } from './stores.js'
 
 init(wasmUrl)
 
@@ -188,6 +189,41 @@ function argSigToJsonSchemaType(
 
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
+	}
+}
+
+export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+	if (path.startsWith('hub/')) {
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+		if (language == 'deno' || language == 'nativets') {
+			const newSchema = emptySchema()
+			await inferArgs('deno' as SupportedLanguage, content ?? '', newSchema)
+			return newSchema
+		} else {
+			return schema ?? emptySchema()
+		}
+	} else if (hash) {
+		const script = await ScriptService.getScriptByHash({
+			workspace: get(workspaceStore)!,
+			hash
+		})
+		return inferSchemaIfNecessary(script)
+	} else {
+		const script = await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path: path ?? ''
+		})
+		return inferSchemaIfNecessary(script)
+	}
+}
+
+async function inferSchemaIfNecessary(script: Script) {
+	if (script.schema) {
+		return script.schema as any
+	} else {
+		const newSchema = emptySchema()
+		await inferArgs(script.language, script.content ?? '', newSchema)
+		return newSchema
 	}
 }
 

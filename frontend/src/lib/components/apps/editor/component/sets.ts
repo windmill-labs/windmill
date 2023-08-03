@@ -17,7 +17,8 @@ const layout: ComponentSet = {
 		'verticalsplitpanescomponent',
 		'horizontalsplitpanescomponent',
 		'modalcomponent',
-		'steppercomponent'
+		'steppercomponent',
+		'carousellistcomponent'
 	]
 } as const
 
@@ -58,6 +59,7 @@ const display: ComponentSet = {
 		'imagecomponent',
 		'mapcomponent',
 		'htmlcomponent',
+		'mardowncomponent',
 		'pdfcomponent',
 		'displaycomponent',
 		'jobidlogcomponent',

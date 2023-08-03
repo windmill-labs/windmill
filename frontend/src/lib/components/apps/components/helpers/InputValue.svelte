@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
@@ -7,6 +6,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 	import { deepEqual } from 'fast-equals'
+	import { isCodeInjection } from '$lib/utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 

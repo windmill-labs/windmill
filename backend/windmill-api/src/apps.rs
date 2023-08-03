@@ -434,7 +434,7 @@ async fn create_app(
     .await?;
 
     sqlx::query!(
-        "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2",
+        "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE id = $2",
         v_id,
         id
     )
@@ -628,7 +628,7 @@ async fn update_app(
         .await?;
 
         sqlx::query!(
-            "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+            "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3",
             v_id,
             npath,
             w_id
@@ -838,6 +838,18 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
         })?
         .to_string();
     Ok((permissioned_as, email))
+}
+
+pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+    return crate::users::require_is_writer(
+        authed,
+        path,
+        w_id,
+        db,
+        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+        "app",
+    )
+    .await;
 }
 
 async fn exists_app(

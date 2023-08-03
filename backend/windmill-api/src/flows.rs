@@ -304,6 +304,18 @@ async fn check_schedule_conflict<'c>(
     Ok(())
 }
 
+pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+    return crate::users::require_is_writer(
+        authed,
+        path,
+        w_id,
+        db,
+        "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
+        "flow",
+    )
+    .await;
+}
+
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
