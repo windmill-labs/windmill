@@ -16,7 +16,7 @@
 				token: ''
 			},
 			{
-				foreground: '616e88',
+				foreground: '808b9f',
 				token: 'comment'
 			},
 			{

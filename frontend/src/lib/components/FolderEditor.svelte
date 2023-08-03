@@ -9,12 +9,13 @@
 	} from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
-	import { Alert, Button, Drawer, DrawerContent, ToggleButton, ToggleButtonGroup } from './common'
+	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import GroupEditor from './GroupEditor.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let name: string
 	let can_write = false
@@ -152,8 +153,8 @@
 		<div class="flex items-center gap-1">
 			<div>
 				<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
-					<ToggleButton position="left" value="user" size="xs">User</ToggleButton>
-					<ToggleButton position="right" value="group" size="xs">Group</ToggleButton>
+					<ToggleButton value="user" size="xs" label="User" />
+					<ToggleButton value="group" size="xs" label="Group" />
 				</ToggleButtonGroup>
 			</div>
 
@@ -271,24 +272,28 @@
 											loadFolder()
 										}}
 									>
-										<ToggleButton position="left" value="viewer" size="xs"
-											>Viewer&nbsp;<Tooltip
-												>A viewer of a folder has read-only access to all the elements
-												(scripts/flows/apps/schedules/resources/variables) inside the folder</Tooltip
-											></ToggleButton
-										>
-										<ToggleButton position="center" value="writer" size="xs"
-											>Writer&nbsp;<Tooltip
-												>A writer of a folder has read AND write access to all the elements
-												(scripts/flows/apps/schedules/resources/variables) inside the folder</Tooltip
-											></ToggleButton
-										>
-										<ToggleButton position="right" value="admin" size="xs"
-											>Admin&nbsp;<Tooltip
-												>An admin of a folder has read AND write access to all the elements inside
-												the folders and can manage the permissions as well as add new admins</Tooltip
-											></ToggleButton
-										>
+										<ToggleButton
+											value="viewer"
+											size="xs"
+											label="Viewer"
+											tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+										/>
+
+										<ToggleButton
+											position="center"
+											value="writer"
+											size="xs"
+											label="Writer"
+											tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+										/>
+
+										<ToggleButton
+											position="right"
+											value="admin"
+											size="xs"
+											label="Admin"
+											tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
+										/>
 									</ToggleButtonGroup>
 								</div>
 							{:else}
