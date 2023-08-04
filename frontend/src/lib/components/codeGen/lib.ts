@@ -155,7 +155,7 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')
@@ -228,7 +228,7 @@ export async function editScript(scriptOptions: EditScriptOptions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')
@@ -282,7 +282,7 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')
