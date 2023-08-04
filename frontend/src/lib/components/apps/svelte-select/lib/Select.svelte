@@ -1,6 +1,6 @@
 <script>
 	// @ts-nocheck
-	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { beforeUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 
@@ -13,12 +13,17 @@
 	import ClearIcon from './ClearIcon.svelte'
 	import LoadingIcon from './LoadingIcon.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
+	import ConditionalPortalGlobal from './ConditionalPortalGlobal.svelte'
 
 	import { extractCustomProperties } from '$lib/utils'
 
-	export let portal = true
+	let portal = true
 
 	export let justValue = null // read-only
+
+	export let inAppEditor = false
+
+	let PortalWrapper = inAppEditor ? ConditionalPortal : ConditionalPortalGlobal
 
 	export let filter = _filter
 	export let getItems = _getItems
@@ -396,8 +401,14 @@
 	}
 
 	function handleClick() {
+		const scrollPosition = document.documentElement.scrollTop || document.body.scrollTop || 0
+
 		if (disabled) return
 		listOpen = !listOpen
+
+		tick().then(() => {
+			window.scrollTo(0, scrollPosition)
+		})
 	}
 
 	export function handleClear() {
@@ -608,7 +619,7 @@
 	use:floatingRef
 >
 	{#if listOpen}
-		<ConditionalPortal condition={portal}>
+		<PortalWrapper condition={portal}>
 			<div
 				style={extractCustomProperties(containerStyles)}
 				use:floatingContent
@@ -655,7 +666,7 @@
 				{/if}
 				{#if $$slots['list-append']}<slot name="list-append" />{/if}
 			</div>
-		</ConditionalPortal>
+		</PortalWrapper>
 	{/if}
 
 	<span aria-live="polite" aria-atomic="false" aria-relevant="additions text" class="a11y-text">

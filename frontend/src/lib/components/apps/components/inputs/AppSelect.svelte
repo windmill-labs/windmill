@@ -39,8 +39,7 @@
 		selectedComponent,
 		runnableComponents,
 		componentControl,
-		darkMode,
-		mode
+		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -187,7 +186,7 @@
 	>
 		{#if Array.isArray(listItems) && listItems.every((x) => typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			<Select
-				portal={$mode === 'dnd'}
+				inAppEditor={true}
 				--border-radius="0"
 				--border-color="#999"
 				bind:filterText
