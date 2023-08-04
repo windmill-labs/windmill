@@ -9,19 +9,32 @@
 
 	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
+	export let hasStepDetails: boolean = false
 
 	export let isOperator: boolean = false
+
+	let selected = 'saved_inputs'
+
+	$: if (hasStepDetails) {
+		selected = 'flow_step'
+	}
+
+	// When we no longer have a selected flow step, switch to saved inputs
+	$: !hasStepDetails && selected === 'flow_step' && (selected = 'saved_inputs')
 </script>
 
 <Splitpanes horizontal class="h-full">
 	<Pane size={100}>
-		<Tabs selected="saved_inputs">
+		<Tabs {selected}>
 			<Tab value="saved_inputs">Saved inputs</Tab>
 			{#if !isOperator}
 				<Tab value="details">Details & Triggers</Tab>
 			{/if}
 			{#if flow_json}
 				<Tab value="flow_json">JSON</Tab>
+			{/if}
+			{#if hasStepDetails}
+				<Tab value="flow_step">Step</Tab>
 			{/if}
 			<svelte:fragment slot="content">
 				<div class="overflow-hidden" style="height:calc(100% - 32px);">
@@ -87,6 +100,9 @@
 								class="overflow-auto"
 							/>
 						</div>
+					</TabContent>
+					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">
+						<slot name="flow_step" />
 					</TabContent>
 				</div>
 			</svelte:fragment>

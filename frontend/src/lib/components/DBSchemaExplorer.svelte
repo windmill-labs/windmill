@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchema, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
+	import { dbSchema, dbSchemaPublicOnly, workspaceStore, type DBSchema } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: String | undefined = undefined
@@ -108,41 +109,78 @@ export async function main(args: any) {
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
 		dbSchema.set(undefined)
-		try {
-			const job = await JobService.runScriptPreview({
-				workspace: $workspaceStore!,
-				requestBody: {
-					language: 'deno' as Preview.language,
-					content: content[resourceType],
-					args: {
-						args: '$res:' + resourcePath
-					}
-				}
-			})
-			await new Promise((r) => setTimeout(r, 3000))
-			const testResult = await JobService.getCompletedJob({
-				workspace: $workspaceStore!,
-				id: job
-			})
-			if (testResult) {
-				if (!testResult.success) {
-					throw new Error('Could not query DB schema')
-				} else {
-					dbSchema.set(testResult.result)
+
+		const job = await JobService.runScriptPreview({
+			workspace: $workspaceStore!,
+			requestBody: {
+				language: 'deno' as Preview.language,
+				content: content[resourceType],
+				args: {
+					args: '$res:' + resourcePath
 				}
 			}
-		} catch (err) {
-			console.error(err)
-			sendUserToast('Could not query DB schema', true)
+		})
+		let i = 1
+		const inter = setInterval(async () => {
+			try {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: job
+				})
+				if (testResult) {
+					if (!testResult.success) {
+						console.error(testResult.result?.['error']?.['message'])
+					} else {
+						dbSchema.set(testResult.result)
+					}
+					clearInterval(inter)
+				}
+			} catch (err) {
+				if (i >= 5) {
+					console.error('Could not query DB schema within 5s')
+					clearInterval(inter)
+					try {
+						await JobService.cancelQueuedJob({
+							workspace: $workspaceStore!,
+							id: job,
+							requestBody: {
+								reason: 'Could not query DB schema within 5s'
+							}
+						})
+					} catch (err) {
+						console.error(err)
+					}
+				}
+			} finally {
+				i += 1
+			}
+		}, 1000)
+	}
+
+	function formatSchema(
+		schema: DBSchema,
+		resourceType: string | undefined,
+		dbSchemaPublicOnly: boolean
+	) {
+		if (resourceType === 'postgresql' && dbSchemaPublicOnly) {
+			return schema.public || schema
+		} else if (resourceType === 'mysql' && Object.keys(schema).length === 1) {
+			return schema[Object.keys(schema)[0]]
+		} else {
+			return schema
 		}
 	}
 
-	$: resourcePath && resourceType && ['postgresql', 'mysql'].includes(resourceType) && getSchema()
-	$: !resourcePath && $dbSchema && dbSchema.set(undefined)
+	$: resourcePath && ['postgresql', 'mysql'].includes(resourceType || '') && getSchema()
 
-	onDestroy(() => {
+	function clearSchema() {
 		dbSchema.set(undefined)
-	})
+		dbSchemaPublicOnly.set(true)
+	}
+
+	$: !resourcePath && $dbSchema && clearSchema()
+
+	onDestroy(clearSchema)
 </script>
 
 {#if $dbSchema && resourcePath}
@@ -158,7 +196,13 @@ export async function main(args: any) {
 	</Button>
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent title="DB Schema Explorer" on:close={drawer.closeDrawer}>
-			<ObjectViewer json={$dbSchema} pureViewer />
+			{#if resourceType === 'postgresql'}
+				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchemaPublicOnly}>
+					<ToggleButton value={true} label="Public" />
+					<ToggleButton value={false} label="All" />
+				</ToggleButtonGroup>
+			{/if}
+			<ObjectViewer json={formatSchema($dbSchema, resourceType, $dbSchemaPublicOnly)} pureViewer />
 		</DrawerContent>
 	</Drawer>
 {/if}

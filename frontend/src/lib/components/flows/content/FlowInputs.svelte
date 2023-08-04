@@ -176,6 +176,17 @@
 								})
 							}}
 						/>
+						<FlowScriptPicker
+							label="Snowflake"
+							lang={Script.language.SNOWFLAKE}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.SNOWFLAKE,
+									kind,
+									subkind: 'flow'
+								})
+							}}
+						/>
 
 						<FlowScriptPicker
 							label={`Docker`}
