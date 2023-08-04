@@ -13,17 +13,12 @@
 	import ClearIcon from './ClearIcon.svelte'
 	import LoadingIcon from './LoadingIcon.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import ConditionalPortalGlobal from './ConditionalPortalGlobal.svelte'
 
 	import { extractCustomProperties } from '$lib/utils'
 
 	export let portal = true
 
 	export let justValue = null // read-only
-
-	export let inAppEditor = false
-
-	let PortalWrapper = inAppEditor ? ConditionalPortal : ConditionalPortalGlobal
 
 	export let filter = _filter
 	export let getItems = _getItems
@@ -613,7 +608,7 @@
 	use:floatingRef
 >
 	{#if listOpen}
-		<PortalWrapper condition={portal}>
+		<ConditionalPortal condition={portal}>
 			<div
 				style={extractCustomProperties(containerStyles)}
 				use:floatingContent
@@ -660,7 +655,7 @@
 				{/if}
 				{#if $$slots['list-append']}<slot name="list-append" />{/if}
 			</div>
-		</PortalWrapper>
+		</ConditionalPortal>
 	{/if}
 
 	<span aria-live="polite" aria-atomic="false" aria-relevant="additions text" class="a11y-text">

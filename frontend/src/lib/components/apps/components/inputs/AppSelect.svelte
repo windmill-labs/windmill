@@ -39,7 +39,8 @@
 		selectedComponent,
 		runnableComponents,
 		componentControl,
-		darkMode
+		darkMode,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -186,13 +187,13 @@
 	>
 		{#if Array.isArray(listItems) && listItems.every((x) => typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			<Select
+				portal={$mode === 'dnd'}
 				--border-radius="0"
 				--border-color="#999"
 				bind:filterText
 				on:filter={handleFilter}
 				on:clear={onClear}
 				on:change={onChange}
-				inAppEditor={true}
 				items={listItems}
 				listAutoWidth={resolvedConfig.fullWidth}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}

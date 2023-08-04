@@ -117,8 +117,6 @@
 
 <div class="relative h-full">
 	<div id="app-editor-top-level-drawer" />
-	<div id="app-editor-select" />
-
 	<div
 		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
