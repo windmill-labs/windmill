@@ -17,7 +17,7 @@
 
 	import { extractCustomProperties } from '$lib/utils'
 
-	let portal = true
+	export let portal = true
 
 	export let justValue = null // read-only
 
