@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchema, dbSchemaPublicOnly, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
@@ -39,7 +39,8 @@
 				language: lang,
 				code: editor?.getCode() || '',
 				error,
-				dbSchema: lang === 'postgresql' ? $dbSchema : undefined
+				dbSchema: $dbSchema,
+				dbSchemaPublicOnly: $dbSchemaPublicOnly
 			})
 			generatedCode = result.code
 			explanation = result.explanation
