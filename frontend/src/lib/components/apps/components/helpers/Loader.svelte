@@ -8,7 +8,7 @@
 {#if !loading}
 	<slot />
 {:else}
-	<div class="w-full h-full">
+	<div class="w-full h-full absolute">
 		<div
 			out:fade|local={{ duration: 50 }}
 			class="absolute inset-0 center-center flex-col bg-surface text-tertiary border"
