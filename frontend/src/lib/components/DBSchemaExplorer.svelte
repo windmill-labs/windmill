@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchema, workspaceStore } from '$lib/stores'
+	import { dbSchema, dbSchemaPublicOnly, workspaceStore, type DBSchema } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: String | undefined = undefined
@@ -155,12 +157,30 @@ export async function main(args: any) {
 		}, 1000)
 	}
 
-	$: resourcePath && resourceType && ['postgresql', 'mysql'].includes(resourceType) && getSchema()
-	$: !resourcePath && $dbSchema && dbSchema.set(undefined)
+	function formatSchema(
+		schema: DBSchema,
+		resourceType: string | undefined,
+		dbSchemaPublicOnly: boolean
+	) {
+		if (resourceType === 'postgresql' && dbSchemaPublicOnly) {
+			return schema.public || schema
+		} else if (resourceType === 'mysql' && Object.keys(schema).length === 1) {
+			return schema[Object.keys(schema)[0]]
+		} else {
+			return schema
+		}
+	}
 
-	onDestroy(() => {
+	$: resourcePath && ['postgresql', 'mysql'].includes(resourceType || '') && getSchema()
+
+	function clearSchema() {
 		dbSchema.set(undefined)
-	})
+		dbSchemaPublicOnly.set(true)
+	}
+
+	$: !resourcePath && $dbSchema && clearSchema()
+
+	onDestroy(clearSchema)
 </script>
 
 {#if $dbSchema && resourcePath}
@@ -176,7 +196,13 @@ export async function main(args: any) {
 	</Button>
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent title="DB Schema Explorer" on:close={drawer.closeDrawer}>
-			<ObjectViewer json={$dbSchema} pureViewer />
+			{#if resourceType === 'postgresql'}
+				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchemaPublicOnly}>
+					<ToggleButton value={true} label="Public" />
+					<ToggleButton value={false} label="All" />
+				</ToggleButtonGroup>
+			{/if}
+			<ObjectViewer json={formatSchema($dbSchema, resourceType, $dbSchemaPublicOnly)} pureViewer />
 		</DrawerContent>
 	</Drawer>
 {/if}

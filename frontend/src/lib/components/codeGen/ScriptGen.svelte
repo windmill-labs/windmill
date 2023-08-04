@@ -8,12 +8,14 @@
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
-	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchema, dbSchemaPublicOnly, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
 	import type SimpleEditor from '../SimpleEditor.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -45,14 +47,16 @@
 					language: lang,
 					description: funcDesc,
 					selectedCode,
-					dbSchema: lang === 'postgresql' ? $dbSchema : undefined
+					dbSchema: $dbSchema,
+					dbSchemaPublicOnly: $dbSchemaPublicOnly
 				})
 				generatedCode = originalCode.replace(selectedCode, result.code + '\n')
 			} else {
 				const result = await generateScript({
 					language: lang,
 					description: funcDesc,
-					dbSchema: lang === 'postgresql' ? $dbSchema : undefined
+					dbSchema: $dbSchema,
+					dbSchemaPublicOnly: $dbSchemaPublicOnly
 				})
 				generatedCode = result.code
 			}
@@ -227,13 +231,21 @@
 						<Icon data={faMagicWandSparkles} />
 					</Button>
 				</div>
-				{#if lang === 'postgresql' && $dbSchema}
-					<p class="text-sm mt-2">
-						Will take into account the DB schema
-						<Tooltip>
-							In order to better generate the script, we pass the selected DB schema to GPT-4.
-						</Tooltip>
-					</p>
+				{#if ['postgresql', 'mysql'].includes(lang) && $dbSchema}
+					<div class="flex flex-row items-center justify-between w-96 mt-2">
+						<p class="text-sm">
+							Will take into account the DB schema
+							<Tooltip>
+								In order to better generate the script, we pass the selected DB schema to GPT-4.
+							</Tooltip>
+						</p>
+						{#if lang === 'postgresql'}
+							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={$dbSchemaPublicOnly}>
+								<ToggleButton value={true} label="Public schema" />
+								<ToggleButton value={false} label="All schemas" />
+							</ToggleButtonGroup>
+						{/if}
+					</div>
 				{/if}
 			{:else}
 				<p class="text-sm"
