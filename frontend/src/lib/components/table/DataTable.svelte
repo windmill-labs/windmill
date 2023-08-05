@@ -1,5 +1,11 @@
+<script context="module" lang="ts">
+	export type DatatableContext = {
+		size: 'sm' | 'md' | 'lg'
+	}
+</script>
+
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -10,16 +16,23 @@
 	export let loadMore: number = 0
 	export let shouldLoadMore: boolean = false
 	export let rounded: boolean = true
+	export let size: 'sm' | 'md' | 'lg' = 'md'
 
 	const dispatch = createEventDispatcher()
+
+	setContext<DatatableContext>('datatable', {
+		size
+	})
 </script>
 
-<div class={twMerge('border  table-scroll overflow-hidden', rounded ? 'rounded-md' : '')}>
-	<table class="min-w-full block divide-y">
+<div class={twMerge('border h-full overflow-auto', rounded ? 'rounded-md' : '')}>
+	<table class={twMerge('min-w-full divide-y')}>
 		<slot />
 	</table>
 	{#if paginated}
-		<div class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2">
+		<div
+			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"
+		>
 			<span class="text-xs">Page: {currentPage}</span>
 			<Button
 				color="light"
@@ -53,10 +66,3 @@
 		</div>
 	{/if}
 </div>
-
-<style>
-	.table-scroll {
-		max-height: 60vh;
-		overflow-y: auto;
-	}
-</style>
