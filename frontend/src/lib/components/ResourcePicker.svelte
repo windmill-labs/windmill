@@ -35,10 +35,12 @@
 				workspace: $workspaceStore!,
 				resourceType
 			})
-		).map((x) => ({
-			value: x.path,
-			label: x.path
-		}))
+		)
+			.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+			.map((x) => ({
+				value: x.path,
+				label: x.path
+			}))
 
 		// TODO check if this is needed
 		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
@@ -143,9 +145,3 @@
 	</div>
 	<DbSchemaExplorer {resourceType} resourcePath={value} />
 </div>
-
-<style>
-	:global(.svelte-select-list) {
-		font-size: small !important;
-	}
-</style>

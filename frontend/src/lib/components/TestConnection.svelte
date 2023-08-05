@@ -5,6 +5,7 @@
 	import Button from './common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
+	import { tryEvery } from '$lib/utils'
 
 	export let resource_type: string | undefined
 	export let args: Record<string, any> | any = {}
@@ -45,6 +46,10 @@ export async function main(database: any) {
 }`,
 			lang: 'deno'
 		},
+		bigquery: {
+			code: `select 1`,
+			lang: 'bigquery'
+		},
 		snowflake: {
 			code: `select 1`,
 			lang: 'snowflake'
@@ -68,33 +73,37 @@ export async function main(database: any) {
 				}
 			}
 		})
-		await new Promise((r) => setTimeout(r, 5000))
-		loading = false
-		try {
-			const testResult = await JobService.getCompletedJob({
-				workspace: $workspaceStore!,
-				id: job
-			})
-			if (testResult) {
+
+		tryEvery({
+			tryCode: async () => {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: job
+				})
+				loading = false
 				sendUserToast(
 					testResult.success ? 'Connection successful' : testResult.result?.['error']?.['message'],
 					!testResult.success
 				)
-			}
-		} catch (e) {
-			sendUserToast('Connection did not resolve after 5s', true)
-			try {
-				await JobService.cancelQueuedJob({
-					workspace: $workspaceStore!,
-					id: job,
-					requestBody: {
-						reason: 'Connection did not resolve after 5s'
-					}
-				})
-			} catch (err) {
-				console.error(err)
-			}
-		}
+			},
+			timeoutCode: async () => {
+				loading = false
+				sendUserToast('Connection did not resolve after 5s', true)
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: $workspaceStore!,
+						id: job,
+						requestBody: {
+							reason: 'Connection did not resolve after 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
+				}
+			},
+			interval: 500,
+			timeout: 5000
+		})
 	}
 </script>
 

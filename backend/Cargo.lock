@@ -453,9 +453,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.19"
+version = "0.6.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6a1de45611fdb535bfde7b7de4fd54f4fd2b17b1737c0a59b69bf9b92074b8c"
+checksum = "3b829e4e32b91e643de6eafe82b1d90675f5874230191a4ffbc1b336dec4d6bf"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -898,11 +898,12 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.79"
+version = "1.0.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50d30906286121d95be3d479533b458f87493b30a4b5f79a607db8f5d11aa91f"
+checksum = "6c6b2562119bf28c3439f7f02db99faf0aa1a8cdfe5772a2ee155d32227239f0"
 dependencies = [
  "jobserver",
+ "libc",
 ]
 
 [[package]]
@@ -1116,7 +1117,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
 dependencies = [
  "percent-encoding",
- "time 0.3.24",
+ "time 0.3.25",
  "version_check",
 ]
 
@@ -1588,9 +1589,9 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8810e7e2cf385b1e9b50d68264908ec367ba642c96d02edfe61c39e88e2a3c01"
+checksum = "7684a49fb1af197853ef7b2ee694bc1f5b4179556f1e5710e1760c5db6f5e929"
 dependencies = [
  "serde",
 ]
@@ -2113,7 +2114,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "time 0.3.24",
+ "time 0.3.25",
  "tokio",
  "tracing",
  "tracing-futures",
@@ -2605,7 +2606,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb0889898416213fab133e1d33a0e5858a48177452750691bde3666d0fdbaf8b"
 dependencies = [
  "hermit-abi",
- "rustix 0.38.4",
+ "rustix 0.38.6",
  "windows-sys",
 ]
 
@@ -3019,9 +3020,9 @@ checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
 
 [[package]]
 name = "matchit"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67827e6ea8ee8a7c4a72227ef4fc08957040acffdb5f122733b24fa12daff41b"
+checksum = "ed1202b2a6f884ae56f04cff409ab315c5ce26b5e58d7412e484f01fd52f52ef"
 
 [[package]]
 name = "md-5"
@@ -3195,7 +3196,7 @@ dependencies = [
  "smallvec",
  "subprocess",
  "thiserror",
- "time 0.3.24",
+ "time 0.3.25",
  "uuid 1.4.1",
 ]
 
@@ -4534,9 +4535,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.4"
+version = "0.38.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a962918ea88d644592894bc6dc55acc6c0956488adcebbfb6e273506b7fd6e5"
+checksum = "1ee020b1716f0a80e2ace9b03441a749e402e86712f15f16fe8a8f75afac732f"
 dependencies = [
  "bitflags 2.3.3",
  "errno",
@@ -4547,9 +4548,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.21.5"
+version = "0.21.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79ea77c539259495ce8ca47f53e66ae0330a8819f67e23ac96ca02f50e7b7d36"
+checksum = "1d1feddffcfcc0b33f5c6ce9a29e341e4cd59c3f78e7ee45f4a40c038b1d6cbb"
 dependencies = [
  "log",
  "ring",
@@ -4836,9 +4837,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.180"
+version = "1.0.181"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ea67f183f058fe88a4e3ec6e2788e003840893b91bac4559cabedd00863b3ed"
+checksum = "6d3e73c93c3240c0bda063c239298e633114c69a888c3e37ca8bb33f343e9890"
 dependencies = [
  "serde_derive",
 ]
@@ -4876,9 +4877,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.180"
+version = "1.0.181"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24e744d7782b686ab3b73267ef05697159cc0e5abbed3f47f9933165e5219036"
+checksum = "be02f6cb0cd3a5ec20bbcfbcbd749f57daddb1a0882dc2e46a6c236c90b977ed"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5124,7 +5125,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "thiserror",
- "time 0.3.24",
+ "time 0.3.25",
 ]
 
 [[package]]
@@ -5207,9 +5208,9 @@ dependencies = [
 
 [[package]]
 name = "sourcemap"
-version = "6.3.0"
+version = "6.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8df03d85f2767c45e61b4453eb6144153c80399e4fdd6407a6d16cb87cc0347"
+checksum = "e9221a6bba3e9cfa7decfe64edf5233311e1bf837ea3234df6e7f35836e1093d"
 dependencies = [
  "data-encoding",
  "debugid",
@@ -6021,7 +6022,7 @@ dependencies = [
  "cfg-if",
  "fastrand 2.0.0",
  "redox_syscall 0.3.5",
- "rustix 0.38.4",
+ "rustix 0.38.6",
  "windows-sys",
 ]
 
@@ -6108,9 +6109,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.24"
+version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b79eabcd964882a646b3584543ccabeae7869e9ac32a46f6f22b7a5bd405308b"
+checksum = "b0fdd63d58b18d663fbdf70e049f00a22c8e42be082203be7f26589213cd75ea"
 dependencies = [
  "deranged",
  "itoa",
@@ -7089,7 +7090,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7124,7 +7125,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7163,7 +7164,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "tempfile",
- "time 0.3.24",
+ "time 0.3.25",
  "tokio",
  "tokio-tar",
  "tokio-util",
@@ -7182,7 +7183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7199,7 +7200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7212,7 +7213,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7237,7 +7238,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7245,7 +7246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7256,7 +7257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7266,7 +7267,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7277,7 +7278,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7294,7 +7295,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7305,7 +7306,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7320,7 +7321,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7337,7 +7338,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7366,7 +7367,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.139.0"
+version = "1.140.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7496,9 +7497,9 @@ checksum = "1a515f5799fe4961cb532f983ce2b23082366b898e52ffbce459c86f67c8378a"
 
 [[package]]
 name = "winnow"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bd122eb777186e60c3fdf765a58ac76e41c582f1f535fbf3314434c6b58f3f7"
+checksum = "f46aab759304e4d7b2075a9aecba26228bb073ee8c50db796b2c72c676b5d807"
 dependencies = [
  "memchr",
 ]
