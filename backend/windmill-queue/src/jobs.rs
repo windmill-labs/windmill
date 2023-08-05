@@ -1326,22 +1326,21 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
         let default = || {
             if job_kind == JobKind::Flow || job_kind == JobKind::FlowPreview {
-                "flow"
+                "flow".to_string()
             } else if job_kind == JobKind::Identity {
                 // identity is a light script, nativets is too
-                "nativets"
+                "nativets".to_string()
             } else if job_kind == JobKind::Dependencies || job_kind == JobKind::FlowDependencies {
-                "dependency"
+                "dependency".to_string()
             } else {
-                "deno"
+                "deno".to_string()
             }
         };
         tag.unwrap_or_else(|| {
             language
                 .as_ref()
-                .map(|x| x.as_str())
+                .map(|x| x.as_str().replace("$workspace", workspace_id))
                 .unwrap_or_else(default)
-                .to_string()
         })
     };
 
