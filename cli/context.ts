@@ -2,6 +2,7 @@
 import { colors, GlobalUserInfo, log, setClient, UserService } from "./deps.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
+import { getHeaders } from "./utils.ts";
 import {
   addWorkspace,
   getActiveWorkspace,
@@ -104,8 +105,18 @@ export async function tryResolveVersion(
   const workspaceRes = await tryResolveWorkspace(opts);
   if (workspaceRes.isError) return undefined;
 
+  const requestHeaders: HeadersInit = new Headers();
+
+  const extraHeaders = getHeaders();
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      requestHeaders.set(key, value);
+    }
+  }
+
   const response = await fetch(
-    new URL(new URL(workspaceRes.value.remote).origin + "/api/version")
+    new URL(new URL(workspaceRes.value.remote).origin + "/api/version"),
+    { headers: requestHeaders, method: "GET" }
   );
   const version = await response.text();
   try {
