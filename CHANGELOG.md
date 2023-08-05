@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.140.1](https://github.com/windmill-labs/windmill/compare/v1.140.0...v1.140.1) (2023-08-05)
+
+
+### Bug Fixes
+
+* **cli:** handle extra headers in zip call ([7a731dc](https://github.com/windmill-labs/windmill/commit/7a731dc838fae1664ca80ed572e5e986b331d874))
+
 ## [1.140.0](https://github.com/windmill-labs/windmill/compare/v1.139.0...v1.140.0) (2023-08-05)
 
 
