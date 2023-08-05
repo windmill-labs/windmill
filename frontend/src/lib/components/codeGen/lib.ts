@@ -2,7 +2,7 @@ import { OpenAI } from 'openai'
 import { OpenAPI } from '../../gen/core/OpenAPI'
 import { ResourceService, Script, WorkspaceService } from '../../gen'
 
-import { existsOpenaiResourcePath, workspaceStore } from '$lib/stores'
+import { existsOpenaiResourcePath, workspaceStore, type DBSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
@@ -40,12 +40,12 @@ workspaceStore.subscribe(async (value) => {
 
 interface BaseOptions {
 	language: Script.language | 'frontend'
-	dbSchema?: object
+	dbSchema: DBSchema | undefined
+	dbSchemaPublicOnly: boolean
 }
 
 interface ScriptGenerationOptions extends BaseOptions {
 	description: string
-	dbSchema?: object
 }
 
 interface EditScriptOptions extends ScriptGenerationOptions {
@@ -72,25 +72,41 @@ async function addResourceTypes(scriptOptions: BaseOptions, workspace: string, p
 
 function addDBSChema(scriptOptions: BaseOptions, prompt: string) {
 	if (['mysql', 'postgresql'].includes(scriptOptions.language) && scriptOptions.dbSchema) {
-		const { dbSchema } = scriptOptions
-		const smallerSchema = {}
+		const { dbSchema, dbSchemaPublicOnly, language } = scriptOptions
+		let smallerSchema: {
+			[schemaKey: string]: {
+				[tableKey: string]: Array<[string, string, boolean, string?]>
+			}
+		} = {}
 		for (const schemaKey in dbSchema) {
+			smallerSchema[schemaKey] = {}
 			for (const tableKey in dbSchema[schemaKey]) {
-				smallerSchema[tableKey] = []
+				smallerSchema[schemaKey][tableKey] = []
 				for (const colKey in dbSchema[schemaKey][tableKey]) {
 					const col = dbSchema[schemaKey][tableKey][colKey]
-					const p = [colKey, col.type, col.required]
+					const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
 					if (col.default) {
 						p.push(col.default)
 					}
-					smallerSchema[tableKey].push(p)
+					smallerSchema[schemaKey][tableKey].push(p)
 				}
 			}
+		}
+
+		let finalSchema:
+			| typeof smallerSchema
+			| {
+					[tableKey: string]: Array<[string, string, boolean, string?]>
+			  } = smallerSchema
+		if (language === 'postgresql' && dbSchemaPublicOnly) {
+			finalSchema = smallerSchema.public || smallerSchema
+		} else if (language === 'mysql' && Object.keys(smallerSchema).length === 1) {
+			finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
 		}
 		prompt =
 			prompt +
 			"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
-			JSON.stringify(smallerSchema)
+			JSON.stringify(finalSchema)
 	}
 	return prompt
 }
@@ -139,7 +155,7 @@ export async function generateScript(scriptOptions: ScriptGenerationOptions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')
@@ -212,7 +228,7 @@ export async function editScript(scriptOptions: EditScriptOptions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')
@@ -266,7 +282,7 @@ export async function fixScript(scriptOptions: FixScriptOpions) {
 		throw new Error('No result from OpenAI')
 	}
 
-	const match = result.match(/```[a-zA-z]+\n([\s\S]*?)\n```/)
+	const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 
 	if (!match || match.length < 2) {
 		throw new Error('No code block found')

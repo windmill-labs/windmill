@@ -52,6 +52,10 @@ async fn get_variable(path: String, db: &DB, w_id: &String) -> Result<String, Er
     Ok(variable.value)
 }
 
+lazy_static::lazy_static! {
+    pub static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+}
+
 async fn proxy(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -101,11 +105,24 @@ async fn proxy(
         resource.api_key = get_variable(openai_api_key_path, &db, &w_id).await?;
     }
 
+    let base_url = if let Some(base_url) = &*OPENAI_AZURE_BASE_PATH {
+        base_url
+    } else {
+        "https://api.openai.com/v1"
+    };
+
     let mut request = HTTP_CLIENT
-        .post(String::from("https://api.openai.com/v1/") + &openai_path)
+        .post(base_url.to_string() + "/" + &openai_path)
         .header("content-type", "application/json")
-        .header("authorization", format!("Bearer {}", resource.api_key))
         .body(body);
+
+    if base_url != "https://api.openai.com/v1" {
+        request = request
+            .header("api-key", resource.api_key)
+            .query(&[("api-version", "2023-05-15")])
+    } else {
+        request = request.header("authorization", format!("Bearer {}", resource.api_key))
+    }
 
     if let Some(mut org_id) = resource.organization_id {
         tracing::info!("org_id: {:?}", org_id);

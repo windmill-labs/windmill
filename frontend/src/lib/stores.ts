@@ -66,7 +66,21 @@ export const hubScripts = writable<
 	| undefined
 >(undefined)
 export const existsOpenaiResourcePath = writable<boolean>(false)
-export const dbSchema = writable<object | undefined>(undefined)
+export type DBSchema = {
+	[schemaKey: string]: {
+		[tableKey: string]: {
+			[columnKey: string]: {
+				type: string
+				default: string
+				required: boolean
+			}
+		}
+	}
+}
+
+export const dbSchema = writable<DBSchema | undefined>(undefined)
+
+export const dbSchemaPublicOnly = writable<boolean>(true)
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')
