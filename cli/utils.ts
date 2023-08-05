@@ -1,6 +1,9 @@
 // Modified from: https://raw.githubusercontent.com/epoberezkin/fast-deep-equal/master/src/index.jst
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
+
+import { log } from "./deps.ts";
+
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
 
