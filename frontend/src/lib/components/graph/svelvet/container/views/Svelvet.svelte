@@ -15,7 +15,6 @@
 
 	export let nodes: UserNodeType[]
 	export let edges: UserEdgeType[]
-	export let bgColor = '#ffffff' // this is used to set the background color of the the Svelvet canvas
 	export let width: number = 600
 	export let height: number = 600
 	export let background: boolean = true

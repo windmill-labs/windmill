@@ -4,12 +4,11 @@
 @tailwind utilities;
 
 @layer base {
-
 	*,
-  ::before,
-  ::after {
-    @apply dark:border-gray-600;
-  }
+	::before,
+	::after {
+		@apply dark:border-gray-600;
+	}
 
 	@font-face {
 		font-family: 'Inter';
@@ -50,6 +49,10 @@
 		border-bottom-width: 0px !important;
 	}
 
+	.svelte-select-list {
+		font-size: small !important;
+	}
+
 	.monaco-editor textarea:focus {
 		box-shadow: none !important;
 	}
@@ -77,4 +80,3 @@
 		display: flex !important;
 	}
 }
-

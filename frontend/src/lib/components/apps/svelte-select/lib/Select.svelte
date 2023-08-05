@@ -15,7 +15,7 @@
 	import ConditionalPortal from './ConditionalPortal.svelte'
 	import ConditionalPortalGlobal from './ConditionalPortalGlobal.svelte'
 
-	import { extractCustomProperties } from '$lib/utils'
+	import { extractCustomProperties, truncate } from '$lib/utils'
 
 	export let portal = true
 
@@ -390,7 +390,6 @@
 	}
 
 	async function handleBlur(e) {
-		if (isScrolling) return
 		if (listOpen || focused) {
 			dispatch('blur', e)
 			closeList()
@@ -401,18 +400,8 @@
 	}
 
 	function handleClick() {
-		const scrollPosition = inAppEditor
-			? document.documentElement.scrollTop || document.body.scrollTop || 0
-			: undefined
-
 		if (disabled) return
 		listOpen = !listOpen
-
-		if (inAppEditor) {
-			tick().then(() => {
-				window.scrollTo(0, scrollPosition)
-			})
-		}
 	}
 
 	export function handleClear() {
@@ -481,14 +470,6 @@
 
 	let list = null
 
-	let isScrollingTimer
-	function handleListScroll() {
-		clearTimeout(isScrollingTimer)
-		isScrollingTimer = setTimeout(() => {
-			isScrolling = false
-		}, 100)
-	}
-
 	function handleClickOutside(event) {
 		if (
 			!listOpen &&
@@ -505,15 +486,12 @@
 		list?.remove()
 	})
 
-	let isScrolling = false
-
 	function handleSelect(item) {
 		if (!item || item.selectable === false) return
 		itemSelected(item)
 	}
 
 	function handleHover(i) {
-		if (isScrolling) return
 		hoverItemIndex = i
 	}
 
@@ -566,23 +544,10 @@
 		)
 	}
 
-	const activeScroll = scrollAction
-	const hoverScroll = scrollAction
-
-	function scrollAction(node) {
-		return {
-			update(args) {
-				if (args.scroll) {
-					handleListScroll()
-					node.scrollIntoView({ behavior: 'auto', block: 'nearest' })
-				}
-			}
-		}
-	}
-
 	function setListWidth() {
 		const { width } = container.getBoundingClientRect()
-		list.style.width = listAutoWidth ? width + 'px' : 'auto'
+		list.style.width =
+			listAutoWidth && list.clientWidth && list.clientWidth < width ? width + 'px' : 'auto'
 	}
 
 	let _floatingConfig = {
@@ -630,7 +595,6 @@
 				bind:this={list}
 				class="svelte-select-list"
 				class:prefloat
-				on:scroll={handleListScroll}
 				on:pointerup|preventDefault|stopPropagation
 				on:pointerdown|preventDefault|stopPropagation
 			>
@@ -647,8 +611,6 @@
 							tabindex="-1"
 						>
 							<div
-								use:activeScroll={{ scroll: isItemActive(item, value, itemId), listDom }}
-								use:hoverScroll={{ scroll: scrollToHoverItem === i, listDom }}
 								class="item"
 								class:list-group-title={item.groupHeader}
 								class:active={isItemActive(item, value, itemId)}
@@ -658,7 +620,7 @@
 								class:not-selectable={item?.selectable === false}
 							>
 								<slot name="item" {item} index={i}>
-									{item?.[label]}
+									{item ? truncate(item?.[label], 80) : ''}
 								</slot>
 							</div>
 						</div>
