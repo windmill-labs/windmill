@@ -6,6 +6,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import { tryEvery } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
@@ -120,41 +121,36 @@ export async function main(args: any) {
 				}
 			}
 		})
-		let i = 1
-		const inter = setInterval(async () => {
-			try {
+
+		tryEvery({
+			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({
 					workspace: $workspaceStore!,
 					id: job
 				})
-				if (testResult) {
-					if (!testResult.success) {
-						console.error(testResult.result?.['error']?.['message'])
-					} else {
-						dbSchema.set(testResult.result)
-					}
-					clearInterval(inter)
+				if (!testResult.success) {
+					console.error(testResult.result?.['error']?.['message'])
+				} else {
+					dbSchema.set(testResult.result)
 				}
-			} catch (err) {
-				if (i >= 5) {
-					console.error('Could not query DB schema within 5s')
-					clearInterval(inter)
-					try {
-						await JobService.cancelQueuedJob({
-							workspace: $workspaceStore!,
-							id: job,
-							requestBody: {
-								reason: 'Could not query DB schema within 5s'
-							}
-						})
-					} catch (err) {
-						console.error(err)
-					}
+			},
+			timeoutCode: async () => {
+				console.error('Could not query DB schema within 5s')
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: $workspaceStore!,
+						id: job,
+						requestBody: {
+							reason: 'Could not query DB schema within 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
 				}
-			} finally {
-				i += 1
-			}
-		}, 1000)
+			},
+			interval: 500,
+			timeout: 5000
+		})
 	}
 
 	function formatSchema(
