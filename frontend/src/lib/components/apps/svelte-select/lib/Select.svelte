@@ -401,14 +401,18 @@
 	}
 
 	function handleClick() {
-		const scrollPosition = document.documentElement.scrollTop || document.body.scrollTop || 0
+		const scrollPosition = inAppEditor
+			? document.documentElement.scrollTop || document.body.scrollTop || 0
+			: undefined
 
 		if (disabled) return
 		listOpen = !listOpen
 
-		tick().then(() => {
-			window.scrollTo(0, scrollPosition)
-		})
+		if (inAppEditor) {
+			tick().then(() => {
+				window.scrollTo(0, scrollPosition)
+			})
+		}
 	}
 
 	export function handleClear() {
