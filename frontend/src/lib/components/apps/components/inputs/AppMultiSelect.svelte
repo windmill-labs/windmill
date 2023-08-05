@@ -13,6 +13,7 @@
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
+	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -20,7 +21,8 @@
 	export let render: boolean
 
 	const [floatingRef, floatingContent] = createFloatingActions({
-		strategy: 'absolute'
+		strategy: 'absolute',
+		middleware: [offset(24), flip(), shift()]
 	})
 
 	const { app, worldStore, selectedComponent, componentControl } =

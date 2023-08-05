@@ -1,6 +1,6 @@
 <script>
 	// @ts-nocheck
-	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { beforeUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 
@@ -401,8 +401,18 @@
 	}
 
 	function handleClick() {
+		const scrollPosition = inAppEditor
+			? document.documentElement.scrollTop || document.body.scrollTop || 0
+			: undefined
+
 		if (disabled) return
 		listOpen = !listOpen
+
+		if (inAppEditor) {
+			tick().then(() => {
+				window.scrollTo(0, scrollPosition)
+			})
+		}
 	}
 
 	export function handleClear() {
