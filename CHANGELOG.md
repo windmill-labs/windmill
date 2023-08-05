@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.141.0](https://github.com/windmill-labs/windmill/compare/v1.140.1...v1.141.0) (2023-08-05)
+
+
+### Features
+
+* add support for custom import map on deno ([23a5bfa](https://github.com/windmill-labs/windmill/commit/23a5bfa36824c48694dbe42080b14d8969cbf3da))
+
 ## [1.140.1](https://github.com/windmill-labs/windmill/compare/v1.140.0...v1.140.1) (2023-08-05)
 
 
