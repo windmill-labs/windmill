@@ -2,6 +2,7 @@
 import { GlobalOptions } from "./types.ts";
 import { colors, Command, JSZip } from "./deps.ts";
 import { Workspace } from "./workspace.ts";
+import { getHeaders } from "./utils.ts";
 
 export async function downloadZip(
   workspace: Workspace,
@@ -14,6 +15,13 @@ export async function downloadZip(
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
+
+  const extraHeaders = getHeaders();
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      requestHeaders.set(key, value);
+    }
+  }
 
   const zipResponse = await fetch(
     workspace.remote +

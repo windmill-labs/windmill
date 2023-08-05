@@ -22,6 +22,7 @@ import dev from "./dev.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "./deps.ts";
+import { getHeaders } from "./utils.ts";
 
 addEventListener("error", (event) => {
   if (event.error) {
@@ -122,15 +123,9 @@ try {
   });
   log.debug("Debug logging enabled. CLI build against " + VERSION);
 
-  const headers = Deno.env.get("HEADERS");
-  if (headers) {
-    const parsedHeaders = Object.fromEntries(
-      headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
-    );
-    log.debug(
-      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders))
-    );
-    OpenAPI.HEADERS = parsedHeaders;
+  const extraHeaders = getHeaders();
+  if (extraHeaders) {
+    OpenAPI.HEADERS = extraHeaders;
   }
   await command.parse(Deno.args);
 } catch (e) {

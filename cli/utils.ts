@@ -74,3 +74,18 @@ export function deepEqual<T>(a: T, b: T): boolean {
   // true if both NaN, false otherwise
   return a !== a && b !== b;
 }
+
+export function getHeaders(): Record<string, string> | undefined {
+  const headers = Deno.env.get("HEADERS");
+  if (headers) {
+    const parsedHeaders = Object.fromEntries(
+      headers.split(",").map((h) => h.split(":").map((s) => s.trim()))
+    );
+    log.debug(
+      "Headers from env keys: " + JSON.stringify(Object.keys(parsedHeaders))
+    );
+    return parsedHeaders;
+  } else {
+    return undefined;
+  }
+}
