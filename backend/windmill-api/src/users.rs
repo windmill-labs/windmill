@@ -84,6 +84,7 @@ pub fn global_service() -> Router {
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
+        .route("/refresh_token", get(refresh_token))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -1886,6 +1887,27 @@ async fn login(
     } else {
         Err(Error::BadRequest("Invalid login".to_string()))
     }
+}
+
+async fn refresh_token(
+    Extension(db): Extension<DB>,
+    authed: Authed,
+    cookies: Cookies,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    let super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        &authed.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    let _ = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+
+    tx.commit().await?;
+    Ok("token refreshed".to_string())
 }
 
 pub async fn create_session_token<'c>(

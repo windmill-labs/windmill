@@ -205,6 +205,14 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| x.split(' ').map(|x| x.to_string()).collect());
         
+    static ref DENO_EXTRA_IMPORT_MAP: String = std::env::var("DENO_EXTRA_IMPORT_MAP")
+        .ok()
+        .map(|x| x.split(',').map(|x| {
+            let mut splitted = x.split("=");
+            let key = splitted.next().unwrap();
+            let value = splitted.next().unwrap();
+            format!(",\n \"{key}\": \"{value}\"")
+        }).join("\n")).unwrap_or_else(|| String::new());
 
 
     pub static ref WHITELIST_ENVS: Option<Vec<(String, String)>> = std::env::var("WHITELIST_ENVS")
@@ -1713,6 +1721,7 @@ run().catch(async (e) => {{
                 if c == script_path_parts_len - 1 { "" } else { "/" },
             );
         }
+        let extra_import_map = DENO_EXTRA_IMPORT_MAP.as_str();
         let import_map = format!(
             r#"{{
             "imports": {{
@@ -1721,6 +1730,7 @@ run().catch(async (e) => {{
               "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "./wrapper.ts": "./wrapper.ts",
               "./main.ts": "./main.ts"{relative_mounts}
+              {extra_import_map}
             }}
           }}"#,
         );
