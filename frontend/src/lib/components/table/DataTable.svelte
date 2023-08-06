@@ -17,6 +17,7 @@
 	export let shouldLoadMore: boolean = false
 	export let rounded: boolean = true
 	export let size: 'sm' | 'md' | 'lg' = 'md'
+	export let perPage: number | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -34,6 +35,14 @@
 			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"
 		>
 			<span class="text-xs">Page: {currentPage}</span>
+
+			{#if perPage !== undefined}
+				<select class="text-xs !w-16" bind:value={perPage}>
+					<option value={25}>25</option>
+					<option value={50}>50</option>
+					<option value={100}>100</option>
+				</select>
+			{/if}
 			<Button
 				color="light"
 				size="xs2"

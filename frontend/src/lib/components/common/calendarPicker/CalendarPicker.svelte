@@ -2,6 +2,7 @@
 	import { ArrowRight, Calendar } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { Button, Popup } from '..'
+	import type { Placement } from '@floating-ui/core'
 
 	export let date: string | undefined
 	export let label: string
@@ -24,9 +25,11 @@
 			e.stopPropagation()
 		}
 	}
+
+	export let placement: Placement = 'top-end'
 </script>
 
-<Popup floatingConfig={{ placement: 'top-end', strategy: 'absolute' }} let:close>
+<Popup floatingConfig={{ placement: placement, strategy: 'absolute' }} let:close>
 	<svelte:fragment slot="button">
 		<button
 			title="Open calendar picker"
