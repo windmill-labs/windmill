@@ -18,6 +18,7 @@
 	export let rounded: boolean = true
 	export let size: 'sm' | 'md' | 'lg' = 'md'
 	export let perPage: number | undefined = undefined
+	export let shouldHidePagination: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -30,7 +31,7 @@
 	<table class={twMerge('min-w-full divide-y')}>
 		<slot />
 	</table>
-	{#if paginated}
+	{#if paginated && !shouldHidePagination}
 		<div
 			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"
 		>

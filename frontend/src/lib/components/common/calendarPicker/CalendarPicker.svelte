@@ -16,6 +16,7 @@
 	}
 
 	function save() {
+		console.log(value, date, label)
 		dispatch('change', value)
 		input.blur()
 	}
@@ -59,6 +60,7 @@
 				buttonType="button"
 				btnClasses="!p-1 !w-[34px] !ml-1"
 				aria-label="Save ID"
+				disabled={!value}
 				on:click={() => {
 					save()
 					close(null)
