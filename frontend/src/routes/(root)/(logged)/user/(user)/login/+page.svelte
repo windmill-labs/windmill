@@ -167,10 +167,10 @@
 			<WindmillIcon height="80px" width="80px" spin="slow" />
 		</div>
 		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
-			Login or sign up
+			Log in or sign up
 		</h2>
 		<p class="mt-2 text-center text-sm text-secondary">
-			Login or sign up with any of the methods below
+			Log in or sign up with any of the methods below
 		</p>
 	</div>
 
@@ -233,7 +233,7 @@
 							showPassword = !showPassword
 						}}
 					>
-						Login without third-party
+						Log in without third-party
 					</Button>
 				</div>
 			{/if}

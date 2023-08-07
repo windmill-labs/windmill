@@ -1554,7 +1554,7 @@ async fn create_user(
         &format!(
             "You have been granted access to Windmill by {email}.
 
-Login and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
+Log in and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
 
 You can then join or create a workspace. Happy building!",
             *BASE_URL, &nu.email, &nu.password
