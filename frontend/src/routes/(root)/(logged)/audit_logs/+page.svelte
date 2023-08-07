@@ -32,90 +32,90 @@
 </script>
 
 <div class="w-full h-screen">
-	<div class="h-full">
-		<div class="px-2">
-			<span class="flex items-center space-x-2 flex-row justify-between">
-				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
-					<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Audit logs</h1>
-					<Tooltip
-						light
-						documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs"
-						scale={0.9}
-						wrapperClass="flex items-center"
-					>
-						You can only see your own audit logs unless you are an admin.
-					</Tooltip>
-				</div>
-				<div class="hidden xl:block">
-					<AuditLogsFilters
-						bind:logs
-						bind:username
-						bind:before
-						bind:after
-						bind:actionKind
-						bind:operation
-						bind:resource
-					/>
-				</div>
-				<div class="xl:hidden">
-					<AuditLogMobileFilters>
-						<svelte:fragment slot="filters">
-							<AuditLogsFilters
-								bind:logs
-								bind:username
-								bind:before
-								bind:after
-								bind:actionKind
-								bind:operation
-								bind:resource
-							/>
-						</svelte:fragment>
-					</AuditLogMobileFilters>
-				</div>
-			</span>
-
-			{#if !$enterpriseLicense}
-				<Alert title="Redacted audit logs" type="warning">
-					You need an enterprise license to see unredacted audit logs.
-				</Alert>
-				<div class="py-2" />
-			{/if}
+	<div class="px-2">
+		<div class="flex items-center space-x-2 flex-row justify-between">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Audit logs</h1>
+				<Tooltip
+					light
+					documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs"
+					scale={0.9}
+					wrapperClass="flex items-center"
+				>
+					You can only see your own audit logs unless you are an admin.
+				</Tooltip>
+			</div>
+			<div class="hidden xl:block">
+				<AuditLogsFilters
+					bind:logs
+					bind:username
+					bind:before
+					bind:after
+					bind:actionKind
+					bind:operation
+					bind:resource
+					bind:pageIndex
+					bind:perPage
+				/>
+			</div>
+			<div class="xl:hidden">
+				<AuditLogMobileFilters>
+					<svelte:fragment slot="filters">
+						<AuditLogsFilters
+							bind:logs
+							bind:username
+							bind:before
+							bind:after
+							bind:actionKind
+							bind:operation
+							bind:resource
+						/>
+					</svelte:fragment>
+				</AuditLogMobileFilters>
+			</div>
 		</div>
-		<SplitPanesWrapper class="hidden md:block">
-			<Splitpanes>
-				<Pane size={70} minSize={50}>
-					<AuditLogsTable
-						{logs}
-						{pageIndex}
-						{selectedId}
-						bind:perPage
-						bind:actionKind
-						bind:operation
-						on:select={(e) => {
-							selectedId = e.detail
-						}}
-					/>
-				</Pane>
-				<Pane size={30} minSize={15}>
-					<AuditLogDetails {logs} {selectedId} />
-				</Pane>
-			</Splitpanes>
-		</SplitPanesWrapper>
 
-		<div class="md:hidden">
-			<AuditLogsTable
-				{logs}
-				{pageIndex}
-				bind:perPage
-				bind:actionKind
-				bind:operation
-				on:select={(e) => {
-					selectedId = e.detail
+		{#if !$enterpriseLicense}
+			<Alert title="Redacted audit logs" type="warning">
+				You need an enterprise license to see unredacted audit logs.
+			</Alert>
+			<div class="py-2" />
+		{/if}
+	</div>
+	<SplitPanesWrapper class="hidden md:block">
+		<Splitpanes>
+			<Pane size={70} minSize={50}>
+				<AuditLogsTable
+					{logs}
+					{selectedId}
+					bind:pageIndex
+					bind:perPage
+					bind:actionKind
+					bind:operation
+					on:select={(e) => {
+						selectedId = e.detail
+					}}
+				/>
+			</Pane>
+			<Pane size={30} minSize={15}>
+				<AuditLogDetails {logs} {selectedId} />
+			</Pane>
+		</Splitpanes>
+	</SplitPanesWrapper>
 
-					auditLogDrawer.openDrawer()
-				}}
-			/>
-		</div>
+	<div class="md:hidden">
+		<AuditLogsTable
+			{logs}
+			bind:pageIndex
+			bind:perPage
+			bind:actionKind
+			bind:operation
+			on:select={(e) => {
+				selectedId = e.detail
+
+				auditLogDrawer.openDrawer()
+			}}
+		/>
 	</div>
 </div>
 

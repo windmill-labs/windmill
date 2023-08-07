@@ -78,7 +78,6 @@
 
 	function updateQueryParams({
 		username,
-		pageIndex,
 		perPage,
 		before,
 		after,
@@ -87,7 +86,6 @@
 		actionKind
 	}: {
 		username?: string | undefined
-		pageIndex?: number | undefined
 		perPage?: number | undefined
 		before?: string | undefined
 		after?: string | undefined
@@ -95,6 +93,28 @@
 		resource?: string | undefined
 		actionKind?: ActionKind | undefined | 'all'
 	}) {
+		const queryParams: string[] = []
+
+		function addQueryParam(key: string, value: string | number | undefined | null) {
+			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+				queryParams.push(`${key}=${encodeURIComponent(value)}`)
+			}
+		}
+
+		addQueryParam('username', username)
+		addQueryParam('page', 0)
+		addQueryParam('perPage', perPage)
+		addQueryParam('before', before)
+		addQueryParam('after', after)
+		addQueryParam('operation', operation)
+		addQueryParam('resource', resource)
+		addQueryParam('actionKind', actionKind)
+
+		const query = '?' + queryParams.join('&')
+		goto(query)
+	}
+
+	function updatePageQueryParams(pageIndex?: number | undefined) {
 		const queryParams: string[] = []
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
@@ -118,7 +138,6 @@
 
 	$: updateQueryParams({
 		username,
-		pageIndex,
 		perPage,
 		before,
 		after,
@@ -127,12 +146,14 @@
 		actionKind
 	})
 
+	$: updatePageQueryParams(pageIndex)
+
 	window.addEventListener('popstate', handlePopState)
 
 	function handlePopState() {
 		const urlSearchParams = new URLSearchParams(window.location.search)
 		username = urlSearchParams.get('username') ?? 'all'
-		pageIndex = Number(urlSearchParams.get('page')) || 0
+		pageIndex = Number(urlSearchParams.get('page')) || 1
 		before = urlSearchParams.get('before') ?? undefined
 		after = urlSearchParams.get('after') ?? undefined
 		perPage = Number(urlSearchParams.get('perPage')) || 100
@@ -240,7 +261,7 @@
 		<input type="text" value={after ?? 'After'} disabled />
 		<CalendarPicker
 			date={after}
-			placement="bottom-start"
+			placement="bottom-end"
 			label="After"
 			on:change={async ({ detail }) => {
 				after = new Date(detail).toISOString()
@@ -253,7 +274,7 @@
 		<CalendarPicker
 			bind:date={before}
 			label="Before"
-			placement="bottom-start"
+			placement="bottom-end"
 			on:change={async ({ detail }) => {
 				before = new Date(detail).toISOString()
 			}}
@@ -310,6 +331,8 @@
 				username = 'all'
 				operation = 'all'
 				actionKind = 'all'
+				pageIndex = 1
+				perPage = 100
 			}}
 			size="xs"
 		>
