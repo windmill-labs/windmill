@@ -78,7 +78,7 @@ export function pathToMeta(path: string): Meta {
 export function prettyLanguage(lang: string) {
 	switch (lang) {
 		case 'nativets':
-			return 'Native Typescript'
+			return 'Native TypeScript'
 		default:
 			return lang.charAt(0).toUpperCase() + lang.slice(1)
 	}

@@ -17,7 +17,7 @@ prompts:
       My instructions: {description}
   deno:
     prompt: |-
-      Here's my typescript code in a deno running environment: 
+      Here's my TypeScript code in a deno running environment:
       ```typescript
       {code}
       ```
@@ -59,7 +59,7 @@ prompts:
       My instructions: {description}
   nativets:
     prompt: |-
-      Here's my typescript code: 
+      Here's my TypeScript code: 
       ```typescript
       {code}
       ```
@@ -70,7 +70,7 @@ prompts:
       My instructions: {description}
   bun:
     prompt: |-
-      Here's my typescript code in a node.js running environment: 
+      Here's my TypeScript code in a node.js running environment: 
       ```typescript
       {code}
       ```
