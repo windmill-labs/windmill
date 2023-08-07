@@ -1,194 +1,126 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type { ActionKind } from '$lib/common'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import { Alert } from '$lib/components/common'
-	import { AuditLog, AuditService, UserService } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { displayDate } from '$lib/utils'
-	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import AuditLogDetails from '$lib/components/auditLogs/AuditLogDetails.svelte'
+	import AuditLogsFilters from '$lib/components/auditLogs/AuditLogsFilters.svelte'
+	import AuditLogsTable from '$lib/components/auditLogs/AuditLogsTable.svelte'
+	import AuditLogMobileFilters from '$lib/components/auditLogs/AuditLogMobileFilters.svelte'
+	import { Alert, DrawerContent } from '$lib/components/common'
 
-	let logs: AuditLog[]
-	let usernames: string[]
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 
-	// Get all page params
-	let username: string | undefined = $page.url.searchParams.get('username') ?? undefined
-	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || undefined
+	import type { AuditLog } from '$lib/gen'
+	import { enterpriseLicense } from '$lib/stores'
+	import { Splitpanes, Pane } from 'svelte-splitpanes'
+
+	let username: string = $page.url.searchParams.get('username') ?? 'all'
+	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || 0
 	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined
 	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined
 	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || 100
-	let operation: string | undefined = $page.url.searchParams.get('operation') ?? undefined
+	let operation: string = $page.url.searchParams.get('operation') ?? 'all'
 	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined
-	let actionKind: ActionKind | undefined =
-		($page.url.searchParams.get('actionKind') as ActionKind) ?? undefined
+	let actionKind: ActionKind | 'all' =
+		($page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
 
-	async function loadLogs(username: string | undefined, page: number | undefined): Promise<void> {
-		if (username == 'all') {
-			username = undefined
-		}
-		logs = await AuditService.listAuditLogs({
-			workspace: $workspaceStore!,
-			page,
-			perPage,
-			before,
-			after,
-			username,
-			operation,
-			resource,
-			actionKind
-		})
-	}
+	let logs: AuditLog[]
 
-	async function loadUsers() {
-		usernames =
-			$userStore?.is_admin || $userStore?.is_super_admin
-				? await UserService.listUsernames({ workspace: $workspaceStore! })
-				: [$userStore?.username ?? '']
-	}
-
-	async function gotoUsername(username: string | undefined): Promise<void> {
-		goto(`?username=` + (username ? encodeURIComponent(username) : ''))
-	}
-
-	async function gotoPage(index: number): Promise<void> {
-		pageIndex = index
-		goto(`?page=${index}` + (username ? `&username=${encodeURIComponent(username)}` : ''))
-	}
-
-	function kindToIcon(kind: string) {
-		if (kind == 'Execute') {
-			return faPlay
-		} else if (kind == 'Delete') {
-			return faCross
-		} else if (kind == 'Update') {
-			return faEdit
-		} else if (kind == 'Create') {
-			return faPlus
-		}
-		return faQuestion
-	}
-
-	$: {
-		if ($workspaceStore) {
-			loadUsers()
-			loadLogs(username, pageIndex)
-		}
-	}
+	let selectedId: number | undefined = undefined
+	let auditLogDrawer: Drawer
 </script>
 
-<CenteredPage>
-	<PageHeader
-		title="Audit logs"
-		tooltip="You can only see your own audit logs unless you are an admin."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs"
-	/>
-
-	{#if !$enterpriseLicense}
-		<Alert title="Redacted audit logs" type="warning"
-			>You need an enterprise license to see unredacted audit logs.</Alert
-		>
-		<div class="py-2" />
-	{/if}
-	<!-- Filtering -->
-	<div class="flex flex-row my-3">
-		<label>
-			<select class="px-6" bind:value={username} on:change={() => gotoUsername(username)}>
-				{#if usernames}
-					{#if $userStore?.is_admin || $userStore?.is_super_admin}
-						<option selected>all</option>
-					{/if}
-					{#each usernames as e}
-						{#if e == username || $userStore?.is_admin || $userStore?.is_super_admin}
-							<option>{e}</option>
-						{:else}
-							<option disabled>{e}</option>
-						{/if}
-					{/each}
-				{/if}
-			</select>
-		</label>
-	</div>
-
-	<TableCustom
-		on:next={() => {
-			gotoPage((pageIndex ?? 1) + 1)
-		}}
-		on:previous={() => {
-			gotoPage((pageIndex ?? 1) - 1)
-		}}
-		currentPage={pageIndex}
-		paginated={true}
-	>
-		<tr slot="header-row">
-			<th>id</th>
-			<th>timestamp</th>
-
-			<th class="px-1">op kind</th>
-			<th>username</th>
-			<th>operation name</th>
-			<th>resource</th>
-			<th>parameters</th>
-		</tr>
-		<tbody slot="body">
-			{#if logs}
-				{#each logs as { id, timestamp, username, operation, action_kind, resource, parameters }}
-					<tr>
-						<td>{id}</td>
-						<td class="">
-							<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-xs">
-								{displayDate(timestamp)}
-							</div>
-						</td>
-						<td class="">
-							<Icon class="inline m-1" data={kindToIcon(action_kind)} scale={1} />
-						</td>
-						<td class="">
-							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
-								{username}
-							</div>
-						</td>
-						<td class=""><pre>{operation}</pre></td>
-						<td class="">{resource}</td>
-						<td class="">
-							{#if parameters}
-								<div class="overflow-x-auto no-scrollbar max-w-xs">
-									<pre>{JSON.stringify(parameters, null)}</pre>
-								</div>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			{/if}
-		</tbody>
-	</TableCustom>
-
-	{#if logs?.length == 0}
-		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
-			<p class="font-bold">No logs</p>
-			<p>
-				Either there is no audit logs for this person or you do not have access to them for this
-				person
-			</p>
+<div class="w-full h-screen">
+	<div class="px-2">
+		<div class="flex items-center space-x-2 flex-row justify-between">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Audit logs</h1>
+				<Tooltip
+					light
+					documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs"
+					scale={0.9}
+					wrapperClass="flex items-center"
+				>
+					You can only see your own audit logs unless you are an admin.
+				</Tooltip>
+			</div>
+			<div class="hidden xl:block">
+				<AuditLogsFilters
+					bind:logs
+					bind:username
+					bind:before
+					bind:after
+					bind:actionKind
+					bind:operation
+					bind:resource
+					bind:pageIndex
+					bind:perPage
+				/>
+			</div>
+			<div class="xl:hidden">
+				<AuditLogMobileFilters>
+					<svelte:fragment slot="filters">
+						<AuditLogsFilters
+							bind:logs
+							bind:username
+							bind:before
+							bind:after
+							bind:actionKind
+							bind:operation
+							bind:resource
+						/>
+					</svelte:fragment>
+				</AuditLogMobileFilters>
+			</div>
 		</div>
-	{/if}
-</CenteredPage>
 
-<style lang="postcss">
-	/* Hide scrollbar for Chrome, Safari and Opera */
-	.no-scrollbar::-webkit-scrollbar {
-		display: none;
-	}
+		{#if !$enterpriseLicense}
+			<Alert title="Redacted audit logs" type="warning">
+				You need an enterprise license to see unredacted audit logs.
+			</Alert>
+			<div class="py-2" />
+		{/if}
+	</div>
+	<SplitPanesWrapper class="hidden md:block">
+		<Splitpanes>
+			<Pane size={70} minSize={50}>
+				<AuditLogsTable
+					{logs}
+					{selectedId}
+					bind:pageIndex
+					bind:perPage
+					bind:actionKind
+					bind:operation
+					on:select={(e) => {
+						selectedId = e.detail
+					}}
+				/>
+			</Pane>
+			<Pane size={30} minSize={15}>
+				<AuditLogDetails {logs} {selectedId} />
+			</Pane>
+		</Splitpanes>
+	</SplitPanesWrapper>
 
-	/* Hide scrollbar for IE, Edge and Firefox */
-	.no-scrollbar {
-		-ms-overflow-style: none; /* IE and Edge */
-		scrollbar-width: none; /* Firefox */
-	}
-	td {
-		@apply text-xs p-1;
-	}
-</style>
+	<div class="md:hidden">
+		<AuditLogsTable
+			{logs}
+			bind:pageIndex
+			bind:perPage
+			bind:actionKind
+			bind:operation
+			on:select={(e) => {
+				selectedId = e.detail
+
+				auditLogDrawer.openDrawer()
+			}}
+		/>
+	</div>
+</div>
+
+<Drawer bind:this={auditLogDrawer}>
+	<DrawerContent title="Log details" on:close={auditLogDrawer.closeDrawer}>
+		<AuditLogDetails {logs} {selectedId} />
+	</DrawerContent>
+</Drawer>

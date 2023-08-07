@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { DatatableContext } from './DataTable.svelte'
 
 	export let first: boolean = false
 	export let last: boolean = false
@@ -7,6 +9,8 @@
 	export let head: boolean = false
 
 	let Tag = head ? 'th' : 'td'
+
+	const { size } = getContext<DatatableContext>('datatable')
 </script>
 
 <svelte:element
@@ -18,7 +22,9 @@
 		last ? 'sm:pr-6' : '',
 		numeric ? 'text-right' : '',
 		head ? 'font-semibold ' : '',
-		$$restProps.class
+		$$restProps.class,
+		size === 'sm' ? 'px-1.5 py-2.5' : '',
+		size === 'lg' ? 'px-3 py-4' : ''
 	)}
 >
 	<slot />
