@@ -67,16 +67,16 @@
 					width: w,
 					height: h,
 					margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 },
-
-					...resolvedConfig.layout,
 					paper_bgcolor: $darkMode ? '#2e3440' : '#fff',
 					plot_bgcolor: $darkMode ? '#2e3440' : '#fff',
+					...resolvedConfig.layout,
 					xaxis: {
-						color: $darkMode ? '#f3f6f8' : '#000'
+						color: $darkMode ? '#f3f6f8' : '#000',
+						...(resolvedConfig?.layout?.['xaxis'] ?? {})
 					},
-
 					yaxis: {
-						color: $darkMode ? '#f3f6f8' : '#000'
+						color: $darkMode ? '#f3f6f8' : '#000',
+						...(resolvedConfig?.layout?.['yaxis'] ?? {})
 					}
 				},
 				{ responsive: true, displayModeBar: false }
