@@ -232,7 +232,7 @@
 				logout()
 			}}
 		>
-			Logout
+			Log out
 		</Button>
 	</div>
 </CenteredModal>
