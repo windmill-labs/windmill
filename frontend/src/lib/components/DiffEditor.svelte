@@ -24,8 +24,7 @@
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
-			domReadOnly: true,
-			readOnly: true,
+			originalEditable: false,
 			minimap: {
 				enabled: false
 			},
