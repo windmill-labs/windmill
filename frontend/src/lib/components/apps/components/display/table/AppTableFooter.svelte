@@ -18,21 +18,21 @@
 	export let download: boolean = true
 
 	function convertJSONToCSV(objArray: Record<string, any>[]) {
-		const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray
 		let str = ''
 
-		const headers = Object.keys(array[0])
+		const headers = Object.keys(objArray[0])
 		str += headers.join(',') + '\r\n'
 
-		for (let i = 0; i < array.length; i++) {
+		for (let i = 0; i < objArray.length; i++) {
 			let line = ''
 			for (let j = 0; j < headers.length; j++) {
-				const value = array[i][headers[j]]
+				const value = objArray[i][headers[j]]
 				line += j ? ',' : ''
 				line += /[\",\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value
 			}
 			str += line + '\r\n'
 		}
+
 		return str
 	}
 
