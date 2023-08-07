@@ -7,7 +7,7 @@ system: |-
   explanation: "Here's the explanation"
   Also put the explanations in the code as comments.
 prompt: |-
-  Here's my environement: {environment}
+  Here's my environment: {environment}
   Here's my code: 
   ```{lang}
   {code}
@@ -28,7 +28,7 @@ prompts:
       Fix my code.
   deno:
     prompt: |-
-      Here's my typescript code in a deno running environement: 
+      Here's my typescript code in a deno running environment: 
       ```typescript
       {code}
       ```

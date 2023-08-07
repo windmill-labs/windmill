@@ -17,7 +17,7 @@ prompts:
       My instructions: {description}
   deno:
     prompt: |-
-      Here's my typescript code in a deno running environement: 
+      Here's my typescript code in a deno running environment: 
       ```typescript
       {code}
       ```
