@@ -17,11 +17,30 @@
 	export let style = ''
 	export let download: boolean = true
 
-	function downloadResultAsJSON() {
-		const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(result))
+	function convertJSONToCSV(objArray: Record<string, any>[]) {
+		const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray
+		let str = ''
+
+		const headers = Object.keys(array[0])
+		str += headers.join(',') + '\r\n'
+
+		for (let i = 0; i < array.length; i++) {
+			let line = ''
+			for (let j = 0; j < headers.length; j++) {
+				const value = array[i][headers[j]]
+				line += j ? ',' : ''
+				line += /[\",\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value
+			}
+			str += line + '\r\n'
+		}
+		return str
+	}
+
+	function downloadResultAsCSV() {
+		const csvStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(convertJSONToCSV(result))
 		const downloadAnchorNode = document.createElement('a')
-		downloadAnchorNode.setAttribute('href', dataStr)
-		downloadAnchorNode.setAttribute('download', 'data.json')
+		downloadAnchorNode.setAttribute('href', csvStr)
+		downloadAnchorNode.setAttribute('download', 'data.csv')
 		document.body.appendChild(downloadAnchorNode)
 		downloadAnchorNode.click()
 		downloadAnchorNode.remove()
@@ -69,7 +88,7 @@
 					variant="border"
 					color="light"
 					btnClasses="!py-1"
-					on:click={downloadResultAsJSON}
+					on:click={downloadResultAsCSV}
 					startIcon={{ icon: faDownload }}
 				>
 					Download
