@@ -174,7 +174,7 @@ async fn edit_schedule(
 
     let is_flow = not_found_if_none(is_flow, "Schedule", &path)?;
 
-    clear_schedule(tx.transaction_mut(), path, is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4 WHERE path \
@@ -374,7 +374,7 @@ pub async fn set_enabled(
 
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-    clear_schedule(tx.transaction_mut(), path, schedule.is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, schedule.is_flow, &w_id).await?;
 
     audit_log(
         &mut tx,
@@ -468,6 +468,7 @@ pub async fn clear_schedule<'c>(
     db: &mut Transaction<'c, Postgres>,
     path: &str,
     is_flow: bool,
+    w_id: &str,
 ) -> Result<()> {
     let job_kind = if is_flow {
         JobKind::Flow
@@ -475,9 +476,10 @@ pub async fn clear_schedule<'c>(
         JobKind::Script
     };
     sqlx::query!(
-        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2",
+        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2 AND workspace_id = $3",
         path,
-        job_kind as JobKind
+        job_kind as JobKind,
+        w_id
     )
     .execute(&mut **db)
     .await?;
