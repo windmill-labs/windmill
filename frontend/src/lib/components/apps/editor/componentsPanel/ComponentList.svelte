@@ -66,7 +66,7 @@
 	}))
 </script>
 
-<section class="p-2 sticky w-full z-10 top-0">
+<section class="p-2 sticky w-full z-10 top-0 bg-surface border-b">
 	<ClearableInput bind:value={search} placeholder="Search components..." />
 </section>
 

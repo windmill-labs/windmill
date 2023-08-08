@@ -1396,6 +1396,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'boolean'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

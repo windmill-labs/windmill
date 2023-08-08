@@ -38,6 +38,8 @@
 
 	let defaultValue: boolean | undefined = undefined
 	let label: string = ''
+	let disabled: boolean = false
+
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
@@ -82,6 +84,7 @@
 
 <InputValue {id} key={extraKey} input={configuration.label} bind:value={label} />
 <InputValue {id} key={extraKey} input={configuration.defaultValue} bind:value={defaultValue} />
+<InputValue {id} key={extraKey} input={configuration.disabled} bind:value={disabled} />
 
 <InitializeComponent {id} />
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
@@ -95,5 +98,6 @@
 			preclickAction?.()
 			value = e.detail
 		}}
+		{disabled}
 	/>
 </AlignWrapper>
