@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Login' }
+		stuff: { title: 'Log in' }
 	}
 }
