@@ -17,8 +17,8 @@ use windmill_parser_go::parse_go_imports;
 use crate::{
     common::{capitalize, read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_CACHE_DIR,
-    HOME_ENV, NETRC, NSJAIL_PATH, PATH_ENV,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NETRC, NSJAIL_PATH, PATH_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -44,37 +44,55 @@ pub async fn handle_go_job(
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
+    let bin_path = if let Some(requirements) = requirements_o.clone() {
+        Some(format!(
+            "{}/{}",
+            GO_BIN_CACHE_DIR,
+            calculate_hash(&format!("{}{}", inner_content, requirements))
+        ))
+    } else {
+        None
+    };
+
+    let bin_exists = if let Some(bin_path) = bin_path.clone() {
+        tokio::fs::metadata(bin_path).await.is_ok()
+    } else {
+        false
+    };
+
     let (skip_go_mod, skip_tidy) = if let Some(requirements) = requirements_o {
         gen_go_mod(inner_content, job_dir, &requirements).await?
     } else {
         (false, false)
     };
 
-    logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-    set_logs(logs, &job.id, db).await;
-
-    install_go_dependencies(
-        &job.id,
-        inner_content,
-        logs,
-        job_dir,
-        db,
-        true,
-        skip_go_mod,
-        skip_tidy,
-        worker_name,
-        &job.workspace_id,
-    )
-    .await?;
-
-    logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
     let client = &client.get_authed().await;
-    create_args_and_out_file(client, job, job_dir).await?;
-    {
-        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
-        const WRAPPER_CONTENT: &str = r#"package main
+    if !bin_exists {
+        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
+        set_logs(logs, &job.id, db).await;
+
+        install_go_dependencies(
+            &job.id,
+            inner_content,
+            logs,
+            job_dir,
+            db,
+            true,
+            skip_go_mod,
+            skip_tidy,
+            worker_name,
+            &job.workspace_id,
+        )
+        .await?;
+
+        logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
+        set_logs(logs, &job.id, db).await;
+        create_args_and_out_file(client, job, job_dir).await?;
+        {
+            let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
+
+            const WRAPPER_CONTENT: &str = r#"package main
 
 import (
     "encoding/json"
@@ -120,29 +138,29 @@ func main() {{
     }}
 }}"#;
 
-        write_file(job_dir, "main.go", WRAPPER_CONTENT).await?;
+            write_file(job_dir, "main.go", WRAPPER_CONTENT).await?;
 
-        {
-            let spread = &sig
-                .args
-                .clone()
-                .into_iter()
-                .map(|x| format!("req.{}", capitalize(&x.name)))
-                .join(", ");
-            let req_body = &sig
-                .args
-                .into_iter()
-                .map(|x| {
-                    format!(
-                        "{} {} `json:\"{}\"`",
-                        capitalize(&x.name),
-                        windmill_parser_go::otyp_to_string(x.otyp),
-                        x.name
-                    )
-                })
-                .join("\n");
-            let runner_content: String = format!(
-                r#"package inner
+            {
+                let spread = &sig
+                    .args
+                    .clone()
+                    .into_iter()
+                    .map(|x| format!("req.{}", capitalize(&x.name)))
+                    .join(", ");
+                let req_body = &sig
+                    .args
+                    .into_iter()
+                    .map(|x| {
+                        format!(
+                            "{} {} `json:\"{}\"`",
+                            capitalize(&x.name),
+                            windmill_parser_go::otyp_to_string(x.otyp),
+                            x.name
+                        )
+                    })
+                    .join("\n");
+                let runner_content: String = format!(
+                    r#"package inner
 type Req struct {{
     {req_body}
 }}
@@ -152,24 +170,11 @@ func Run(req Req) (interface{{}}, error){{
 }}
 
 "#,
-            );
-            write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
+                );
+                write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
+            }
         }
-    }
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let child = if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_GO_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", GO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
         let build_go = Command::new(GO_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
@@ -194,6 +199,33 @@ func Run(req Req) (interface{{}}, error){{
         )
         .await?;
 
+        if let Some(bin_path) = bin_path.clone() {
+            tokio::fs::copy(format!("{job_dir}/main"), &bin_path).await?;
+            logs.push_str(&format!("write cached binary: {}\n", bin_path));
+        }
+    } else {
+        let path = bin_path.unwrap().clone();
+        logs.push_str(&format!("found cached binary: {}\n", path));
+        tokio::fs::copy(path, format!("{job_dir}/main")).await?;
+        logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
+        set_logs(logs, &job.id, db).await;
+        create_args_and_out_file(client, job, job_dir).await?;
+    }
+
+    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let child = if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_GO_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", GO_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
+        )
+        .await?;
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
@@ -209,24 +241,23 @@ func Run(req Req) (interface{{}}, error){{
         if let Some(ref netrc) = *NETRC {
             write_file(&HOME_ENV, ".netrc", netrc).await?;
         }
-        let mut cmd = Command::new(GO_PATH.as_str());
-        cmd.current_dir(job_dir)
+        let mut run_go = Command::new("./main");
+        run_go
+            .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
-            .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str());
 
         if let Some(ref goprivate) = *GOPRIVATE {
-            cmd.env("GOPRIVATE", goprivate);
+            run_go.env("GOPRIVATE", goprivate);
         }
         if let Some(ref goproxy) = *GOPROXY {
-            cmd.env("GOPROXY", goproxy);
+            run_go.env("GOPROXY", goproxy);
         }
 
-        cmd.args(vec!["run", "main.go"])
+        run_go
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
