@@ -31,7 +31,8 @@
                 "Nativets",
                 "bun",
                 "mysql",
-                "bigquery"
+                "bigquery",
+                "snowflake"
               ]
             }
           }

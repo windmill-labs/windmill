@@ -423,7 +423,7 @@ async fn create_script(
         }
 
         for schedule in schedulables {
-            clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;
+            clear_schedule(tx.transaction_mut(), &schedule.path, false, &w_id).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
