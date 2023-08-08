@@ -8,7 +8,7 @@ async function globalSetup() {
 
 	if (await page.locator('#email').isHidden()) {
 		await page.locator('button', {
-			hasText: 'Login without third-party'
+			hasText: 'Log in without third-party'
 		}).click()
 	}
 
