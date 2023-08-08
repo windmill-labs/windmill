@@ -1358,7 +1358,8 @@ async fn handle_code_execution_job(
         }
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, inner_content).await?; 
+        let code = format!("const BASE_URL = '{base_internal_url}';\nconst WM_TOKEN = '{}';\n{}", &client.get_token().await, inner_content);
+        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, code).await?; 
         *logs = jc.logs;
         return Ok(jc.result)
     }
