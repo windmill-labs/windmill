@@ -1,6 +1,61 @@
 # Changelog
 
 
+## [1.142.0](https://github.com/windmill-labs/windmill/compare/v1.141.0...v1.142.0) (2023-08-07)
+
+
+### Features
+
+* add magic tag part ([90dfda0](https://github.com/windmill-labs/windmill/commit/90dfda0d1f00e1f11a82d12d2466eb2252c6e5fb))
+* **frontend:** Audit logs rework ([#1997](https://github.com/windmill-labs/windmill/issues/1997)) ([57110b9](https://github.com/windmill-labs/windmill/commit/57110b93c942024099538143f695c6c9294d0097))
+* **frontend:** make diff editor editable ([#1999](https://github.com/windmill-labs/windmill/issues/1999)) ([dee1096](https://github.com/windmill-labs/windmill/commit/dee1096bc0cb094932320c4a7801106a0eba2d59))
+
+
+### Bug Fixes
+
+* custom config layout get priority for plotly components ([e7febc7](https://github.com/windmill-labs/windmill/commit/e7febc759676c1f0f5030874abc7382ec87d47a2))
+* **frontend:** Download as CSV ([#2000](https://github.com/windmill-labs/windmill/issues/2000)) ([5f3b2ea](https://github.com/windmill-labs/windmill/commit/5f3b2eacbf1d10fe870074ea079ce66e6dca0d5d))
+* refresh token on login and regularly ([9337716](https://github.com/windmill-labs/windmill/commit/933771651e9dde1c3489aaa9f31d9331ac4d5f7f))
+
+## [1.141.0](https://github.com/windmill-labs/windmill/compare/v1.140.1...v1.141.0) (2023-08-05)
+
+
+### Features
+
+* add support for custom import map on deno ([23a5bfa](https://github.com/windmill-labs/windmill/commit/23a5bfa36824c48694dbe42080b14d8969cbf3da))
+
+## [1.140.1](https://github.com/windmill-labs/windmill/compare/v1.140.0...v1.140.1) (2023-08-05)
+
+
+### Bug Fixes
+
+* **cli:** handle extra headers in zip call ([7a731dc](https://github.com/windmill-labs/windmill/commit/7a731dc838fae1664ca80ed572e5e986b331d874))
+
+## [1.140.0](https://github.com/windmill-labs/windmill/compare/v1.139.0...v1.140.0) (2023-08-05)
+
+
+### Features
+
+* add azure openAI support ([#1989](https://github.com/windmill-labs/windmill/issues/1989)) ([0b7d639](https://github.com/windmill-labs/windmill/commit/0b7d6398cbddfd65306542a8300881517b1413cb))
+* add snowflake ([#1987](https://github.com/windmill-labs/windmill/issues/1987)) ([d57b8d7](https://github.com/windmill-labs/windmill/commit/d57b8d79ad7493905e11e42470a8bfaa59e68709))
+* add test connection for bigquery ([#1988](https://github.com/windmill-labs/windmill/issues/1988)) ([c585377](https://github.com/windmill-labs/windmill/commit/c585377c2a7b42a1e74ff55b37cac7afceee318d))
+* add toggle for postgres between public and all schemas ([#1991](https://github.com/windmill-labs/windmill/issues/1991)) ([8d550a7](https://github.com/windmill-labs/windmill/commit/8d550a7ea5708ccae1136f4c0445fd9e4573341c))
+* **frontend:** Add flow steps details ([#1986](https://github.com/windmill-labs/windmill/issues/1986)) ([6d89121](https://github.com/windmill-labs/windmill/commit/6d89121ff951b3f192138c3c453c6d78f4bb6285))
+* **frontend:** Settings rework ([#1983](https://github.com/windmill-labs/windmill/issues/1983)) ([b8e9338](https://github.com/windmill-labs/windmill/commit/b8e9338d722fe0ec166df3f3b7c895f2ed8ea7ac))
+* support native jobs from hub ([af29692](https://github.com/windmill-labs/windmill/commit/af29692ee1231b202d3c11b65559ae14421c472d))
+
+
+### Bug Fixes
+
+* add more indexes for performance reasons ([4e21b1a](https://github.com/windmill-labs/windmill/commit/4e21b1ac1780ba966f030c537b4b6d9650a12e61))
+* ai code block regex ([#1992](https://github.com/windmill-labs/windmill/issues/1992)) ([8289afd](https://github.com/windmill-labs/windmill/commit/8289afd8ff7b5b35f123c43941232ffae1602c27))
+* **frontend:** Fix flow editor panel sizes ([#1985](https://github.com/windmill-labs/windmill/issues/1985)) ([911162a](https://github.com/windmill-labs/windmill/commit/911162a1d2c7444dd4d4e98e96fbb542e004130b))
+* **frontend:** Fix image loading animation + app preview select scrolling issues ([#1990](https://github.com/windmill-labs/windmill/issues/1990)) ([ae79216](https://github.com/windmill-labs/windmill/commit/ae79216d5322c237250aad272bc7b73864ac7c62))
+* **frontend:** Fix log bg color + add style to the supabase connect button ([#1981](https://github.com/windmill-labs/windmill/issues/1981)) ([b2f23fb](https://github.com/windmill-labs/windmill/commit/b2f23fbaa167f10ae36ebe8a70cc35830051ddc2))
+* **frontend:** View runs+ fix flow graph overflow issues ([#1984](https://github.com/windmill-labs/windmill/issues/1984)) ([923504f](https://github.com/windmill-labs/windmill/commit/923504f2b40781a857ce08ff9ae7d74d73afe02d))
+* make plotly dynamically change on layout change ([c31118c](https://github.com/windmill-labs/windmill/commit/c31118c270c69f6d54a9ff3e706ac175f7996f9e))
+* reset with minimal code ([#1982](https://github.com/windmill-labs/windmill/issues/1982)) ([c031b9f](https://github.com/windmill-labs/windmill/commit/c031b9f3525855c695d557ecb8c8e93b695e2eaa))
+
 ## [1.139.0](https://github.com/windmill-labs/windmill/compare/v1.138.1...v1.139.0) (2023-08-01)
 
 

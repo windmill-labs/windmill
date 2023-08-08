@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.139.0
+  version: 1.142.0
   title: Windmill API
 
   contact:
@@ -531,6 +531,20 @@ paths:
       responses:
         "200":
           description: user email
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/refresh_token:
+    get:
+      summary: refresh the current token
+      operationId: refreshUserToken
+      tags:
+        - user
+      responses:
+        "200":
+          description: free usage
           content:
             text/plain:
               schema:
@@ -5672,7 +5686,19 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, bigquery, snowflake, graphql, nativets, bun]
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              graphql,
+              nativets,
+              bun,
+            ]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5737,7 +5763,19 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, bigquery, snowflake, graphql, nativets, bun]
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              graphql,
+              nativets,
+              bun,
+            ]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -5907,7 +5945,19 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, bigquery, snowflake, graphql, nativets, bun]
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              graphql,
+              nativets,
+              bun,
+            ]
         email:
           type: string
         visible_to_owner:
@@ -5997,7 +6047,19 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, bigquery, snowflake, graphql, nativets, bun]
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              graphql,
+              nativets,
+              bun,
+            ]
         is_skipped:
           type: boolean
         email:
@@ -6268,18 +6330,88 @@ components:
           type: string
           enum:
             - "jobs.run"
+            - "jobs.run.script"
+            - "jobs.run.preview"
+            - "jobs.run.flow"
+            - "jobs.run.flow_preview"
+            - "jobs.run.script_hub"
+            - "jobs.run.dependencies"
+            - "jobs.run.identity"
+            - "jobs.run.noop"
+            - "jobs.flow_dependencies"
+            - "jobs"
+            - "jobs.cancel"
+            - "jobs.force_cancel"
+            - "jobs.disapproval"
+            - "jobs.delete"
+            - "account.delete"
+            - "openai.request"
+            - "resources.create"
+            - "resources.update"
+            - "resources.delete"
+            - "resource_types.create"
+            - "resource_types.update"
+            - "resource_types.delete"
+            - "schedule.create"
+            - "schedule.setenabled"
+            - "schedule.edit"
+            - "schedule.delete"
             - "scripts.create"
             - "scripts.update"
+            - "scripts.archive"
+            - "scripts.delete"
             - "users.create"
             - "users.delete"
-            - "users.setpassword"
             - "users.update"
             - "users.login"
+            - "users.logout"
+            - "users.accept_invite"
+            - "users.decline_invite"
             - "users.token.create"
             - "users.token.delete"
+            - "users.add_to_workspace"
+            - "users.add_global"
+            - "users.setpassword"
+            - "users.impersonate"
+            - "users.leave_workspace"
+            - "oauth.login"
+            - "oauth.signup"
             - "variables.create"
             - "variables.delete"
             - "variables.update"
+            - "flows.create"
+            - "flows.update"
+            - "flows.delete"
+            - "flows.archive"
+            - "apps.create"
+            - "apps.update"
+            - "apps.delete"
+            - "folder.create"
+            - "folder.update"
+            - "folder.delete"
+            - "folder.add_owner"
+            - "folder.remove_owner"
+            - "group.create"
+            - "group.delete"
+            - "group.edit"
+            - "group.adduser"
+            - "group.removeuser"
+            - "igroup.create"
+            - "igroup.delete"
+            - "igroup.adduser"
+            - "igroup.removeuser"
+            - "variables.decrypt_secret"
+            - "workspaces.edit_command_script"
+            - "workspaces.edit_deploy_to"
+            - "workspaces.edit_auto_invite_domain"
+            - "workspaces.edit_webhook"
+            - "workspaces.edit_openai_resource_path"
+            - "workspaces.edit_error_handler"
+            - "workspaces.create"
+            - "workspaces.update"
+            - "workspaces.archive"
+            - "workspaces.unarchive"
+            - "workspaces.delete"
         action_kind:
           type: string
           enum: ["Created", "Updated", "Delete", "Execute"]
@@ -6426,7 +6558,19 @@ components:
         language:
           type: string
           enum:
-            [python3, deno, go, bash, postgresql, mysql, bigquery, snowflake, graphql, nativets, bun]
+            [
+              python3,
+              deno,
+              go,
+              bash,
+              postgresql,
+              mysql,
+              bigquery,
+              snowflake,
+              graphql,
+              nativets,
+              bun,
+            ]
         tag:
           type: string
         kind:

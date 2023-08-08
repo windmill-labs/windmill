@@ -54,7 +54,7 @@ export async function inferArgs(
 		} else if (language == 'bigquery') {
 			inferedSchema = JSON.parse(parse_bigquery(code))
 			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'gcp_service_account' } },
+				{ name: 'database', typ: { resource: 'bigquery' } },
 				...inferedSchema.args
 			]
 		} else if (language == 'snowflake') {

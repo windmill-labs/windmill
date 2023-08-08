@@ -85,9 +85,3 @@
 		? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 		: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 />
-
-<style>
-	:global(.svelte-select-list) {
-		font-size: small !important;
-	}
-</style>

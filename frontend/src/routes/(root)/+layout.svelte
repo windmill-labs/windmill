@@ -124,11 +124,24 @@
 				console.error('Caught unhandled promise rejection without message', event.reason, event)
 			}
 		}
+		setLicense()
+
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
-			setLicense()
-			interval = setInterval(async () => {
+			UserService.refreshUserToken()
+		}
+
+		let i = 0
+		interval = setInterval(async () => {
+			if ($page.url.pathname != '/user/login') {
+				i += 1
+
+				// every 1 hour
+				if (i % 12 == 0) {
+					UserService.refreshUserToken()
+				}
+
 				try {
 					const workspace = $workspaceStore
 					const user = $userStore
@@ -140,8 +153,9 @@
 				} catch (e) {
 					console.error('Could not refresh user', e)
 				}
-			}, 300000)
-		}
+			}
+			// every 5 minues
+		}, 300000)
 	})
 
 	onDestroy(() => {

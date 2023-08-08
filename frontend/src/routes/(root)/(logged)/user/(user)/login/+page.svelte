@@ -101,7 +101,7 @@
 				} catch {}
 			}
 
-			const allWorkspaces = $usersWorkspaceStore?.workspaces
+			const allWorkspaces = $usersWorkspaceStore?.workspaces.filter((x) => x.id != 'admins')
 
 			if (allWorkspaces?.length == 1) {
 				$workspaceStore = allWorkspaces[0].id
