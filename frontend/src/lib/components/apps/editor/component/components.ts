@@ -1515,6 +1515,11 @@ This is a paragraph.
 					value: 'Select an item',
 					onlyStatic: true
 				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
+				},
 				defaultValue: {
 					type: 'static',
 					value: undefined,

@@ -203,6 +203,7 @@
 					css?.input?.style}
 				{value}
 				placeholder={resolvedConfig.placeholder}
+				disabled={resolvedConfig.disabled}
 				on:focus={() => {
 					if (!$connectingInput.opened) {
 						$selectedComponent = [id]
