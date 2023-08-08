@@ -257,7 +257,7 @@
 	<InviteUser on:new={listInvites} />
 </PageHeader>
 
-<div class="max-h-screen">
+<div>
 	<DataTable>
 		<Head>
 			<tr>
@@ -311,7 +311,6 @@
 	</DataTable>
 </div>
 
-<div class="mt-10" />
 <PageHeader
 	title="Auto Invite"
 	tooltip="Auto invite to the workspace users from your domain."
