@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.143.0](https://github.com/windmill-labs/windmill/compare/v1.142.0...v1.143.0) (2023-08-08)
+
+
+### Features
+
+* **frontend:** add disabled prop to select input ([#2007](https://github.com/windmill-labs/windmill/issues/2007)) ([f6c9e34](https://github.com/windmill-labs/windmill/commit/f6c9e349fc82a74efed6fb8ddb6d79889b8b031b))
+
+
+### Bug Fixes
+
+* add BASE_URL and WM_TOKEN to native scripts ([b5ba9da](https://github.com/windmill-labs/windmill/commit/b5ba9daffce8891ba54697cd595ac935a7266e4d))
+* fix clear schedule to be workspace specific ([1d1cd31](https://github.com/windmill-labs/windmill/commit/1d1cd31252c6619441219cdb2bb6ba064d029ac9))
+* **frontend:** Fix auto invite overflow ([#2009](https://github.com/windmill-labs/windmill/issues/2009)) ([c22e3b5](https://github.com/windmill-labs/windmill/commit/c22e3b54025153a9d28831c2fdacc9bd6d558c2c))
+
 ## [1.142.0](https://github.com/windmill-labs/windmill/compare/v1.141.0...v1.142.0) (2023-08-07)
 
 
