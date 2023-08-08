@@ -61,7 +61,7 @@
 	}
 
 	const langs: [string, SupportedLanguage][] = [
-		['Typescript (Deno)', Script.language.DENO],
+		['TypeScript (Deno)', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
 	if (SCRIPT_SHOW_BASH) {
@@ -393,7 +393,7 @@
 					}}
 				>
 					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2 truncate">
-						Typescript (Bun, experimental)
+						TypeScript (Bun, experimental)
 					</span>
 				</Button>
 
