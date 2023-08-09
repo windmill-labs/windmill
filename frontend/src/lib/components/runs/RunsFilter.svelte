@@ -7,6 +7,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { goto } from '$app/navigation'
 
 	export let paths: string[] = []
 	export let selectedPath: string | undefined = undefined
@@ -93,7 +94,6 @@
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-		let:close
 	>
 		<svelte:fragment slot="button">
 			<Button color="dark" size="xs" nonCaptureEvent={true}>
@@ -113,9 +113,8 @@
 			<Button
 				size="xs"
 				color="dark"
-				on:click={() => {
-					close(null)
-					resultFilter = ''
+				on:click={async () => {
+					await goto('/runs', { invalidateAll: true })
 				}}
 			>
 				Clear filter
@@ -123,7 +122,8 @@
 		</div>
 	</Popup>
 	<Button
-		color="dark"
+		color="light"
+		variant="border"
 		size="xs"
 		on:click={() => {
 			selectedPath = undefined

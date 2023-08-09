@@ -49,20 +49,22 @@ ${Object.entries(args)
 </script>
 
 <div class="relative">
-	<button
-		on:click={() => {
-			jsonStr = JSON.stringify(args, null, 4)
-			jsonViewer.openDrawer()
-		}}
-	>
-		<Expand size={18} />
-	</button>
 	<DataTable size="sm">
 		<Head>
 			<tr>
 				<Cell head first>Argument</Cell>
 				<Cell head last>Value</Cell>
 			</tr>
+			<svelte:fragment slot="headerAction">
+				<button
+					on:click={() => {
+						jsonStr = JSON.stringify(args, null, 4)
+						jsonViewer.openDrawer()
+					}}
+				>
+					<Expand size={18} />
+				</button>
+			</svelte:fragment>
 		</Head>
 
 		<tbody class="divide-y">

@@ -41,9 +41,11 @@
 				Ran in ({msToSec(job.duration_ms)}s)
 			{/if}
 		</Badge>
-		<Badge color="blue">
-			Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
-		</Badge>
+		{#if job?.['mem_peak']}
+			<Badge color="blue">
+				Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
+			</Badge>
+		{/if}
 	</div>
 	<span class="font-semibold text-xs leading-6">ID</span>
 	<span class="text-xs">{job?.id}</span>

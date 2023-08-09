@@ -247,7 +247,7 @@
 				<RunsFilter
 					bind:isSkipped
 					{paths}
-					bind:selectedPath={path}
+					bind:selectedPath={searchPath}
 					bind:success
 					bind:argFilter
 					bind:argError
