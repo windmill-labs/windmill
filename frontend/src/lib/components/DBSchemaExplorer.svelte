@@ -10,7 +10,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { buildClientSchema, printSchema } from 'graphql'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: String | undefined = undefined
@@ -237,12 +237,7 @@ export async function main(args: any) {
 				</ToggleButtonGroup>
 			{/if}
 			{#if $dbSchema.lang === 'graphql'}
-				<SimpleEditor
-					lang="graphql"
-					code={formatGraphqlSchema($dbSchema)}
-					class="h-full"
-					readOnly
-				/>
+				<GraphqlSchemaViewer code={formatGraphqlSchema($dbSchema)} class="h-full" />
 			{:else}
 				<ObjectViewer json={formatSchema($dbSchema)} pureViewer />
 			{/if}

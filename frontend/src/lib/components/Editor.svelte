@@ -211,6 +211,7 @@
 			return
 		}
 		if (schemaLang === 'graphql') {
+			graphqlService ||= initializeMode()
 			graphqlService?.setSchemaConfig([
 				{
 					uri: 'my-schema.graphql',
@@ -727,10 +728,6 @@
 	}
 
 	async function loadMonaco() {
-		if (lang === 'graphql') {
-			graphqlService ||= initializeMode()
-		}
-
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {

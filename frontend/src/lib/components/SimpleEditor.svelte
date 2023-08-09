@@ -52,7 +52,6 @@
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
-	export let readOnly = false
 
 	const dispatch = createEventDispatcher()
 
@@ -132,8 +131,7 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
-			fontSize: small ? 12 : 14,
-			readOnly
+			fontSize: small ? 12 : 14
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
