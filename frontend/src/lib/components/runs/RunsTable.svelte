@@ -7,30 +7,30 @@
 	import JobDetail from '../jobs/JobDetail.svelte'
 
 	export let jobs: Job[] = []
-	export let pageIndex: number = 1
-	export let perPage: number = 100
 	export let selectedId: string | undefined = undefined
+	export let nbObJobs: number = 30
+	export let loadMoreQuantity: number = 30
 </script>
 
 <DataTable
-	currentPage={pageIndex}
-	paginated
 	rounded={false}
 	size="sm"
-	bind:perPage
-	on:next={() => pageIndex++}
-	on:prev={() => pageIndex--}
-	shouldHidePagination={jobs?.length === 0}
+	on:loadMore={() => console.log('load more')}
+	loadMore={loadMoreQuantity}
+	shouldLoadMore={true}
+	on:loadMore={() => (nbObJobs += loadMoreQuantity)}
 >
 	<Head>
-		<Cell first head>Path</Cell>
-		<Cell head>User</Cell>
+		<Cell first head />
+		<Cell head>Timestamp</Cell>
 		<Cell head>Status</Cell>
-		<Cell head last />
+		<Cell head>Path</Cell>
+		<Cell head>User</Cell>
+		<Cell head last>Schedule</Cell>
 	</Head>
 
 	<tbody class="divide-y">
-		{#each jobs as job (job.id)}
+		{#each jobs.slice(0, nbObJobs) as job (job.id)}
 			<JobDetail {job} bind:selectedId />
 		{/each}
 	</tbody>

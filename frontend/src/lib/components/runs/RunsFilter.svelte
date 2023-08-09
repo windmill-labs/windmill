@@ -19,7 +19,7 @@
 	export let resultError: string
 </script>
 
-<div class="flex flex-col items-center gap-6 xl:gap-1 xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-center gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
 	<div class="relative">
 		<span class="text-xs absolute -top-4">Status</span>
 		<ToggleButtonGroup

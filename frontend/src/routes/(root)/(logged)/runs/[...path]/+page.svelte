@@ -42,8 +42,7 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
-	let pageIndex: number = 1
-	let perPage: number = 25
+	let nbObJobs = 30
 
 	$: path = $page.params.path
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -346,12 +345,7 @@
 		<Splitpanes>
 			<Pane size={70} minSize={50}>
 				{#if jobs}
-					<RunsTable
-						jobs={jobs.slice(perPage * (pageIndex - 1), perPage * (pageIndex - 1) + perPage)}
-						bind:selectedId
-						bind:perPage
-						bind:pageIndex
-					/>
+					<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
 				{/if}
 			</Pane>
 			<Pane size={30} minSize={15}>
@@ -369,12 +363,7 @@
 
 	<div class="md:hidden">
 		{#if jobs}
-			<RunsTable
-				jobs={jobs.slice(perPage * (pageIndex - 1), perPage * (pageIndex - 1) + perPage)}
-				bind:selectedId
-				bind:perPage
-				bind:pageIndex
-			/>
+			<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
 		{/if}
 	</div>
 </div>
