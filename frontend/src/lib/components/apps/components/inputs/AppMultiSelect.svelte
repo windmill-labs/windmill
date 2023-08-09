@@ -120,7 +120,7 @@
 
 <AlignWrapper {render} hFull>
 	<div
-		class="app-select w-full h-full"
+		class="w-full h-full"
 		on:pointerdown={(e) => {
 			if (!e.shiftKey) {
 				e.stopPropagation()
@@ -173,14 +173,3 @@
 		{/if}
 	</div>
 </AlignWrapper>
-
-<style global>
-	.app-select .value-container {
-		padding: 0 !important;
-		overflow: auto;
-	}
-
-	.z5000 {
-		z-index: 5000 !important;
-	}
-</style>

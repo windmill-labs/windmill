@@ -805,6 +805,7 @@
 		position: relative;
 		overflow: var(--value-container-overflow, hidden);
 		align-self: stretch;
+		padding: 0 !important;
 	}
 
 	.prepend,
@@ -1007,8 +1008,9 @@
 		overflow-y: auto;
 		background: var(--list-background, #fff);
 		position: var(--list-position, absolute);
-		z-index: var(--list-z-index, 2);
+		z-index: var(--list-z-index, 5000);
 		border: var(--list-border);
+		font-size: small !important;
 	}
 
 	.prefloat {
