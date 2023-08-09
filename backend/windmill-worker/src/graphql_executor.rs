@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::{transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
-struct GraphqlDatabase {
+struct GraphqlApi {
     bearer_token: Option<String>,
     base_url: String,
 }
@@ -37,10 +37,9 @@ pub async fn do_graphql(
 
     let graphql_args: serde_json::Value = serde_json::from_value(args.unwrap_or_else(|| json!({})))
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let database = serde_json::from_value::<GraphqlDatabase>(
-        graphql_args.get("database").unwrap_or(&json!({})).clone(),
-    )
-    .map_err(|e: serde_json::Error| Error::ExecutionErr(e.to_string()))?;
+    let api =
+        serde_json::from_value::<GraphqlApi>(graphql_args.get("api").unwrap_or(&json!({})).clone())
+            .map_err(|e: serde_json::Error| Error::ExecutionErr(e.to_string()))?;
 
     let args = &job
         .args
@@ -50,12 +49,12 @@ pub async fn do_graphql(
         .map(|x| x.to_owned())
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
 
-    let mut request = HTTP_CLIENT.post(database.base_url).json(&json!({
+    let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({
         "query": query,
         "variables": args
     }));
 
-    if let Some(token) = &database.bearer_token {
+    if let Some(token) = &api.bearer_token {
         request = request.bearer_auth(token.as_str());
     }
 

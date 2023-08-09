@@ -174,13 +174,13 @@ export async function main(args: any) {
 				}
 			},
 			timeoutCode: async () => {
-				console.error('Could not query DB schema within 5s')
+				console.error('Could not query schema within 5s')
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
 						id: job,
 						requestBody: {
-							reason: 'Could not query DB schema within 5s'
+							reason: 'Could not query schema within 5s'
 						}
 					})
 				} catch (err) {
@@ -226,10 +226,10 @@ export async function main(args: any) {
 		btnClasses="mt-1"
 		on:click={drawer.openDrawer}
 	>
-		Explore DB schema
+		Explore schema
 	</Button>
 	<Drawer bind:this={drawer} size="800px">
-		<DrawerContent title="DB Schema Explorer" on:close={drawer.closeDrawer}>
+		<DrawerContent title="Schema Explorer" on:close={drawer.closeDrawer}>
 			{#if $dbSchema.lang === 'postgresql'}
 				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
