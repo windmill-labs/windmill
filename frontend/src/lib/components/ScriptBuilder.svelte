@@ -264,17 +264,6 @@
 	}
 
 	let path: Path | undefined = undefined
-	$: {
-		if (initialPath == '' && script.summary?.length > 0) {
-			path?.setName(
-				script.summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -289,6 +278,18 @@
 				autofocus
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
+				on:keydown={() => {
+					if (initialPath == '' && script.summary?.length > 0) {
+						console.log('FOO')
+						path?.setName(
+							script.summary
+								.toLowerCase()
+								.replace(/[^a-z0-9_]/g, '_')
+								.replace(/-+/g, '_')
+								.replace(/^-|-$/g, '')
+						)
+					}
+				}}
 			/>
 			<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 			<Path
