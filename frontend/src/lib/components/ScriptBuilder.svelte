@@ -280,7 +280,6 @@
 				placeholder="Short summary to be displayed when listed"
 				on:keyup={() => {
 					if (initialPath == '' && script.summary?.length > 0) {
-						console.log('FOO')
 						path?.setName(
 							script.summary
 								.toLowerCase()
