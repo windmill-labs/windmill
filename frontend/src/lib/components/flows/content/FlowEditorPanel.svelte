@@ -7,7 +7,7 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import type { FlowModule } from '$lib/gen'
+	// import type { FlowModule } from '$lib/gen'
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
