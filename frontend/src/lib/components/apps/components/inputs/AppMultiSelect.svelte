@@ -22,7 +22,7 @@
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
-		middleware: [offset(24), flip(), shift()]
+		middleware: [offset(5), flip(), shift()]
 	})
 
 	const { app, worldStore, selectedComponent, componentControl } =
