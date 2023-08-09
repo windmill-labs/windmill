@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import {
 		createBranchAll,
 		createBranches,
@@ -33,7 +33,7 @@
 		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval' | 'end'
 	): Promise<FlowModule[]> {
 		push(history, $flowStore)
-		var module = emptyModule($flowStateStore, kind == 'flow')
+		var module = emptyModule($flowStateStore, $flowStore, kind == 'flow')
 		var state = emptyFlowModuleState()
 		if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id)
@@ -197,6 +197,7 @@
 			}}
 			on:insert={async ({ detail }) => {
 				if (detail.modules) {
+					await tick()
 					if ($moving) {
 						push(history, $flowStore)
 						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)

@@ -138,6 +138,7 @@ pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 
 pub const TAR_PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "tar/pip");
 pub const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
@@ -1362,7 +1363,8 @@ async fn handle_code_execution_job(
         return Ok(jc.result)
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
-        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, inner_content).await?; 
+        let code = format!("const BASE_URL = '{base_internal_url}';\nconst WM_TOKEN = '{}';\n{}", &client.get_token().await, inner_content);
+        let jc = do_nativets(job.clone(), logs.clone(), &client.get_authed().await, code).await?; 
         *logs = jc.logs;
         return Ok(jc.result)
     }
@@ -1813,6 +1815,8 @@ run().catch(async (e) => {{
     read_result(job_dir).await
 }
 
+const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_bun_job(
     logs: &mut String,
@@ -1936,8 +1940,14 @@ let child = if !*DISABLE_NSJAIL {
         .stderr(Stdio::piped())
         .spawn()?
     } else {
+            let _ = write_file(&job_dir, "loader.bun.ts", &RELATIVE_BUN_LOADER
+                .replace("W_ID", &job.workspace_id)
+                .replace("BASE_INTERNAL_URL", base_internal_url)
+                .replace("TOKEN", &client.get_token().await)
+                .replace("CURRENT_PATH", job.script_path())).await?;
+
             let script_path = format!("{job_dir}/wrapper.ts");
-            let args = vec!["run", &script_path, "--prefer-offline"];
+            let args = vec!["run", "-r", "./loader.bun.ts", &script_path, "--prefer-offline"];
             Command::new(&*BUN_PATH)
                 .current_dir(job_dir)
                 .env_clear()

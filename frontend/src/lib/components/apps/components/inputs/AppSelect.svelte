@@ -203,6 +203,7 @@
 					css?.input?.style}
 				{value}
 				placeholder={resolvedConfig.placeholder}
+				disabled={resolvedConfig.disabled}
 				on:focus={() => {
 					if (!$connectingInput.opened) {
 						$selectedComponent = [id]
@@ -236,12 +237,3 @@
 		{/if}
 	</div>
 </AlignWrapper>
-
-<style global>
-	.app-select .value-container {
-		padding: 0 !important;
-	}
-	.svelte-select-list {
-		z-index: 5000 !important;
-	}
-</style>

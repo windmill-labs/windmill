@@ -1396,6 +1396,11 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'boolean'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -1514,6 +1519,11 @@ This is a paragraph.
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false
 				},
 				defaultValue: {
 					type: 'static',

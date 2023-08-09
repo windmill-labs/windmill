@@ -44,7 +44,7 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
 
     let ast = parser
         .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid typescript"))?
+        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?
         .body;
 
     let params = ast.into_iter().find_map(|x| match x {
