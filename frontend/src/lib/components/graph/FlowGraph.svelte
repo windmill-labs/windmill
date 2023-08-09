@@ -52,6 +52,8 @@
 	let fullWidth: number
 	let errorHandlers: Record<string, string> = {}
 
+	let error: string | undefined = undefined
+
 	$: showDataflow =
 		$selectedId != undefined &&
 		!$selectedId.startsWith('constants') &&
@@ -67,6 +69,7 @@
 		dataflow
 		moving
 		width && height && minHeight && $selectedId && flowModuleStates && renderCount
+
 		createGraph()
 	}
 
@@ -82,121 +85,126 @@
 	}
 
 	async function createGraph() {
-		// console.log(JSON.stringify(modules))
-		// return
-		nodes = []
-		edges = []
-		errorHandlers = {}
+		try {
+			// console.log(JSON.stringify(modules))
+			// return
+			nodes = []
+			edges = []
+			errorHandlers = {}
 
-		if (modules) {
-			idGenerator = createIdGenerator()
-		} else {
-			nodes = edges = []
-			return
-		}
-		nestedNodes = nodes = []
-
-		nestedNodes.push(
-			createVirtualNode(
-				getParentIds(),
-				'Input',
-				modules,
-				'after',
-				undefined,
-				undefined,
-				0,
-				0,
-				true,
-				undefined,
-				undefined,
-				'Input'
-			)
-		)
-
-		modules.forEach((m, i) => {
-			const item = getConvertedFlowModule(
-				m,
-				undefined,
-				undefined,
-				0,
-				i + 1 == modules?.length,
-				modules!
-			)
-			item && nestedNodes.push(item)
-		})
-		nestedNodes.push(
-			createVirtualNode(
-				getParentIds(),
-				'Result',
-				undefined,
-				'before',
-				undefined,
-				undefined,
-				0,
-				modules.length,
-				true,
-				undefined,
-				undefined,
-				undefined
-			)
-		)
-
-		if (!flowModuleStates) {
-			if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
-		} else {
-			Object.entries(flowModuleStates ?? [])
-				.filter(([k, v]) => k.startsWith('failure'))
-				.forEach(([k, v]) => {
-					nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
-				})
-		}
-		const flatNodes = flattenNestedNodes(nestedNodes)
-
-		const layered = layoutNodes(flatNodes)
-
-		nodes = layered.nodes
-		let hfull = Math.max(layered.height, minHeight)
-		fullWidth = layered.width
-		height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight - 100)
-
-		let useDataflow = dataflow && showDataflow
-		edges = useDataflow ? [] : createEdges(nodes)
-
-		if (useDataflow && $selectedId) {
-			let deps = getDependeeAndDependentComponents($selectedId, modules ?? [], failureModule)
-			if (deps) {
-				Object.entries(deps.dependees).forEach((x, i) => {
-					let pid = x[0]
-					edges.push({
-						id: `dep-${pid}-${$selectedId}`,
-						source: pid,
-						target: $selectedId!,
-						labelBgColor: 'white',
-						arrow: false,
-						animate: true,
-						noHandle: true,
-						label: pid,
-						type: 'bezier',
-						offset: i * 20
-					})
-				})
-
-				Object.entries(deps.dependents).forEach((x, i) => {
-					let pid = x[0]
-					edges.push({
-						id: `dep-${pid}-${$selectedId}`,
-						source: $selectedId!,
-						target: pid,
-						labelBgColor: 'white',
-						arrow: false,
-						animate: true,
-						noHandle: true,
-						label: pid,
-						type: 'bezier',
-						offset: i * 10
-					})
-				})
+			if (modules) {
+				idGenerator = createIdGenerator()
+			} else {
+				nodes = edges = []
+				return
 			}
+			nestedNodes = nodes = []
+
+			nestedNodes.push(
+				createVirtualNode(
+					getParentIds(),
+					'Input',
+					modules,
+					'after',
+					undefined,
+					undefined,
+					0,
+					0,
+					true,
+					undefined,
+					undefined,
+					'Input'
+				)
+			)
+
+			modules.forEach((m, i) => {
+				const item = getConvertedFlowModule(
+					m,
+					undefined,
+					undefined,
+					0,
+					i + 1 == modules?.length,
+					modules!
+				)
+				item && nestedNodes.push(item)
+			})
+			nestedNodes.push(
+				createVirtualNode(
+					getParentIds(),
+					'Result',
+					undefined,
+					'before',
+					undefined,
+					undefined,
+					0,
+					modules.length,
+					true,
+					undefined,
+					undefined,
+					undefined
+				)
+			)
+
+			if (!flowModuleStates) {
+				if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
+			} else {
+				Object.entries(flowModuleStates ?? [])
+					.filter(([k, v]) => k.startsWith('failure'))
+					.forEach(([k, v]) => {
+						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+					})
+			}
+			const flatNodes = flattenNestedNodes(nestedNodes)
+
+			const layered = layoutNodes(flatNodes)
+
+			nodes = layered.nodes
+			let hfull = Math.max(layered.height, minHeight)
+			fullWidth = layered.width
+			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight - 100)
+
+			let useDataflow = dataflow && showDataflow
+			edges = useDataflow ? [] : createEdges(nodes)
+
+			if (useDataflow && $selectedId) {
+				let deps = getDependeeAndDependentComponents($selectedId, modules ?? [], failureModule)
+				if (deps) {
+					Object.entries(deps.dependees).forEach((x, i) => {
+						let pid = x[0]
+						edges.push({
+							id: `dep-${pid}-${$selectedId}`,
+							source: pid,
+							target: $selectedId!,
+							labelBgColor: 'white',
+							arrow: false,
+							animate: true,
+							noHandle: true,
+							label: pid,
+							type: 'bezier',
+							offset: i * 20
+						})
+					})
+
+					Object.entries(deps.dependents).forEach((x, i) => {
+						let pid = x[0]
+						edges.push({
+							id: `dep-${pid}-${$selectedId}`,
+							source: $selectedId!,
+							target: pid,
+							labelBgColor: 'white',
+							arrow: false,
+							animate: true,
+							noHandle: true,
+							label: pid,
+							type: 'bezier',
+							offset: i * 10
+						})
+					})
+				}
+			}
+			if (error) error = undefined
+		} catch (e) {
+			error = e.message
 		}
 	}
 
@@ -543,6 +551,13 @@
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number; width: number } {
+		let seenId: string[] = []
+		for (const n of nodes) {
+			if (seenId.includes(n.id)) {
+				n.id = n.id + '_dup'
+			}
+			seenId.push(n.id)
+		}
 		const stratify = dagStratify().id(({ id }: Node) => id)
 		const dag = stratify(nodes)
 
@@ -752,25 +767,31 @@
 <DarkModeObserver on:change={onThemeChange} />
 
 <div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
-	{#if width && height}
-		{#key renderCount}
-			<Svelvet
-				on:expand={() => {
-					localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
-					window.open('/view_graph', '_blank')
-				}}
-				{download}
-				highlightEdges={false}
-				locked
-				bind:dataflow
-				{nodes}
-				width={fullSize ? fullWidth : width}
-				{edges}
-				{height}
-				{scroll}
-				nodeSelected={showDataflow}
-				background={false}
-			/>
-		{/key}
+	{#if !error}
+		{#if width && height}
+			{#key renderCount}
+				<Svelvet
+					on:expand={() => {
+						localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						window.open('/view_graph', '_blank')
+					}}
+					{download}
+					highlightEdges={false}
+					locked
+					bind:dataflow
+					{nodes}
+					width={fullSize ? fullWidth : width}
+					{edges}
+					{height}
+					{scroll}
+					nodeSelected={showDataflow}
+					background={false}
+				/>
+			{/key}
+		{/if}
+	{:else}
+		<div class="p-4 text-center text-xl text-red-600">
+			Error computing the graph: {error}
+		</div>
 	{/if}
 </div>
