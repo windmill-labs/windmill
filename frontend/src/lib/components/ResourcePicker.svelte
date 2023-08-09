@@ -9,7 +9,7 @@
 	import AppConnect from './AppConnect.svelte'
 	import { Button } from './common'
 	import ResourceEditor from './ResourceEditor.svelte'
-	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
+	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -143,5 +143,5 @@
 			<Icon scale={0.8} data={faRotateRight} />
 		</Button>
 	</div>
-	<DbSchemaExplorer {resourceType} resourcePath={value} />
+	<DBSchemaExplorer {resourceType} resourcePath={value} />
 </div>

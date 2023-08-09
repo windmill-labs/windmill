@@ -21,6 +21,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
@@ -41,6 +42,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
+	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
+	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -96,6 +99,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
+	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	const uri =
 		lang == 'typescript'
@@ -196,105 +200,116 @@
 
 	let command: Disposable | undefined = undefined
 
-	let dbSchemaCompletor: Disposable | undefined = undefined
-	$: $dbSchema && addDBSchemaCompletions()
-	$: !$dbSchema && dbSchemaCompletor && dbSchemaCompletor.dispose()
+	let sqlSchemaCompletor: Disposable | undefined = undefined
+	$: $dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
+	$: (!$dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+	$: (!$dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
 
 	function addDBSchemaCompletions() {
-		if (dbSchemaCompletor) {
-			dbSchemaCompletor.dispose()
+		const { lang: schemaLang, schema } = $dbSchema || {}
+		if (!schemaLang || !schema) {
+			return
 		}
-		dbSchemaCompletor = languages.registerCompletionItemProvider('sql', {
-			triggerCharacters: ['.', ' ', '('],
-			provideCompletionItems: function (model, position) {
-				const textUntilPosition = model.getValueInRange({
-					startLineNumber: 1,
-					startColumn: 1,
-					endLineNumber: position.lineNumber,
-					endColumn: position.column
-				})
-
-				const word = model.getWordUntilPosition(position)
-				const range = {
-					startLineNumber: position.lineNumber,
-					endLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
-					endColumn: word.endColumn
+		if (schemaLang === 'graphql') {
+			graphqlService ||= initializeMode()
+			graphqlService?.setSchemaConfig([
+				{
+					uri: 'my-schema.graphql',
+					introspectionJSON: schema
 				}
-
-				if (!$dbSchema) {
-					return { suggestions: [] }
-				}
-
-				let suggestions: languages.CompletionItem[] = []
-
-				const noneMatch = textUntilPosition.match(/(?:add|create table)\s/i)
-
-				if (noneMatch) {
-					return {
-						suggestions
-					}
-				}
-
-				for (const schemaKey in $dbSchema) {
-					suggestions.push({
-						label: schemaKey,
-						detail: 'schema',
-						kind: languages.CompletionItemKind.Function,
-						insertText: schemaKey,
-						range: range,
-						sortText: 'z'
+			])
+		} else if (schemaLang === 'mysql' || schemaLang === 'postgresql') {
+			if (sqlSchemaCompletor) {
+				sqlSchemaCompletor.dispose()
+			}
+			sqlSchemaCompletor = languages.registerCompletionItemProvider('sql', {
+				triggerCharacters: ['.', ' ', '('],
+				provideCompletionItems: function (model, position) {
+					const textUntilPosition = model.getValueInRange({
+						startLineNumber: 1,
+						startColumn: 1,
+						endLineNumber: position.lineNumber,
+						endColumn: position.column
 					})
 
-					for (const tableKey in $dbSchema[schemaKey]) {
+					const word = model.getWordUntilPosition(position)
+					const range = {
+						startLineNumber: position.lineNumber,
+						endLineNumber: position.lineNumber,
+						startColumn: word.startColumn,
+						endColumn: word.endColumn
+					}
+
+					let suggestions: languages.CompletionItem[] = []
+
+					const noneMatch = textUntilPosition.match(/(?:add|create table)\s/i)
+
+					if (noneMatch) {
+						return {
+							suggestions
+						}
+					}
+
+					for (const schemaKey in schema) {
 						suggestions.push({
-							label: tableKey,
-							detail: `table (${schemaKey})`,
+							label: schemaKey,
+							detail: 'schema',
 							kind: languages.CompletionItemKind.Function,
-							insertText: tableKey,
+							insertText: schemaKey,
 							range: range,
-							sortText: 'y'
+							sortText: 'z'
 						})
 
-						const noColsMatch = textUntilPosition.match(
-							/(?:from|insert into|update|table)\s(?![\s\S]*(\b(where|order by|group by|values|set|column)\b|\())/i
-						)
+						for (const tableKey in schema[schemaKey]) {
+							suggestions.push({
+								label: tableKey,
+								detail: `table (${schemaKey})`,
+								kind: languages.CompletionItemKind.Function,
+								insertText: tableKey,
+								range: range,
+								sortText: 'y'
+							})
 
-						if (!noColsMatch) {
-							for (const columnKey in $dbSchema[schemaKey][tableKey]) {
-								suggestions.push({
-									label: columnKey,
-									detail: `${$dbSchema[schemaKey][tableKey][columnKey]['type']} (${schemaKey}.${tableKey})`,
-									kind: languages.CompletionItemKind.Function,
-									insertText: columnKey,
-									range: range,
-									sortText: 'x'
-								})
+							const noColsMatch = textUntilPosition.match(
+								/(?:from|insert into|update|table)\s(?![\s\S]*(\b(where|order by|group by|values|set|column)\b|\())/i
+							)
+
+							if (!noColsMatch) {
+								for (const columnKey in schema[schemaKey][tableKey]) {
+									suggestions.push({
+										label: columnKey,
+										detail: `${schema[schemaKey][tableKey][columnKey]['type']} (${schemaKey}.${tableKey})`,
+										kind: languages.CompletionItemKind.Function,
+										insertText: columnKey,
+										range: range,
+										sortText: 'x'
+									})
+								}
+							}
+
+							if (textUntilPosition.match(new RegExp(`${tableKey}.$`, 'i'))) {
+								suggestions = suggestions.filter((x) =>
+									x.detail?.includes(`(${schemaKey}.${tableKey})`)
+								)
+								return {
+									suggestions
+								}
 							}
 						}
 
-						if (textUntilPosition.match(new RegExp(`${tableKey}.$`, 'i'))) {
-							suggestions = suggestions.filter((x) =>
-								x.detail?.includes(`(${schemaKey}.${tableKey})`)
-							)
+						if (textUntilPosition.match(new RegExp(`${schemaKey}.$`, 'i'))) {
+							suggestions = suggestions.filter((x) => x.detail === `table (${schemaKey})`)
 							return {
 								suggestions
 							}
 						}
 					}
-
-					if (textUntilPosition.match(new RegExp(`${schemaKey}.$`, 'i'))) {
-						suggestions = suggestions.filter((x) => x.detail === `table (${schemaKey})`)
-						return {
-							suggestions
-						}
+					return {
+						suggestions
 					}
 				}
-				return {
-					suggestions
-				}
-			}
-		})
+			})
+		}
 	}
 
 	const outputChannel = {
@@ -815,6 +830,7 @@
 	onDestroy(() => {
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
+		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	})
 </script>
 

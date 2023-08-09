@@ -4,6 +4,7 @@
 	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
+	import type { SupportedLanguage } from '$lib/common'
 
 	export let isLoading = false
 	export let job: { completed: boolean; result: any; id: string } | undefined = undefined
@@ -84,7 +85,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: 'deno' | 'go' | 'python3' | 'bash' | 'nativets',
+		lang: SupportedLanguage,
 		args: Record<string, any>,
 		tag: string | undefined
 	): Promise<string> {

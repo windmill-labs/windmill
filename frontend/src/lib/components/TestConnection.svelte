@@ -53,6 +53,10 @@ export async function main(database: any) {
 		snowflake: {
 			code: `select 1`,
 			lang: 'snowflake'
+		},
+		graphql: {
+			code: '{ __typename }',
+			lang: 'graphql'
 		}
 	}
 
