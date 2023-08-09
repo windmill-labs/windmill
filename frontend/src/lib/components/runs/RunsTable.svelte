@@ -3,7 +3,6 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import type { Job } from '$lib/gen'
-	import NoItemFound from '../home/NoItemFound.svelte'
 	import RunRow from './RunRow.svelte'
 
 	export let jobs: Job[] = []
@@ -74,6 +73,10 @@
 		{/each}
 	</tbody>
 	{#if jobs.length == 0}
-		<NoItemFound />
+		<tr>
+			<td colspan="4" class="text-center py-8">
+				<div class="text-xs text-secondary"> No logs found for the selected filters. </div>
+			</td>
+		</tr>
 	{/if}
 </DataTable>

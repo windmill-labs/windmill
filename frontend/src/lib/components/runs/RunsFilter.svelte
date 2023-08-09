@@ -8,6 +8,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { goto } from '$app/navigation'
+	import { createEventDispatcher } from 'svelte'
 
 	export let paths: string[] = []
 	export let selectedPath: string | undefined = undefined
@@ -18,18 +19,21 @@
 	export let argError: string
 	export let resultFilter: string
 	export let resultError: string
+
+	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-col items-center gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
 	<div class="relative">
 		<span class="text-xs absolute -top-4">Status</span>
 		<ToggleButtonGroup
 			bind:selected={success}
-			on:selected={async () => await setQuery($page.url, 'success', String(success))}
+			on:selected={async () =>
+				await setQuery($page.url, 'success', success === undefined ? success : String(success))}
 		>
 			<ToggleButton value={undefined} label="All" />
-			<ToggleButton value={'true'} label="Only success" class="whitespace-nowrap" />
-			<ToggleButton value={'false'} label="Only errors" class="whitespace-nowrap" />
+			<ToggleButton value={true} label="Only success" class="whitespace-nowrap" />
+			<ToggleButton value={false} label="Only errors" class="whitespace-nowrap" />
 		</ToggleButtonGroup>
 	</div>
 	<div class="relative">
@@ -40,7 +44,12 @@
 
 		<ToggleButtonGroup
 			bind:selected={isSkipped}
-			on:selected={async () => await setQuery($page.url, 'is_skipped', String(isSkipped))}
+			on:selected={async () =>
+				await setQuery(
+					$page.url,
+					'is_skipped',
+					isSkipped === undefined ? isSkipped : String(isSkipped)
+				)}
 		>
 			<ToggleButton value={false} label="Skipped" />
 			<ToggleButton value={true} label="Not skipped" class="whitespace-nowrap" />
@@ -94,6 +103,7 @@
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+		let:close
 	>
 		<svelte:fragment slot="button">
 			<Button color="dark" size="xs" nonCaptureEvent={true}>
@@ -114,7 +124,8 @@
 				size="xs"
 				color="dark"
 				on:click={async () => {
-					await goto('/runs', { invalidateAll: true })
+					close(null)
+					resultFilter = ''
 				}}
 			>
 				Clear filter
@@ -126,13 +137,8 @@
 		variant="border"
 		size="xs"
 		on:click={() => {
-			selectedPath = undefined
-			success = undefined
-			isSkipped = false
-			argFilter = ''
-			resultFilter = ''
-			argError = ''
-			resultError = ''
+			goto('/runs')
+			dispatch('clearFilters')
 		}}
 	>
 		Clear filters

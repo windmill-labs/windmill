@@ -21,9 +21,10 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
 
 	let jobs: Job[] | undefined
-	let error: Error | undefined
 	let intervalId: NodeJS.Timer | undefined
 	let selectedId: string | undefined = undefined
 
@@ -92,7 +93,6 @@
 			jobs = newJobs
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
-			error = err
 			console.error(JSON.stringify(err))
 		}
 	}
@@ -123,6 +123,7 @@
 	onMount(() => {
 		loadPaths()
 		intervalId = setInterval(syncer, 5000)
+
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
 				sync = false
@@ -131,6 +132,20 @@
 			}
 		})
 	})
+
+	onDestroy(() => {
+		if (intervalId) {
+			clearInterval(intervalId)
+		}
+	})
+
+	$: if (!intervalId && autoRefresh) {
+		intervalId = setInterval(syncer, 5000)
+	}
+	$: if (intervalId && !autoRefresh) {
+		clearInterval(intervalId)
+		intervalId = undefined
+	}
 
 	let paths: string[] = []
 
@@ -159,11 +174,6 @@
 	$: completedJobs =
 		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 
-	onDestroy(() => {
-		if (intervalId) {
-			clearInterval(intervalId)
-		}
-	})
 	let searchPath = ''
 	$: searchPath = path
 
@@ -224,6 +234,7 @@
 	]
 
 	let selectedManualDate = 0
+	let autoRefresh: boolean = true
 </script>
 
 <div class="w-full h-screen">
@@ -254,9 +265,35 @@
 					bind:resultFilter
 					bind:resultError
 					on:change={reloadLogsWithoutFilterError}
+					on:clearFilters={() => {
+						minTs = undefined
+						maxTs = undefined
+						autoRefresh = true
+					}}
 				/>
 			</div>
-			<div class="xl:hidden"> Filters </div>
+			<div class="xl:hidden">
+				<MobileFilters>
+					<svelte:fragment slot="filters">
+						<RunsFilter
+							bind:isSkipped
+							{paths}
+							bind:selectedPath={searchPath}
+							bind:success
+							bind:argFilter
+							bind:argError
+							bind:resultFilter
+							bind:resultError
+							on:change={reloadLogsWithoutFilterError}
+							on:clearFilters={() => {
+								minTs = undefined
+								maxTs = undefined
+								autoRefresh = true
+							}}
+						/>
+					</svelte:fragment>
+				</MobileFilters>
+			</div>
 		</div>
 	</div>
 	<div class="my-2 pb-2">
@@ -284,61 +321,71 @@
 			}}
 		/>
 	</div>
-	<div class="flex flex-row gap-x-2 w-full mb-2 mt-8 px-2 md:px-4">
-		<div class="relative w-full">
-			<div class="flex gap-1 relative w-full">
-				<span class="text-xs absolute -top-4">Min datetime</span>
+	<div class="flex flex-col gap-1 md:flex-row w-full p-4 justify-between">
+		<div class="flex flex-row gap-1 w-full">
+			<div class="relative w-full">
+				<div class="flex gap-1 relative w-full">
+					<span class="text-xs absolute -top-4">Min datetime</span>
 
-				<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
+					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
 
-				<CalendarPicker
-					date={minTs}
-					label="Min datetimes"
-					on:change={async ({ detail }) => {
-						minTs = new Date(detail).toISOString()
-						jobs = await fetchJobs(maxTs, minTs)
-					}}
-				/>
+					<CalendarPicker
+						date={minTs}
+						label="Min datetimes"
+						on:change={async ({ detail }) => {
+							minTs = new Date(detail).toISOString()
+							jobs = await fetchJobs(maxTs, minTs)
+						}}
+					/>
+				</div>
+			</div>
+			<div class="relative w-full">
+				<div class="flex gap-1 relative w-full">
+					<span class="text-xs absolute -top-4">Max datetime</span>
+					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+					<CalendarPicker
+						date={maxTs}
+						label="Max datetimes"
+						on:change={async ({ detail }) => {
+							maxTs = new Date(detail).toISOString()
+							jobs = await fetchJobs(maxTs, minTs)
+						}}
+					/>
+				</div>
 			</div>
 		</div>
-		<div class="relative w-full">
-			<div class="flex gap-1 relative w-full">
-				<span class="text-xs absolute -top-4">Max datetime</span>
-				<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
-				<CalendarPicker
-					date={maxTs}
-					label="Max datetimes"
-					on:change={async ({ detail }) => {
-						maxTs = new Date(detail).toISOString()
-						jobs = await fetchJobs(maxTs, minTs)
-					}}
-				/>
-			</div>
+		<div class="flex flex-row gap-1">
+			<Button
+				color="light"
+				size="xs2"
+				wrapperClasses="border rounded-md"
+				on:click={() => {
+					manualDates[selectedManualDate].setMinMax()
+					loadJobs()
+				}}
+				dropdownItems={[
+					...manualDates.map((d, i) => ({
+						label: d.label,
+						onClick: () => {
+							selectedManualDate = i
+							d.setMinMax()
+							loadJobs()
+						}
+					}))
+				]}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<RefreshCcw size={14} />
+					{manualDates[selectedManualDate].label}
+				</div>
+			</Button>
+			<Toggle
+				size="xs"
+				bind:checked={autoRefresh}
+				options={{ right: 'Auto-refresh' }}
+				textClass="whitespace-nowrap"
+			/>
 		</div>
-		<Button
-			color="light"
-			size="xs2"
-			wrapperClasses="border rounded-md"
-			on:click={() => {
-				manualDates[selectedManualDate].setMinMax()
-				loadJobs()
-			}}
-			dropdownItems={[
-				...manualDates.map((d, i) => ({
-					label: d.label,
-					onClick: () => {
-						selectedManualDate = i
-						d.setMinMax()
-						loadJobs()
-					}
-				}))
-			]}
-		>
-			<div class="flex flex-row items-center gap-2">
-				<RefreshCcw size={14} />
-				{manualDates[selectedManualDate].label}
-			</div>
-		</Button>
 	</div>
 
 	<SplitPanesWrapper class="hidden md:block">
@@ -349,14 +396,16 @@
 				{/if}
 			</Pane>
 			<Pane size={30} minSize={15}>
-				{#if selectedId}
-					{@const job = jobs?.find((j) => j.id == selectedId)}
-					{#if job}
-						{#key job.id}
-							<JobPreview id={job.id} />
-						{/key}
+				<div class="border-t">
+					{#if selectedId}
+						{@const job = jobs?.find((j) => j.id == selectedId)}
+						{#if job}
+							{#key job.id}
+								<JobPreview id={job.id} />
+							{/key}
+						{/if}
 					{/if}
-				{/if}
+				</div>
 			</Pane>
 		</Splitpanes>
 	</SplitPanesWrapper>

@@ -14,12 +14,10 @@
 	let timeout: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
 	let result: any
-	let loaded = false
 
 	function onDone(event: { detail: Job }) {
 		job = event.detail
 		result = job['result']
-		loaded = true
 	}
 
 	onMount(() => {
