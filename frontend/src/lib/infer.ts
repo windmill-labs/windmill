@@ -66,10 +66,7 @@ export async function inferArgs(
 			]
 		} else if (language == 'graphql') {
 			inferedSchema = JSON.parse(parse_graphql(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'graphql' } },
-				...inferedSchema.args
-			]
+			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
