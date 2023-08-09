@@ -41,7 +41,6 @@ workspaceStore.subscribe(async (value) => {
 interface BaseOptions {
 	language: Script.language | 'frontend'
 	dbSchema: DBSchema | undefined
-	dbSchemaPublicOnly: boolean
 }
 
 interface ScriptGenerationOptions extends BaseOptions {
@@ -71,19 +70,24 @@ async function addResourceTypes(scriptOptions: BaseOptions, workspace: string, p
 }
 
 function addDBSChema(scriptOptions: BaseOptions, prompt: string) {
-	if (['mysql', 'postgresql'].includes(scriptOptions.language) && scriptOptions.dbSchema) {
-		const { dbSchema, dbSchemaPublicOnly, language } = scriptOptions
+	const { dbSchema, language } = scriptOptions
+	if (
+		dbSchema &&
+		['postgresql', 'mysql'].includes(language) && // make sure we are using a SQL language
+		(dbSchema.lang === 'postgresql' || dbSchema.lang === 'mysql') // make sure we have a SQL schema
+	) {
+		const { schema, lang } = dbSchema
 		let smallerSchema: {
 			[schemaKey: string]: {
 				[tableKey: string]: Array<[string, string, boolean, string?]>
 			}
 		} = {}
-		for (const schemaKey in dbSchema) {
+		for (const schemaKey in schema) {
 			smallerSchema[schemaKey] = {}
-			for (const tableKey in dbSchema[schemaKey]) {
+			for (const tableKey in schema[schemaKey]) {
 				smallerSchema[schemaKey][tableKey] = []
-				for (const colKey in dbSchema[schemaKey][tableKey]) {
-					const col = dbSchema[schemaKey][tableKey][colKey]
+				for (const colKey in schema[schemaKey][tableKey]) {
+					const col = schema[schemaKey][tableKey][colKey]
 					const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
 					if (col.default) {
 						p.push(col.default)
@@ -98,9 +102,9 @@ function addDBSChema(scriptOptions: BaseOptions, prompt: string) {
 			| {
 					[tableKey: string]: Array<[string, string, boolean, string?]>
 			  } = smallerSchema
-		if (language === 'postgresql' && dbSchemaPublicOnly) {
+		if (lang === 'postgresql' && dbSchema.publicOnly) {
 			finalSchema = smallerSchema.public || smallerSchema
-		} else if (language === 'mysql' && Object.keys(smallerSchema).length === 1) {
+		} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
 			finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
 		}
 		prompt =

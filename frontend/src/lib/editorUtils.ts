@@ -63,6 +63,8 @@ export function langToExt(lang: string): string {
 			return 'ts'
 		case 'nativets':
 			return 'ts'
+		case 'graphql':
+			return 'gql'
 
 		default:
 			return 'unknown'

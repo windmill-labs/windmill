@@ -21,6 +21,7 @@ windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-py.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser-graphql.workspace = true
 wasm-bindgen.workspace = true
 serde_json.workspace = true
 getrandom = { workspace = true, features = ["js"] }
