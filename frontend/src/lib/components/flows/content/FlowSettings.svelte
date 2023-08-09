@@ -64,7 +64,7 @@
 									bind:value={$flowStore.summary}
 									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
-									on:keydown={() => {
+									on:keyup={() => {
 										if (initialPath == '' && $flowStore.summary?.length > 0) {
 											path?.setName(
 												$flowStore.summary
