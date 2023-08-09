@@ -40,17 +40,6 @@
 	}
 
 	let path: Path | undefined = undefined
-	$: {
-		if (initialPath == '' && $flowStore.summary?.length > 0) {
-			path?.setName(
-				$flowStore.summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
 </script>
 
 <div class="h-full overflow-hidden">
@@ -75,6 +64,17 @@
 									bind:value={$flowStore.summary}
 									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
+									on:keydown={() => {
+										if (initialPath == '' && $flowStore.summary?.length > 0) {
+											path?.setName(
+												$flowStore.summary
+													.toLowerCase()
+													.replace(/[^a-z0-9_]/g, '_')
+													.replace(/-+/g, '_')
+													.replace(/^-|-$/g, '')
+											)
+										}
+									}}
 								/>
 							</label>
 
