@@ -16,6 +16,7 @@ import type { FlowModuleState, FlowState } from './flowState'
 import { charsToNumber, numberToChars } from './idUtils'
 import { emptyFlowModuleState, findNextAvailablePath, loadSchemaFromModule } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
+import { dfs } from './flowStore'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -36,8 +37,9 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 }
 
 // Computes the next available id
-export function nextId(flowState: FlowState): string {
-	const max = Object.keys(flowState).reduce((acc, key) => {
+export function nextId(flowState: FlowState, fullFlow: Flow): string {
+	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
+	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
 			return acc
 		} else {
@@ -187,9 +189,9 @@ async function createInlineScriptModuleFromPath(
 	}
 }
 
-export function emptyModule(flowState: FlowState, flow?: boolean): FlowModule {
+export function emptyModule(flowState: FlowState, fullFlow: Flow, flow?: boolean): FlowModule {
 	return {
-		id: nextId(flowState),
+		id: nextId(flowState, fullFlow),
 		value: { type: 'identity', flow }
 	}
 }
