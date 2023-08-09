@@ -4,7 +4,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import type { Job } from '$lib/gen'
 	import NoItemFound from '../home/NoItemFound.svelte'
-	import JobDetail from '../jobs/JobDetail.svelte'
+	import RunRow from './RunRow.svelte'
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
@@ -30,7 +30,7 @@
 
 	<tbody class="divide-y">
 		{#each jobs.slice(0, nbObJobs) as job (job.id)}
-			<JobDetail {job} bind:selectedId />
+			<RunRow {job} bind:selectedId />
 		{/each}
 	</tbody>
 	{#if jobs.length == 0}

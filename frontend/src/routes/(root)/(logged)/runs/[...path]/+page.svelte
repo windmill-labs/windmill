@@ -12,7 +12,7 @@
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
+	import JobPreview from '$lib/components/runs/JobPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RefreshCcw } from 'lucide-svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
