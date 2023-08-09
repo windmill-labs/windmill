@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.144.2](https://github.com/windmill-labs/windmill/compare/v1.144.1...v1.144.2) (2023-08-09)
+
+
+### Bug Fixes
+
+* make path changeable even if linked to summary ([f3b674a](https://github.com/windmill-labs/windmill/commit/f3b674acd1a0e76c12c321fa7d9d131716622ae5))
+
 ## [1.144.1](https://github.com/windmill-labs/windmill/compare/v1.144.0...v1.144.1) (2023-08-09)
 
 
