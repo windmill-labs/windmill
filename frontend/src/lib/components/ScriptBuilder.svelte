@@ -278,7 +278,7 @@
 				autofocus
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
-				on:keydown={() => {
+				on:keyup={() => {
 					if (initialPath == '' && script.summary?.length > 0) {
 						console.log('FOO')
 						path?.setName(
