@@ -19,7 +19,6 @@
 
 	// state
 	let genLoading: boolean = false
-	let openaiAvailable: boolean | undefined = undefined
 	let generatedCode = ''
 	let explanation = ''
 
@@ -65,13 +64,6 @@
 		explanation = ''
 	}
 
-	function checkIfOpenaiAvailable(
-		lang: SupportedLanguage | 'frontend',
-		existsOpenaiResourcePath: boolean
-	) {
-		openaiAvailable = existsOpenaiResourcePath && SUPPORTED_LANGUAGES.has(lang)
-	}
-
 	function showDiff() {
 		diffEditor?.setDiff(editor?.getCode() || '', generatedCode, scriptLangToEditorLang(lang))
 		diffEditor?.show()
@@ -83,8 +75,6 @@
 		diffEditor?.hide()
 	}
 
-	$: checkIfOpenaiAvailable(lang, $existsOpenaiResourcePath)
-
 	$: lang && (generatedCode = '')
 
 	$: generatedCode && showDiff()
@@ -92,7 +82,7 @@
 </script>
 
 {#if error}
-	{#if openaiAvailable}
+	{#if existsOpenaiResourcePath && SUPPORTED_LANGUAGES.has(lang)}
 		<div class="mt-2">
 			{#if generatedCode}
 				<div class="flex gap-1">
