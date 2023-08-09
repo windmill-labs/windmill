@@ -14,6 +14,7 @@
 		[key: string]: {
 			code: string
 			lang: string
+			argName: string
 		}
 	} = {
 		postgresql: {
@@ -30,7 +31,8 @@ export async function main(database: any) {
 	const client = new Client(u.toString())
 	await client.connect()
 }`,
-			lang: 'deno'
+			lang: 'deno',
+			argName: 'database'
 		},
 		mysql: {
 			code: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
@@ -44,19 +46,23 @@ export async function main(database: any) {
   });
   await conn.query("SELECT 1");
 }`,
-			lang: 'deno'
+			lang: 'deno',
+			argName: 'database'
 		},
 		bigquery: {
 			code: `select 1`,
-			lang: 'bigquery'
+			lang: 'bigquery',
+			argName: 'database'
 		},
 		snowflake: {
 			code: `select 1`,
-			lang: 'snowflake'
+			lang: 'snowflake',
+			argName: 'database'
 		},
 		graphql: {
 			code: '{ __typename }',
-			lang: 'graphql'
+			lang: 'graphql',
+			argName: 'api'
 		}
 	}
 
@@ -73,7 +79,7 @@ export async function main(database: any) {
 				language: resourceScript.lang as Preview.language,
 				content: resourceScript.code,
 				args: {
-					database: args
+					[resourceScript.argName]: args
 				}
 			}
 		})
