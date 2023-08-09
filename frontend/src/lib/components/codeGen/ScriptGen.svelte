@@ -27,7 +27,6 @@
 	// state
 	let funcDesc: string = ''
 	let genLoading: boolean = false
-	let openaiAvailable: boolean | undefined = undefined
 	let button: HTMLButtonElement | undefined
 	let input: HTMLInputElement | undefined
 	let generatedCode = ''
@@ -79,13 +78,6 @@
 		generatedCode = ''
 	}
 
-	function checkIfOpenaiAvailable(
-		lang: SupportedLanguage | 'frontend',
-		existsOpenaiResourcePath: boolean
-	) {
-		openaiAvailable = existsOpenaiResourcePath && SUPPORTED_LANGUAGES.has(lang)
-	}
-
 	function showDiff() {
 		diffEditor?.setDiff(
 			editor?.getCode() || '',
@@ -106,8 +98,6 @@
 			selection = e.selection
 		})
 	}
-
-	$: checkIfOpenaiAvailable(lang, $existsOpenaiResourcePath)
 
 	$: input?.focus()
 
@@ -168,7 +158,7 @@
 		</div>
 	{/if}
 {/if}
-{#if !generatedCode}
+{#if !generatedCode && SUPPORTED_LANGUAGES.has(lang)}
 	<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }} let:close>
 		<svelte:fragment slot="button">
 			{#if inlineScript}
@@ -200,7 +190,7 @@
 			{/if}
 		</svelte:fragment>
 		<label class="block text-primary">
-			{#if openaiAvailable}
+			{#if $existsOpenaiResourcePath}
 				<div class="flex w-96">
 					<input
 						type="text"
