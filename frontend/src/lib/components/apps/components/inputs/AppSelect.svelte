@@ -238,7 +238,7 @@
 	</div>
 </AlignWrapper>
 
-<style global>
+<style>
 	.app-select .value-container {
 		padding: 0 !important;
 	}
