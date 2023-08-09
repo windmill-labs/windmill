@@ -24,8 +24,9 @@
 >
 	<Head>
 		<Cell first head>Path</Cell>
-		<Cell head>Start</Cell>
-		<Cell head last>End</Cell>
+		<Cell head>User</Cell>
+		<Cell head>Status</Cell>
+		<Cell head last />
 	</Head>
 
 	<tbody class="divide-y">

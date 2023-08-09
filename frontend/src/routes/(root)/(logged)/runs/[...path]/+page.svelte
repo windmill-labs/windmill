@@ -11,13 +11,8 @@
 	import { Button } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
-	import { faSearchMinus } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
-	import AutoComplete from 'simple-svelte-autocomplete'
-	import Slider from '$lib/components/Slider.svelte'
-	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
-	import { setQuery } from '$lib/navigation'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RefreshCcw } from 'lucide-svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
@@ -25,6 +20,7 @@
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -49,12 +45,8 @@
 	let pageIndex: number = 1
 	let perPage: number = 25
 
-	let nbOfJobs = 30
-
 	$: path = $page.params.path
-
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -70,16 +62,6 @@
 	}
 
 	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
-
-	let filterTimeout: NodeJS.Timeout | undefined = undefined
-	function debounceSyncer() {
-		if (resultError == '' && argError == '') {
-			filterTimeout && clearTimeout(filterTimeout)
-			filterTimeout = setTimeout(() => {
-				loadJobs()
-			}, 2000)
-		}
-	}
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -194,6 +176,15 @@
 
 	let argError = ''
 	let resultError = ''
+	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	function reloadLogsWithoutFilterError() {
+		if (resultError == '' && argError == '') {
+			filterTimeout && clearTimeout(filterTimeout)
+			filterTimeout = setTimeout(() => {
+				loadJobs()
+			}, 2000)
+		}
+	}
 
 	const manualDates = [
 		{
@@ -253,161 +244,105 @@
 					your own runs or runs of groups you belong to unless you are an admin.
 				</Tooltip>
 			</div>
-			<div class="hidden xl:block"> Filters </div>
+			<div class="hidden xl:block">
+				<RunsFilter
+					bind:isSkipped
+					{paths}
+					bind:selectedPath={path}
+					bind:success
+					bind:argFilter
+					bind:argError
+					bind:resultFilter
+					bind:resultError
+					on:change={reloadLogsWithoutFilterError}
+				/>
+			</div>
 			<div class="xl:hidden"> Filters </div>
 		</div>
 	</div>
+	<div class="my-2 pb-2">
+		<Tabs
+			selected={jobKindsCat}
+			on:selected={(e) => {
+				const url = new URL($page.url)
+				url.searchParams.set('job_kinds', e.detail)
+				goto(url)
+			}}
+		>
+			<Tab value="all">All</Tab>
+			<Tab value="runs">Runs</Tab>
+			<Tab value="previews">Previews</Tab>
+			<Tab value="dependencies">Dependencies</Tab>
+		</Tabs>
+	</div>
+	<div class=" p-2">
+		<RunChart
+			jobs={completedJobs}
+			on:zoom={async (e) => {
+				minTs = e.detail.min.toISOString()
+				maxTs = e.detail.max.toISOString()
+				jobs = await fetchJobs(maxTs, minTs)
+			}}
+		/>
+	</div>
+	<div class="flex flex-row gap-x-2 w-full mb-2 mt-8 px-2 md:px-4">
+		<div class="relative w-full">
+			<div class="flex gap-1 relative w-full">
+				<span class="text-xs absolute -top-4">Min datetime</span>
+
+				<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
+
+				<CalendarPicker
+					date={minTs}
+					label="Min datetimes"
+					on:change={async ({ detail }) => {
+						minTs = new Date(detail).toISOString()
+						jobs = await fetchJobs(maxTs, minTs)
+					}}
+				/>
+			</div>
+		</div>
+		<div class="relative w-full">
+			<div class="flex gap-1 relative w-full">
+				<span class="text-xs absolute -top-4">Max datetime</span>
+				<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+				<CalendarPicker
+					date={maxTs}
+					label="Max datetimes"
+					on:change={async ({ detail }) => {
+						maxTs = new Date(detail).toISOString()
+						jobs = await fetchJobs(maxTs, minTs)
+					}}
+				/>
+			</div>
+		</div>
+		<Button
+			color="light"
+			size="xs2"
+			wrapperClasses="border rounded-md"
+			on:click={() => {
+				manualDates[selectedManualDate].setMinMax()
+				loadJobs()
+			}}
+			dropdownItems={[
+				...manualDates.map((d, i) => ({
+					label: d.label,
+					onClick: () => {
+						selectedManualDate = i
+						d.setMinMax()
+						loadJobs()
+					}
+				}))
+			]}
+		>
+			<div class="flex flex-row items-center gap-2">
+				<RefreshCcw size={14} />
+				{manualDates[selectedManualDate].label}
+			</div>
+		</Button>
+	</div>
+
 	<SplitPanesWrapper class="hidden md:block">
-		<div class="my-2 pb-2">
-			<select
-				bind:value={success}
-				on:change={async () => await setQuery($page.url, 'success', String(success))}
-			>
-				<option value={undefined}>Successful and error jobs</option>
-				<option value={true}>Only successful jobs</option>
-				<option value={false}>Only error jobs</option>
-			</select>
-			<select
-				bind:value={isSkipped}
-				on:change={async () => await setQuery($page.url, 'is_skipped', String(isSkipped))}
-			>
-				<option value={false}>Ignore skipped flow jobs</option>
-				<option value={true}>If a flow job, show only if it was not skipped</option>
-				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
-			</select>
-			<Tooltip>Skipped flows are flows that did an early break</Tooltip>
-
-			<Tabs
-				selected={jobKindsCat}
-				on:selected={(e) => {
-					const url = new URL($page.url)
-					url.searchParams.set('job_kinds', e.detail)
-					goto(url)
-				}}
-			>
-				<Tab value="all">All</Tab>
-				<Tab value="runs">Runs</Tab>
-				<Tab value="previews">Previews</Tab>
-				<Tab value="dependencies">Dependencies</Tab>
-			</Tabs>
-		</div>
-		<div class="border mb-4">
-			<RunChart
-				jobs={completedJobs}
-				on:zoom={async (e) => {
-					minTs = e.detail.min.toISOString()
-					maxTs = e.detail.max.toISOString()
-					jobs = await fetchJobs(maxTs, minTs)
-				}}
-			/>
-		</div>
-		<div class="flex flex-row gap-x-2 w-full mb-2 mt-8">
-			<div class="relative w-full">
-				<div class="flex gap-1 relative w-full">
-					<span class="text-xs absolute -top-4">Min datetime</span>
-
-					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
-
-					<CalendarPicker
-						date={minTs}
-						label="Min datetimes"
-						on:change={async ({ detail }) => {
-							minTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
-						}}
-					/>
-				</div>
-			</div>
-			<div class="relative w-full">
-				<div class="flex gap-1 relative w-full">
-					<span class="text-xs absolute -top-4">Max datetime</span>
-					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
-					<CalendarPicker
-						date={maxTs}
-						label="Max datetimes"
-						on:change={async ({ detail }) => {
-							maxTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
-						}}
-					/>
-				</div>
-			</div>
-			<Button
-				color="light"
-				size="xs2"
-				wrapperClasses="border rounded-md"
-				on:click={() => {
-					manualDates[selectedManualDate].setMinMax()
-					loadJobs()
-				}}
-				dropdownItems={[
-					...manualDates.map((d, i) => ({
-						label: d.label,
-						onClick: () => {
-							selectedManualDate = i
-							d.setMinMax()
-							loadJobs()
-						}
-					}))
-				]}
-			>
-				<div class="flex flex-row items-center gap-2">
-					<RefreshCcw size={14} />
-					{manualDates[selectedManualDate].label}
-				</div>
-			</Button>
-		</div>
-		<div class="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
-			<div>
-				<div class="flex flex-row gap-x-2">
-					{#key path}
-						<AutoComplete
-							items={paths}
-							value={path}
-							bind:selectedItem={searchPath}
-							placeholder="Search by path"
-						/>
-					{/key}
-					<Button
-						title="Clear path and time filters"
-						variant="border"
-						on:click={async () => {
-							minTs = undefined
-							maxTs = undefined
-							jobs = undefined
-							await goto('/runs?' + $page.url.searchParams.toString())
-							loadJobs()
-						}}
-						size="xs"
-					>
-						<Icon data={faSearchMinus} />
-					</Button>
-				</div>
-			</div>
-			<div
-				><Slider
-					text="Filter by args {argFilter ? '(set)' : ''}"
-					tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
-					><JsonEditor
-						on:change={debounceSyncer}
-						bind:error={argError}
-						bind:code={argFilter}
-					/></Slider
-				></div
-			>
-			<div
-				><Slider
-					text="Filter by result {resultFilter ? '(set)' : ''}"
-					tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
-					><JsonEditor
-						on:change={debounceSyncer}
-						bind:error={resultError}
-						bind:code={resultFilter}
-					/></Slider
-				></div
-			>
-		</div>
-
 		<Splitpanes>
 			<Pane size={70} minSize={50}>
 				{#if jobs}
@@ -423,7 +358,9 @@
 				{#if selectedId}
 					{@const job = jobs?.find((j) => j.id == selectedId)}
 					{#if job}
-						<JobPreview id={job.id} />
+						{#key job.id}
+							<JobPreview id={job.id} />
+						{/key}
 					{/if}
 				{/if}
 			</Pane>

@@ -5,9 +5,7 @@
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { forLater, msToSec } from '$lib/utils'
-	import { Icon } from 'svelte-awesome'
-	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
+	import { forLater } from '$lib/utils'
 	import { Badge } from '../common'
 	import { onMount } from 'svelte'
 
@@ -36,36 +34,42 @@
 <svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 <TestJobLoader bind:job bind:watchJob on:done={onDone} />
 
-<div class="flex justify-end gap-2 pb-0.5">
-	<Badge>
-		Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
-	</Badge>
-	<Badge>
-		<Icon class="text-secondary" data={faHourglassHalf} scale={0.5} /><span class="mx-2">
-			Ran in {msToSec(job?.['duration_ms'])}s</span
-		>
-	</Badge>
-</div>
-<div class="w-1/2 h-full overflow-auto px-2 -mt-3">
-	<JobArgs args={job?.args} tableClass="!pt-0 !min-w-0 !block" />
-</div>
-<div class="w-1/2 h-full overflow-auto p-2">
+<div class="p-4 flex flex-col gap-2 border-t items-start">
+	<span class="font-semibold text-xs leading-6">ID</span>
+	<span class="text-xs">{job?.id}</span>
+
+	<div class="flex justify-end gap-2 pb-0.5">
+		<Badge>
+			Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
+		</Badge>
+	</div>
+	<span class="font-semibold text-xs leading-6">Arguments</span>
+
+	<div class="w-full">
+		<JobArgs args={job?.args} />
+	</div>
+
+	<span class="font-semibold text-xs leading-6">Results</span>
+
 	{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
 		<div class="text-sm font-semibold text-tertiary mb-1">
 			<div>Job is scheduled for</div>
 			<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 		</div>
 	{/if}
-	{#if job?.type === Job.type.COMPLETED_JOB}
-		<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
-	{:else if job && `running` in job ? job.running : false}
-		<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
-		<LogViewer
-			jobId={job?.id}
-			duration={job?.['duration_ms']}
-			mem={job?.['mem_peak']}
-			content={job?.logs}
-			isLoading
-		/>
-	{/if}
+
+	<div class="border p-2 w-full rounded-md">
+		{#if job?.type === Job.type.COMPLETED_JOB}
+			<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
+		{:else if job && `running` in job ? job.running : false}
+			<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
+			<LogViewer
+				jobId={job?.id}
+				duration={job?.['duration_ms']}
+				mem={job?.['mem_peak']}
+				content={job?.logs}
+				isLoading
+			/>
+		{/if}
+	</div>
 </div>
