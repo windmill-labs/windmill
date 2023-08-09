@@ -29,11 +29,12 @@
 		display: none !important;
 	}
 
-	.svelte-select-list {
-		z-index: 1000 !important;
-	}
 	.nowrap pre code.hljs {
 		whitespace: normal !important;
+	}
+
+	.z5000 {
+		z-index: 5000 !important;
 	}
 
 	pre code.hljs {
@@ -49,9 +50,6 @@
 		border-bottom-width: 0px !important;
 	}
 
-	.svelte-select-list {
-		font-size: small !important;
-	}
 
 	.monaco-editor textarea:focus {
 		box-shadow: none !important;

@@ -237,12 +237,3 @@
 		{/if}
 	</div>
 </AlignWrapper>
-
-<style global>
-	.app-select .value-container {
-		padding: 0 !important;
-	}
-	.svelte-select-list {
-		z-index: 5000 !important;
-	}
-</style>
