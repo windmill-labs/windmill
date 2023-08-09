@@ -30,7 +30,7 @@
 	}
 
 	.svelte-select-list {
-		z-index: 1000 !important;
+		z-index: 2000 !important;
 	}
 	.nowrap pre code.hljs {
 		whitespace: normal !important;
