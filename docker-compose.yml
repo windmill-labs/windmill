@@ -94,7 +94,7 @@ services:
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
       - NUM_WORKERS=4
-      - WORKER_TAGS=nativets,postgresql,mysql,graphql
+      - WORKER_TAGS=nativets,postgresql,mysql,graphql,snowflake
       # LICENSE_KEY is only needed for the enterprise edition
       # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
