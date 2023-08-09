@@ -6,8 +6,6 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { Button } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -197,6 +195,13 @@
 
 	const manualDates = [
 		{
+			label: 'Last 1000 runs',
+			setMinMax: () => {
+				minTs = undefined
+				maxTs = undefined
+			}
+		},
+		{
 			label: 'Last 30 seconds',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
@@ -244,6 +249,7 @@
 				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">
 					Runs {path ? `of ${path}` : ''}
 				</h1>
+
 				<Tooltip
 					light
 					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
@@ -258,6 +264,7 @@
 				<RunsFilter
 					bind:isSkipped
 					{paths}
+					{jobKindsCat}
 					bind:selectedPath={searchPath}
 					bind:success
 					bind:argFilter
@@ -278,6 +285,7 @@
 						<RunsFilter
 							bind:isSkipped
 							{paths}
+							{jobKindsCat}
 							bind:selectedPath={searchPath}
 							bind:success
 							bind:argFilter
@@ -296,21 +304,7 @@
 			</div>
 		</div>
 	</div>
-	<div class="my-2 pb-2">
-		<Tabs
-			selected={jobKindsCat}
-			on:selected={(e) => {
-				const url = new URL($page.url)
-				url.searchParams.set('job_kinds', e.detail)
-				goto(url)
-			}}
-		>
-			<Tab value="all">All</Tab>
-			<Tab value="runs">Runs</Tab>
-			<Tab value="previews">Previews</Tab>
-			<Tab value="dependencies">Dependencies</Tab>
-		</Tabs>
-	</div>
+
 	<div class=" p-2">
 		<RunChart
 			jobs={completedJobs}
@@ -404,6 +398,8 @@
 								<JobPreview id={job.id} />
 							{/key}
 						{/if}
+					{:else}
+						<div class="text-xs m-4">No job selected</div>
 					{/if}
 				</div>
 			</Pane>
