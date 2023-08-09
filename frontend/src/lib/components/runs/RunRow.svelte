@@ -16,16 +16,7 @@
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
-	import {
-		Calendar,
-		CalendarCheck,
-		Check,
-		Clock,
-		FastForward,
-		Hourglass,
-		Play,
-		X
-	} from 'lucide-svelte'
+	import { Calendar, CalendarCheck, Check, FastForward, Hourglass, Play, X } from 'lucide-svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -58,7 +49,11 @@
 	function endedDate(started_at: string, duration_ms: number): string {
 		const started = new Date(started_at)
 		started.setMilliseconds(started.getMilliseconds() + duration_ms)
-		return `${displayDate(started, true)} ${displayIfRecent(started)}`
+		return `${started.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		})} ${displayIfRecent(started)}`
 	}
 </script>
 
@@ -103,12 +98,41 @@
 		</div>
 	</Cell>
 	<Cell>
+		<div class="flex flex-row items-center gap-1 text-gray-500 text-2xs">
+			{#if 'started_at' in job && job.started_at}
+				{#if job?.['duration_ms']}
+					Ended {endedDate(job.started_at, job?.['duration_ms'])}
+					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+						(Ran in {msToSec(job.duration_ms)}s)
+					{/if}
+				{:else}
+					<div>
+						Started
+						{#key time}
+							{displayDaysAgo(job.started_at ?? '')}
+						{/key}
+					</div>
+				{/if}
+			{/if}
+
+			{#if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
+				<CalendarCheck size={14} />
+				Scheduled
+
+				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
+					for {displayDate(job.scheduled_for ?? '')}
+				{/if}
+			{/if}
+		</div>
+	</Cell>
+
+	<Cell>
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
 			{:else}
 				<div class="flex flex-row space-x-2">
-					<div class="whitespace-nowrap text-xs">
+					<div class="whitespace-nowrap text-xs font-semibold">
 						{#if job.script_path}
 							<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
@@ -139,43 +163,14 @@
 			{/if}
 		{/if}
 	</Cell>
-	<Cell>
-		<div class="flex flex-row items-center gap-1">
-			{#if 'started_at' in job && job.started_at}
-				{#if job?.['duration_ms']}
-					<Clock size={14} />
-					{endedDate(job.started_at, job?.['duration_ms'])}
-					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToSec(job.duration_ms)}s)
-					{/if}
-				{:else}
-					<div>
-						Started
-						{#key time}
-							{displayDaysAgo(job.started_at ?? '')}
-						{/key}
-					</div>
-				{/if}
-			{/if}
-
-			{#if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-				<CalendarCheck size={14} />
-				Scheduled
-
-				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					for {displayDate(job.scheduled_for ?? '')}
-				{/if}
-			{/if}
-		</div>
-	</Cell>
-
 	<Cell last>
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
-				Schedule:
+				<Calendar size={14} />
 				<Button
 					size="xs2"
 					color="light"
+					btnClasses="font-normal"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
 					{job.schedule_path}

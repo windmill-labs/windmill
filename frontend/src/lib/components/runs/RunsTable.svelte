@@ -50,8 +50,8 @@
 >
 	<Head>
 		<Cell first head class="w-8" />
-		<Cell head>Path</Cell>
 		<Cell head>Timestamp</Cell>
+		<Cell head>Path</Cell>
 		<Cell head last>Triggered by</Cell>
 	</Head>
 

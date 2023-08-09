@@ -23,7 +23,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-start gap-6 xl:gap-4 xl:flex-row mt-4 xl:mt-0">
 	<div class="relative">
 		<span class="text-xs absolute -top-4">Status</span>
 		<ToggleButtonGroup
@@ -32,8 +32,8 @@
 				await setQuery($page.url, 'success', success === undefined ? success : String(success))}
 		>
 			<ToggleButton value={undefined} label="All" />
-			<ToggleButton value={true} label="Only success" class="whitespace-nowrap" />
-			<ToggleButton value={false} label="Only errors" class="whitespace-nowrap" />
+			<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
+			<ToggleButton value={false} label="Errors" class="whitespace-nowrap" />
 		</ToggleButtonGroup>
 	</div>
 	<div class="relative">
@@ -51,9 +51,9 @@
 					isSkipped === undefined ? isSkipped : String(isSkipped)
 				)}
 		>
-			<ToggleButton value={false} label="Skipped" />
-			<ToggleButton value={true} label="Not skipped" class="whitespace-nowrap" />
-			<ToggleButton value={undefined} label="Show all" class="whitespace-nowrap" />
+			<ToggleButton value={undefined} label="All" class="whitespace-nowrap" />
+			<ToggleButton value={false} label="Not skipped" class="whitespace-nowrap" />
+			<ToggleButton value={true} label="Skipped" class="whitespace-nowrap" />
 		</ToggleButtonGroup>
 	</div>
 

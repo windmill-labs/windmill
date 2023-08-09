@@ -35,7 +35,7 @@
 	let isSkipped: boolean | undefined =
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
-			: false
+			: undefined
 
 	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
 	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
@@ -390,12 +390,12 @@
 
 	<SplitPanesWrapper class="hidden md:block">
 		<Splitpanes>
-			<Pane size={70} minSize={50}>
+			<Pane size={60} minSize={50}>
 				{#if jobs}
 					<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
 				{/if}
 			</Pane>
-			<Pane size={30} minSize={15}>
+			<Pane size={40} minSize={15}>
 				<div class="border-t">
 					{#if selectedId}
 						{@const job = jobs?.find((j) => j.id == selectedId)}
