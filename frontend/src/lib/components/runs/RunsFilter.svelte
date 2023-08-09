@@ -27,8 +27,8 @@
 			on:selected={async () => await setQuery($page.url, 'success', String(success))}
 		>
 			<ToggleButton value={undefined} label="All" />
-			<ToggleButton value={true} label="Only success" class="whitespace-nowrap" />
-			<ToggleButton value={false} label="Only errors" class="whitespace-nowrap" />
+			<ToggleButton value={'true'} label="Only success" class="whitespace-nowrap" />
+			<ToggleButton value={'false'} label="Only errors" class="whitespace-nowrap" />
 		</ToggleButtonGroup>
 	</div>
 	<div class="relative">

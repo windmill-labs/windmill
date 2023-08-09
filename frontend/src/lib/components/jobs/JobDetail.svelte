@@ -1,14 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import {
-		displayDate,
-		displayDaysAgo,
-		forLater,
-		msToSec,
-		truncateHash,
-		truncateRev
-	} from '$lib/utils'
+	import { displayDate, displayDaysAgo, forLater, truncateHash, truncateRev } from '$lib/utils'
 	import { faRobot, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -109,13 +102,11 @@
 		{/if}
 
 		{#if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-			<Badge color="blue">
-				Scheduled
+			Scheduled
 
-				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					for {displayDate(job.scheduled_for ?? '')}
-				{/if}
-			</Badge>
+			{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
+				for {displayDate(job.scheduled_for ?? '')}
+			{/if}
 		{/if}
 		<div>
 			{#if job && job.parent_job}
@@ -134,13 +125,7 @@
 			{/if}
 		</div>
 	</Cell>
-	<Cell>
-		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-			Ran in ({msToSec(job.duration_ms)}s)
-		{:else if 'scheduled_for' in job && !job.running}
-			Waiting for an executor
-		{/if}
-	</Cell>
+
 	<Cell>
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}

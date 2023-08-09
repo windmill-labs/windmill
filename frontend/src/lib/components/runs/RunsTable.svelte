@@ -17,13 +17,12 @@
 	size="sm"
 	on:loadMore={() => console.log('load more')}
 	loadMore={loadMoreQuantity}
-	shouldLoadMore={true}
+	shouldLoadMore={nbObJobs < jobs.length}
 	on:loadMore={() => (nbObJobs += loadMoreQuantity)}
 >
 	<Head>
 		<Cell first head />
 		<Cell head>Timestamp</Cell>
-		<Cell head>Status</Cell>
 		<Cell head>Path</Cell>
 		<Cell head>User</Cell>
 		<Cell head last>Schedule</Cell>
