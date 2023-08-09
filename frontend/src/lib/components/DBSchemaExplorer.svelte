@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchema, dbSchemaPublicOnly, workspaceStore, type DBSchema } from '$lib/stores'
+	import { dbSchema, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -9,6 +9,8 @@
 	import { tryEvery } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { buildClientSchema, printSchema } from 'graphql'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let resourceType: string | undefined
 	export let resourcePath: String | undefined = undefined
@@ -104,6 +106,27 @@ export async function main(args: any) {
     }, {});
   }
   return data;
+}`,
+		graphql: `import { getIntrospectionQuery } from "npm:graphql@16.7.1";
+export async function main(args: any) {
+  const headers: { [key: string]: string } = {
+    "Content-Type": "application/json",
+  };
+  if (args.bearer_token) {
+    headers["authorization"] = "Bearer " + args.bearer_token;
+  }
+  const response = await fetch(args.base_url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query: getIntrospectionQuery(),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error("Could not query schema");
+  }
+  const schema = (await response.json()).data;
+  return schema;
 }`
 	}
 
@@ -131,7 +154,23 @@ export async function main(args: any) {
 				if (!testResult.success) {
 					console.error(testResult.result?.['error']?.['message'])
 				} else {
-					dbSchema.set(testResult.result)
+					if (resourceType === 'postgresql') {
+						dbSchema.set({
+							lang: 'postgresql',
+							schema: testResult.result,
+							publicOnly: true
+						})
+					} else if (resourceType === 'mysql') {
+						dbSchema.set({
+							lang: 'mysql',
+							schema: testResult.result
+						})
+					} else if (resourceType === 'graphql') {
+						dbSchema.set({
+							lang: 'graphql',
+							schema: testResult.result
+						})
+					}
 				}
 			},
 			timeoutCode: async () => {
@@ -153,25 +192,24 @@ export async function main(args: any) {
 		})
 	}
 
-	function formatSchema(
-		schema: DBSchema,
-		resourceType: string | undefined,
-		dbSchemaPublicOnly: boolean
-	) {
-		if (resourceType === 'postgresql' && dbSchemaPublicOnly) {
-			return schema.public || schema
-		} else if (resourceType === 'mysql' && Object.keys(schema).length === 1) {
-			return schema[Object.keys(schema)[0]]
+	function formatSchema(dbSchema: DBSchema) {
+		if (dbSchema.lang === 'postgresql' && dbSchema.publicOnly) {
+			return dbSchema.schema.public || dbSchema
+		} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
+			return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
 		} else {
-			return schema
+			return dbSchema.schema
 		}
 	}
 
-	$: resourcePath && ['postgresql', 'mysql'].includes(resourceType || '') && getSchema()
+	function formatGraphqlSchema(dbSchema: GraphqlSchema) {
+		return printSchema(buildClientSchema(dbSchema.schema))
+	}
+
+	$: resourcePath && ['postgresql', 'mysql', 'graphql'].includes(resourceType || '') && getSchema()
 
 	function clearSchema() {
 		dbSchema.set(undefined)
-		dbSchemaPublicOnly.set(true)
 	}
 
 	$: !resourcePath && $dbSchema && clearSchema()
@@ -192,13 +230,22 @@ export async function main(args: any) {
 	</Button>
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent title="DB Schema Explorer" on:close={drawer.closeDrawer}>
-			{#if resourceType === 'postgresql'}
-				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchemaPublicOnly}>
+			{#if $dbSchema.lang === 'postgresql'}
+				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
 					<ToggleButton value={false} label="All" />
 				</ToggleButtonGroup>
 			{/if}
-			<ObjectViewer json={formatSchema($dbSchema, resourceType, $dbSchemaPublicOnly)} pureViewer />
+			{#if $dbSchema.lang === 'graphql'}
+				<SimpleEditor
+					lang="graphql"
+					code={formatGraphqlSchema($dbSchema)}
+					class="h-full"
+					readOnly
+				/>
+			{:else}
+				<ObjectViewer json={formatSchema($dbSchema)} pureViewer />
+			{/if}
 		</DrawerContent>
 	</Drawer>
 {/if}

@@ -71,6 +71,7 @@
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
+	langs.push(['GraphQL', Script.language.GRAPHQL])
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}

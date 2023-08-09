@@ -6,6 +6,7 @@ mod snowflake_executor;
 mod common;
 mod global_cache;
 mod go_executor;
+mod graphql_executor;
 mod js_eval;
 mod mysql_executor;
 mod pg_executor;

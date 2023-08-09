@@ -15,6 +15,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 
@@ -51,6 +52,7 @@
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
+	export let readOnly = false
 
 	const dispatch = createEventDispatcher()
 
@@ -130,7 +132,8 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
-			fontSize: small ? 12 : 14
+			fontSize: small ? 12 : 14,
+			readOnly
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

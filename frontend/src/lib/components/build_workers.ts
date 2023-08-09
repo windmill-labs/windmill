@@ -74,6 +74,13 @@ export function buildWorkerDefinition(
 				return buildWorker(workerOverrideGlobals, label, 'cssWorker', 'CSS Worker')
 			case 'json':
 				return buildWorker(workerOverrideGlobals, label, 'jsonWorker', 'JSON Worker')
+			case 'graphql':
+				const workerFilename = `graphql.worker.bundle.js`
+				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
+				const workerUrl = new URL(workerPathLocal, workerOverrideGlobals.basePath)
+				return new Worker(workerUrl.href, {
+					name: label
+				})
 			default:
 				return buildWorker(workerOverrideGlobals, label, 'editorWorker', 'Editor Worker')
 		}

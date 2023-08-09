@@ -2,6 +2,7 @@ import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
 import type { TokenResponse } from './gen'
+import type { IntrospectionQuery } from 'graphql'
 
 export interface UserExt {
 	email: string
@@ -66,7 +67,8 @@ export const hubScripts = writable<
 	| undefined
 >(undefined)
 export const existsOpenaiResourcePath = writable<boolean>(false)
-export type DBSchema = {
+
+type SQLBaseSchema = {
 	[schemaKey: string]: {
 		[tableKey: string]: {
 			[columnKey: string]: {
@@ -78,9 +80,25 @@ export type DBSchema = {
 	}
 }
 
-export const dbSchema = writable<DBSchema | undefined>(undefined)
+export interface MysqlSchema {
+	lang: 'mysql'
+	schema: SQLBaseSchema
+}
 
-export const dbSchemaPublicOnly = writable<boolean>(true)
+export interface PostgresqlSchema {
+	lang: 'postgresql'
+	schema: SQLBaseSchema
+	publicOnly: boolean
+}
+
+export interface GraphqlSchema {
+	lang: 'graphql'
+	schema: IntrospectionQuery
+}
+
+export type DBSchema = MysqlSchema | PostgresqlSchema | GraphqlSchema
+
+export const dbSchema = writable<DBSchema | undefined>(undefined)
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')

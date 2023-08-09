@@ -7266,6 +7266,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-graphql"
+version = "1.141.0"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "regex",
+ "serde_json",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-py"
 version = "1.141.0"
 dependencies = [
@@ -7331,6 +7342,7 @@ dependencies = [
  "windmill-parser",
  "windmill-parser-bash",
  "windmill-parser-go",
+ "windmill-parser-graphql",
  "windmill-parser-py",
  "windmill-parser-sql",
  "windmill-parser-ts",
@@ -7413,6 +7425,7 @@ dependencies = [
  "windmill-parser",
  "windmill-parser-bash",
  "windmill-parser-go",
+ "windmill-parser-graphql",
  "windmill-parser-py",
  "windmill-parser-py-imports",
  "windmill-parser-sql",

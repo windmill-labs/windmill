@@ -85,6 +85,7 @@ windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
+windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"

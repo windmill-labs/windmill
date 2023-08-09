@@ -138,12 +138,22 @@ INSERT INTO demo VALUES (?, ?)
 
 export const BIGQUERY_INIT_CODE = `-- @name1 (string) = default arg
 -- @name2 (integer)
-INSERT INTO \`demodb.demo\` VALUES (@name1, @name2)
+-- @name3 (string[])
+INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3)
 `
 
 export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?)
+`
+
+export const GRAPHQL_INIT_CODE = `query($name1: String, $name2: Int, $name3: [String]) {
+	demo(name1: $name1, name2: $name2, name3: $name3) {
+		name1,
+		name2,
+		name3
+	}
+}
 `
 
 export const FETCH_INIT_CODE = `export async function main(
@@ -270,6 +280,7 @@ const ALL_INITIAL_CODE = [
 	MYSQL_INIT_CODE,
 	BIGQUERY_INIT_CODE,
 	SNOWFLAKE_INIT_CODE,
+	GRAPHQL_INIT_CODE,
 	DENO_INIT_CODE_TRIGGER,
 	DENO_INIT_CODE_CLEAR,
 	PYTHON_INIT_CODE_CLEAR,
@@ -344,6 +355,8 @@ export function initialCode(
 		return BIGQUERY_INIT_CODE
 	} else if (language == 'snowflake') {
 		return SNOWFLAKE_INIT_CODE
+	} else if (language == 'graphql') {
+		return GRAPHQL_INIT_CODE
 	} else if (language == 'bun') {
 		if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR

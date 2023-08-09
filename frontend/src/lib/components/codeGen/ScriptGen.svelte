@@ -8,7 +8,7 @@
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
-	import { dbSchema, dbSchemaPublicOnly, existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
@@ -47,16 +47,14 @@
 					language: lang,
 					description: funcDesc,
 					selectedCode,
-					dbSchema: $dbSchema,
-					dbSchemaPublicOnly: $dbSchemaPublicOnly
+					dbSchema: $dbSchema
 				})
 				generatedCode = originalCode.replace(selectedCode, result.code + '\n')
 			} else {
 				const result = await generateScript({
 					language: lang,
 					description: funcDesc,
-					dbSchema: $dbSchema,
-					dbSchemaPublicOnly: $dbSchemaPublicOnly
+					dbSchema: $dbSchema
 				})
 				generatedCode = result.code
 			}
@@ -239,8 +237,8 @@
 								In order to better generate the script, we pass the selected DB schema to GPT-4.
 							</Tooltip>
 						</p>
-						{#if lang === 'postgresql'}
-							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={$dbSchemaPublicOnly}>
+						{#if $dbSchema.lang === 'postgresql'}
+							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={$dbSchema.publicOnly}>
 								<ToggleButton value={true} label="Public schema" />
 								<ToggleButton value={false} label="All schemas" />
 							</ToggleButtonGroup>
