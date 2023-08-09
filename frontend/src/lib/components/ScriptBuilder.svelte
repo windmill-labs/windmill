@@ -33,7 +33,6 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
-	export let topHash: string | undefined = undefined
 	export let showMeta: boolean = false
 
 	let metadataOpen =
@@ -158,7 +157,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: topHash,
+					parent_hash: script.parent_hash,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,

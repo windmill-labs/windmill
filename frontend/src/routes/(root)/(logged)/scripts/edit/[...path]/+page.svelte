@@ -57,14 +57,13 @@
 					}
 				}
 			])
-			topHash = scriptLoadedFromUrl.hash
 		} else {
 			if (hash) {
 				const scriptByHash = await ScriptService.getScriptByHash({
 					workspace: $workspaceStore!,
 					hash
 				})
-				script = { ...scriptByHash, lock: undefined }
+				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
@@ -100,7 +99,7 @@
 				} else {
 					script = scriptWithDraft
 				}
-				topHash = scriptWithDraft.hash
+				script.parent_hash = scriptWithDraft.hash
 			}
 		}
 		// hash
@@ -116,7 +115,9 @@
 		if (script) {
 			initialPath = script.path
 			scriptBuilder?.setCode(script.content)
-			script.parent_hash = topHash
+			if (topHash) {
+				script.parent_hash = topHash
+			}
 		}
 	}
 
@@ -131,5 +132,5 @@
 
 <DiffDrawer bind:this={diffDrawer} button={{ text: 'Revert', onClick: reloadAction }} />
 {#if script}
-	<ScriptBuilder bind:this={scriptBuilder} {topHash} {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:this={scriptBuilder} {initialPath} {script} {initialArgs} />
 {/if}
