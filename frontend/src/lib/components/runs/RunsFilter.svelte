@@ -9,6 +9,7 @@
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { goto } from '$app/navigation'
 	import { createEventDispatcher } from 'svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
 
 	export let paths: string[] = []
 	export let selectedPath: string | undefined = undefined
@@ -24,94 +25,151 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-col items-start gap-6 xl:gap-4 xl:flex-row mt-4 xl:mt-0">
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Select by path</span>
-		<select bind:value={selectedPath}>
-			{#if paths}
-				{#each paths as path}
-					<option>{path}</option>
-				{/each}
-			{/if}
-		</select>
-	</div>
-	<Popup
-		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-		let:close
-	>
-		<svelte:fragment slot="button">
-			<Button color="dark" size="xs" nonCaptureEvent={true}>
-				<div class="flex flex-row gap-1 items-center">
-					<List size={16} />
-					List filters
+<div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
+	{#key selectedPath}
+		<AutoComplete
+			items={paths}
+			value={selectedPath}
+			bind:selectedItem={selectedPath}
+			placeholder="Search by path"
+			inputClassName="!h-[30px] py-1 !text-xs !w-64"
+		/>
+	{/key}
+	<div class="hidden xl:block">
+		<Popup
+			floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+			containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+			let:close
+		>
+			<svelte:fragment slot="button">
+				<Button color="dark" size="xs" nonCaptureEvent={true}>
+					<div class="flex flex-row gap-1 items-center">
+						<List size={16} />
+						List filters
+					</div>
+				</Button>
+			</svelte:fragment>
+
+			<div class="flex flex-col gap-4 w-full">
+				<div>
+					<span class="text-xs">Kind</span>
+					<ToggleButtonGroup
+						bind:selected={jobKindsCat}
+						on:selected={(e) => {
+							const url = new URL($page.url)
+
+							console.log(url, e.detail)
+							url.searchParams.set('job_kinds', e.detail)
+							goto(url)
+						}}
+					>
+						<ToggleButton value="all" label="All" />
+						<ToggleButton value="runs" label="Runs" />
+						<ToggleButton value="previews" label="Previews" />
+						<ToggleButton value="dependencies" label="Dependencies" />
+					</ToggleButtonGroup>
 				</div>
-			</Button>
-		</svelte:fragment>
+				<div>
+					<span class="text-xs">Status</span>
+					<ToggleButtonGroup
+						bind:selected={success}
+						on:selected={async () =>
+							await setQuery(
+								$page.url,
+								'success',
+								success === undefined ? success : String(success)
+							)}
+					>
+						<ToggleButton value={undefined} label="All" />
+						<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
+						<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
+					</ToggleButtonGroup>
+				</div>
+				<div>
+					<span class="text-xs">
+						Flow
+						<Tooltip light>Skipped flows are flows that did an early break</Tooltip></span
+					>
 
-		<div class="flex flex-col gap-4 w-full">
-			<div>
-				<span class="text-xs">Kind</span>
-				<ToggleButtonGroup
-					bind:selected={jobKindsCat}
-					on:selected={(e) => {
-						const url = new URL($page.url)
+					<ToggleButtonGroup
+						bind:selected={isSkipped}
+						on:selected={async () =>
+							await setQuery(
+								$page.url,
+								'is_skipped',
+								isSkipped === undefined ? isSkipped : String(isSkipped)
+							)}
+					>
+						<ToggleButton value={undefined} label="All" class="whitespace-nowrap" />
+						<ToggleButton value={false} label="Not skipped" class="whitespace-nowrap" />
+						<ToggleButton value={true} label="Skipped" class="whitespace-nowrap" />
+					</ToggleButtonGroup>
+				</div>
 
-						console.log(url, e.detail)
-						url.searchParams.set('job_kinds', e.detail)
-						goto(url)
+				<Button
+					color="dark"
+					size="xs2"
+					on:click={() => {
+						close(null)
 					}}
 				>
-					<ToggleButton value="all" label="All" />
-					<ToggleButton value="runs" label="Runs" />
-					<ToggleButton value="previews" label="Previews" />
-					<ToggleButton value="dependencies" label="Dependencies" />
-				</ToggleButtonGroup>
+					Close
+				</Button>
 			</div>
-			<div>
-				<span class="text-xs">Status</span>
-				<ToggleButtonGroup
-					bind:selected={success}
-					on:selected={async () =>
-						await setQuery($page.url, 'success', success === undefined ? success : String(success))}
-				>
-					<ToggleButton value={undefined} label="All" />
-					<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
-					<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
-				</ToggleButtonGroup>
-			</div>
-			<div>
-				<span class="text-xs">
-					Flow
-					<Tooltip light>Skipped flows are flows that did an early break</Tooltip></span
-				>
+		</Popup>
+	</div>
+	<div class="block xl:hidden">
+		<div>
+			<span class="text-xs">Kind</span>
+			<ToggleButtonGroup
+				bind:selected={jobKindsCat}
+				on:selected={(e) => {
+					const url = new URL($page.url)
 
-				<ToggleButtonGroup
-					bind:selected={isSkipped}
-					on:selected={async () =>
-						await setQuery(
-							$page.url,
-							'is_skipped',
-							isSkipped === undefined ? isSkipped : String(isSkipped)
-						)}
-				>
-					<ToggleButton value={undefined} label="All" class="whitespace-nowrap" />
-					<ToggleButton value={false} label="Not skipped" class="whitespace-nowrap" />
-					<ToggleButton value={true} label="Skipped" class="whitespace-nowrap" />
-				</ToggleButtonGroup>
-			</div>
-
-			<Button
-				color="dark"
-				size="xs2"
-				on:click={() => {
-					close(null)
+					console.log(url, e.detail)
+					url.searchParams.set('job_kinds', e.detail)
+					goto(url)
 				}}
 			>
-				Close
-			</Button>
+				<ToggleButton value="all" label="All" />
+				<ToggleButton value="runs" label="Runs" />
+				<ToggleButton value="previews" label="Previews" />
+				<ToggleButton value="dependencies" label="Dependencies" />
+			</ToggleButtonGroup>
 		</div>
-	</Popup>
+		<div>
+			<span class="text-xs">Status</span>
+			<ToggleButtonGroup
+				bind:selected={success}
+				on:selected={async () =>
+					await setQuery($page.url, 'success', success === undefined ? success : String(success))}
+			>
+				<ToggleButton value={undefined} label="All" />
+				<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
+				<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
+			</ToggleButtonGroup>
+		</div>
+		<div>
+			<span class="text-xs">
+				Flow
+				<Tooltip light>Skipped flows are flows that did an early break</Tooltip></span
+			>
+
+			<ToggleButtonGroup
+				bind:selected={isSkipped}
+				on:selected={async () =>
+					await setQuery(
+						$page.url,
+						'is_skipped',
+						isSkipped === undefined ? isSkipped : String(isSkipped)
+					)}
+			>
+				<ToggleButton value={undefined} label="All" class="whitespace-nowrap" />
+				<ToggleButton value={false} label="Not skipped" class="whitespace-nowrap" />
+				<ToggleButton value={true} label="Skipped" class="whitespace-nowrap" />
+			</ToggleButtonGroup>
+		</div>
+	</div>
 
 	<Popup
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
