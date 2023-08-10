@@ -12,7 +12,8 @@ import init, {
 	parse_mysql,
 	parse_bigquery,
 	parse_snowflake,
-	parse_graphql
+	parse_graphql,
+	parse_powershell
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -74,6 +75,8 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
 			inferedSchema = JSON.parse(parse_bash(code))
+		} else if (language == 'powershell') {
+			inferedSchema = JSON.parse(parse_powershell(code))
 		} else {
 			return
 		}

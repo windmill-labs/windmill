@@ -133,6 +133,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "deno") ext = "ts";
       else if (language == "go") ext = "go";
       else if (language == "bash") ext = "sh";
+      else if (language == "powershell") ext = "ps1";
       else if (language == "postgresql") ext = "pg.sql";
       else if (language == "mysql") ext = "my.sql";
       else if (language == "bigquery") ext = "bq.sql";

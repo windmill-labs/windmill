@@ -107,7 +107,7 @@
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
-		"windmill-parser-wasm": "^1.141.0",
+		"windmill-parser-wasm": "^1.143.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yjs": "^13.6.7"

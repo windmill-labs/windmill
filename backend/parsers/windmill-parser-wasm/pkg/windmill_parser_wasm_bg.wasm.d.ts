@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export function parse_deno(a: number, b: number, c: number): void;
 export function parse_bash(a: number, b: number, c: number): void;
+export function parse_powershell(a: number, b: number, c: number): void;
 export function parse_go(a: number, b: number, c: number): void;
 export function parse_python(a: number, b: number, c: number): void;
 export function parse_sql(a: number, b: number, c: number): void;

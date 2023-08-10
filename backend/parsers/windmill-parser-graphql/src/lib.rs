@@ -18,7 +18,6 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 
 lazy_static::lazy_static! {
     static ref RE_ARG_GRAPHQL: Regex = Regex::new(r#"\$(\w+)\s*:\s*(?:(\w+)!?|\[(\w+)!?\])!?\s*(?:=\s*(\w+)\s*)?"#).unwrap();
-    static ref RE_ARG_GRAPHQL_ARRAY: Regex = Regex::new(r#"^\[(\w+)!?\]!?$"#).unwrap();
 }
 
 fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {

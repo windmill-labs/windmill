@@ -22,6 +22,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'

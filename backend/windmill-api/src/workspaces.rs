@@ -1474,6 +1474,7 @@ async fn tarball_workspace(
                 ScriptLang::Deno => "ts",
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
+                ScriptLang::Powershell => "ps1",
                 ScriptLang::Postgresql => "pg.sql",
                 ScriptLang::Mysql => "my.sql",
                 ScriptLang::Bigquery => "bq.sql",
