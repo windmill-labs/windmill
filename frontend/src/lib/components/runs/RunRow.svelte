@@ -17,7 +17,9 @@
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
 	import { Calendar, CalendarCheck, Check, FastForward, Hourglass, Play, X } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 
+	const dispatch = createEventDispatcher()
 	const SMALL_ICON_SCALE = 0.7
 
 	export let job: Job
@@ -54,6 +56,7 @@
 	selected={selectedId === job.id}
 	on:click={() => {
 		selectedId = job.id
+		dispatch('select')
 	}}
 >
 	<Cell first>

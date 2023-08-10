@@ -241,10 +241,6 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
-
-	$: if (!runDrawer?.isOpen() && selectedId) {
-		runDrawer.openDrawer()
-	}
 </script>
 
 <div class="w-full h-screen">
@@ -462,7 +458,15 @@
 
 	<div class="md:hidden">
 		{#if jobs}
-			<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
+			<RunsTable
+				{jobs}
+				bind:selectedId
+				bind:nbObJobs
+				loadMoreQuantity={30}
+				on:select={() => {
+					runDrawer.openDrawer()
+				}}
+			/>
 		{/if}
 	</div>
 </div>

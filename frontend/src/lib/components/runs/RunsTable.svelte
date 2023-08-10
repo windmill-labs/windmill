@@ -83,7 +83,7 @@
 				</Cell>
 			</tr>
 			{#each jobsByDay as job (job.id)}
-				<RunRow {job} bind:selectedId />
+				<RunRow {job} bind:selectedId on:select />
 			{/each}
 		{/each}
 	</tbody>
