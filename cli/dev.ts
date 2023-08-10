@@ -31,7 +31,9 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
         path.endsWith(".ts") ||
         path.endsWith(".py") ||
         path.endsWith(".sh") ||
-        path.endsWith(".sql")
+        path.endsWith(".sql") ||
+        path.endsWith(".gql") ||
+        path.endsWith(".ps1")
     );
     if (paths.length == 0) {
       return;
@@ -56,6 +58,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
           ? "go"
           : ext == "sh"
           ? "bash"
+          : ext == "ps1"
+          ? "powershell"
           : ext == "sql"
           ? splitted.length > 2 && splitted[splitted.length - 2] == "my"
             ? "mysql"

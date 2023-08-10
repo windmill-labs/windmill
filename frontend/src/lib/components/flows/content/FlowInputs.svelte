@@ -224,10 +224,14 @@
 						/>
 
 						<FlowScriptPicker
-							label={`Powershell`}
-							lang="powershell"
+							label="PowerShell"
+							lang={Script.language.POWERSHELL}
 							on:click={() => {
-								dispatch('new', { language: RawScript.language.BASH, kind, subkind: 'powershell' })
+								dispatch('new', {
+									language: RawScript.language.POWERSHELL,
+									kind,
+									subkind: 'flow'
+								})
 							}}
 						/>
 

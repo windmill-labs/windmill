@@ -32,6 +32,7 @@
 		[Script.language.DENO]: 'TypeScript',
 		[Script.language.GO]: 'Go',
 		[Script.language.BASH]: 'Bash',
+		[Script.language.POWERSHELL]: 'PowerShell',
 		[Script.language.NATIVETS]: 'HTTP',
 		[Script.language.GRAPHQL]: 'GraphQL',
 		[Script.language.POSTGRESQL]: 'Postgresql',
