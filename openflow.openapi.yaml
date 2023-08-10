@@ -192,6 +192,7 @@ components:
             - python3
             - go
             - bash
+            - powershell
             - postgresql
             - mysql
             - bigquery

@@ -21,6 +21,11 @@ pub fn parse_bash(code: &str) -> String {
 }
 
 #[wasm_bindgen]
+pub fn parse_powershell(code: &str) -> String {
+    wrap_sig(windmill_parser_bash::parse_powershell_sig(code))
+}
+
+#[wasm_bindgen]
 pub fn parse_go(code: &str) -> String {
     wrap_sig(windmill_parser_go::parse_go_sig(code))
 }

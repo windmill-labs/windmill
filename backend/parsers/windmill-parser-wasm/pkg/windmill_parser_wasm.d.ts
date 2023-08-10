@@ -14,6 +14,11 @@ export function parse_bash(code: string): string;
 * @param {string} code
 * @returns {string}
 */
+export function parse_powershell(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
 export function parse_go(code: string): string;
 /**
 * @param {string} code
@@ -52,6 +57,7 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly parse_deno: (a: number, b: number, c: number) => void;
   readonly parse_bash: (a: number, b: number, c: number) => void;
+  readonly parse_powershell: (a: number, b: number, c: number) => void;
   readonly parse_go: (a: number, b: number, c: number) => void;
   readonly parse_python: (a: number, b: number, c: number) => void;
   readonly parse_sql: (a: number, b: number, c: number) => void;

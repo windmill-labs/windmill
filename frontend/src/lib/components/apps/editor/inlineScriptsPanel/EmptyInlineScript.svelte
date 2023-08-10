@@ -98,6 +98,7 @@
 		['python3', 'Python'],
 		['go', 'Go'],
 		['bash', 'Bash'],
+		['powershell', 'PowerShell'],
 		['nativets', 'REST'],
 		['postgresql', 'PostgreSQL'],
 		['mysql', 'MySQL'],

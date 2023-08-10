@@ -72,7 +72,10 @@ export async function handleFile(
     (path.endsWith(".ts") ||
       path.endsWith(".py") ||
       path.endsWith(".go") ||
-      path.endsWith(".sh"))
+      path.endsWith(".sh") ||
+      path.endsWith(".sql") ||
+      path.endsWith(".gql") ||
+      path.endsWith(".ps1"))
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -181,16 +184,27 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.json", ".py"),
         filePath.replace(".script.json", ".go"),
         filePath.replace(".script.json", ".sh"),
-        filePath.replace(".script.json", ".sql"),
+        filePath.replace(".script.json", "pg.sql"),
+        filePath.replace(".script.json", "my.sql"),
+        filePath.replace(".script.json", "bq.sql"),
+        filePath.replace(".script.json", "sf.sql"),
         filePath.replace(".script.json", ".fetch.ts"),
+        filePath.replace(".script.json", ".bun.ts"),
+        filePath.replace(".script.json", ".gql"),
+        filePath.replace(".script.json", ".ps1"),
       ]
     : [
         filePath.replace(".script.yaml", ".ts"),
         filePath.replace(".script.yaml", ".py"),
         filePath.replace(".script.yaml", ".go"),
         filePath.replace(".script.yaml", ".sh"),
-        filePath.replace(".script.yaml", ".sql"),
+        filePath.replace(".script.yaml", "pg.sql"),
+        filePath.replace(".script.yaml", "bq.sql"),
+        filePath.replace(".script.yaml", "sf.sql"),
         filePath.replace(".script.yaml", ".fetch.ts"),
+        filePath.replace(".script.yaml", ".bun.ts"),
+        filePath.replace(".script.yaml", ".gql"),
+        filePath.replace(".script.yaml", ".ps1"),
       ];
   const validCandidates = (
     await Promise.all(
@@ -220,21 +234,48 @@ export async function findContentFile(filePath: string) {
 
 export function inferContentTypeFromFilePath(
   contentPath: string
-): "python3" | "deno" | "go" | "bash" {
-  let language = contentPath.substring(contentPath.lastIndexOf("."));
-  if (language == ".ts") language = "deno";
-  if (language == ".py") language = "python3";
-  if (language == ".sh") language = "bash";
-  if (language == ".go") language = "go";
-  if (
-    language != "python3" &&
-    language != "deno" &&
-    language != "go" &&
-    language != "bash"
-  ) {
-    throw new Error("Invalid language: " + language);
+):
+  | "python3"
+  | "deno"
+  | "bun"
+  | "nativets"
+  | "go"
+  | "bash"
+  | "powershell"
+  | "postgresql"
+  | "mysql"
+  | "bigquery"
+  | "snowflake"
+  | "graphql" {
+  if (contentPath.endsWith(".py")) {
+    return "python3";
+  } else if (contentPath.endsWith("fetch.ts")) {
+    return "nativets";
+  } else if (contentPath.endsWith("bun.ts")) {
+    return "bun";
+  } else if (contentPath.endsWith(".ts")) {
+    return "deno";
+  } else if (contentPath.endsWith(".go")) {
+    return "go";
+  } else if (contentPath.endsWith(".my.sql")) {
+    return "mysql";
+  } else if (contentPath.endsWith(".bq.sql")) {
+    return "bigquery";
+  } else if (contentPath.endsWith(".sf.sql")) {
+    return "snowflake";
+  } else if (contentPath.endsWith(".pg.sql")) {
+    return "postgresql";
+  } else if (contentPath.endsWith(".gql")) {
+    return "graphql";
+  } else if (contentPath.endsWith(".sh")) {
+    return "bash";
+  } else if (contentPath.endsWith(".ps1")) {
+    return "powershell";
+  } else {
+    throw new Error(
+      "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))
+    );
   }
-  return language;
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {

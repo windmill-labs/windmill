@@ -71,6 +71,7 @@
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
 	langs.push(['GraphQL', Script.language.GRAPHQL])
+	langs.push(['PowerShell', Script.language.POWERSHELL])
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}
@@ -364,22 +365,6 @@
 					}}
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
-				</Button>
-				<Button
-					size="sm"
-					variant="border"
-					color={template == 'powershell' ? 'blue' : 'light'}
-					btnClasses={template == 'powershell'
-						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-						: 'm-[1px]'}
-					disabled={lockedLanguage}
-					on:click={() => {
-						template = 'powershell'
-						initContent(Script.language.BASH, script.kind, template)
-						script.language = Script.language.BASH
-					}}
-				>
-					<LanguageIcon lang="powershell" /><span class="ml-2 py-2">Powershell</span>
 				</Button>
 				<Button
 					size="xs"

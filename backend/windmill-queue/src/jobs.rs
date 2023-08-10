@@ -69,6 +69,7 @@ lazy_static::lazy_static! {
         "python3".to_string(),
         "go".to_string(),
         "bash".to_string(),
+        "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
         "graphql".to_string(),

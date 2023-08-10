@@ -24,6 +24,8 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'python'
 	} else if (lang == 'bash') {
 		return 'shell'
+	} else if (lang == 'powershell') {
+		return 'powershell'
 	} else if (lang == 'graphql') {
 		return 'graphql'
 	} else {

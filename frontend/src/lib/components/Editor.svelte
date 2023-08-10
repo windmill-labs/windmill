@@ -22,6 +22,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
@@ -48,7 +49,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'powershell'
 	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
