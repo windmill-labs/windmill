@@ -90,7 +90,7 @@
 	{#if jobs.length == 0}
 		<tr>
 			<td colspan="4" class="text-center py-8">
-				<div class="text-xs text-secondary"> No logs found for the selected filters. </div>
+				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
 			</td>
 		</tr>
 	{/if}
