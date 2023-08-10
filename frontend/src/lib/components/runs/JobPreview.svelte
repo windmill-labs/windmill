@@ -32,7 +32,7 @@
 <svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 <TestJobLoader bind:job bind:watchJob on:done={onDone} />
 
-<div class="p-4 flex flex-col gap-2 border-t items-start">
+<div class="p-4 flex flex-col gap-2 items-start">
 	<div class="flex gap-2">
 		<Badge color="blue">
 			{#if job && 'duration_ms' in job && job.duration_ms != undefined}

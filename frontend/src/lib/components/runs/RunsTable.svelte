@@ -11,7 +11,7 @@
 	export let loadMoreQuantity: number = 30
 
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
-		const groupedLogs = {}
+		const groupedLogs: Record<string, Job[]> = {}
 
 		if (!jobs) return groupedLogs
 
@@ -34,7 +34,22 @@
 			}
 		}
 
-		return groupedLogs
+		for (const day in groupedLogs) {
+			groupedLogs[day].sort((a, b) => {
+				return new Date(b.started_at!).getTime() - new Date(a.started_at!).getTime()
+			})
+		}
+
+		const sortedLogs: Record<string, Job[]> = {}
+		Object.keys(groupedLogs)
+			.sort((a, b) => {
+				return new Date(b).getTime() - new Date(a).getTime()
+			})
+			.forEach((key) => {
+				sortedLogs[key] = groupedLogs[key]
+			})
+
+		return sortedLogs
 	}
 
 	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbObJobs))

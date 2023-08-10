@@ -6,21 +6,21 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import { Button } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobPreview from '$lib/components/runs/JobPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { RefreshCcw } from 'lucide-svelte'
+	import { Filter, RefreshCcw } from 'lucide-svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
+	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
@@ -240,6 +240,11 @@
 
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
+	let runDrawer: Drawer
+
+	$: if (!runDrawer?.isOpen() && selectedId) {
+		runDrawer.openDrawer()
+	}
 </script>
 
 <div class="w-full h-screen">
@@ -267,10 +272,7 @@
 					{jobKindsCat}
 					bind:selectedPath={searchPath}
 					bind:success
-					bind:argFilter
-					bind:argError
-					bind:resultFilter
-					bind:resultError
+					bind:autoRefresh
 					on:change={reloadLogsWithoutFilterError}
 					on:clearFilters={() => {
 						minTs = undefined
@@ -282,16 +284,14 @@
 			<div class="xl:hidden">
 				<MobileFilters>
 					<svelte:fragment slot="filters">
+						<span class="text-xs font-semibold leading-6">Filters</span>
 						<RunsFilter
 							bind:isSkipped
 							{paths}
 							{jobKindsCat}
 							bind:selectedPath={searchPath}
 							bind:success
-							bind:argFilter
-							bind:argError
-							bind:resultFilter
-							bind:resultError
+							bind:autoRefresh
 							on:change={reloadLogsWithoutFilterError}
 							on:clearFilters={() => {
 								minTs = undefined
@@ -373,12 +373,71 @@
 					{manualDates[selectedManualDate].label}
 				</div>
 			</Button>
-			<Toggle
-				size="xs"
-				bind:checked={autoRefresh}
-				options={{ right: 'Auto-refresh' }}
-				textClass="whitespace-nowrap"
-			/>
+
+			<Popup
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+				let:close
+			>
+				<svelte:fragment slot="button">
+					<Button color="light" size="xs" nonCaptureEvent={true}>
+						<div class="flex flex-row gap-1 items-center">
+							<Filter size={16} />
+							Filter by arguments
+						</div>
+					</Button>
+				</svelte:fragment>
+				<div class="flex flex-col w-72 p-2 gap-2">
+					<span class="text-sm eading-6 font-semibold">Filter by arguments</span>
+					<span class="text-xs leading-6">
+						{`Filter by a json being a subset of the args. Try '\{"foo": "bar"\}'`}</span
+					>
+
+					<JsonEditor on:change bind:error={argError} bind:code={argFilter} />
+					<Button
+						size="xs"
+						color="dark"
+						on:click={() => {
+							close(null)
+							argFilter = ''
+						}}
+					>
+						Clear filter
+					</Button>
+				</div>
+			</Popup>
+			<Popup
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+				let:close
+			>
+				<svelte:fragment slot="button">
+					<Button color="light" size="xs" nonCaptureEvent={true}>
+						<div class="flex flex-row gap-1 items-center">
+							<Filter size={16} />
+							Filter by result
+						</div>
+					</Button>
+				</svelte:fragment>
+				<div class="flex flex-col w-72 p-2 gap-2">
+					<span class="text-sm leading-6 font-semibold">Filter by result</span>
+					<span class="text-xs leading-6">
+						{`Filter by a json being a subset of the args. Try '\{"foo": "bar"\}'`}
+					</span>
+
+					<JsonEditor on:change bind:error={resultError} bind:code={resultFilter} />
+					<Button
+						size="xs"
+						color="dark"
+						on:click={async () => {
+							close(null)
+							resultFilter = ''
+						}}
+					>
+						Clear filter
+					</Button>
+				</div>
+			</Popup>
 		</div>
 	</div>
 
@@ -389,19 +448,14 @@
 					<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
 				{/if}
 			</Pane>
-			<Pane size={40} minSize={15}>
-				<div class="border-t">
-					{#if selectedId}
-						{@const job = jobs?.find((j) => j.id == selectedId)}
-						{#if job}
-							{#key job.id}
-								<JobPreview id={job.id} />
-							{/key}
-						{/if}
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
-					{/if}
-				</div>
+			<Pane size={40} minSize={15} class="border-t">
+				{#if selectedId}
+					{#key selectedId}
+						<JobPreview id={selectedId} />
+					{/key}
+				{:else}
+					<div class="text-xs m-4">No job selected</div>
+				{/if}
 			</Pane>
 		</Splitpanes>
 	</SplitPanesWrapper>
@@ -412,3 +466,11 @@
 		{/if}
 	</div>
 </div>
+
+<Drawer bind:this={runDrawer}>
+	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
+		{#if selectedId}
+			<JobPreview id={selectedId} />
+		{/if}
+	</DrawerContent>
+</Drawer>
