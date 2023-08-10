@@ -1,6 +1,53 @@
 # Changelog
 
 
+## [1.144.4](https://github.com/windmill-labs/windmill/compare/v1.144.3...v1.144.4) (2023-08-10)
+
+
+### Bug Fixes
+
+* revert monaco update ([785e172](https://github.com/windmill-labs/windmill/commit/785e172e6eb83c107cad2c843a15234a6c6f9f6b))
+
+## [1.144.3](https://github.com/windmill-labs/windmill/compare/v1.144.2...v1.144.3) (2023-08-10)
+
+
+### Bug Fixes
+
+* fix monaco initialize api error ([fb64ba0](https://github.com/windmill-labs/windmill/commit/fb64ba034442fa52ecf2fb88c8974ba184b58ef9))
+* revert monaco update ([f4de5ea](https://github.com/windmill-labs/windmill/commit/f4de5ea436b2bdf8c92e27ce43f684116f47d1ff))
+
+## [1.144.2](https://github.com/windmill-labs/windmill/compare/v1.144.1...v1.144.2) (2023-08-09)
+
+
+### Bug Fixes
+
+* make path changeable even if linked to summary ([f3b674a](https://github.com/windmill-labs/windmill/commit/f3b674acd1a0e76c12c321fa7d9d131716622ae5))
+
+## [1.144.1](https://github.com/windmill-labs/windmill/compare/v1.144.0...v1.144.1) (2023-08-09)
+
+
+### Bug Fixes
+
+* make path changeable even if linked to summary ([003da78](https://github.com/windmill-labs/windmill/commit/003da78a46cce3a3376e375a74b9e5f31f4b6256))
+
+## [1.144.0](https://github.com/windmill-labs/windmill/compare/v1.143.0...v1.144.0) (2023-08-09)
+
+
+### Features
+
+* add graphql support ([#2014](https://github.com/windmill-labs/windmill/issues/2014)) ([e4534d2](https://github.com/windmill-labs/windmill/commit/e4534d2dc329d307ca7690ab58bf3b063ad81539))
+* **frontend:** Add disable prop to App Toggles ([#2010](https://github.com/windmill-labs/windmill/issues/2010)) ([40c86e4](https://github.com/windmill-labs/windmill/commit/40c86e4f4b5a511fc8059051f326e930f9bc7839))
+* implement binary caching for go ([933021a](https://github.com/windmill-labs/windmill/commit/933021ad8d1d7cf70f9b3f56e1671046675dec3c))
+* v0 of relative imports in bun ([383793f](https://github.com/windmill-labs/windmill/commit/383793f7991ff4c1024e1b86b418f01f2557d5e0))
+
+
+### Bug Fixes
+
+* **frontend:** Fix flow preview ([#2013](https://github.com/windmill-labs/windmill/issues/2013)) ([0b8d37a](https://github.com/windmill-labs/windmill/commit/0b8d37a2486df5756148645a630213d16e5998bc))
+* graphql api not db ([#2017](https://github.com/windmill-labs/windmill/issues/2017)) ([356b1f2](https://github.com/windmill-labs/windmill/commit/356b1f2242d7bbe4c71e021cb441e29b652c5126))
+* hide AI Gen btn when language not supported ([#2016](https://github.com/windmill-labs/windmill/issues/2016)) ([46ff76f](https://github.com/windmill-labs/windmill/commit/46ff76fc86884e11986edc998e06f37c43102d1f))
+* make flow editor more resilient to id duplicates ([83d1d11](https://github.com/windmill-labs/windmill/commit/83d1d11a934843d91c76912018a3c057a97de101))
+
 ## [1.143.0](https://github.com/windmill-labs/windmill/compare/v1.142.0...v1.143.0) (2023-08-08)
 
 

@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import ViteYaml from '@modyfi/vite-plugin-yaml'
+import monacoEditorPlugin from 'vite-plugin-monaco-editor'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -32,7 +33,20 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), ViteYaml()],
+	plugins: [
+		sveltekit(),
+		ViteYaml(),
+		monacoEditorPlugin.default({
+			publicPath: 'workers',
+			languageWorkers: [],
+			customWorkers: [
+				{
+					label: 'graphql',
+					entry: 'monaco-graphql/esm/graphql.worker'
+				}
+			]
+		})
+	],
 	define: {
 		__pkg__: version
 	},

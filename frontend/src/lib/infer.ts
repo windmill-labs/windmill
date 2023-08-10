@@ -11,7 +11,8 @@ import init, {
 	parse_sql,
 	parse_mysql,
 	parse_bigquery,
-	parse_snowflake
+	parse_snowflake,
+	parse_graphql
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -63,6 +64,9 @@ export async function inferArgs(
 				{ name: 'database', typ: { resource: 'snowflake' } },
 				...inferedSchema.args
 			]
+		} else if (language == 'graphql') {
+			inferedSchema = JSON.parse(parse_graphql(code))
+			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {

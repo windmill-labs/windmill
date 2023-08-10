@@ -11,16 +11,15 @@
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	function checkDup(modules: FlowModule[]): FlowModule[] {
-		let seenModules: FlowModule[] = []
+	function checkDup(modules: FlowModule[]): string | undefined {
+		let seenModules: string[] = []
 		for (const m of modules) {
-			if (seenModules.find((sm) => sm.id === m.id)) {
+			if (seenModules.includes(m.id)) {
 				console.error(`Duplicate module id: ${m.id}`)
-				continue
+				return m.id
 			}
-			seenModules.push(m)
+			seenModules.push(m.id)
 		}
-		return seenModules
 	}
 </script>
 
@@ -35,9 +34,14 @@
 {:else if $selectedId === 'failure'}
 	<FlowFailureModule />
 {:else}
-	{#key $selectedId}
-		{#each checkDup($flowStore.value.modules) as flowModule, index (flowModule.id ?? index)}
-			<FlowModuleWrapper bind:flowModule previousModule={$flowStore.value.modules[index - 1]} />
-		{/each}
-	{/key}
+	{@const dup = checkDup($flowStore.value.modules)}
+	{#if dup}
+		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
+	{:else}
+		{#key $selectedId}
+			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
+				<FlowModuleWrapper bind:flowModule previousModule={$flowStore.value.modules[index - 1]} />
+			{/each}
+		{/key}
+	{/if}
 {/if}

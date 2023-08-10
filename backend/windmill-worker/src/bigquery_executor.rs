@@ -6,7 +6,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{get_content, transform_json_value, AuthedClient, JobCompleted};
+use crate::{transform_json_value, AuthedClient, JobCompleted};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -54,7 +54,7 @@ struct BigqueryError {
 pub async fn do_bigquery(
     job: QueuedJob,
     client: &AuthedClient,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    query: &str,
 ) -> windmill_common::error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
@@ -93,8 +93,6 @@ pub async fn do_bigquery(
         .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
 
     let mut statement_values: Vec<Value> = vec![];
-
-    let query = get_content(&job, db).await?;
 
     let sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?

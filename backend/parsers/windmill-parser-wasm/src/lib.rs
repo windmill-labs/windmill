@@ -49,3 +49,8 @@ pub fn parse_bigquery(code: &str) -> String {
 pub fn parse_snowflake(code: &str) -> String {
     wrap_sig(windmill_parser_sql::parse_snowflake_sig(code))
 }
+
+#[wasm_bindgen]
+pub fn parse_graphql(code: &str) -> String {
+    wrap_sig(windmill_parser_graphql::parse_graphql_sig(code))
+}

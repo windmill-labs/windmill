@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.143.0",
+	"version": "1.144.4",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -50,7 +50,7 @@
 		"prettier-plugin-svelte": "^2.10.1",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
-		"stylelint-config-recommended": "^12.0.0",
+		"stylelint-config-recommended": "^13.0.0",
 		"svelte": "^3.59.2",
 		"svelte-awesome": "^3.2.0",
 		"svelte-awesome-color-picker": "^2.4.5",
@@ -68,6 +68,7 @@
 		"tslib": "^2.6.0",
 		"typescript": "^5.1.3",
 		"vite": "^4.4.7",
+		"vite-plugin-monaco-editor": "^1.1.0",
 		"yootils": "^0.3.1"
 	},
 	"type": "module",
@@ -89,9 +90,11 @@
 		"diff": "^5.1.0",
 		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
+		"graphql": "^16.7.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.246.0",
+		"monaco-graphql": "^1.3.0",
 		"monaco-languageclient": "~6.0.3",
 		"openai": "^4.0.0-beta.4",
 		"quill": "^1.3.7",
@@ -104,7 +107,7 @@
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
-		"windmill-parser-wasm": "^1.138.1",
+		"windmill-parser-wasm": "^1.141.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yjs": "^13.6.7"

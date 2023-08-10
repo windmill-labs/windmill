@@ -64,6 +64,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
             : splitted.length > 2 && splitted[splitted.length - 2] == "sf"
             ? "snowflake"
             : "postgresql"
+          : ext == "gql"
+          ? "graphql"
           : "unknown";
       currentLastEdit = {
         content,

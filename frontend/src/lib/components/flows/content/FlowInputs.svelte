@@ -189,6 +189,18 @@
 						/>
 
 						<FlowScriptPicker
+							label="GraphQL"
+							lang={Script.language.GRAPHQL}
+							on:click={() => {
+								dispatch('new', {
+									language: RawScript.language.GRAPHQL,
+									kind,
+									subkind: 'flow'
+								})
+							}}
+						/>
+
+						<FlowScriptPicker
 							label={`Docker`}
 							lang="docker"
 							on:click={() => {

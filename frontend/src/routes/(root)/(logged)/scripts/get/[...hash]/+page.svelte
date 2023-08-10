@@ -196,7 +196,7 @@
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 
-	function getMainButtons(script: Script | undefined, args: object | undefined) {
+	function getMainButtons(script: Script | undefined, args: object | undefined, topHash?: string) {
 		const buttons: any = []
 
 		if (!topHash && script) {
@@ -273,7 +273,7 @@
 
 		return buttons
 	}
-	$: mainButtons = getMainButtons(script, args)
+	$: mainButtons = getMainButtons(script, args, topHash)
 
 	function getMenuItems(script: Script | undefined) {
 		if (!script || $userStore?.operator) return []

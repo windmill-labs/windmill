@@ -12,6 +12,7 @@
 	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
 	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
+	import GraphqlIcon from '$lib/components/icons/GraphqlIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -32,8 +33,10 @@
 		[Script.language.GO]: 'Go',
 		[Script.language.BASH]: 'Bash',
 		[Script.language.NATIVETS]: 'HTTP',
-		// [Script.language.GRAPHQL]: 'HTTP',
-		[Script.language.POSTGRESQL]: 'Postgresql'
+		[Script.language.GRAPHQL]: 'GraphQL',
+		[Script.language.POSTGRESQL]: 'Postgresql',
+		[Script.language.BIGQUERY]: 'BigQuery',
+		[Script.language.SNOWFLAKE]: 'Snowflake'
 	}
 
 	const langToComponent: Record<
@@ -56,7 +59,7 @@
 		powershell: PowershellIcon,
 		postgresql: PostgresIcon,
 		nativets: RestIcon,
-		graphql: RestIcon
+		graphql: GraphqlIcon
 	}
 </script>
 

@@ -1,13 +1,6 @@
-// copied Window & Environment definitions from monaco-editor/esm/vs/editor/editor.api.js to be able to remove dependencies
-interface Window {
-	MonacoEnvironment?: Environment
-}
+import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
 
-export interface Environment {
-	globalAPI?: boolean
-	baseUrl?: string
-	getWorker?(workerId: string, label: string): Promise<Worker> | Worker
-	getWorkerUrl?(workerId: string, label: string): string
+interface MonacoEnvironmentEnhanced extends Environment {
 	workerOverrideGlobals: WorkerOverrideGlobals
 }
 
@@ -33,9 +26,14 @@ export function buildWorkerDefinition(
 
 	if (!monWin.MonacoEnvironment) {
 		monWin.MonacoEnvironment = {
-			workerOverrideGlobals: workerOverrideGlobals
-		}
+			workerOverrideGlobals: workerOverrideGlobals,
+			createTrustedTypesPolicy: (_policyName: string) => {
+				return undefined
+			}
+		} as MonacoEnvironmentEnhanced
 	}
+	const monEnv = monWin.MonacoEnvironment as MonacoEnvironmentEnhanced
+	monEnv.workerOverrideGlobals = workerOverrideGlobals
 
 	const getWorker = (_: string, label: string) => {
 		console.log('getWorker: workerId: ' + _ + ' label: ' + label)
@@ -74,6 +72,13 @@ export function buildWorkerDefinition(
 				return buildWorker(workerOverrideGlobals, label, 'cssWorker', 'CSS Worker')
 			case 'json':
 				return buildWorker(workerOverrideGlobals, label, 'jsonWorker', 'JSON Worker')
+			case 'graphql':
+				const workerFilename = `graphql.worker.bundle.js`
+				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
+				const workerUrl = new URL(workerPathLocal, workerOverrideGlobals.basePath)
+				return new Worker(workerUrl.href, {
+					name: label
+				})
 			default:
 				return buildWorker(workerOverrideGlobals, label, 'editorWorker', 'Editor Worker')
 		}

@@ -493,7 +493,7 @@
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={editor?.reloadWebsocket}
+				on:click={() => editor?.reloadWebsocket()}
 				startIcon={{ icon: faRotate }}
 				title="Reload assistants"
 			>

@@ -33,7 +33,6 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
-	export let topHash: string | undefined = undefined
 	export let showMeta: boolean = false
 
 	let metadataOpen =
@@ -71,6 +70,7 @@
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
+	langs.push(['GraphQL', Script.language.GRAPHQL])
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}
@@ -157,7 +157,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: topHash,
+					parent_hash: script.parent_hash,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -264,17 +264,6 @@
 	}
 
 	let path: Path | undefined = undefined
-	$: {
-		if (initialPath == '' && script.summary?.length > 0) {
-			path?.setName(
-				script.summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -289,6 +278,17 @@
 				autofocus
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
+				on:keyup={() => {
+					if (initialPath == '' && script.summary?.length > 0) {
+						path?.setName(
+							script.summary
+								.toLowerCase()
+								.replace(/[^a-z0-9_]/g, '_')
+								.replace(/-+/g, '_')
+								.replace(/^-|-$/g, '')
+						)
+					}
+				}}
 			/>
 			<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 			<Path
