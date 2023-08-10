@@ -39,7 +39,7 @@
 		"eslint": "^8.44.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"monaco-editor-workers": "~0.41.0",
+		"monaco-editor-workers": "~0.40.0",
 		"ol": "^7.4.0",
 		"openapi-typescript-codegen": "^0.25.0",
 		"path-browserify": "^1.0.1",
