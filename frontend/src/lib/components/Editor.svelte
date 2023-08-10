@@ -332,8 +332,11 @@
 		try {
 			await initServices({
 				enableThemeService: false,
-				enableModelService: true,
+				enableModelEditorService: true,
 				enableNotificationService: false,
+				modelEditorServiceConfig: {
+					useDefaultFunction: true
+				},
 				debugLogging: false
 			})
 		} catch (e) {
