@@ -264,6 +264,7 @@
 	}
 
 	let path: Path | undefined = undefined
+	let dirtyPath = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -279,7 +280,7 @@
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
 				on:keyup={() => {
-					if (initialPath == '' && script.summary?.length > 0) {
+					if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
 						path?.setName(
 							script.summary
 								.toLowerCase()
@@ -295,6 +296,7 @@
 				bind:this={path}
 				bind:error={pathError}
 				bind:path={script.path}
+				bind:dirty={dirtyPath}
 				{initialPath}
 				autofocus={false}
 				namePlaceholder="script"

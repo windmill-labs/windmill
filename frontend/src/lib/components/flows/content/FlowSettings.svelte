@@ -40,6 +40,7 @@
 	}
 
 	let path: Path | undefined = undefined
+	let dirtyPath = false
 </script>
 
 <div class="h-full overflow-hidden">
@@ -65,7 +66,7 @@
 									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
 									on:keyup={() => {
-										if (initialPath == '' && $flowStore.summary?.length > 0) {
+										if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
 											path?.setName(
 												$flowStore.summary
 													.toLowerCase()
@@ -82,6 +83,7 @@
 							<Path
 								autofocus={false}
 								bind:this={path}
+								bind:dirty={dirtyPath}
 								bind:path={$flowStore.path}
 								{initialPath}
 								namePlaceholder="flow"
