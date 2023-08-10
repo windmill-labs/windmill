@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.144.3](https://github.com/windmill-labs/windmill/compare/v1.144.2...v1.144.3) (2023-08-10)
+
+
+### Bug Fixes
+
+* fix monaco initialize api error ([fb64ba0](https://github.com/windmill-labs/windmill/commit/fb64ba034442fa52ecf2fb88c8974ba184b58ef9))
+* revert monaco update ([f4de5ea](https://github.com/windmill-labs/windmill/commit/f4de5ea436b2bdf8c92e27ce43f684116f47d1ff))
+
 ## [1.144.2](https://github.com/windmill-labs/windmill/compare/v1.144.1...v1.144.2) (2023-08-09)
 
 
