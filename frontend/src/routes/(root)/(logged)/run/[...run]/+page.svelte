@@ -87,7 +87,6 @@
 		}
 	}
 	let notfound = false
-
 	let forceCancel = false
 </script>
 

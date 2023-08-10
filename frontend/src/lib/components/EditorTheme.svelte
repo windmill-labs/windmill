@@ -6,6 +6,7 @@
 	import nord from 'svelte-highlight/styles/nord'
 	import { each } from 'chart.js/helpers'
 	import { Chart } from 'chart.js'
+	import { deepMergeWithPriority } from '$lib/utils'
 
 	meditor.defineTheme('nord', {
 		base: 'vs-dark',
@@ -118,7 +119,7 @@
 			meditor.setTheme('nord')
 			darkMode = true
 			each(Chart.instances, (instance) => {
-				instance.options = {
+				instance.options = deepMergeWithPriority(instance.options, {
 					scales: {
 						y: {
 							ticks: {
@@ -144,7 +145,7 @@
 							}
 						}
 					}
-				}
+				})
 				instance.update()
 			})
 		} else {
@@ -152,7 +153,7 @@
 			darkMode = false
 
 			each(Chart.instances, (instance) => {
-				instance.options = {
+				instance.options = deepMergeWithPriority(instance.options, {
 					scales: {
 						y: {
 							ticks: {
@@ -178,7 +179,8 @@
 							}
 						}
 					}
-				}
+				})
+
 				instance.update()
 			})
 		}

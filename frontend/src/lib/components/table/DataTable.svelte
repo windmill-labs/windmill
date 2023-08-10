@@ -7,7 +7,7 @@
 <script lang="ts">
 	import { createEventDispatcher, setContext } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let paginated: boolean = false
@@ -66,11 +66,11 @@
 			{/if}
 		</div>
 	{:else if shouldLoadMore}
-		<div class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2">
+		<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
 			<Button color="light" size="xs2" on:click={() => dispatch('loadMore')}>
 				<div class="flex flex-row gap-1 items-center">
 					Load {loadMore} more
-					<ArrowRightIcon size={16} />
+					<ArrowDownIcon size={16} />
 				</div>
 			</Button>
 		</div>
