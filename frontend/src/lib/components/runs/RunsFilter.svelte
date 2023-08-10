@@ -38,7 +38,7 @@
 				<ChevronDown class="absolute top-2 right-2" size={14} />
 			{/if}
 
-			<span class="text-xs absolute -top-4">Filter by path</span>
+			<span class="text-xs absolute -top-4">Path</span>
 
 			<AutoComplete
 				items={paths}
@@ -47,7 +47,7 @@
 				inputClassName="!h-[30px] py-1 !text-xs !w-64"
 				hideArrow
 				className={selectedPath ? '!font-bold' : ''}
-				dropdownClassName="!font-normal"
+				dropdownClassName="!font-normal !w-64 !max-w-64"
 			/>
 		</div>
 	{/key}

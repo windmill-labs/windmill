@@ -16,7 +16,16 @@
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
-	import { Calendar, CalendarCheck, Check, FastForward, Hourglass, Play, X } from 'lucide-svelte'
+	import {
+		Calendar,
+		CalendarCheck,
+		Check,
+		FastForward,
+		Hourglass,
+		ListFilter,
+		Play,
+		X
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	const dispatch = createEventDispatcher()
@@ -127,7 +136,18 @@
 				<div class="flex flex-row space-x-2">
 					<div class="whitespace-nowrap text-xs font-semibold">
 						{#if job.script_path}
-							<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
+							<div class="flex flex-row gap-1 items-center">
+								<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
+								<Button
+									size="xs2"
+									color="light"
+									on:click={() => {
+										dispatch('filterByPath', job.script_path)
+									}}
+								>
+									<ListFilter size={10} />
+								</Button>
+							</div>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
 							<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
@@ -144,15 +164,15 @@
 
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
-					class="mx-1"
-				>
-					Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a></span
-				>
+				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} />
+				<span class="mx-1">
+					Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)} </a>
+				</span>
 			{:else}
-				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-1">
-					Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
-				>
+				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
+				<span class="mx-1">
+					Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a>
+				</span>
 			{/if}
 		{/if}
 	</Cell>

@@ -6,7 +6,7 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -413,7 +413,21 @@
 		<Splitpanes>
 			<Pane size={60} minSize={50}>
 				{#if jobs}
-					<RunsTable {jobs} bind:selectedId bind:nbObJobs loadMoreQuantity={30} />
+					<RunsTable
+						{jobs}
+						bind:selectedId
+						bind:nbObJobs
+						loadMoreQuantity={30}
+						on:filterByPath={(e) => {
+							searchPath = e.detail
+						}}
+					/>
+				{:else}
+					<div class="gap-1 flex flex-col">
+						{#each new Array(8) as _}
+							<Skeleton layout={[[3]]} />
+						{/each}
+					</div>
 				{/if}
 			</Pane>
 			<Pane size={40} minSize={15} class="border-t">
