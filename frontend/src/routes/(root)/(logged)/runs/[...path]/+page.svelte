@@ -367,10 +367,10 @@
 				</div>
 			</div>
 		</div>
-		<div class="flex flex-row gap-1">
+		<div class="flex flex-row gap-2 items-center">
 			<Button
 				color="light"
-				size="xs2"
+				size="xs"
 				wrapperClasses="border rounded-md"
 				on:click={() => {
 					manualDates[selectedManualDate].setMinMax()
@@ -399,6 +399,21 @@
 				options={{ right: 'Auto-refresh' }}
 				textClass="whitespace-nowrap"
 			/>
+
+			<Button
+				size="xs"
+				color="light"
+				on:click={() => {
+					minTs = undefined
+					maxTs = undefined
+					autoRefresh = true
+
+					selectedManualDate = 0
+					loadJobs()
+				}}
+			>
+				Reset
+			</Button>
 		</div>
 	</div>
 

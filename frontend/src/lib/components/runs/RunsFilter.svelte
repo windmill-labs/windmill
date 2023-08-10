@@ -6,7 +6,6 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { goto } from '$app/navigation'
-	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Filter } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
@@ -20,8 +19,6 @@
 	export let resultFilter: string
 	export let resultError: string
 	export let jobKindsCat: string
-
-	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
@@ -150,43 +147,41 @@
 			<Button color="light" size="xs" nonCaptureEvent={true} variant="border">
 				<div class="flex flex-row gap-1 items-center">
 					<Filter size={16} />
-					Filter by arguments/result
+					Filter by args/result
 				</div>
 			</Button>
 		</svelte:fragment>
 		<div class="flex flex-col w-72 p-2 gap-2">
 			<span class="text-sm eading-6 font-semibold">Filters</span>
 			<span class="text-xs leading-6">
-				{`Filter by a json being a subset of the args. Try '\{"foo": "bar"\}'`}
+				{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 			</span>
-			<span class="text-xs eading-6 font-semibold">Filter by arguments</span>
+			<span class="text-xs eading-6 font-semibold">Filter by args</span>
 			<JsonEditor on:change bind:error={argError} bind:code={argFilter} />
 			<span class="text-xs eading-6 font-semibold">Filter by result</span>
 			<JsonEditor on:change bind:error={resultError} bind:code={resultFilter} />
 
-			<Button
-				size="xs"
-				color="dark"
-				on:click={() => {
-					close(null)
-					argFilter = ''
-					resultFilter = ''
-				}}
-			>
-				Clear filter
-			</Button>
+			<div class="flex flex-row gap-2 justify-between">
+				<Button
+					size="xs"
+					color="light"
+					on:click={() => {
+						argFilter = ''
+						resultFilter = ''
+					}}
+				>
+					Clear filter
+				</Button>
+				<Button
+					size="xs"
+					color="dark"
+					on:click={() => {
+						close(null)
+					}}
+				>
+					Close
+				</Button>
+			</div>
 		</div>
 	</Popup>
-
-	<Button
-		color="light"
-		variant="border"
-		size="xs"
-		on:click={() => {
-			goto('/runs')
-			dispatch('clearFilters')
-		}}
-	>
-		Clear filters
-	</Button>
 </div>
