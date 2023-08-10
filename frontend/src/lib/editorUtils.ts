@@ -59,6 +59,8 @@ export function langToExt(lang: string): string {
 			return 'go'
 		case 'bash':
 			return 'sh'
+		case 'powershell':
+			return 'ps1'
 		case 'deno':
 			return 'ts'
 		case 'nativets':

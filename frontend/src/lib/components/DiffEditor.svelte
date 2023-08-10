@@ -40,7 +40,7 @@
 	export function setDiff(
 		original: string,
 		modified: string,
-		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript'
+		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript' | 'powershell'
 	): void {
 		diffEditor?.setModel({
 			original: meditor.createModel(original, lang),
