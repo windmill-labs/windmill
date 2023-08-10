@@ -7,7 +7,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { ChevronDown, Filter } from 'lucide-svelte'
+	import { ChevronDown, Filter, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
 	export let paths: string[] = []
@@ -24,7 +24,20 @@
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
 	{#key selectedPath}
 		<div class="relative">
-			<ChevronDown class="absolute top-1 right-2" />
+			{#if selectedPath}
+				<button
+					class="absolute top-2 right-2 z-50"
+					on:click={() => {
+						selectedPath = undefined
+						goto('/runs')
+					}}
+				>
+					<X size={14} />
+				</button>
+			{:else}
+				<ChevronDown class="absolute top-2 right-2" size={14} />
+			{/if}
+
 			<span class="text-xs absolute -top-4">Filter by path</span>
 
 			<AutoComplete
@@ -136,21 +149,4 @@
 			</div>
 		</div>
 	</Popup>
-	<Button
-		size="xs"
-		color="dark"
-		on:click={() => {
-			argFilter = ''
-			resultFilter = ''
-
-			selectedPath = undefined
-			success = undefined
-			isSkipped = false
-			jobKindsCat = 'runs'
-
-			goto('/runs')
-		}}
-	>
-		Clear
-	</Button>
 </div>

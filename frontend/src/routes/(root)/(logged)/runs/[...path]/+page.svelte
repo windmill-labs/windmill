@@ -156,10 +156,6 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	function syncWithUrl(arg: string, value: string) {
-		setQueryWithoutLoad($page.url, [{ key: arg, value }])
-	}
-
 	async function syncTsWithURL(minTs?: string, maxTs?: string) {
 		setQueryWithoutLoad($page.url, [
 			{ key: 'min_ts', value: minTs },
@@ -167,9 +163,6 @@
 		])
 	}
 
-	$: syncWithUrl('job_kinds', jobKindsCat)
-	$: syncWithUrl('arg', argFilter)
-	$: syncWithUrl('result', resultFilter)
 	$: syncTsWithURL(minTs, maxTs)
 
 	$: completedJobs =
@@ -367,6 +360,22 @@
 		</div>
 		<div class="flex flex-row gap-2 items-center">
 			<Button
+				size="xs"
+				color="light"
+				variant="border"
+				on:click={() => {
+					minTs = undefined
+					maxTs = undefined
+					autoRefresh = true
+
+					selectedManualDate = 0
+					selectedId = undefined
+					loadJobs()
+				}}
+			>
+				Reset
+			</Button>
+			<Button
 				color="light"
 				size="xs"
 				wrapperClasses="border rounded-md"
@@ -397,21 +406,6 @@
 				options={{ right: 'Auto-refresh' }}
 				textClass="whitespace-nowrap"
 			/>
-
-			<Button
-				size="xs"
-				color="light"
-				on:click={() => {
-					minTs = undefined
-					maxTs = undefined
-					autoRefresh = true
-
-					selectedManualDate = 0
-					loadJobs()
-				}}
-			>
-				Reset
-			</Button>
 		</div>
 	</div>
 
