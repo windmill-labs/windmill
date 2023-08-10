@@ -91,7 +91,7 @@
 		</div>
 	</Cell>
 	<Cell>
-		<div class="flex flex-row items-center gap-1 text-gray-500 text-2xs">
+		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if 'started_at' in job && job.started_at}
 				{#if job?.['duration_ms']}
 					Ended {endedDate(job.started_at, job?.['duration_ms'])}

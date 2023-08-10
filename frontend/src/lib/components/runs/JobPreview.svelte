@@ -63,7 +63,7 @@
 		</div>
 	{/if}
 
-	<div class="border p-2 w-full rounded-md">
+	<div class="border p-2 w-full rounded-md overflow-auto">
 		{#if job?.type === Job.type.COMPLETED_JOB}
 			<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
 		{:else if job && `running` in job ? job.running : false}
