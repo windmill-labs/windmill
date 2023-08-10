@@ -69,6 +69,20 @@
       "prompt": "consent"
     }
   },
+  "gworkspace": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/admin.directory.group",
+      "https://www.googleapis.com/auth/admin.directory.user",
+      "https://www.googleapis.com/auth/admin.directory.user.security",
+      "https://www.googleapis.com/auth/admin.directory.orgunit"
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
   "basecamp": {
     "auth_url": "https://launchpad.37signals.com/authorization/new",
     "token_url": "https://launchpad.37signals.com/authorization/token",
