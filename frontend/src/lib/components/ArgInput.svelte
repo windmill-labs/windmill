@@ -380,7 +380,7 @@
 					<ArgEnum {defaultValue} {valid} {customValue} {disabled} bind:value {enum_} {autofocus} />
 				</div>
 			{:else if inputCat == 'date'}
-				<DateTimeInput {autofocus} class="inline-block" bind:value />
+				<DateTimeInput {autofocus} bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor

@@ -1,30 +1,24 @@
 <script lang="ts">
-	import Toggle from './Toggle.svelte'
-
 	export let value: string | undefined = undefined
 
-	let input: HTMLInputElement
-	export function focus() {
-		input?.focus()
-	}
+	export let autofocus: boolean = false
 
-	let hasTime: boolean = Boolean(value)
+	let dateFromValue = value ? new Date(value) : undefined
+	let date = dateFromValue ? dateFromValue.toISOString().split('T')[0] : undefined
+	let time = dateFromValue ? dateFromValue.toISOString().split('T')[1] : undefined
 
-	$: if (value && hasTime !== value.includes('T')) {
-		value = hasTime ? `${value}T00:00` : value.slice(0, 10)
+	$: {
+		if (date && time) {
+			let newDate = new Date(`${date}T${time}`)
+			if (!isNaN(newDate.getTime())) {
+				value = newDate.toISOString()
+			}
+		}
 	}
 </script>
 
 <div class="flex flex-row gap-1 items-center w-full">
-	{#if hasTime}
-		<input type="datetime-local" bind:value bind:this={input} {...$$restProps} />
-	{:else}
-		<input type="date" bind:value bind:this={input} {...$$restProps} />
-	{/if}
-	<Toggle
-		bind:checked={hasTime}
-		options={{ right: 'Set time' }}
-		size="xs"
-		textClass="whitespace-nowrap"
-	/>
+	<!-- svelte-ignore a11y-autofocus -->
+	<input type="date" bind:value={date} {autofocus} class="!w-3/4" />
+	<input type="time" bind:value={time} class="!w-1/4" />
 </div>

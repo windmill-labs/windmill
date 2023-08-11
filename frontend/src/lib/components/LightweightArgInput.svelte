@@ -312,7 +312,7 @@
 					{/each}
 				</select>
 			{:else if inputCat == 'date'}
-				<DateTimeInput class="inline-block" bind:value />
+				<DateTimeInput bind:value />
 			{:else if inputCat == 'base64'}
 				<input
 					type="file"
