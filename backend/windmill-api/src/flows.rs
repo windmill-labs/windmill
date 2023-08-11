@@ -265,6 +265,7 @@ async fn create_flow(
         true,
         nf.tag,
         None,
+        None,
     )
     .await?;
 
@@ -446,6 +447,7 @@ async fn update_flow(
         false,
         None,
         true,
+        None,
         None,
         None,
     )

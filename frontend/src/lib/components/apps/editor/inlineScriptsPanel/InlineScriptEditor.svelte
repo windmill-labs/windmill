@@ -56,7 +56,11 @@
 		return schema
 	}
 
-	$: inlineScript && (inlineScript.path = `${defaultIfEmptyString(appPath, '')}/${name}`)
+	$: inlineScript &&
+		(inlineScript.path = `${defaultIfEmptyString(appPath, 'new_app')}/${name?.replaceAll(
+			' ',
+			'_'
+		)}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {

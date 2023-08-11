@@ -2385,7 +2385,8 @@ pub async fn get_reserved_variables(
         job.script_path.clone(),
         job.parent_job.map(|x| x.to_string()),
         flow_path,
-        job.schedule_path.clone()
+        job.schedule_path.clone(),
+        job.flow_step_id.clone()
     ).to_vec();
 
     let mut r: HashMap<String, String>  = variables
