@@ -7320,6 +7320,7 @@ version = "1.144.4"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
+ "regex",
  "serde-wasm-bindgen",
  "serde_json",
  "swc_common",

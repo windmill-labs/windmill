@@ -1,4 +1,5 @@
 use convert_case::{Case, Casing};
+use regex::Regex;
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022
@@ -151,6 +152,14 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
     (id.sym.to_string(), typ, nullable)
 }
 
+fn to_snake_case(s: &str) -> String {
+    let r = s.to_case(Case::Snake);
+
+    // s_3 => s3
+    let re = Regex::new(r"_(\d)").unwrap();
+    re.replace_all(&r, "$1").to_string()
+}
+
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
     // log(&format!("{:?}", ts_type));
     match ts_type {
@@ -262,7 +271,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 "Base64" => (Typ::Bytes, false),
                 "Email" => (Typ::Email, false),
                 "Sql" => (Typ::Sql, false),
-                x @ _ => (Typ::Resource(x.to_case(Case::Snake)), false),
+                x @ _ => (Typ::Resource(to_snake_case(x)), false),
             }
         }
         _ => (Typ::Unknown, false),
