@@ -127,7 +127,7 @@
 						</tr>
 					{/if}
 
-					{#each folders as { name, extra_perms, owners, canWrite }}
+					{#each folders as { name, extra_perms, owners, canWrite } (name)}
 						<Row
 							hoverable
 							on:click={() => {
