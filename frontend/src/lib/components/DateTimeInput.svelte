@@ -5,7 +5,7 @@
 
 	let dateFromValue = value ? new Date(value) : undefined
 	let date = dateFromValue ? dateFromValue.toISOString().split('T')[0] : undefined
-	let time = dateFromValue ? dateFromValue.toISOString().split('T')[1] : undefined
+	let time = dateFromValue ? dateFromValue.toISOString().split('T')[1] : '00:00'
 
 	$: {
 		if (date && time) {
