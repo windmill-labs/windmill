@@ -109,7 +109,7 @@
 						</tr>
 					{/each}
 				{:else}
-					{#each groups as { name, summary, extra_perms, canWrite }}
+					{#each groups as { name, summary, extra_perms, canWrite } (name)}
 						<tr>
 							<td class="!px-0 text-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
