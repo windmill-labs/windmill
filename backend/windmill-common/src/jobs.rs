@@ -87,6 +87,8 @@ pub struct QueuedJob {
     pub concurrency_time_window_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_step_id: Option<String>,
 }
 
 impl QueuedJob {
@@ -152,6 +154,7 @@ impl Default for QueuedJob {
             concurrent_limit: None,
             concurrency_time_window_s: None,
             timeout: None,
+            flow_step_id: None,
         }
     }
 }

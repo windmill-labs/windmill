@@ -72,7 +72,8 @@ pub fn get_reserved_variables(
     flow_id: Option<String>,
     flow_path: Option<String>,
     schedule_path: Option<String>,
-) -> [ContextualVariable; 12] {
+    step_id: Option<String>,
+) -> [ContextualVariable; 14] {
     let state_path = {
         let flow_path = flow_path
             .clone()
@@ -88,8 +89,34 @@ pub fn get_reserved_variables(
         } else {
             script_path
         };
+
         format!("{permissioned_as}/{flow_path}/{script_path}{schedule_path}")
     };
+
+    let state_path_2 = {
+        let trigger = if schedule_path.is_some() {
+            username.to_string()
+        } else {
+            "user".to_string()
+        };
+
+        if let Some(flow_path) = flow_path.clone() {
+            format!(
+                "{flow_path}/{}_{trigger}",
+                step_id.clone().unwrap_or_else(|| "nostep".to_string())
+            )
+        } else if let Some(script_path) = path.clone() {
+            let script_path = if script_path.ends_with("/") {
+                "noname".to_string()
+            } else {
+                script_path
+            };
+            format!("{script_path}/{trigger}")
+        } else {
+            format!("u/{username}/tmp_state")
+        }
+    };
+
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -153,7 +180,17 @@ pub fn get_reserved_variables(
         ContextualVariable {
             name: "WM_STATE_PATH".to_string(),
             value: state_path,
+            description: "State resource path unique to a script and its trigger (legacy, in a migration period against WM_STATE_PATH_NEW)".to_string(),
+        },
+        ContextualVariable {
+            name: "WM_STATE_PATH_NEW".to_string(),
+            value: state_path_2,
             description: "State resource path unique to a script and its trigger".to_string(),
+        },
+        ContextualVariable {
+            name: "WM_FLOW_STEP_ID".to_string(),
+            value: step_id.unwrap_or_else(|| "".to_string()),
+            description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
         },
     ]
 }
