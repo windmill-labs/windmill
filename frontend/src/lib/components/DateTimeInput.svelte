@@ -10,9 +10,7 @@
 	$: {
 		if (date && time) {
 			let newDate = new Date(`${date}T${time}`)
-			if (!isNaN(newDate.getTime())) {
-				value = newDate.toISOString()
-			}
+			value = newDate.toISOString()
 		}
 	}
 </script>

@@ -42,11 +42,9 @@
 		} else {
 			await goto('/')
 
-			// If we were dirty, we need to wait for the dirtyStore to update
-			const newDirty = await waitForNextUpdate(dirtyStore)
+			const shouldSwitch = await waitForNextUpdate(dirtyStore)
 
-			// If we're still dirty, we can't switch workspaces
-			if (newDirty) {
+			if (shouldSwitch) {
 				switchWorkspace(id)
 			}
 		}
