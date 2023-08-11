@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.145.0](https://github.com/windmill-labs/windmill/compare/v1.144.4...v1.145.0) (2023-08-11)
+
+
+### Features
+
+* add native powershell support ([#2025](https://github.com/windmill-labs/windmill/issues/2025)) ([8a1f9a7](https://github.com/windmill-labs/windmill/commit/8a1f9a7c6aadf735f3d6f118fbc8a344a675ec6a))
+* **frontend:** Runs rework v2 ([#2012](https://github.com/windmill-labs/windmill/issues/2012)) ([7d88a2d](https://github.com/windmill-labs/windmill/commit/7d88a2d13ade2265532a222ca2b0e804bd3b2e02))
+* migrate state path to new schema ([de8a727](https://github.com/windmill-labs/windmill/commit/de8a7279b644cd1eb7999b9da2900b760acd7297))
+
+
+### Bug Fixes
+
+* **frontend:** Fix lagging issues when resizing ([#2027](https://github.com/windmill-labs/windmill/issues/2027)) ([c2a92b6](https://github.com/windmill-labs/windmill/commit/c2a92b69ef0b5acacbda38261e654fe7d7cf36f6))
+* **frontend:** Handle invalid string defaults for date values. ([#2033](https://github.com/windmill-labs/windmill/issues/2033)) ([7cdd6db](https://github.com/windmill-labs/windmill/commit/7cdd6db3feeb99a0055ab187348aabfc7a979915))
+* modify snake case numbers resource types ([#2029](https://github.com/windmill-labs/windmill/issues/2029)) ([a4ba4af](https://github.com/windmill-labs/windmill/commit/a4ba4af478d2cebf1b4840091446be65f2f9d224))
+* restrict furthermore when the summary is transformed into a path ([2de4192](https://github.com/windmill-labs/windmill/commit/2de4192cac84336e0b812862b7dca3769a0ba4fc))
+* sync dark-mode icon across multiple renders ([#2024](https://github.com/windmill-labs/windmill/issues/2024)) ([27a8e52](https://github.com/windmill-labs/windmill/commit/27a8e526f79c6b0d7e0d8f8ceb34d4355b5df46b))
+
 ## [1.144.4](https://github.com/windmill-labs/windmill/compare/v1.144.3...v1.144.4) (2023-08-10)
 
 
