@@ -6,8 +6,49 @@
 	import Menu from '../common/menu/Menu.svelte'
 	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
-
+	import { goto } from '$app/navigation'
+	import { dirtyStore } from '../common/confirmationModal/dirtyStore'
+	import { page } from '$app/stores'
 	export let isCollapsed: boolean = false
+
+	function waitForNextUpdate(store) {
+		return new Promise((resolve) => {
+			let firstEmission = true
+			store.subscribe((value) => {
+				if (firstEmission) {
+					firstEmission = false
+					return
+				}
+				resolve(value)
+			})
+		})
+	}
+
+	async function toggleSwitchWorkspace(id: string) {
+		if ($workspaceStore === id) {
+			return
+		}
+
+		const editPages = ['/scripts/edit/', '/flows/edit/', '/apps/edit/']
+		const isOnEditPage = editPages.some((editPage) => $page.route.id?.includes(editPage) ?? false)
+
+		// Check if we have unsaved changes
+		const wasDirty = $dirtyStore
+		// Try to go to the home page
+
+		// If we weren't dirty, we can directly switch workspaces
+		if (!wasDirty && !isOnEditPage) {
+			switchWorkspace(id)
+		} else {
+			await goto('/')
+
+			const shouldSwitch = await waitForNextUpdate(dirtyStore)
+
+			if (shouldSwitch) {
+				switchWorkspace(id)
+			}
+		}
+	}
 </script>
 
 <Menu placement="bottom-start" let:close>
@@ -36,11 +77,8 @@
 						{$workspaceStore === workspace.id
 						? 'cursor-default bg-surface-selected'
 						: 'cursor-pointer hover:bg-surface-hover'}"
-					on:click={() => {
-						if ($workspaceStore === workspace.id) {
-							return
-						}
-						switchWorkspace(workspace.id)
+					on:click={async () => {
+						await toggleSwitchWorkspace(workspace.id)
 						close()
 					}}
 				>

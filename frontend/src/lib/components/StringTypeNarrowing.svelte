@@ -19,9 +19,9 @@
 		'uuid',
 		'ipv4',
 		'yaml',
-		'sql'
+		'sql',
 		// 'time',
-		// 'date',
+		'date-time'
 		// 'duration',
 		// 'ipv6',
 		// 'jsonpointer'

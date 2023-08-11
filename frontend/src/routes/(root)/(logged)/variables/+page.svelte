@@ -366,10 +366,9 @@
 				{/each}
 			{:else}
 				<TableSimple
-					headers={['name', 'example of value', 'description']}
+					headers={['Name', 'Example of value', 'Description']}
 					data={contextualVariables}
 					keys={['name', 'value', 'description']}
-					twTextSize="text-sm"
 				/>
 			{/if}
 		</div>

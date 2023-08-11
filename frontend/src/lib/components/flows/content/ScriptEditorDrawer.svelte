@@ -80,6 +80,7 @@
 		title="Script Editor"
 		noPadding
 		forceOverflowVisible
+		fullScreen
 		on:close={() => {
 			scriptEditorDrawer.closeDrawer()
 		}}
