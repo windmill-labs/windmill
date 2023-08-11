@@ -121,7 +121,9 @@
 	}
 
 	let sync = true
+	let mounted: boolean = false
 	onMount(() => {
+		mounted = true
 		loadPaths()
 		intervalId = setInterval(syncer, 5000)
 
@@ -140,10 +142,11 @@
 		}
 	})
 
-	$: if (!intervalId && autoRefresh) {
+	$: if (mounted && !intervalId && autoRefresh) {
 		intervalId = setInterval(syncer, 5000)
 	}
-	$: if (intervalId && !autoRefresh) {
+
+	$: if (mounted && intervalId && !autoRefresh) {
 		clearInterval(intervalId)
 		intervalId = undefined
 	}
@@ -315,7 +318,7 @@
 		</div>
 	</div>
 
-	<div class=" p-2">
+	<div class="p-2 w-full">
 		<RunChart
 			jobs={completedJobs}
 			on:zoom={async (e) => {
