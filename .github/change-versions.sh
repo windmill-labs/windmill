@@ -8,6 +8,7 @@ sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" cli/main.ts
 sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" benchmarks/main.ts
 sed -i -e "/version: /s/: .*/: $VERSION/" backend/windmill-api/openapi.yaml
 sed -i -e "/version: /s/: .*/: $VERSION/" openflow.openapi.yaml
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" typescript-client/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" frontend/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill/pyproject.toml
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill/pyproject.toml
