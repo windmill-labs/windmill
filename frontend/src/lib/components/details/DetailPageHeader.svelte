@@ -63,7 +63,7 @@
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
 						on:click={btn.buttonProps.onClick}
-						btnClasses="hidden md:block"
+						btnClasses="hidden md:flex items-center gap-1"
 					>
 						{btn.label}
 					</Button>
@@ -72,7 +72,7 @@
 						startIcon={{ icon: btn.buttonProps.startIcon }}
 						on:click={btn.buttonProps.onClick}
 						iconOnly
-						btnClasses="block md:hidden"
+						btnClasses="flex md:hidden items-center gap-1"
 					>
 						{btn.label}
 					</Button>

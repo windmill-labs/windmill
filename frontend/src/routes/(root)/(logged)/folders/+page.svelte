@@ -128,50 +128,52 @@
 					{/if}
 
 					{#each folders as { name, extra_perms, owners, canWrite }}
-						<Row
-							hoverable
-							on:click={() => {
-								editFolderName = name
-								folderDrawer.openDrawer()
-							}}
-						>
-							<Cell first>
-								<span class="text-blue-500">{name}</span>
-							</Cell>
-							<FolderUsageInfo {name} tabular />
+						{#key name}
+							<Row
+								hoverable
+								on:click={() => {
+									editFolderName = name
+									folderDrawer.openDrawer()
+								}}
+							>
+								<Cell first>
+									<span class="text-blue-500">{name}</span>
+								</Cell>
+								<FolderUsageInfo {name} tabular />
 
-							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-							<Cell>
-								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
-										{
-											displayName: 'Manage folder',
-											icon: faEdit,
-											disabled: !canWrite,
-											action: () => {
-												editFolderName = name
-												folderDrawer.openDrawer()
-											}
-										},
-										{
-											displayName: 'Delete',
+								<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
+								<Cell>
+									<Dropdown
+										placement="bottom-end"
+										dropdownItems={[
+											{
+												displayName: 'Manage folder',
+												icon: faEdit,
+												disabled: !canWrite,
+												action: () => {
+													editFolderName = name
+													folderDrawer.openDrawer()
+												}
+											},
+											{
+												displayName: 'Delete',
 
-											icon: faTrash,
-											type: 'delete',
-											disabled: !canWrite,
-											action: async () => {
-												await FolderService.deleteFolder({
-													workspace: $workspaceStore ?? '',
-													name
-												})
-												loadFolders()
+												icon: faTrash,
+												type: 'delete',
+												disabled: !canWrite,
+												action: async () => {
+													await FolderService.deleteFolder({
+														workspace: $workspaceStore ?? '',
+														name
+													})
+													loadFolders()
+												}
 											}
-										}
-									]}
-								/>
-							</Cell>
-						</Row>
+										]}
+									/>
+								</Cell>
+							</Row>
+						{/key}
 					{/each}
 				{/if}
 			</tbody>
