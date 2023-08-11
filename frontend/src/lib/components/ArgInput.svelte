@@ -26,6 +26,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ArgEnum from './ArgEnum.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -90,8 +91,6 @@
 					value = false
 				} else if (inputCat == 'list') {
 					value = []
-				} else if (inputCat == 'date-time') {
-					value = new Date().toISOString()
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
@@ -381,7 +380,7 @@
 					<ArgEnum {defaultValue} {valid} {customValue} {disabled} bind:value {enum_} {autofocus} />
 				</div>
 			{:else if inputCat == 'date'}
-				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
+				<DateTimeInput {autofocus} class="inline-block" bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor

@@ -8,7 +8,7 @@
 	import { Icon } from 'svelte-awesome'
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '../common/confirmationModal/dirtyStore'
-
+	import { page } from '$app/stores'
 	export let isCollapsed: boolean = false
 
 	function waitForNextUpdate(store) {
@@ -29,15 +29,19 @@
 			return
 		}
 
+		const editPages = ['/scripts/edit/', '/flows/edit/', '/apps/edit/']
+		const isOnEditPage = editPages.some((editPage) => $page.route.id?.includes(editPage) ?? false)
+
 		// Check if we have unsaved changes
 		const wasDirty = $dirtyStore
 		// Try to go to the home page
-		await goto('/')
 
 		// If we weren't dirty, we can directly switch workspaces
-		if (!wasDirty) {
+		if (!wasDirty && !isOnEditPage) {
 			switchWorkspace(id)
 		} else {
+			await goto('/')
+
 			// If we were dirty, we need to wait for the dirtyStore to update
 			const newDirty = await waitForNextUpdate(dirtyStore)
 

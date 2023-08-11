@@ -17,6 +17,7 @@
 	import { X } from 'lucide-svelte'
 	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
 	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -311,7 +312,7 @@
 					{/each}
 				</select>
 			{:else if inputCat == 'date'}
-				<input class="inline-block" type="datetime-local" bind:value />
+				<DateTimeInput class="inline-block" bind:value />
 			{:else if inputCat == 'base64'}
 				<input
 					type="file"
