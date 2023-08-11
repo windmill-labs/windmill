@@ -387,18 +387,8 @@
 		lock = false
 	}
 
+	let dirtyPath = false
 	let path: Path | undefined = undefined
-	$: {
-		if (appPath == '' && $summary?.length > 0) {
-			path?.setName(
-				$summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -416,18 +406,31 @@
 			<h3>Summary</h3>
 			<div class="w-full pt-2">
 				<input
+					autofocus
 					type="text"
 					placeholder="App summary"
 					class="text-sm w-full font-semibold"
 					bind:value={$summary}
+					on:keyup={() => {
+						if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
+							path?.setName(
+								$summary
+									.toLowerCase()
+									.replace(/[^a-z0-9_]/g, '_')
+									.replace(/-+/g, '_')
+									.replace(/^-|-$/g, '')
+							)
+						}
+					}}
 				/>
 			</div>
-
 			<div class="py-2" />
 			<Path
+				autofocus={false}
 				bind:this={path}
 				bind:error={pathError}
 				bind:path={newPath}
+				bind:dirty={dirtyPath}
 				initialPath=""
 				namePlaceholder="app"
 				kind="app"
@@ -450,17 +453,36 @@
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
-			<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
+			<input
+				autofocus
+				type="text"
+				placeholder="App summary"
+				class="text-sm w-full"
+				bind:value={$summary}
+				on:keyup={() => {
+					if (appPath == '' && $summary?.length > 0 && !dirtyPath) {
+						path?.setName(
+							$summary
+								.toLowerCase()
+								.replace(/[^a-z0-9_]/g, '_')
+								.replace(/-+/g, '_')
+								.replace(/^-|-$/g, '')
+						)
+					}
+				}}
+			/>
 		</div>
 		<div class="py-4" />
 		<span class="text-secondary text-sm font-bold">Path</span>
 		<Path
 			bind:this={path}
+			bind:dirty={dirtyPath}
 			bind:error={pathError}
 			bind:path={newPath}
 			initialPath={appPath}
 			namePlaceholder="app"
 			kind="app"
+			autofocus={false}
 		/>
 
 		<div slot="actions">

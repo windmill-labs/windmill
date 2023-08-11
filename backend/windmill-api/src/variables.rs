@@ -64,6 +64,7 @@ async fn list_contextual_variables(
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("u/user/encapsulating_flow_path".to_string()),
             Some("u/user/triggering_flow_path".to_string()),
+            Some("c".to_string()),
         )
         .to_vec(),
     ))

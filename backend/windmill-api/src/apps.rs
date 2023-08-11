@@ -809,6 +809,7 @@ async fn execute_component(
         true,
         tag,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;

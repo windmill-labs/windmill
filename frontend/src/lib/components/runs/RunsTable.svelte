@@ -58,7 +58,6 @@
 <DataTable
 	rounded={false}
 	size="sm"
-	on:loadMore={() => console.log('load more')}
 	loadMore={loadMoreQuantity}
 	shouldLoadMore={nbObJobs < jobs.length}
 	on:loadMore={() => (nbObJobs += loadMoreQuantity)}
