@@ -21,3 +21,4 @@ swc_ecma_ast.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 convert_case.workspace = true
+regex.workspace = true
