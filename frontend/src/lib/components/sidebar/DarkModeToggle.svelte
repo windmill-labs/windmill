@@ -2,9 +2,19 @@
 	import { Moon, Sun } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
+	import DarkModeObserver from '../DarkModeObserver.svelte'
+
 	export let darkMode: boolean = document.documentElement.classList.contains('dark')
 
 	export let forcedDarkMode: boolean = true
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
 </script>
 
 <button
@@ -16,12 +26,9 @@
 		if (!document.documentElement.classList.contains('dark')) {
 			document.documentElement.classList.add('dark')
 			window.localStorage.setItem('dark-mode', 'dark')
-
-			darkMode = true
 		} else {
 			document.documentElement.classList.remove('dark')
 			window.localStorage.setItem('dark-mode', 'light')
-			darkMode = false
 		}
 	}}
 >
@@ -31,3 +38,5 @@
 		<Moon class="w-4 h-4" />
 	{/if}
 </button>
+
+<DarkModeObserver on:change={onThemeChange} />
