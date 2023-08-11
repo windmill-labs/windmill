@@ -9,21 +9,21 @@
 	}
 
 	let hasTime: boolean = Boolean(value)
+
+	$: if (value && hasTime !== value.includes('T')) {
+		value = hasTime ? `${value}T00:00` : value.slice(0, 10)
+	}
 </script>
 
 <div class="flex flex-row gap-1 items-center w-full">
 	{#if hasTime}
-		<input type="datetime-local" bind:value bind:this={input} on:keydown {...$$restProps} />
+		<input type="datetime-local" bind:value bind:this={input} {...$$restProps} />
 	{:else}
-		<input type="date" bind:value bind:this={input} on:keydown {...$$restProps} />
+		<input type="date" bind:value bind:this={input} {...$$restProps} />
 	{/if}
 	<Toggle
 		bind:checked={hasTime}
 		options={{ right: 'Set time' }}
-		on:change={(e) => {
-			const checked = e.detail
-			value = value ? value.slice(0, 10) + (checked ? 'T00:00' : '') : value
-		}}
 		size="xs"
 		textClass="whitespace-nowrap"
 	/>
