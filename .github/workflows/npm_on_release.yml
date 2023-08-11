@@ -1,4 +1,4 @@
-name: Publish deno-client
+name: Publish typescript-client
 on:
   push:
     tags:
@@ -13,6 +13,6 @@ jobs:
         with:
           node-version: "16.x"
           registry-url: "https://registry.npmjs.org"
-      - run: cd typescript-client && npm publish
+      - run: cd typescript-client && ./publish.sh
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
