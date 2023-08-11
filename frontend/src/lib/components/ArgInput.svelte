@@ -90,6 +90,8 @@
 					value = false
 				} else if (inputCat == 'list') {
 					value = []
+				} else if (inputCat == 'date-time') {
+					value = new Date().toISOString()
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
