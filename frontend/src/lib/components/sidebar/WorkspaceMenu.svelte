@@ -6,8 +6,47 @@
 	import Menu from '../common/menu/Menu.svelte'
 	import { faCog, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
+	import { goto } from '$app/navigation'
+	import { dirtyStore } from '../common/confirmationModal/dirtyStore'
 
 	export let isCollapsed: boolean = false
+
+	function waitForNextUpdate(store) {
+		return new Promise((resolve) => {
+			let firstEmission = true
+			store.subscribe((value) => {
+				if (firstEmission) {
+					firstEmission = false
+					return
+				}
+				resolve(value)
+			})
+		})
+	}
+
+	async function toggleSwitchWorkspace(id: string) {
+		if ($workspaceStore === id) {
+			return
+		}
+
+		// Check if we have unsaved changes
+		const wasDirty = $dirtyStore
+		// Try to go to the home page
+		await goto('/')
+
+		// If we weren't dirty, we can directly switch workspaces
+		if (!wasDirty) {
+			switchWorkspace(id)
+		} else {
+			// If we were dirty, we need to wait for the dirtyStore to update
+			const newDirty = await waitForNextUpdate(dirtyStore)
+
+			// If we're still dirty, we can't switch workspaces
+			if (newDirty) {
+				switchWorkspace(id)
+			}
+		}
+	}
 </script>
 
 <Menu placement="bottom-start" let:close>
@@ -36,11 +75,8 @@
 						{$workspaceStore === workspace.id
 						? 'cursor-default bg-surface-selected'
 						: 'cursor-pointer hover:bg-surface-hover'}"
-					on:click={() => {
-						if ($workspaceStore === workspace.id) {
-							return
-						}
-						switchWorkspace(workspace.id)
+					on:click={async () => {
+						await toggleSwitchWorkspace(workspace.id)
 						close()
 					}}
 				>
