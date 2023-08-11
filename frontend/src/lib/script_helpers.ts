@@ -45,7 +45,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import { setClient, getVariable } from "windmill-client@0.3.15"
+import { getVariable } from "windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -57,7 +57,6 @@ export async function main(
   d = "inferred type string from default arg",
   e = { nested: "object" },
 ) {
-  // setClient()
   // let x = await getVariable('u/user/foo')
   return { foo: a };
 }
