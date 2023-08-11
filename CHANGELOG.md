@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.145.2](https://github.com/windmill-labs/windmill/compare/v1.145.1...v1.145.2) (2023-08-11)
+
+
+### Bug Fixes
+
+* **bun:** remove need for manual setClient ([4794bd0](https://github.com/windmill-labs/windmill/commit/4794bd0b60268db7c679b2faa2692f6fceb5769f))
+
 ## [1.145.1](https://github.com/windmill-labs/windmill/compare/v1.145.0...v1.145.1) (2023-08-11)
 
 
