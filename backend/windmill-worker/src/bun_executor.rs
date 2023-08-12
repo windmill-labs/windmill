@@ -325,11 +325,11 @@ plugin(p)
                 "--",
                 &BUN_PATH,
                 "run",
+                "-i",
+                "--prefer-offline",
                 "-r",
                 "/tmp/bun/loader.bun.ts",
                 "/tmp/bun/wrapper.ts",
-                "-i",
-                "--prefer-offline",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -338,11 +338,11 @@ plugin(p)
         let script_path = format!("{job_dir}/wrapper.ts");
         let args = vec![
             "run",
+            "-i",
+            "--prefer-offline",
             "-r",
             "./loader.bun.ts",
             &script_path,
-            "-i",
-            "--prefer-offline",
         ];
         Command::new(&*BUN_PATH)
             .current_dir(job_dir)
