@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.146.0](https://github.com/windmill-labs/windmill/compare/v1.145.3...v1.146.0) (2023-08-12)
+
+
+### Features
+
+* respect lockfiles for bun ([2ba132b](https://github.com/windmill-labs/windmill/commit/2ba132bd05fc1b01e6de19ac13e98100f55f8895))
+
+
+### Bug Fixes
+
+* fix array static input editor initialization ([4dcf7ae](https://github.com/windmill-labs/windmill/commit/4dcf7ae088d336171d58aa8914c6b58ec522cc14))
+
 ## [1.145.3](https://github.com/windmill-labs/windmill/compare/v1.145.2...v1.145.3) (2023-08-11)
 
 
