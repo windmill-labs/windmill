@@ -319,7 +319,7 @@
 							<WindmillIcon
 								white={true}
 								class="mr-2 text-white"
-								height="20px"
+								height="16px"
 								width="20px"
 								spin="fast"
 							/>

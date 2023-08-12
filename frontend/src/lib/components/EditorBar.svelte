@@ -263,10 +263,8 @@
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes('import { getVariable } from "windmill-client@0.3.15')) {
-				editor.insertAtBeginning(
-					`import { getVariable } from "windmill-client@0.3.15"\n`
-				)
+			if (!code.includes('import { getVariable } from "windmill-client')) {
+				editor.insertAtBeginning(`import { getVariable } from "windmill-client"\n`)
 			}
 			editor.insertAtCursor(`(await getVariable('${path}'))`)
 		} else if (lang == 'python3') {
@@ -321,10 +319,8 @@
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes('import { getResource } from "windmill-client@0.3.15')) {
-				editor.insertAtBeginning(
-					`import { getResource } from "windmill-client@0.3.15"\n`
-				)
+			if (!code.includes('import { getResource } from "windmill-client')) {
+				editor.insertAtBeginning(`import { getResource } from "windmill-client"\n`)
 			}
 			editor.insertAtCursor(`(await getResource('${path}'))`)
 		} else if (lang == 'python3') {

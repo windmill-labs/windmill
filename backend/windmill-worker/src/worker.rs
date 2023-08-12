@@ -66,7 +66,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, 
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, 
 };
 
 #[cfg(feature = "enterprise")]
@@ -151,7 +151,7 @@ const NUM_SECS_PING: u64 = 5;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
-const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
+pub const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 
 pub const DEFAULT_TIMEOUT: u64 = 900;
@@ -200,7 +200,7 @@ lazy_static::lazy_static! {
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
 
-    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
+    pub static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
 
     static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
         .ok()
@@ -1082,10 +1082,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             } else {
                 match job.job_kind {
                     JobKind::Dependencies => {
-                        handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
+                        handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await).await
                     }
                     JobKind::FlowDependencies => {
-                        handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
+                        handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
                             .await
                             .map(|()| Value::Null)
                     }
@@ -1227,6 +1227,15 @@ pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<F
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
     file.write_all(content.as_bytes()).await?;
+    file.flush().await?;
+    Ok(file)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path).await?;
+    file.write_all(content).await?;
     file.flush().await?;
     Ok(file)
 }
@@ -1466,6 +1475,7 @@ mount {{
         }
         Some(ScriptLang::Bun) => {
             handle_bun_job(
+                requirements_o,
                 logs,
                 job,
                 db,
@@ -1732,20 +1742,7 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
     return deno_envs;
 }
 
-fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
-    let mut deno_envs: HashMap<String, String> = HashMap::from([
-        (String::from("PATH"), PATH_ENV.clone()),
-        (String::from("DO_NOT_TRACK"), "1".to_string()),
-        (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
-        (String::from("BUN_INSTALL_CACHE_DIR"), BUN_CACHE_DIR.to_string()),
 
-    ]);
-
-    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
-    }
-    return deno_envs;
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
@@ -1917,157 +1914,7 @@ run().catch(async (e) => {{
     read_result(job_dir).await
 }
 
-const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
 
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_bun_job(
-    logs: &mut String,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    job_dir: &str,
-    inner_content: &String,
-    base_internal_url: &str,
-    worker_name: &str,
-    envs: HashMap<String, String>,
-    shared_mount: &str,
-) -> error::Result<serde_json::Value> {
-
-    // let mut start = Instant::now();
-    logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
-
-    let logs_to_set = logs.clone();
-    let id = job.id.clone();
-    let db2 = db.clone();
-
-    let set_logs_f = async {
-        set_logs(&logs_to_set, &id, &db2).await;
-        Ok(()) as error::Result<()>
-    };
-    
-    let write_main_f = write_file(job_dir, "main.ts", inner_content);
-
-    let write_wrapper_f = async {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
-        let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
-            Some(i) 
-        } else {
-            None
-        }).map(|x| {
-            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
-        }).join("\n");
-
-        let spread = args.into_iter().map(|x| x.name).join(",");
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-        let wrapper_content: String = format!(
-            r#"
-import {{ main }} from "./main.ts";
-
-const fs = require('fs/promises');
-
-const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
-
-BigInt.prototype.toJSON = function () {{
-    return this.toString();
-}};
-
-{dates}
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await fs.writeFile("result.json", res_json);
-    process.exit(0);
-}}
-run().catch(async (e) => {{
-    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    process.exit(1);
-}});
-    "#,
-        );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
-        Ok(()) as error::Result<()>
-    };
-
-
-    let reserved_variables_args_out_f = async {
-        let client = client.get_authed().await;
-        let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir).await?;
-            Ok(()) as Result<()>
-        };
-        let reserved_variables_f = async {
-            let vars = get_reserved_variables(job, &client.token, db).await?;
-            Ok(vars) as Result<HashMap<String, String>>
-        };
-        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
-        Ok(reserved_variables) as error::Result<HashMap<String, String>>
-    };
-
-
-    let (_, reserved_variables, _, _) = tokio::try_join!(
-        set_logs_f,
-        reserved_variables_args_out_f,
-        write_main_f,
-        write_wrapper_f)?;
-
-    let common_bun_proc_envs = get_common_bun_proc_envs(&base_internal_url);
-
-
-    //do not cache local dependencies
-let child = if !*DISABLE_NSJAIL {
-    let _ = write_file(
-        job_dir,
-        "run.config.proto",
-        &NSJAIL_CONFIG_RUN_BUN_CONTENT
-            .replace("{JOB_DIR}", job_dir)
-            .replace("{CACHE_DIR}", BUN_CACHE_DIR)
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-            .replace("{SHARED_MOUNT}", shared_mount),
-    )
-    .await?;
-
-    Command::new(NSJAIL_PATH.as_str())
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(envs)
-        .envs(reserved_variables)
-        .envs(common_bun_proc_envs)
-        .env("PATH", PATH_ENV.as_str())
-        .env("BASE_INTERNAL_URL", base_internal_url)
-        .args(vec!["--config", "run.config.proto", "--", &BUN_PATH, "run", "/tmp/bun/wrapper.ts", "--prefer-offline"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?
-    } else {
-            let _ = write_file(&job_dir, "loader.bun.ts", &RELATIVE_BUN_LOADER
-                .replace("W_ID", &job.workspace_id)
-                .replace("BASE_INTERNAL_URL", base_internal_url)
-                .replace("TOKEN", &client.get_token().await)
-                .replace("CURRENT_PATH", job.script_path())).await?;
-
-            let script_path = format!("{job_dir}/wrapper.ts");
-            let args = vec!["run", "-r", "./loader.bun.ts", &script_path, "--prefer-offline"];
-            Command::new(&*BUN_PATH)
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(envs)
-                .envs(reserved_variables)
-                .envs(common_bun_proc_envs)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-    };
-
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
-    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "bun run", job.timeout).await?;
-    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    read_result(job_dir).await
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
@@ -2097,6 +1944,8 @@ async fn handle_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
 ) -> error::Result<serde_json::Value> {
     let content = capture_dependency_job(
         &job.id,
@@ -2115,6 +1964,9 @@ async fn handle_dependency_job(
         worker_name,
         &job.workspace_id,
         worker_dir,
+        base_internal_url,
+        token,
+        job.script_path(),
     )
     .await;
     match content {
@@ -2151,6 +2003,8 @@ async fn handle_flow_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -2164,7 +2018,7 @@ async fn handle_flow_dependency_job(
     })?;
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
 
-    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
     let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
@@ -2200,18 +2054,20 @@ async fn lock_modules(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
-    job_path: String) -> Result<Vec<FlowModule>> {
+    job_path: String,
+    base_internal_url: &str,
+    token: &str) -> Result<Vec<FlowModule>> {
     let mut new_flow_modules = Vec::new();
     for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             match e.value {
                 FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel } => {
-                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?, skip_failures, parallel }
+                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel }
                 },
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
-                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
                         nbranches.push(b)
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }
@@ -2219,10 +2075,10 @@ async fn lock_modules(
                 FlowModuleValue::BranchOne { branches, default } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
-                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                        b.modules = lock_modules(b.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
                         nbranches.push(b)
                     }
-                    let default = lock_modules(default, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone()).await?;
+                    let default = lock_modules(default, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
                     e.value = FlowModuleValue::BranchOne { branches: nbranches, default};
                 }
                 _ => {
@@ -2247,6 +2103,9 @@ async fn lock_modules(
             worker_name,
             &job.workspace_id,
             worker_dir,
+            base_internal_url,
+            token,
+            job.script_path()
         )
         .await;
         match new_lock {
@@ -2300,6 +2159,9 @@ async fn capture_dependency_job(
     worker_name: &str,
     w_id: &str,
     worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
+    script_path: &str,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -2344,7 +2206,21 @@ async fn capture_dependency_job(
             // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
         },
         ScriptLang::Bun => {
-            Ok(String::new())
+            let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
+            let req = gen_lockfile(
+                logs,
+                job_id,
+                w_id,
+                db,
+                token,
+                script_path,
+                job_dir,
+                base_internal_url,
+                worker_name,
+                true,
+            )
+            .await?;
+            Ok(req.unwrap_or_else(String::new))
         },
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

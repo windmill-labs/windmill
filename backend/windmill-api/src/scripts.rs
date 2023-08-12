@@ -344,7 +344,10 @@ async fn create_script(
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
 
-    let lock = if !(ns.language == ScriptLang::Python3 || ns.language == ScriptLang::Go) {
+    let lock = if !(ns.language == ScriptLang::Python3
+        || ns.language == ScriptLang::Go
+        || ns.language == ScriptLang::Bun)
+    {
         Some(String::new())
     } else {
         ns.lock
@@ -497,7 +500,7 @@ async fn create_script(
         let (_, new_tx) = windmill_queue::push(
             tx,
             &w_id,
-            JobPayload::Dependencies { hash, dependencies, language: ns.language },
+            JobPayload::Dependencies { hash, dependencies, language: ns.language, path: ns.path },
             serde_json::Map::new(),
             &authed.username,
             &authed.email,
