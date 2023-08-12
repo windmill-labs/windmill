@@ -109,10 +109,11 @@
 		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 
-	let items =
-		componentInput.value?.map((item, index) => {
+	let items = (Array.isArray(componentInput.value) ? componentInput.value : []).map(
+		(item, index) => {
 			return { value: item, id: generateRandomString() }
-		}) ?? []
+		}
+	)
 
 	$: items && handleItemsChange()
 

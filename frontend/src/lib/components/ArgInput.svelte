@@ -187,7 +187,6 @@
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">
-				Description
 				<textarea
 					class="mb-1"
 					use:autosize
