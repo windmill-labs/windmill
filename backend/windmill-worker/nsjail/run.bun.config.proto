@@ -67,7 +67,7 @@ mount {
     src: "{JOB_DIR}/bun.lockb"
     dst: "/tmp/bun/bun.lockb"
     is_bind: true
-    mandatory: true
+    mandatory: false
 }
 
 
@@ -75,7 +75,7 @@ mount {
     src: "{JOB_DIR}/node_modules"
     dst: "/tmp/bun/node_modules"
     is_bind: true
-    mandatory: true
+    mandatory: fals
 }
 
 
