@@ -246,10 +246,10 @@
 
 				<FlowScriptPicker
 					label="TypeScript (Bun)"
-					lang={Script.language.DENO}
+					lang={Script.language.BUN}
 					on:click={() => {
 						dispatch('new', {
-							language: RawScript.language.DENO,
+							language: RawScript.language.BUN,
 							kind,
 							subkind: 'flow'
 						})
