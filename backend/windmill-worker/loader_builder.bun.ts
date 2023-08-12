@@ -5,11 +5,13 @@ const bo = await Bun.build({
   external: ["*"],
 });
 
+const fs = require("fs/promises");
+
 if (!bo.success) {
   bo.logs.forEach((l) => console.log(l));
   process.exit(1);
 } else {
-  let content = await Bun.file("./out/main.js").text();
+  let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
   const imports = new Bun.Transpiler().scanImports(content);
 
   const { intersect } = require("semver-intersect");
