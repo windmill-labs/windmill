@@ -75,7 +75,7 @@ mount {
     src: "{JOB_DIR}/node_modules"
     dst: "/tmp/bun/node_modules"
     is_bind: true
-    mandatory: fals
+    mandatory: false
 }
 
 
