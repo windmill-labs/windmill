@@ -328,14 +328,22 @@ plugin(p)
                 "-r",
                 "/tmp/bun/loader.bun.ts",
                 "/tmp/bun/wrapper.ts",
-                "--no-install",
+                "-i",
+                "--prefer-offline",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     } else {
         let script_path = format!("{job_dir}/wrapper.ts");
-        let args = vec!["run", "-r", "./loader.bun.ts", &script_path, "--no-install"];
+        let args = vec![
+            "run",
+            "-r",
+            "./loader.bun.ts",
+            &script_path,
+            "-i",
+            "--prefer-offline",
+        ];
         Command::new(&*BUN_PATH)
             .current_dir(job_dir)
             .env_clear()
