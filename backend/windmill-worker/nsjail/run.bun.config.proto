@@ -88,6 +88,13 @@ mount {
 
 
 mount {
+    src: "{JOB_DIR}/loader.bun.ts"
+    dst: "/tmp/bun/loader.bun.ts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "{JOB_DIR}/main.ts"
     dst: "/tmp/bun/main.ts"
     is_bind: true

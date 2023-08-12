@@ -279,6 +279,26 @@ run().catch(async (e) => {{
 
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
+    let _ = write_file(
+        &job_dir,
+        "loader.bun.ts",
+        &format!(
+            r#"
+import {{ plugin }} from "bun";
+
+{}
+
+plugin(p)
+"#,
+            RELATIVE_BUN_LOADER
+                .replace("W_ID", &job.workspace_id)
+                .replace("BASE_INTERNAL_URL", base_internal_url)
+                .replace("TOKEN", &client.get_token().await)
+                .replace("CURRENT_PATH", job.script_path())
+        ),
+    )
+    .await?;
+
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -305,6 +325,8 @@ run().catch(async (e) => {{
                 "--",
                 &BUN_PATH,
                 "run",
+                "-r",
+                "/tmp/bun/loader.bun.ts",
                 "/tmp/bun/wrapper.ts",
                 "--no-install",
             ])
@@ -312,26 +334,6 @@ run().catch(async (e) => {{
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        let _ = write_file(
-            &job_dir,
-            "loader.bun.ts",
-            &format!(
-                r#"
-import {{ plugin }} from "bun";
-
-{}
-
-plugin(p)
-"#,
-                RELATIVE_BUN_LOADER
-                    .replace("W_ID", &job.workspace_id)
-                    .replace("BASE_INTERNAL_URL", base_internal_url)
-                    .replace("TOKEN", &client.get_token().await)
-                    .replace("CURRENT_PATH", job.script_path())
-            ),
-        )
-        .await?;
-
         let script_path = format!("{job_dir}/wrapper.ts");
         let args = vec!["run", "-r", "./loader.bun.ts", &script_path, "--no-install"];
         Command::new(&*BUN_PATH)
