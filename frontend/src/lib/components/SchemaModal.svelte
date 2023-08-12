@@ -168,6 +168,7 @@
 								property.contentEncoding = undefined
 								property.enum_ = undefined
 								property.pattern = undefined
+								property.default = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {

@@ -172,6 +172,7 @@ pub enum JobPayload {
     },
     Code(RawCode),
     Dependencies {
+        path: String,
         hash: ScriptHash,
         dependencies: String,
         language: ScriptLang,

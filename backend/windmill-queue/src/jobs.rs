@@ -1198,9 +1198,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
         ),
-        JobPayload::Dependencies { hash, dependencies, language } => (
+        JobPayload::Dependencies { hash, dependencies, language, path } => (
             Some(hash.0),
-            None,
+            Some(path),
             Some((dependencies, None)),
             JobKind::Dependencies,
             None,
