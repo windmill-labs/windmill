@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.145.3](https://github.com/windmill-labs/windmill/compare/v1.145.2...v1.145.3) (2023-08-11)
+
+
+### Bug Fixes
+
+* fix bun client ([611d42d](https://github.com/windmill-labs/windmill/commit/611d42db2caa7cf366d7c67ee1434d8de2be8a97))
+
 ## [1.145.2](https://github.com/windmill-labs/windmill/compare/v1.145.1...v1.145.2) (2023-08-11)
 
 
