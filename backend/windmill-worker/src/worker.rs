@@ -1672,8 +1672,10 @@ async fn handle_powershell_job(
         .collect::<Vec<(String, String)>>();
     let pwsh_args = args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ");
 
-    let mut content = content.replace('$', r"\$"); // escape powershell variables
-    content = content.replace("`", r"\`"); // escape powershell backticks
+    let content = content
+        .replace('$', r"\$") // escape powershell variables
+        .replace("`", r"\`"); // escape powershell backticks
+    
     write_file(job_dir, "main.sh", &format!("set -e\ncat > script.ps1 << EOF\n{content}\nEOF\npwsh -File script.ps1 {pwsh_args}\necho \"\"\nsleep 0.02")).await?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
