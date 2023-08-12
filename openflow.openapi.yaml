@@ -189,6 +189,7 @@ components:
           type: string
           enum:
             - deno
+            - bun
             - python3
             - go
             - bash
