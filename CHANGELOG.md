@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.146.1](https://github.com/windmill-labs/windmill/compare/v1.146.0...v1.146.1) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** windmill-client does not require set to be initalized ([993a145](https://github.com/windmill-labs/windmill/commit/993a14502fb16387b174d1af19c87d3ae65c317c))
+* enable bun to do resolution as fallback to allow specifier ([9c97828](https://github.com/windmill-labs/windmill/commit/9c978281cdbfefa7d11213a181ffcbfdfac8115e))
+* powershell escape backticks ([#2044](https://github.com/windmill-labs/windmill/issues/2044)) ([cddef1a](https://github.com/windmill-labs/windmill/commit/cddef1a50a48e7cb60a69762a579b95e0018aa17))
+* really use bun in flow builder ([#2045](https://github.com/windmill-labs/windmill/issues/2045)) ([c2281ef](https://github.com/windmill-labs/windmill/commit/c2281ef5da7aa0222e70c5f6ca91d066d79d3862))
+
 ## [1.146.0](https://github.com/windmill-labs/windmill/compare/v1.145.3...v1.146.0) (2023-08-12)
 
 
