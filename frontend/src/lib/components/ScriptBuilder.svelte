@@ -70,14 +70,13 @@
 	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}
-	langs.pu
+	langs.push(['REST', Script.language.NATIVETS])
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
 	langs.push(['GraphQL', Script.language.GRAPHQL])
 	langs.push(['PowerShell', Script.language.POWERSHELL])
-	sh(['REST', Script.language.NATIVETS])
 	const scriptKindOptions: {
 		value: Script.kind
 		title: string
