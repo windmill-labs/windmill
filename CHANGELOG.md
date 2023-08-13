@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.147.1](https://github.com/windmill-labs/windmill/compare/v1.147.0...v1.147.1) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** only install -p dependencies ([23164c8](https://github.com/windmill-labs/windmill/commit/23164c83494ee6f42e77b181de0df26b4fba22dc))
+* **bun:** only install when requirements are missing if using nsjail ([3bc1050](https://github.com/windmill-labs/windmill/commit/3bc1050258bd7a9ba2be739144260037d2274b87))
+
 ## [1.147.0](https://github.com/windmill-labs/windmill/compare/v1.146.1...v1.147.0) (2023-08-13)
 
 
