@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.147.2](https://github.com/windmill-labs/windmill/compare/v1.147.1...v1.147.2) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** add npm type acquisition ([3284245](https://github.com/windmill-labs/windmill/commit/32842457fef73f654ca89c3a232265927cf40961))
+
 ## [1.147.1](https://github.com/windmill-labs/windmill/compare/v1.147.0...v1.147.1) (2023-08-13)
 
 
