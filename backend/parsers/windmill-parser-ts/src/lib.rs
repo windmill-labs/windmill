@@ -14,10 +14,10 @@ use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
-    ModuleDecl, ModuleItem, Number, ObjectLit, Param, Pat, Str, TsArrayType, TsEntityName,
-    TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsParenthesizedType,
-    TsPropertySignature, TsType, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType,
-    TsUnionType,
+    ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Str, TsArrayType,
+    TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
+    TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement, TsTypeLit,
+    TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -56,13 +56,14 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
         _ => None,
     });
 
+    let mut c: u16 = 0;
     if let Some(params) = params {
         let r = MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: params
                 .into_iter()
-                .map(|x| parse_param(x, &cm, skip_dflt))
+                .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
                 .collect::<anyhow::Result<Vec<Arg>>>()?,
         };
         Ok(r)
@@ -74,7 +75,12 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
     }
 }
 
-fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> anyhow::Result<Arg> {
+fn parse_param(
+    x: Param,
+    cm: &Lrc<SourceMap>,
+    skip_dflt: bool,
+    counter: &mut u16,
+) -> anyhow::Result<Arg> {
     let r = match x.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(&ident);
@@ -86,15 +92,25 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> anyhow::Result
                 has_default: ident.id.optional || nullable,
             })
         }
+        // Pat::Object(ObjectPat { ... }) = todo!()
         Pat::Assign(AssignPat { left, right, .. }) => {
-            let (name, mut typ, _nullable) =
-                left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "parameter syntax unsupported: `{}`",
+            let (name, mut typ, _nullable) = match *left {
+                Pat::Ident(ident) => binding_ident_to_arg(&ident),
+                Pat::Object(ObjectPat { type_ann, .. }) => {
+                    let (typ, nullable) = eval_type_ann(&type_ann);
+                    *counter += 1;
+                    let name = format!("anon{}", counter);
+                    (name, typ, nullable)
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "parameter syntax unsupported: `{}`: {:#?}",
                         cm.span_to_snippet(left.span())
-                            .unwrap_or_else(|_| cm.span_to_string(left.span()))
-                    )
-                })?;
+                            .unwrap_or_else(|_| cm.span_to_string(left.span())),
+                        *left
+                    ))
+                }
+            };
 
             let dflt = if skip_dflt {
                 None
@@ -122,10 +138,17 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> anyhow::Result
             }
             Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true })
         }
+        Pat::Object(ObjectPat { type_ann, .. }) => {
+            let (typ, nullable) = eval_type_ann(&type_ann);
+            *counter += 1;
+            let name = format!("anon{}", counter);
+            Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable })
+        }
         _ => Err(anyhow::anyhow!(
-            "parameter syntax unsupported: `{}`",
+            "parameter syntax unsupported: `{}`: {:#?}",
             cm.span_to_snippet(x.span())
-                .unwrap_or_else(|_| cm.span_to_string(x.span()))
+                .unwrap_or_else(|_| cm.span_to_string(x.span())),
+            x.pat
         )),
     };
     r
@@ -144,11 +167,14 @@ fn eval_span(span: Span, cm: &Lrc<SourceMap>) -> Option<Value> {
     }
 }
 
-fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
-    let (typ, nullable) = type_ann
+fn eval_type_ann(type_ann: &Option<Box<TsTypeAnn>>) -> (Typ, bool) {
+    return type_ann
         .as_ref()
         .map(|x| tstype_to_typ(&*x.type_ann))
         .unwrap_or((Typ::Unknown, false));
+}
+fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
+    let (typ, nullable) = eval_type_ann(type_ann);
     (id.sym.to_string(), typ, nullable)
 }
 
@@ -161,7 +187,6 @@ fn to_snake_case(s: &str) -> String {
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
-    // log(&format!("{:?}", ts_type));
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
