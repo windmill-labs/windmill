@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.147.3](https://github.com/windmill-labs/windmill/compare/v1.147.2...v1.147.3) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** correctly handle empty deps script bun to deploy ([46b25f9](https://github.com/windmill-labs/windmill/commit/46b25f9b550f5f8e804cabeeeb575daea46cba31))
+
 ## [1.147.2](https://github.com/windmill-labs/windmill/compare/v1.147.1...v1.147.2) (2023-08-13)
 
 
