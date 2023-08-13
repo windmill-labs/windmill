@@ -1,4 +1,4 @@
-import { JobService, ResourceService, VariableService } from "./index";
+import { ResourceService, VariableService } from "./index";
 import { OpenAPI } from "./index";
 
 export {
@@ -24,6 +24,7 @@ export type Resource<S extends string> = any;
 
 export const SHARED_FOLDER = "/shared";
 
+let clientSet = false;
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl =
@@ -37,6 +38,7 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
+  clientSet = true;
 }
 
 const getEnv = (key: string) => {
@@ -66,6 +68,7 @@ export async function getResource(
   path?: string,
   undefinedIfEmpty?: boolean
 ): Promise<any> {
+  !clientSet && setClient();
   const workspace = getWorkspace();
   path = path ?? getStatePath();
   try {
@@ -137,6 +140,7 @@ export async function setResource(
   path?: string,
   initializeToTypeIfNotExist?: string
 ): Promise<void> {
+  !clientSet && setClient();
   path = path ?? getStatePath();
   const workspace = getWorkspace();
   if (await ResourceService.existsResource({ workspace, path })) {
@@ -214,6 +218,7 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string | undefined> {
+  !clientSet && setClient();
   const workspace = getWorkspace();
   try {
     const variable = await VariableService.getVariable({ workspace, path });
@@ -236,6 +241,7 @@ export async function setVariable(
   isSecretIfNotExist?: boolean,
   descriptionIfNotExist?: string
 ): Promise<void> {
+  !clientSet && setClient();
   const workspace = getWorkspace();
   if (await VariableService.existsVariable({ workspace, path })) {
     await VariableService.updateVariable({
