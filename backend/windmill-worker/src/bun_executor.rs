@@ -377,6 +377,7 @@ plugin(p)
 fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
     let mut deno_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("DISABLE_COLORS"), "0".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
         (
             String::from("BASE_URL"),
