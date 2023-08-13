@@ -87,6 +87,10 @@ class DenoLS(LanguageServerWebSocketHandler):
     procargs = ["deno", "lsp"]
 
 
+class BunLS(LanguageServerWebSocketHandler):
+    procargs = ["typescript-language-server", "--stdio"]
+
+
 class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
 
@@ -112,6 +116,7 @@ if __name__ == "__main__":
             (r"/ws/diagnostic", DiagnosticLS),
             (r"/ws/ruff", RuffLS),
             (r"/ws/deno", DenoLS),
+            (r"/ws/bun", BunLS),
             (r"/ws/go", GoLS),
             (r"/", MainHandler),
             (r"/health", MainHandler),
