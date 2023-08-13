@@ -124,7 +124,7 @@ pub async fn install_lockfile(
         .current_dir(job_dir)
         .env_clear()
         .envs(common_bun_proc_envs)
-        .args(vec!["install"])
+        .args(vec!["install", "-p"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
