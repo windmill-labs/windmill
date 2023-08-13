@@ -35,18 +35,8 @@ export async function main(database: any) {
 			argName: 'database'
 		},
 		mysql: {
-			code: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
-export async function main(database: any) {
-  const conn = await new Client().connect({
-    hostname: database.host,
-    port: database.port,
-    username: database.user,
-    db: database.database,
-    password: database.password,
-  });
-  await conn.query("SELECT 1");
-}`,
-			lang: 'deno',
+			code: `SELECT 1`,
+			lang: 'mysql',
 			argName: 'database'
 		},
 		bigquery: {

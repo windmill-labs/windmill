@@ -107,10 +107,9 @@ export async function main(x: string) {
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import { setClient, getVariable } from "windmill-client@${__pkg__.version}"
+export const BUN_INIT_CODE_CLEAR = `// import { getVariable } from "windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
-  // setClient()
   return x
 }
 `
