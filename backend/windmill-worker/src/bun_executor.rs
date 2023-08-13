@@ -194,7 +194,7 @@ pub async fn handle_bun_job(
             common_bun_proc_envs.clone(),
         )
         .await?;
-    } else {
+    } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             logs,
@@ -210,6 +210,7 @@ pub async fn handle_bun_job(
         )
         .await?;
     }
+
     // let mut start = Instant::now();
     logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
     set_logs(&logs, &job.id, &db).await;
