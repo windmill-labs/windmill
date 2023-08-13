@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.147.0](https://github.com/windmill-labs/windmill/compare/v1.146.1...v1.147.0) (2023-08-13)
+
+
+### Features
+
+* add lsp to bun and remove experimental status ([891c9dc](https://github.com/windmill-labs/windmill/commit/891c9dc266edea4f5239f1a82c884437b7df89e4))
+
 ## [1.146.1](https://github.com/windmill-labs/windmill/compare/v1.146.0...v1.146.1) (2023-08-13)
 
 
