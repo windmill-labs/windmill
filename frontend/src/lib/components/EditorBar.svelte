@@ -51,7 +51,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
-		bun: false
+		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
