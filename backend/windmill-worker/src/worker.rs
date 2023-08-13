@@ -2169,10 +2169,10 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            let req = pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
+            let req: std::result::Result<String, Error> = pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
             // install the dependencies to pre-fill the cache
             if let Ok(req) = req.as_ref() {
-                handle_python_reqs(
+                let r = handle_python_reqs(
                     req
                         .split("\n")
                         .filter(|x| !x.starts_with("--"))
@@ -2185,7 +2185,11 @@ async fn capture_dependency_job(
                     job_dir,
                     worker_dir,
                 )
-                .await?;
+                .await;
+                
+                if let Err(e) = r {
+                    tracing::error!("Failed to install python dependencies to prefill the cache: {:?} \n{}", e, logs);
+                }
             }
             req
         }
