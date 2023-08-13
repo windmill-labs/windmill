@@ -698,7 +698,10 @@
 						!websocketAlive.black &&
 						!websocketAlive.deno &&
 						!websocketAlive.pyright &&
-						!websocketAlive.go
+						!websocketAlive.go &&
+						!websocketAlive.bun &&
+						!websocketAlive.shellcheck &&
+						!websocketAlive.ruff
 					) {
 						console.log('reconnecting to language servers')
 						lastWsAttempt = new Date()
