@@ -23,6 +23,7 @@ const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
 const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.ts");
 
 const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
+const EMPTY_FILE: &str = "<empty>";
 
 pub async fn gen_lockfile(
     logs: &mut String,
@@ -100,10 +101,15 @@ pub async fn gen_lockfile(
         }
         content.push_str(BUN_LOCKB_SPLIT);
         {
-            let mut file = File::open(format!("{job_dir}/bun.lockb")).await?;
-            let mut buf = vec![];
-            file.read_to_end(&mut buf).await?;
-            content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+            let file = format!("{job_dir}/bun.lockb");
+            if tokio::fs::metadata(&file).await.is_ok() {
+                let mut file = File::open(&file).await?;
+                let mut buf = vec![];
+                file.read_to_end(&mut buf).await?;
+                content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+            } else {
+                content.push_str(&EMPTY_FILE);
+            }
         }
         Ok(Some(content))
     } else {
@@ -175,15 +181,19 @@ pub async fn handle_bun_job(
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-        let _ = write_file_binary(
-            job_dir,
-            "bun.lockb",
-            &base64::engine::general_purpose::STANDARD
-                .decode(&splitted[1])
-                .map_err(|_| error::Error::InternalErr("Could not decode bun.lockb".to_string()))?,
-        )
-        .await?;
-
+        let lockb = splitted[1];
+        if lockb != EMPTY_FILE {
+            let _ = write_file_binary(
+                job_dir,
+                "bun.lockb",
+                &base64::engine::general_purpose::STANDARD
+                    .decode(&splitted[1])
+                    .map_err(|_| {
+                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                    })?,
+            )
+            .await?;
+        }
         install_lockfile(
             logs,
             &job.id,
