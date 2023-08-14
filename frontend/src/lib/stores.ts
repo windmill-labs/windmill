@@ -98,7 +98,11 @@ export interface GraphqlSchema {
 
 export type DBSchema = MysqlSchema | PostgresqlSchema | GraphqlSchema
 
-export const dbSchema = writable<DBSchema | undefined>(undefined)
+interface DBSchemas {
+	[resourcePath: string]: DBSchema
+}
+
+export const dbSchemas = writable<DBSchemas>({})
 
 export function switchWorkspace(workspace: string | undefined) {
 	localStorage.removeItem('flow')
