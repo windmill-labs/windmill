@@ -150,9 +150,9 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--size-only",
             "--fast-list",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -195,9 +195,9 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--size-only",
             "--fast-list",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -231,8 +231,8 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             "-f",
             &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "go",
-            "deno",
-            // "bun",
+            "deno/npm",
+            "deno/deps", // "bun",
         ],
     )
     .await
@@ -320,11 +320,6 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
-    let denogen = format!("{ROOT_TMP_CACHE_DIR}deno/gen/file");
-    if metadata(&denogen).await.is_ok() {
-        let _ = tokio::fs::remove_dir_all(denogen).await;
-    }
-
     if let Err(e) =
         tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
     {
@@ -394,9 +389,9 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             ROOT_CACHE_DIR,
             // "-l",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -490,9 +485,9 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             ROOT_TMP_CACHE_DIR,
             // "-l",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
