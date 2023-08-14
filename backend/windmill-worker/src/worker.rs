@@ -467,10 +467,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let bucket = s.to_string();
             let worker_name2 = worker_name.clone();
 
+            //piptars can be fetched in background
             handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "Started initial sync in background");
-                join!(copy_denogo_cache_from_bucket_as_tar(&bucket), copy_all_piptars_from_bucket(&bucket));
+                tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
+                copy_all_piptars_from_bucket(&bucket).await;
             }));
+            //denogocache.tar need to be fetched in foreground, block workers until they fetched it
+            copy_denogo_cache_from_bucket_as_tar(s).await;
         }
     }
 
