@@ -7,7 +7,7 @@
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule, Script } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -34,6 +34,10 @@
 	import { SecondsInput } from '$lib/components/common'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import s3Scripts from './s3Scripts/lib'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -59,6 +63,8 @@
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
+	let s3Kind = 'full'
+	let s3Subkind = 'producer'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
@@ -295,6 +301,9 @@
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
 										<Tab value="timeout">Timeout</Tab>
+										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
+											<Tab value="s3">S3</Tab>
+										{/if}
 									{/if}
 								</Tabs>
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
@@ -367,6 +376,31 @@
 												}}>Set shared directory in the flow settings</Button
 											>
 										</div>
+									{:else if advancedSelected === 's3'}
+										<div class="flex gap-2 justify-between mb-4 items-center">
+											<div class="flex gap-2">
+												<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
+													<ToggleButton value="full" size="sm" label="Full" />
+													<ToggleButton value="incremental" size="sm" label="Incremental" />
+												</ToggleButtonGroup>
+												<ToggleButtonGroup bind:selected={s3Subkind} class="w-auto">
+													<ToggleButton value="producer" size="sm" label="Producer" />
+													<ToggleButton value="consumer" size="sm" label="Consumer" />
+												</ToggleButtonGroup>
+											</div>
+											<Button
+												size="xs"
+												on:click={() =>
+													editor.setCode(
+														s3Scripts[flowModule.value['language']][s3Kind][s3Subkind]
+													)}
+												>Apply snippet
+											</Button>
+										</div>
+										<HighlightCode
+											language={Script.language.DENO}
+											code={s3Scripts[flowModule.value['language']][s3Kind][s3Subkind]}
+										/>
 									{/if}
 								</div>
 							{/if}
