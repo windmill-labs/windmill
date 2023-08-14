@@ -465,13 +465,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
             let bucket = s.to_string();
-            let copy_to_bucket_tx2 = _copy_to_bucket_tx.clone();
             let worker_name2 = worker_name.clone();
 
             handles.push(tokio::task::spawn(async move {
                 tracing::info!(worker = %worker_name2, "Started initial sync in background");
                 join!(copy_denogo_cache_from_bucket_as_tar(&bucket), copy_all_piptars_from_bucket(&bucket));
-                let _ = copy_to_bucket_tx2.send(()).await;
             }));
         }
     }
