@@ -1,5 +1,5 @@
-const full = {
-	producer: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
+const deno = {
+	push: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
 
 type S3 = {
   port: number;
@@ -29,7 +29,7 @@ export async function main(
 
   return fullPath;
 }`,
-	consumer: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
+	pull: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
 
 type S3 = {
   port: number;
@@ -53,41 +53,8 @@ export async function main(
   // for instance, if it is a text file
   const result = await response.text()
   return result
-}`
-}
-
-const incremental = {
-	producer: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
-
-type S3 = {
-  port: number;
-  bucket: string;
-  region: string;
-  useSSL: boolean;
-  endPoint: string;
-  accessKey: string;
-  pathStyle: boolean;
-  secretKey: string;
-};
-
-export async function main(
-  s3Config: S3,
-  basePath = "windmill",
-  objectName: string,
-  data: string | Uint8Array | ReadableStream<Uint8Array>,
-) {
-  // flow_path/schedule_path_or_manual/flow_step_id/ts_job_id
-  const objectPath = Deno.env.get("WM_OBJECT_PATH"); 
-
-  const fullPath = basePath + "/" + objectPath + "/" + objectName;
-
-  const s3Client = new S3Client(s3Config);
-
-  await s3Client.putObject(fullPath, data);
-
-  return fullPath;
 }`,
-	consumer: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
+	aggregate: `import { S3Client } from "https://deno.land/x/s3_lite_client@0.2.0/mod.ts";
 
 type S3 = {
   port: number;
@@ -133,11 +100,6 @@ export async function main(
 
   return final_objs;
 }`
-}
-
-const deno = {
-	full,
-	incremental
 }
 
 export default deno

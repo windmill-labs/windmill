@@ -63,8 +63,7 @@
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
-	let s3Kind = 'full'
-	let s3Subkind = 'producer'
+	let s3Kind = 'push'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
@@ -377,29 +376,33 @@
 											>
 										</div>
 									{:else if advancedSelected === 's3'}
+										<div>
+											<h2 class="pb-4">
+												S3 snippets
+												<Tooltip
+													>Pull, push and aggregate snippets for S3, particularly useful for ETL
+													processes.</Tooltip
+												>
+											</h2>
+										</div>
 										<div class="flex gap-2 justify-between mb-4 items-center">
 											<div class="flex gap-2">
 												<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
-													<ToggleButton value="full" size="sm" label="Full" />
-													<ToggleButton value="incremental" size="sm" label="Incremental" />
-												</ToggleButtonGroup>
-												<ToggleButtonGroup bind:selected={s3Subkind} class="w-auto">
-													<ToggleButton value="producer" size="sm" label="Producer" />
-													<ToggleButton value="consumer" size="sm" label="Consumer" />
+													<ToggleButton value="push" size="sm" label="Push" />
+													<ToggleButton value="pull" size="sm" label="Pull" />
+													<ToggleButton value="aggregate" size="sm" label="Aggregate" />
 												</ToggleButtonGroup>
 											</div>
 											<Button
 												size="xs"
 												on:click={() =>
-													editor.setCode(
-														s3Scripts[flowModule.value['language']][s3Kind][s3Subkind]
-													)}
+													editor.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
 												>Apply snippet
 											</Button>
 										</div>
 										<HighlightCode
 											language={Script.language.DENO}
-											code={s3Scripts[flowModule.value['language']][s3Kind][s3Subkind]}
+											code={s3Scripts[flowModule.value['language']][s3Kind]}
 										/>
 									{/if}
 								</div>
