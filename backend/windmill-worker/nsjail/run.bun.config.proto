@@ -56,6 +56,28 @@ mount {
     options: "size=500000000"
 }
 
+mount {
+    src: "{JOB_DIR}/package.json"
+    dst: "/tmp/bun/package.json"
+    is_bind: true
+    mandatory: true
+}
+
+mount {
+    src: "{JOB_DIR}/bun.lockb"
+    dst: "/tmp/bun/bun.lockb"
+    is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "{JOB_DIR}/node_modules"
+    dst: "/tmp/bun/node_modules"
+    is_bind: true
+    mandatory: false
+}
+
 
 mount {
     src: "{JOB_DIR}/wrapper.ts"
@@ -64,6 +86,13 @@ mount {
     mandatory: false
 }
 
+
+mount {
+    src: "{JOB_DIR}/loader.bun.ts"
+    dst: "/tmp/bun/loader.bun.ts"
+    is_bind: true
+    mandatory: false
+}
 
 mount {
     src: "{JOB_DIR}/main.ts"

@@ -60,7 +60,7 @@ services:
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
       # To handle all tags, remove the env variable altogether. If you do so, you can remove the windmill_worker_native containers.
-      - WORKER_TAGS=deno,python3,go,bash,dependency,flow,hub,other,bun
+      - WORKER_TAGS=deno,python3,go,bash,powershell,dependency,flow,hub,other,bun
       # LICENSE_KEY is only needed for the enterprise edition
       - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:

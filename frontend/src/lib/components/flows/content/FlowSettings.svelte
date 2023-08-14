@@ -40,17 +40,7 @@
 	}
 
 	let path: Path | undefined = undefined
-	$: {
-		if (initialPath == '' && $flowStore.summary?.length > 0) {
-			path?.setName(
-				$flowStore.summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
+	let dirtyPath = false
 </script>
 
 <div class="h-full overflow-hidden">
@@ -75,6 +65,17 @@
 									bind:value={$flowStore.summary}
 									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
+									on:keyup={() => {
+										if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
+											path?.setName(
+												$flowStore.summary
+													.toLowerCase()
+													.replace(/[^a-z0-9_]/g, '_')
+													.replace(/-+/g, '_')
+													.replace(/^-|-$/g, '')
+											)
+										}
+									}}
 								/>
 							</label>
 
@@ -82,6 +83,7 @@
 							<Path
 								autofocus={false}
 								bind:this={path}
+								bind:dirty={dirtyPath}
 								bind:path={$flowStore.path}
 								{initialPath}
 								namePlaceholder="flow"

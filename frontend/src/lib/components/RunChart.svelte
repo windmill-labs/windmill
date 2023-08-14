@@ -152,4 +152,6 @@
 	} as any
 </script>
 
-<Scatter {data} options={scatterOptions} />
+<div class="relative">
+	<Scatter {data} options={scatterOptions} />
+</div>

@@ -39,6 +39,7 @@
 	export let disabled = false
 	export let checkInitialPathExistence = false
 	export let autofocus = true
+	export let dirty = false
 	export let kind: PathKind
 
 	let inputP: HTMLInputElement | undefined = undefined
@@ -69,6 +70,7 @@
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
+		setDirty()
 		const key = event.key
 
 		if (key === 'Enter') {
@@ -250,6 +252,10 @@
 			meta.owner = newFolderName
 		}
 	}
+
+	function setDirty() {
+		!dirty && (dirty = true)
+	}
 </script>
 
 <Drawer bind:this={newFolder}>
@@ -296,6 +302,7 @@
 						class="mt-0.5"
 						bind:selected={meta.ownerKind}
 						on:selected={(e) => {
+							setDirty()
 							const kind = e.detail
 							if (meta) {
 								if (kind === 'folder') {
@@ -338,6 +345,7 @@
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
 							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
+							on:keydown={setDirty}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}

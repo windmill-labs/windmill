@@ -6,29 +6,25 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
-	import { faSearchMinus } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
-	import AutoComplete from 'simple-svelte-autocomplete'
-	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
-	import Slider from '$lib/components/Slider.svelte'
-	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
-	import { setQuery } from '$lib/navigation'
+
+	import JobPreview from '$lib/components/runs/JobPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { RefreshCcw } from 'lucide-svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
+	import RunsTable from '$lib/components/runs/RunsTable.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
+	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+
 	let jobs: Job[] | undefined
-	let error: Error | undefined
 	let intervalId: NodeJS.Timer | undefined
+	let selectedId: string | undefined = undefined
 
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
@@ -45,12 +41,10 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
-	let nbOfJobs = 30
+	let nbObJobs = 30
 
 	$: path = $page.params.path
-
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -66,16 +60,6 @@
 	}
 
 	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
-
-	let filterTimeout: NodeJS.Timeout | undefined = undefined
-	function debounceSyncer() {
-		if (resultError == '' && argError == '') {
-			filterTimeout && clearTimeout(filterTimeout)
-			filterTimeout = setTimeout(() => {
-				loadJobs()
-			}, 2000)
-		}
-	}
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -100,22 +84,18 @@
 		})
 	}
 
+	let loading: boolean = false
 	async function loadJobs(): Promise<void> {
+		loading = true
 		jobs = undefined
 		try {
 			const newJobs = await fetchJobs(maxTs, minTs)
 			jobs = newJobs
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
-			error = err
 			console.error(JSON.stringify(err))
 		}
-	}
-
-	async function loadOlderJobs() {
-		if (jobs) {
-			nbOfJobs += 30
-		}
+		loading = false
 	}
 
 	async function syncer() {
@@ -141,10 +121,12 @@
 	}
 
 	let sync = true
+	let mounted: boolean = false
 	onMount(() => {
+		mounted = true
 		loadPaths()
-		$openStore = ''
 		intervalId = setInterval(syncer, 5000)
+
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
 				sync = false
@@ -154,16 +136,27 @@
 		})
 	})
 
+	onDestroy(() => {
+		if (intervalId) {
+			clearInterval(intervalId)
+		}
+	})
+
+	$: if (mounted && !intervalId && autoRefresh) {
+		intervalId = setInterval(syncer, 5000)
+	}
+
+	$: if (mounted && intervalId && !autoRefresh) {
+		clearInterval(intervalId)
+		intervalId = undefined
+	}
+
 	let paths: string[] = []
 
 	async function loadPaths() {
 		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
-	}
-
-	function syncWithUrl(arg: string, value: string) {
-		setQueryWithoutLoad($page.url, [{ key: arg, value }])
 	}
 
 	async function syncTsWithURL(minTs?: string, maxTs?: string) {
@@ -173,19 +166,11 @@
 		])
 	}
 
-	$: syncWithUrl('job_kinds', jobKindsCat)
-	$: syncWithUrl('arg', argFilter)
-	$: syncWithUrl('result', resultFilter)
 	$: syncTsWithURL(minTs, maxTs)
 
 	$: completedJobs =
 		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 
-	onDestroy(() => {
-		if (intervalId) {
-			clearInterval(intervalId)
-		}
-	})
 	let searchPath = ''
 	$: searchPath = path
 
@@ -197,8 +182,24 @@
 
 	let argError = ''
 	let resultError = ''
+	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	function reloadLogsWithoutFilterError() {
+		if (resultError == '' && argError == '') {
+			filterTimeout && clearTimeout(filterTimeout)
+			filterTimeout = setTimeout(() => {
+				loadJobs()
+			}, 2000)
+		}
+	}
 
 	const manualDates = [
+		{
+			label: 'Last 1000 runs',
+			setMinMax: () => {
+				minTs = undefined
+				maxTs = undefined
+			}
+		},
 		{
 			label: 'Last 30 seconds',
 			setMinMax: () => {
@@ -233,210 +234,236 @@
 				minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
+		},
+		{
+			label: 'Last 7 days',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
+		},
+		{
+			label: 'Last month',
+			setMinMax: () => {
+				minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+				maxTs = new Date().toISOString()
+			}
 		}
 	]
 
 	let selectedManualDate = 0
+	let autoRefresh: boolean = true
+	let runDrawer: Drawer
 </script>
 
-<CenteredPage>
-	<PageHeader
-		title="Runs {path ? `of ${path}` : ''}"
-		tooltip="All past and schedule executions of scripts and flows, including previews.
-	You only see your own runs or runs of groups you belong to unless you are an admin."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-	/>
+<div class="w-full h-screen">
+	<div class="px-2">
+		<div class="flex items-center space-x-2 flex-row justify-between">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+				<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
 
-	<div class="max-w-7x mt-2">
-		<div class="flex flex-row space-x-4">
-			<select
-				bind:value={success}
-				on:change={async () => await setQuery($page.url, 'success', String(success))}
-			>
-				<option value={undefined}>Successful and error jobs</option>
-				<option value={true}>Only successful jobs</option>
-				<option value={false}>Only error jobs</option>
-			</select>
-			<select
-				bind:value={isSkipped}
-				on:change={async () => await setQuery($page.url, 'is_skipped', String(isSkipped))}
-			>
-				<option value={false}>Ignore skipped flow jobs</option>
-				<option value={true}>If a flow job, show only if it was not skipped</option>
-				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
-			</select>
-			<Tooltip>Skipped flows are flows that did an early break</Tooltip>
-		</div>
-		<div>
-			<div class="my-2 pb-2">
-				<Tabs
-					selected={jobKindsCat}
-					on:selected={(e) => {
-						const url = new URL($page.url)
-						url.searchParams.set('job_kinds', e.detail)
-						goto(url)
-					}}
+				<Tooltip
+					light
+					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+					scale={0.9}
+					wrapperClass="flex items-center"
 				>
-					<Tab value="all">All</Tab>
-					<Tab value="runs">Runs</Tab>
-					<Tab value="previews">Previews</Tab>
-					<Tab value="dependencies">Dependencies</Tab>
-				</Tabs>
+					All past and schedule executions of scripts and flows, including previews. You only see
+					your own runs or runs of groups you belong to unless you are an admin.
+				</Tooltip>
 			</div>
-			<div class="border mb-4">
-				<RunChart
-					jobs={completedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
-						jobs = await fetchJobs(maxTs, minTs)
+			<div class="hidden xl:block">
+				<RunsFilter
+					bind:isSkipped
+					{paths}
+					{jobKindsCat}
+					bind:selectedPath={searchPath}
+					bind:success
+					bind:argFilter
+					bind:resultFilter
+					bind:argError
+					bind:resultError
+					on:change={reloadLogsWithoutFilterError}
+					on:clearFilters={() => {
+						minTs = undefined
+						maxTs = undefined
+						autoRefresh = true
 					}}
 				/>
 			</div>
-			<div class="flex flex-row gap-x-2 w-full mb-2 mt-8">
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Min datetime</span>
-
-						<input
-							type="text"
-							value={minTs ?? 'zoom x axis to set min (drag with ctrl)'}
-							disabled
-						/>
-
-						<CalendarPicker
-							date={minTs}
-							label="Min datetimes"
-							on:change={async ({ detail }) => {
-								minTs = new Date(detail).toISOString()
-								jobs = await fetchJobs(maxTs, minTs)
-							}}
-						/>
-					</div>
-				</div>
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Max datetime</span>
-						<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
-						<CalendarPicker
-							date={maxTs}
-							label="Max datetimes"
-							on:change={async ({ detail }) => {
-								maxTs = new Date(detail).toISOString()
-								jobs = await fetchJobs(maxTs, minTs)
-							}}
-						/>
-					</div>
-				</div>
-				<Button
-					color="light"
-					size="xs2"
-					wrapperClasses="border rounded-md"
-					on:click={() => {
-						manualDates[selectedManualDate].setMinMax()
-						loadJobs()
-					}}
-					dropdownItems={[
-						...manualDates.map((d, i) => ({
-							label: d.label,
-							onClick: () => {
-								selectedManualDate = i
-								d.setMinMax()
-								loadJobs()
-							}
-						}))
-					]}
-				>
-					<div class="flex flex-row items-center gap-2">
-						<RefreshCcw size={14} />
-						{manualDates[selectedManualDate].label}
-					</div>
-				</Button>
-			</div>
-			<div class="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
-				<div>
-					<div class="flex flex-row gap-x-2">
-						{#key path}
-							<AutoComplete
-								items={paths}
-								value={path}
-								bind:selectedItem={searchPath}
-								placeholder="Search by path"
-							/>
-						{/key}
-						<Button
-							title="Clear path and time filters"
-							variant="border"
-							on:click={async () => {
+			<div class="xl:hidden">
+				<MobileFilters>
+					<svelte:fragment slot="filters">
+						<span class="text-xs font-semibold leading-6">Filters</span>
+						<RunsFilter
+							bind:isSkipped
+							{paths}
+							{jobKindsCat}
+							bind:selectedPath={searchPath}
+							bind:success
+							bind:argFilter
+							bind:resultFilter
+							bind:argError
+							bind:resultError
+							on:change={reloadLogsWithoutFilterError}
+							on:clearFilters={() => {
 								minTs = undefined
 								maxTs = undefined
-								jobs = undefined
-								await goto('/runs?' + $page.url.searchParams.toString())
-								loadJobs()
+								autoRefresh = true
 							}}
-							size="xs"
-						>
-							<Icon data={faSearchMinus} />
-						</Button>
-					</div>
-				</div>
-				<div
-					><Slider
-						text="Filter by args {argFilter ? '(set)' : ''}"
-						tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
-						><JsonEditor
-							on:change={debounceSyncer}
-							bind:error={argError}
-							bind:code={argFilter}
-						/></Slider
-					></div
-				>
-				<div
-					><Slider
-						text="Filter by result {resultFilter ? '(set)' : ''}"
-						tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
-						><JsonEditor
-							on:change={debounceSyncer}
-							bind:error={resultError}
-							bind:code={resultFilter}
-						/></Slider
-					></div
-				>
+						/>
+					</svelte:fragment>
+				</MobileFilters>
 			</div>
-
-			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
-
-			{#if jobs}
-				<div class="space-y-0">
-					{#each jobs.slice(0, nbOfJobs) as job (job.id)}
-						<JobDetail {job} />
-						<div class="line w-20 h-4" />
-					{/each}
-				</div>
-				{#if jobs.length == 0}
-					<NoItemFound />
-				{/if}
-			{/if}
 		</div>
-		{#if error}
-			<div>
-				{JSON.stringify(error)}
-			</div>
-		{/if}
 	</div>
 
-	{#if (jobs?.length ?? 0) >= nbOfJobs}
-		<div class="text-center pb-6">
-			<button class=" mt-4 text-blue-500 text-center text-sm" on:click={loadOlderJobs}>
-				Load older jobs
-			</button>
-		</div>
-	{/if}
-</CenteredPage>
+	<div class="p-2 w-full">
+		<RunChart
+			jobs={completedJobs}
+			on:zoom={async (e) => {
+				minTs = e.detail.min.toISOString()
+				maxTs = e.detail.max.toISOString()
+				jobs = await fetchJobs(maxTs, minTs)
+			}}
+		/>
+	</div>
+	<div class="flex flex-col gap-1 md:flex-row w-full p-4 justify-between">
+		<div class="flex flex-row gap-1 w-full">
+			<div class="relative w-full">
+				<div class="flex gap-1 relative w-full">
+					<span class="text-xs absolute -top-4">Min datetime</span>
 
-<style>
-	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, #999 4px 8px) 50%/1px 100%
-			no-repeat;
-	}
-</style>
+					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
+
+					<CalendarPicker
+						date={minTs}
+						label="Min datetimes"
+						on:change={async ({ detail }) => {
+							minTs = new Date(detail).toISOString()
+							jobs = await fetchJobs(maxTs, minTs)
+						}}
+					/>
+				</div>
+			</div>
+			<div class="relative w-full">
+				<div class="flex gap-1 relative w-full">
+					<span class="text-xs absolute -top-4">Max datetime</span>
+					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+					<CalendarPicker
+						date={maxTs}
+						label="Max datetimes"
+						on:change={async ({ detail }) => {
+							maxTs = new Date(detail).toISOString()
+							jobs = await fetchJobs(maxTs, minTs)
+						}}
+					/>
+				</div>
+			</div>
+		</div>
+		<div class="flex flex-row gap-2 items-center">
+			<Button
+				size="xs"
+				color="light"
+				variant="border"
+				on:click={() => {
+					minTs = undefined
+					maxTs = undefined
+					autoRefresh = true
+
+					selectedManualDate = 0
+					selectedId = undefined
+					loadJobs()
+				}}
+			>
+				Reset
+			</Button>
+			<Button
+				color="light"
+				size="xs"
+				wrapperClasses="border rounded-md"
+				on:click={() => {
+					manualDates[selectedManualDate].setMinMax()
+					loadJobs()
+				}}
+				dropdownItems={[
+					...manualDates.map((d, i) => ({
+						label: d.label,
+						onClick: () => {
+							selectedManualDate = i
+							d.setMinMax()
+							loadJobs()
+						}
+					}))
+				]}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+					{manualDates[selectedManualDate].label}
+				</div>
+			</Button>
+
+			<Toggle
+				size="xs"
+				bind:checked={autoRefresh}
+				options={{ right: 'Auto-refresh' }}
+				textClass="whitespace-nowrap"
+			/>
+		</div>
+	</div>
+
+	<SplitPanesWrapper class="hidden md:block">
+		<Splitpanes>
+			<Pane size={60} minSize={50}>
+				{#if jobs}
+					<RunsTable
+						{jobs}
+						bind:selectedId
+						bind:nbObJobs
+						loadMoreQuantity={30}
+						on:filterByPath={(e) => {
+							searchPath = e.detail
+						}}
+					/>
+				{:else}
+					<div class="gap-1 flex flex-col">
+						{#each new Array(8) as _}
+							<Skeleton layout={[[3]]} />
+						{/each}
+					</div>
+				{/if}
+			</Pane>
+			<Pane size={40} minSize={15} class="border-t">
+				{#if selectedId}
+					{#key selectedId}
+						<JobPreview id={selectedId} />
+					{/key}
+				{:else}
+					<div class="text-xs m-4">No job selected</div>
+				{/if}
+			</Pane>
+		</Splitpanes>
+	</SplitPanesWrapper>
+
+	<div class="md:hidden">
+		{#if jobs}
+			<RunsTable
+				{jobs}
+				bind:selectedId
+				bind:nbObJobs
+				loadMoreQuantity={30}
+				on:select={() => {
+					runDrawer.openDrawer()
+				}}
+			/>
+		{/if}
+	</div>
+</div>
+
+<Drawer bind:this={runDrawer}>
+	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
+		{#if selectedId}
+			<JobPreview id={selectedId} />
+		{/if}
+	</DrawerContent>
+</Drawer>

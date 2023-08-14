@@ -23,7 +23,7 @@
 
 	$: setSelected(selected)
 
-	$: $selectedContent && dispatch('selected', $selectedContent)
+	$: dispatch('selected', $selectedContent)
 	setContext<ToggleButtonContext>('ToggleButtonGroup', {
 		selected: selectedContent,
 		select: (value: any) => {

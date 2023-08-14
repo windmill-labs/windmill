@@ -48,7 +48,8 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false
+		shellcheck: false,
+		bun: false
 	}
 
 	let width = 1200
@@ -319,7 +320,7 @@
 							<WindmillIcon
 								white={true}
 								class="mr-2 text-white"
-								height="20px"
+								height="16px"
 								width="20px"
 								spin="fast"
 							/>

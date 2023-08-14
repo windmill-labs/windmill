@@ -10,6 +10,7 @@
 	{width}
 	{height}
 	viewBox="0 0 391 202"
+	style="fill:currentcolor;"
 >
 	<g
 		transform="translate(0.738281, 121.593)"

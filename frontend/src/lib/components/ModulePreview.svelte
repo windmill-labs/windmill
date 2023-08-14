@@ -54,7 +54,7 @@
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
 			await testJobLoader?.runPreview(
-				val.path,
+				val.path ?? ($flowStore?.path ?? '') + '/' + mod.id,
 				val.content,
 				val.language,
 				args,

@@ -22,10 +22,11 @@
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
-	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
 	import { dbSchema } from '$lib/stores'
 
@@ -48,7 +49,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'powershell'
 	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -60,7 +61,8 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false
+		shellcheck: false,
+		bun: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -69,13 +71,11 @@
 	export let awareness: any | undefined = undefined
 	export let folding = false
 
-	$: {
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: !deno,
-			definitions: !deno,
-			hovers: !deno
-		})
-	}
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: false,
+		definitions: false,
+		hovers: false
+	})
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -102,7 +102,7 @@
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	const uri =
-		lang == 'typescript'
+		lang == 'typescript' && deno
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -332,8 +332,11 @@
 		try {
 			await initServices({
 				enableThemeService: false,
-				enableModelService: true,
+				enableModelEditorService: true,
 				enableNotificationService: false,
+				modelEditorServiceConfig: {
+					useDefaultFunction: true
+				},
 				debugLogging: false
 			})
 		} catch (e) {
@@ -364,7 +367,13 @@
 						isTrusted: true
 					},
 					workspaceFolder:
-						name != 'deno'
+						name == 'bun'
+							? {
+									uri: vscode.Uri.parse('file:///tmp/monaco/'),
+									name: 'windmill',
+									index: 0
+							  }
+							: name != 'deno'
 							? {
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
@@ -469,6 +478,17 @@
 						} catch (err) {
 							console.error(err)
 						}
+					} else if (name == 'bun') {
+						await languageClient.sendNotification(
+							new NotificationType('workspace/didChangeConfiguration'),
+							{
+								settings: {
+									diagnostics: {
+										ignoredCodes: [2307]
+									}
+								}
+							}
+						)
 					}
 
 					websocketAlive[name] = true
@@ -543,6 +563,22 @@
 				() => {
 					return [
 						{
+							enable: true
+						}
+					]
+				}
+			)
+		} else if (lang === 'typescript' && !deno) {
+			await connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/bun`,
+				'bun',
+				{},
+				(params, token, next) => {
+					return [
+						{
+							diagnostics: {
+								ignoredCodes: [2307]
+							},
 							enable: true
 						}
 					]
@@ -662,7 +698,10 @@
 						!websocketAlive.black &&
 						!websocketAlive.deno &&
 						!websocketAlive.pyright &&
-						!websocketAlive.go
+						!websocketAlive.go &&
+						!websocketAlive.bun &&
+						!websocketAlive.shellcheck &&
+						!websocketAlive.ruff
 					) {
 						console.log('reconnecting to language servers')
 						lastWsAttempt = new Date()

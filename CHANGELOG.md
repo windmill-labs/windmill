@@ -1,6 +1,125 @@
 # Changelog
 
 
+## [1.147.3](https://github.com/windmill-labs/windmill/compare/v1.147.2...v1.147.3) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** correctly handle empty deps script bun to deploy ([46b25f9](https://github.com/windmill-labs/windmill/commit/46b25f9b550f5f8e804cabeeeb575daea46cba31))
+
+## [1.147.2](https://github.com/windmill-labs/windmill/compare/v1.147.1...v1.147.2) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** add npm type acquisition ([3284245](https://github.com/windmill-labs/windmill/commit/32842457fef73f654ca89c3a232265927cf40961))
+
+## [1.147.1](https://github.com/windmill-labs/windmill/compare/v1.147.0...v1.147.1) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** only install -p dependencies ([23164c8](https://github.com/windmill-labs/windmill/commit/23164c83494ee6f42e77b181de0df26b4fba22dc))
+* **bun:** only install when requirements are missing if using nsjail ([3bc1050](https://github.com/windmill-labs/windmill/commit/3bc1050258bd7a9ba2be739144260037d2274b87))
+
+## [1.147.0](https://github.com/windmill-labs/windmill/compare/v1.146.1...v1.147.0) (2023-08-13)
+
+
+### Features
+
+* add lsp to bun and remove experimental status ([891c9dc](https://github.com/windmill-labs/windmill/commit/891c9dc266edea4f5239f1a82c884437b7df89e4))
+
+## [1.146.1](https://github.com/windmill-labs/windmill/compare/v1.146.0...v1.146.1) (2023-08-13)
+
+
+### Bug Fixes
+
+* **bun:** windmill-client does not require set to be initalized ([993a145](https://github.com/windmill-labs/windmill/commit/993a14502fb16387b174d1af19c87d3ae65c317c))
+* enable bun to do resolution as fallback to allow specifier ([9c97828](https://github.com/windmill-labs/windmill/commit/9c978281cdbfefa7d11213a181ffcbfdfac8115e))
+* powershell escape backticks ([#2044](https://github.com/windmill-labs/windmill/issues/2044)) ([cddef1a](https://github.com/windmill-labs/windmill/commit/cddef1a50a48e7cb60a69762a579b95e0018aa17))
+* really use bun in flow builder ([#2045](https://github.com/windmill-labs/windmill/issues/2045)) ([c2281ef](https://github.com/windmill-labs/windmill/commit/c2281ef5da7aa0222e70c5f6ca91d066d79d3862))
+
+## [1.146.0](https://github.com/windmill-labs/windmill/compare/v1.145.3...v1.146.0) (2023-08-12)
+
+
+### Features
+
+* respect lockfiles for bun ([2ba132b](https://github.com/windmill-labs/windmill/commit/2ba132bd05fc1b01e6de19ac13e98100f55f8895))
+
+
+### Bug Fixes
+
+* fix array static input editor initialization ([4dcf7ae](https://github.com/windmill-labs/windmill/commit/4dcf7ae088d336171d58aa8914c6b58ec522cc14))
+
+## [1.145.3](https://github.com/windmill-labs/windmill/compare/v1.145.2...v1.145.3) (2023-08-11)
+
+
+### Bug Fixes
+
+* fix bun client ([611d42d](https://github.com/windmill-labs/windmill/commit/611d42db2caa7cf366d7c67ee1434d8de2be8a97))
+
+## [1.145.2](https://github.com/windmill-labs/windmill/compare/v1.145.1...v1.145.2) (2023-08-11)
+
+
+### Bug Fixes
+
+* **bun:** remove need for manual setClient ([4794bd0](https://github.com/windmill-labs/windmill/commit/4794bd0b60268db7c679b2faa2692f6fceb5769f))
+
+## [1.145.1](https://github.com/windmill-labs/windmill/compare/v1.145.0...v1.145.1) (2023-08-11)
+
+
+### Bug Fixes
+
+* sqlx build ([169c413](https://github.com/windmill-labs/windmill/commit/169c413c8d0519e7c11d4d0847585aff59da23e5))
+
+## [1.145.0](https://github.com/windmill-labs/windmill/compare/v1.144.4...v1.145.0) (2023-08-11)
+
+
+### Features
+
+* add native powershell support ([#2025](https://github.com/windmill-labs/windmill/issues/2025)) ([8a1f9a7](https://github.com/windmill-labs/windmill/commit/8a1f9a7c6aadf735f3d6f118fbc8a344a675ec6a))
+* **frontend:** Runs rework v2 ([#2012](https://github.com/windmill-labs/windmill/issues/2012)) ([7d88a2d](https://github.com/windmill-labs/windmill/commit/7d88a2d13ade2265532a222ca2b0e804bd3b2e02))
+* migrate state path to new schema ([de8a727](https://github.com/windmill-labs/windmill/commit/de8a7279b644cd1eb7999b9da2900b760acd7297))
+
+
+### Bug Fixes
+
+* **frontend:** Fix lagging issues when resizing ([#2027](https://github.com/windmill-labs/windmill/issues/2027)) ([c2a92b6](https://github.com/windmill-labs/windmill/commit/c2a92b69ef0b5acacbda38261e654fe7d7cf36f6))
+* **frontend:** Handle invalid string defaults for date values. ([#2033](https://github.com/windmill-labs/windmill/issues/2033)) ([7cdd6db](https://github.com/windmill-labs/windmill/commit/7cdd6db3feeb99a0055ab187348aabfc7a979915))
+* modify snake case numbers resource types ([#2029](https://github.com/windmill-labs/windmill/issues/2029)) ([a4ba4af](https://github.com/windmill-labs/windmill/commit/a4ba4af478d2cebf1b4840091446be65f2f9d224))
+* restrict furthermore when the summary is transformed into a path ([2de4192](https://github.com/windmill-labs/windmill/commit/2de4192cac84336e0b812862b7dca3769a0ba4fc))
+* sync dark-mode icon across multiple renders ([#2024](https://github.com/windmill-labs/windmill/issues/2024)) ([27a8e52](https://github.com/windmill-labs/windmill/commit/27a8e526f79c6b0d7e0d8f8ceb34d4355b5df46b))
+
+## [1.144.4](https://github.com/windmill-labs/windmill/compare/v1.144.3...v1.144.4) (2023-08-10)
+
+
+### Bug Fixes
+
+* revert monaco update ([785e172](https://github.com/windmill-labs/windmill/commit/785e172e6eb83c107cad2c843a15234a6c6f9f6b))
+
+## [1.144.3](https://github.com/windmill-labs/windmill/compare/v1.144.2...v1.144.3) (2023-08-10)
+
+
+### Bug Fixes
+
+* fix monaco initialize api error ([fb64ba0](https://github.com/windmill-labs/windmill/commit/fb64ba034442fa52ecf2fb88c8974ba184b58ef9))
+* revert monaco update ([f4de5ea](https://github.com/windmill-labs/windmill/commit/f4de5ea436b2bdf8c92e27ce43f684116f47d1ff))
+
+## [1.144.2](https://github.com/windmill-labs/windmill/compare/v1.144.1...v1.144.2) (2023-08-09)
+
+
+### Bug Fixes
+
+* make path changeable even if linked to summary ([f3b674a](https://github.com/windmill-labs/windmill/commit/f3b674acd1a0e76c12c321fa7d9d131716622ae5))
+
+## [1.144.1](https://github.com/windmill-labs/windmill/compare/v1.144.0...v1.144.1) (2023-08-09)
+
+
+### Bug Fixes
+
+* make path changeable even if linked to summary ([003da78](https://github.com/windmill-labs/windmill/commit/003da78a46cce3a3376e375a74b9e5f31f4b6256))
+
 ## [1.144.0](https://github.com/windmill-labs/windmill/compare/v1.143.0...v1.144.0) (2023-08-09)
 
 

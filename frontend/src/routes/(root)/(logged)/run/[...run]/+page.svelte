@@ -87,7 +87,6 @@
 		}
 	}
 	let notfound = false
-
 	let forceCancel = false
 </script>
 
@@ -291,7 +290,7 @@
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql', 'nativets', 'bash', 'other', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql', 'nativets', 'bash', 'powershell', 'other', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Worker group: {job.tag}</Badge>
 							</div>

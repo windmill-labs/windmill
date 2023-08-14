@@ -1,6 +1,4 @@
-import { plugin } from "bun";
-
-plugin({
+const p: BunPlugin = {
   name: "windmill-relative-resolver",
   async setup(build) {
     const { writeFileSync, readFileSync, mkdirSync } = await import("fs");
@@ -29,7 +27,7 @@ plugin({
     build.onResolve({ filter: /(?!\.\/main\.ts)\..*\.ts$/ }, (args) => {
       const cdir = resolve("./");
       const file_path =
-        args.importer == resolve("./main.ts")
+        args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
           : args.importer.replace(cdir + "/", "");
 
@@ -42,4 +40,12 @@ plugin({
       };
     });
   },
+};
+
+import { BunPlugin } from "bun";
+
+Bun.build({
+  entrypoints: ["main.ts"],
+  outdir: "./out",
+  plugins: [p],
 });

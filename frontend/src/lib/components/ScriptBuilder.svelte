@@ -61,20 +61,22 @@
 
 	const langs: [string, SupportedLanguage][] = [
 		['TypeScript (Deno)', Script.language.DENO],
-		['Python', Script.language.PYTHON3]
+		['Python', Script.language.PYTHON3],
+		['TypeScript (Bun)', Script.language.BUN]
 	]
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
+	if (SCRIPT_SHOW_GO) {
+		langs.push(['Go', Script.language.GO])
+	}
+	langs.push(['REST', Script.language.NATIVETS])
 	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
 	langs.push(['MySQL', Script.language.MYSQL])
 	langs.push(['BigQuery', Script.language.BIGQUERY])
 	langs.push(['Snowflake', Script.language.SNOWFLAKE])
 	langs.push(['GraphQL', Script.language.GRAPHQL])
-	if (SCRIPT_SHOW_GO) {
-		langs.push(['Go', Script.language.GO])
-	}
-	langs.push(['REST', Script.language.NATIVETS])
+	langs.push(['PowerShell', Script.language.POWERSHELL])
 	const scriptKindOptions: {
 		value: Script.kind
 		title: string
@@ -264,17 +266,7 @@
 	}
 
 	let path: Path | undefined = undefined
-	$: {
-		if (initialPath == '' && script.summary?.length > 0) {
-			path?.setName(
-				script.summary
-					.toLowerCase()
-					.replace(/[^a-z0-9_]/g, '_')
-					.replace(/-+/g, '_')
-					.replace(/^-|-$/g, '')
-			)
-		}
-	}
+	let dirtyPath = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -289,12 +281,24 @@
 				autofocus
 				bind:value={script.summary}
 				placeholder="Short summary to be displayed when listed"
+				on:keyup={() => {
+					if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+						path?.setName(
+							script.summary
+								.toLowerCase()
+								.replace(/[^a-z0-9_]/g, '_')
+								.replace(/-+/g, '_')
+								.replace(/^-|-$/g, '')
+						)
+					}
+				}}
 			/>
 			<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 			<Path
 				bind:this={path}
 				bind:error={pathError}
 				bind:path={script.path}
+				bind:dirty={dirtyPath}
 				{initialPath}
 				autofocus={false}
 				namePlaceholder="script"
@@ -362,39 +366,6 @@
 					}}
 				>
 					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
-				</Button>
-				<Button
-					size="sm"
-					variant="border"
-					color={template == 'powershell' ? 'blue' : 'light'}
-					btnClasses={template == 'powershell'
-						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-						: 'm-[1px]'}
-					disabled={lockedLanguage}
-					on:click={() => {
-						template = 'powershell'
-						initContent(Script.language.BASH, script.kind, template)
-						script.language = Script.language.BASH
-					}}
-				>
-					<LanguageIcon lang="powershell" /><span class="ml-2 py-2">Powershell</span>
-				</Button>
-				<Button
-					size="xs"
-					variant="border"
-					color={script.language == 'bun' ? 'blue' : 'light'}
-					btnClasses={script.language == 'bun'
-						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-						: 'm-[1px]'}
-					disabled={lockedLanguage}
-					on:click={() => {
-						initContent(Script.language.BUN, script.kind, template)
-						script.language = Script.language.BUN
-					}}
-				>
-					<LanguageIcon lang={Script.language.BUN} /><span class="ml-2 py-2 truncate">
-						TypeScript (Bun, experimental)
-					</span>
 				</Button>
 
 				<!-- <Button

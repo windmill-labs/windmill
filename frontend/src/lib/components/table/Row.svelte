@@ -10,7 +10,7 @@
 <tr
 	class={twMerge(
 		hoverable ? 'hover:bg-surface-hover cursor-pointer' : '',
-		selected ? 'bg-surface-selected' : '',
+		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'transition-all'
 	)}
 	on:click={() => {

@@ -19,6 +19,7 @@
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
 	import Row from '../table/Row.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -58,6 +59,8 @@
 			loadSettings()
 		}
 	}
+
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
 
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
@@ -221,13 +224,15 @@
 									btnClasses="text-red-500"
 									size="xs"
 									spacingSize="xs2"
-									on:click={async () => {
-										await UserService.deleteUser({
-											workspace: $workspaceStore ?? '',
-											username
-										})
-										sendUserToast('User removed')
-										listUsers()
+									on:click={() => {
+										deleteConfirmedCallback = async () => {
+											await UserService.deleteUser({
+												workspace: $workspaceStore ?? '',
+												username
+											})
+											sendUserToast('User removed')
+											listUsers()
+										}
 									}}
 								>
 									Remove
@@ -360,8 +365,10 @@
 						})
 						loadSettings()
 						listInvites()
-					}}>Unset auto-invite from {auto_invite_domain} domain</Button
+					}}
 				>
+					Unset auto-invite from {auto_invite_domain} domain
+				</Button>
 			</div>
 		</div>
 	{/if}
@@ -369,3 +376,22 @@
 {#if !allowedAutoDomain}
 	<div class="text-red-400 text-xs mb-2">{domain} domain not allowed for auto-invite</div>
 {/if}
+
+<ConfirmationModal
+	open={Boolean(deleteConfirmedCallback)}
+	title="Remove user"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove ?</span>
+	</div>
+</ConfirmationModal>

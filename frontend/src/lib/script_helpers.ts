@@ -45,7 +45,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import { setClient, getVariable } from "windmill-client@0.3.15"
+import { getVariable } from "windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -57,7 +57,6 @@ export async function main(
   d = "inferred type string from default arg",
   e = { nested: "object" },
 ) {
-  // setClient()
   // let x = await getVariable('u/user/foo')
   return { foo: a };
 }
@@ -108,10 +107,9 @@ export async function main(x: string) {
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import { setClient, getVariable } from "windmill-client@0.3.15"
+export const BUN_INIT_CODE_CLEAR = `// import { getVariable } from "windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
-  // setClient()
   return x
 }
 `
@@ -260,17 +258,10 @@ docker pull $IMAGE
 docker run --rm $IMAGE $COMMAND
 `
 
-export const POWERSHELL_INIT_CODE = `# shellcheck shell=bash
-name="\${1:-Bill}"
+export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
 
-cat > script.ps1 << EOF
-Write-Host -Object 'Hello'
-Write-Host -Object 'From'
-Write-Host -Object 'PowerShell, '
-Write-Host -Object '$name!'
-EOF
-
-pwsh -File script.ps1`
+# the last line of the stdout is the return value
+Write-Output "Hello $Msg"`
 
 const ALL_INITIAL_CODE = [
 	PYTHON_INIT_CODE,
@@ -285,7 +276,9 @@ const ALL_INITIAL_CODE = [
 	DENO_INIT_CODE_CLEAR,
 	PYTHON_INIT_CODE_CLEAR,
 	DENO_INIT_CODE_APPROVAL,
-	DENO_FAILURE_MODULE_CODE
+	DENO_FAILURE_MODULE_CODE,
+	BASH_INIT_CODE,
+	POWERSHELL_INIT_CODE
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -340,11 +333,11 @@ export function initialCode(
 	} else if (language == 'bash') {
 		if (subkind === 'docker') {
 			return DOCKER_INIT_CODE
-		} else if (subkind === 'powershell') {
-			return POWERSHELL_INIT_CODE
 		} else {
 			return BASH_INIT_CODE
 		}
+	} else if (language == 'powershell') {
+		return POWERSHELL_INIT_CODE
 	} else if (language == 'nativets') {
 		return NATIVETS_INIT_CODE
 	} else if (language == 'postgresql') {

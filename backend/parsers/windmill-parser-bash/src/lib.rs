@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
-    let parsed = parse_file(&code)?;
+    let parsed = parse_bash_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
@@ -17,13 +17,26 @@ pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref RE: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"(?:([\t ]*#.*)?)$"#).unwrap();
+pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let parsed = parse_powershell_file(&code)?;
+    if let Some(x) = parsed {
+        let args = x;
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+    } else {
+        Err(anyhow!("Error parsing powershell script".to_string()))
+    }
 }
 
-fn parse_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+lazy_static::lazy_static! {
+    static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
+
+    static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
+    static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[(\w+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
+}
+
+fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut hm: HashMap<i32, (String, Option<String>)> = HashMap::new();
-    for cap in RE.captures_iter(code) {
+    for cap in RE_BASH.captures_iter(code) {
         hm.insert(
             cap.get(2)
                 .or(cap.get(3))
@@ -48,6 +61,39 @@ fn parse_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             });
         } else {
             break;
+        }
+    }
+    Ok(Some(args))
+}
+
+fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let param_wrapper = RE_POWERSHELL_PARAM.captures(code);
+    let mut args = vec![];
+    if let Some(param_wrapper) = param_wrapper {
+        let param_wrapper = param_wrapper.get(1).unwrap().as_str();
+        for cap in RE_POWERSHELL_ARGS.captures_iter(param_wrapper) {
+            let typ = cap
+                .get(1)
+                .map(|x| x.as_str().to_string())
+                .unwrap_or("string".to_string());
+            let name = cap.get(2).unwrap().as_str().to_string();
+            let default = cap
+                .get(3)
+                .or(cap.get(4))
+                .map(|x| json!(x.as_str().to_string()));
+
+            args.push(Arg {
+                name: name,
+                typ: match typ.as_str() {
+                    "string" => Typ::Str(None),
+                    "int" | "long" => Typ::Int,
+                    "decimal" | "double" | "single" => Typ::Float,
+                    _ => Typ::Str(None),
+                },
+                default: default.clone(),
+                otyp: None,
+                has_default: default.is_some(),
+            });
         }
     }
     Ok(Some(args))

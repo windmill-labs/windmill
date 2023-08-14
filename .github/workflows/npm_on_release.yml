@@ -1,0 +1,18 @@
+name: Publish typescript-client
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build_npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "16.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: cd typescript-client && ./publish.sh
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -16,6 +16,12 @@ pub type DB = Pool<Postgres>;
 pub async fn migrate(db: &DB) -> Result<(), Error> {
     match sqlx::migrate!("../migrations").run(db).await {
         Ok(_) => Ok(()),
+        Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
+            tracing::error!("Database had been applied more migrations than this container. 
+            This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
+            Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e}");
+            Ok(())
+        }
         Err(err) => Err(err),
     }?;
 

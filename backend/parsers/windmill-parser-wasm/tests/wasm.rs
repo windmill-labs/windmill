@@ -191,7 +191,8 @@ type FooBar = {
     a: string,
     b: number,
 }
-export function main(foo: FooBar) {
+export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", b: 42}) {
+
 }
 ";
     assert_eq!(
@@ -199,13 +200,29 @@ export function main(foo: FooBar) {
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
-            args: vec![Arg {
-                name: "foo".to_string(),
-                otyp: None,
-                typ: Typ::Resource("foo_bar".to_string()),
-                default: None,
-                has_default: false
-            }]
+            args: vec![
+                Arg {
+                    name: "foo".to_string(),
+                    otyp: None,
+                    typ: Typ::Resource("foo_bar".to_string()),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    name: "anon1".to_string(),
+                    otyp: None,
+                    typ: Typ::Resource("foo_bar".to_string()),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    name: "anon2".to_string(),
+                    otyp: None,
+                    typ: Typ::Resource("foo_bar".to_string()),
+                    default: Some(json!({"a": "foo", "b": 42})),
+                    has_default: true
+                }
+            ]
         }
     );
 

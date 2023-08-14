@@ -858,6 +858,7 @@ impl RunJob {
             true,
             None,
             None,
+            None,
         )
         .await
         .expect("push has to succeed");
@@ -923,11 +924,19 @@ fn spawn_test_worker(
     tokio::sync::broadcast::Sender<()>,
     tokio::task::JoinHandle<()>,
 ) {
+    for x in [windmill_worker::LOCK_CACHE_DIR] {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .expect("could not create initial worker dir");
+    }
+
     let (tx, rx) = tokio::sync::broadcast::channel(1);
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
     let ip: &str = Default::default();
+
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
@@ -2518,15 +2527,15 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     let listen_first_job = str.next();
     in_test_worker(&db, listen_first_job, port).await;
 
-    client
+    let modules = client
         .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
         .await
         .unwrap()
         .into_inner()
         .subtype_0
         .value
-        .modules
-        .into_iter()
+        .modules;
+    modules.into_iter()
         .for_each(|m| {
             assert!(matches!(
                 m.value,

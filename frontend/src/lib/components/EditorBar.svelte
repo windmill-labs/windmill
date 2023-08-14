@@ -51,6 +51,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
+		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -263,16 +264,12 @@
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes('import { setClient, getVariable } from "windmill-client@0.3.15')) {
+			if (!code.includes(`import { getVariable } from "windmill-client@${__pkg__.version}`)) {
 				editor.insertAtBeginning(
-					`import { setClient, getVariable } from "windmill-client@0.3.15"\n`
+					`import { getVariable } from "windmill-client@${__pkg__.version}"\n`
 				)
 			}
-			if (!code.includes('setClient()')) {
-				editor.insertAtCursor(`setClient()\n(await getVariable('${path}'))`)
-			} else {
-				editor.insertAtCursor(`(await getVariable('${path}'))`)
-			}
+			editor.insertAtCursor(`(await getVariable('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -325,16 +322,12 @@
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes('import { setClient, getResource } from "windmill-client@0.3.15')) {
+			if (!code.includes(`import { getResource } from "windmill-client@${__pkg__.version}`)) {
 				editor.insertAtBeginning(
-					`import { setClient, getResource } from "windmill-client@0.3.15"\n`
+					`import { getResource } from "windmill-client@${__pkg__.version}"\n`
 				)
 			}
-			if (!code.includes('setClient()')) {
-				editor.insertAtCursor(`setClient()\n(await getResource('${path}'))`)
-			} else {
-				editor.insertAtCursor(`(await getResource('${path}'))`)
-			}
+			editor.insertAtCursor(`(await getResource('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -493,7 +486,7 @@
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={editor?.reloadWebsocket}
+				on:click={() => editor?.reloadWebsocket()}
 				startIcon={{ icon: faRotate }}
 				title="Reload assistants"
 			>
@@ -503,6 +496,8 @@
 				<span class="ml-1 -my-1">
 					{#if lang == 'deno'}
 						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+					{:else if lang == 'bun'}
+						(<span class={websocketAlive.bun ? 'green' : 'text-red-700'}>Bun</span>)
 					{:else if lang == 'go'}
 						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 					{:else if lang == 'python3'}

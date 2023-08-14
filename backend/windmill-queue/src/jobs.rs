@@ -69,6 +69,7 @@ lazy_static::lazy_static! {
         "python3".to_string(),
         "go".to_string(),
         "bash".to_string(),
+        "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
         "graphql".to_string(),
@@ -475,6 +476,7 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
         true,
         tag,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -675,6 +677,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         None,
         true,
         tag,
+        None,
         None,
     )
     .await?;
@@ -1021,6 +1024,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     visible_to_owner: bool,
     mut tag: Option<String>,
     custom_timeout: Option<i32>,
+    flow_step_id: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = if let Some(job_id) = job_id {
@@ -1194,9 +1198,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
         ),
-        JobPayload::Dependencies { hash, dependencies, language } => (
+        JobPayload::Dependencies { hash, dependencies, language, path } => (
             Some(hash.0),
-            None,
+            Some(path),
             Some((dependencies, None)),
             JobKind::Dependencies,
             None,
@@ -1349,8 +1353,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -1379,6 +1383,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         concurrent_limit,
         concurrency_time_window_s,
         custom_timeout,
+        flow_step_id
     )
     .fetch_one(&mut tx)
     .await

@@ -116,6 +116,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         true,
         tag,
         None,
+        None,
     )
     .await?;
     Ok(tx) // TODO: Bubble up pushed UUID from here
