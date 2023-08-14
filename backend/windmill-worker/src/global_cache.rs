@@ -315,7 +315,10 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     if let Err(e) = execute_command(
         ROOT_CACHE_DIR,
         "tar",
-        vec!["-xpvf", &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")],
+        vec![
+            "-xpvf",
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+        ],
     )
     .await
     {

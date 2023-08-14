@@ -45,9 +45,6 @@ use tokio::{
     time::{interval, sleep, Instant, MissedTickBehavior}
 };
 
-#[cfg(feature = "enterprise")]
-use tokio::join;
-
 use futures::{
     future::{self, ready, FutureExt},
     stream, StreamExt,
