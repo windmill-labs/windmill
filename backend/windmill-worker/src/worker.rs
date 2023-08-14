@@ -20,6 +20,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
 };
+use regex::Regex;
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -266,6 +267,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
+
+    pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
 }
 
 //only matter if CLOUD_HOSTED
@@ -915,7 +918,7 @@ async fn insert_initial_ping(
 
 
 fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
-    return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
+    return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"});
 }
 
 #[derive(Debug, Clone)]
@@ -1640,7 +1643,7 @@ async fn handle_bash_job(
     Ok(serde_json::json!(logs
         .lines()
         .last()
-        .map(|x| x.to_string())
+        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new)))
 }
 
@@ -1724,12 +1727,12 @@ async fn handle_powershell_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash run", job.timeout).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash/powershell run", job.timeout).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
         .last()
-        .map(|x| x.to_string())
+        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new)))
 }
 
