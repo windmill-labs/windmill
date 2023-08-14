@@ -109,6 +109,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
             "tar {folder_name} does not exist in bucket"
         )));
     }
+    // tracing::info!("B: {target} {folder}");
 
     extract_pip_tar(&target, &folder).await?;
     tokio::fs::remove_file(&target).await?;
@@ -282,8 +283,6 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
 
 #[cfg(feature = "enterprise")]
 pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
-    use tokio::fs::metadata;
-
     tracing::info!("Copying deno,go,bun cache from bucket {bucket} as tar");
 
     let start: Instant = Instant::now();
@@ -307,7 +306,7 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     }
 
     if let Err(e) = execute_command(
-        ROOT_CACHE_DIR,
+        ROOT_TMP_CACHE_DIR,
         "tar",
         vec![
             "-xpvf",
@@ -320,12 +319,12 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
-    if let Err(e) =
-        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
-    {
-        tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
-        return;
-    };
+    // if let Err(e) =
+    //     tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
+    // {
+    //     tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
+    //     return;
+    // };
 
     tracing::info!(
         "Finished copying denogobuntar from bucket {bucket} as tar, took: {:?}s",
@@ -441,6 +440,7 @@ pub async fn untar_all_piptars() -> error::Result<()> {
             if metadata(&folder).await.is_ok() {
                 continue;
             }
+            // tracing::info!("A: {path} {folder}");
             extract_pip_tar(&path, &folder).await?;
             Ok(()) as error::Result<()>
         } {
@@ -506,6 +506,7 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
 
 #[cfg(feature = "enterprise")]
 pub async fn execute_command(dir: &str, command: &str, args: Vec<&str>) -> error::Result<()> {
+    tracing::info!("Executing command: {command} {}", args.iter().join(" "));
     match Command::new(command)
         .current_dir(dir)
         .args(args.clone())
