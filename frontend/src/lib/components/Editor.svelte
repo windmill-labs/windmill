@@ -28,7 +28,7 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -100,6 +100,7 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	let dbSchema: DBSchema | undefined = undefined
 
 	const uri =
 		lang == 'typescript' && deno
@@ -201,12 +202,13 @@
 	let command: Disposable | undefined = undefined
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
-	$: $dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
-	$: (!$dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-	$: (!$dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
+	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
+	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
 
 	function addDBSchemaCompletions() {
-		const { lang: schemaLang, schema } = $dbSchema || {}
+		const { lang: schemaLang, schema } = dbSchema || {}
 		if (!schemaLang || !schema) {
 			return
 		}

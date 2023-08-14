@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchemas, existsOpenaiResourcePath, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
@@ -22,6 +22,7 @@
 	let genLoading: boolean = false
 	let generatedCode = ''
 	let explanation = ''
+	let dbSchema: DBSchema | undefined = undefined
 
 	async function onFix() {
 		if (!error) {
@@ -33,7 +34,7 @@
 				language: lang,
 				code: editor?.getCode() || '',
 				error,
-				dbSchema: $dbSchema
+				dbSchema: dbSchema
 			})
 			generatedCode = result.code
 			explanation = result.explanation
@@ -77,6 +78,8 @@
 
 	$: generatedCode && showDiff()
 	$: !generatedCode && hideDiff()
+
+	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
 </script>
 
 {#if error && SUPPORTED_LANGUAGES.has(lang)}
