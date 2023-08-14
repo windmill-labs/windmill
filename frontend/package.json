@@ -36,7 +36,7 @@
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
 		"d3-dag": "^0.11.5",
-		"eslint": "^8.44.0",
+		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"monaco-editor-workers": "~0.39.1",
