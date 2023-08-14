@@ -59,7 +59,8 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false
+		shellcheck: false,
+		bun: false
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'

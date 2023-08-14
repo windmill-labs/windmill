@@ -26,9 +26,9 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
-	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -61,7 +61,8 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false
+		shellcheck: false,
+		bun: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -70,13 +71,11 @@
 	export let awareness: any | undefined = undefined
 	export let folding = false
 
-	$: {
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: !deno,
-			definitions: !deno,
-			hovers: !deno
-		})
-	}
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: false,
+		definitions: false,
+		hovers: false
+	})
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -101,9 +100,10 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	let dbSchema: DBSchema | undefined = undefined
 
 	const uri =
-		lang == 'typescript'
+		lang == 'typescript' && deno
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -202,12 +202,13 @@
 	let command: Disposable | undefined = undefined
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
-	$: $dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
-	$: (!$dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-	$: (!$dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
+	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
+	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
 
 	function addDBSchemaCompletions() {
-		const { lang: schemaLang, schema } = $dbSchema || {}
+		const { lang: schemaLang, schema } = dbSchema || {}
 		if (!schemaLang || !schema) {
 			return
 		}
@@ -368,7 +369,13 @@
 						isTrusted: true
 					},
 					workspaceFolder:
-						name != 'deno'
+						name == 'bun'
+							? {
+									uri: vscode.Uri.parse('file:///tmp/monaco/'),
+									name: 'windmill',
+									index: 0
+							  }
+							: name != 'deno'
 							? {
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
@@ -473,6 +480,17 @@
 						} catch (err) {
 							console.error(err)
 						}
+					} else if (name == 'bun') {
+						await languageClient.sendNotification(
+							new NotificationType('workspace/didChangeConfiguration'),
+							{
+								settings: {
+									diagnostics: {
+										ignoredCodes: [2307]
+									}
+								}
+							}
+						)
 					}
 
 					websocketAlive[name] = true
@@ -547,6 +565,22 @@
 				() => {
 					return [
 						{
+							enable: true
+						}
+					]
+				}
+			)
+		} else if (lang === 'typescript' && !deno) {
+			await connectToLanguageServer(
+				`${wsProtocol}://${window.location.host}/ws/bun`,
+				'bun',
+				{},
+				(params, token, next) => {
+					return [
+						{
+							diagnostics: {
+								ignoredCodes: [2307]
+							},
 							enable: true
 						}
 					]
@@ -666,7 +700,10 @@
 						!websocketAlive.black &&
 						!websocketAlive.deno &&
 						!websocketAlive.pyright &&
-						!websocketAlive.go
+						!websocketAlive.go &&
+						!websocketAlive.bun &&
+						!websocketAlive.shellcheck &&
+						!websocketAlive.ruff
 					) {
 						console.log('reconnecting to language servers')
 						lastWsAttempt = new Date()

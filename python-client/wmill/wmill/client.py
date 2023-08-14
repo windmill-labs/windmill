@@ -334,7 +334,7 @@ def set_variable(path: str, value: str) -> None:
 
 
 def get_state_path() -> str:
-    state_path = os.environ.get("WM_STATE_PATH_NEW")
+    state_path = os.environ.get("WM_STATE_PATH_NEW") or os.environ.get("WM_STATE_PATH")
     if state_path is None:
         raise Exception("State path not found")
     return state_path

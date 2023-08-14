@@ -51,6 +51,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
+		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -495,6 +496,8 @@
 				<span class="ml-1 -my-1">
 					{#if lang == 'deno'}
 						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+					{:else if lang == 'bun'}
+						(<span class={websocketAlive.bun ? 'green' : 'text-red-700'}>Bun</span>)
 					{:else if lang == 'go'}
 						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 					{:else if lang == 'python3'}

@@ -23,6 +23,7 @@ const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
 const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.ts");
 
 const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
+const EMPTY_FILE: &str = "<empty>";
 
 pub async fn gen_lockfile(
     logs: &mut String,
@@ -100,10 +101,15 @@ pub async fn gen_lockfile(
         }
         content.push_str(BUN_LOCKB_SPLIT);
         {
-            let mut file = File::open(format!("{job_dir}/bun.lockb")).await?;
-            let mut buf = vec![];
-            file.read_to_end(&mut buf).await?;
-            content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+            let file = format!("{job_dir}/bun.lockb");
+            if tokio::fs::metadata(&file).await.is_ok() {
+                let mut file = File::open(&file).await?;
+                let mut buf = vec![];
+                file.read_to_end(&mut buf).await?;
+                content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+            } else {
+                content.push_str(&EMPTY_FILE);
+            }
         }
         Ok(Some(content))
     } else {
@@ -175,15 +181,19 @@ pub async fn handle_bun_job(
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-        let _ = write_file_binary(
-            job_dir,
-            "bun.lockb",
-            &base64::engine::general_purpose::STANDARD
-                .decode(&splitted[1])
-                .map_err(|_| error::Error::InternalErr("Could not decode bun.lockb".to_string()))?,
-        )
-        .await?;
-
+        let lockb = splitted[1];
+        if lockb != EMPTY_FILE {
+            let _ = write_file_binary(
+                job_dir,
+                "bun.lockb",
+                &base64::engine::general_purpose::STANDARD
+                    .decode(&splitted[1])
+                    .map_err(|_| {
+                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                    })?,
+            )
+            .await?;
+        }
         install_lockfile(
             logs,
             &job.id,
@@ -194,7 +204,7 @@ pub async fn handle_bun_job(
             common_bun_proc_envs.clone(),
         )
         .await?;
-    } else {
+    } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             logs,
@@ -210,6 +220,7 @@ pub async fn handle_bun_job(
         )
         .await?;
     }
+
     // let mut start = Instant::now();
     logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
     set_logs(&logs, &job.id, &db).await;
@@ -325,11 +336,11 @@ plugin(p)
                 "--",
                 &BUN_PATH,
                 "run",
+                "-i",
+                "--prefer-offline",
                 "-r",
                 "/tmp/bun/loader.bun.ts",
                 "/tmp/bun/wrapper.ts",
-                "-i",
-                "--prefer-offline",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -338,11 +349,11 @@ plugin(p)
         let script_path = format!("{job_dir}/wrapper.ts");
         let args = vec![
             "run",
+            "-i",
+            "--prefer-offline",
             "-r",
             "./loader.bun.ts",
             &script_path,
-            "-i",
-            "--prefer-offline",
         ];
         Command::new(&*BUN_PATH)
             .current_dir(job_dir)
@@ -377,6 +388,7 @@ plugin(p)
 fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
     let mut deno_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("DISABLE_COLORS"), "0".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
         (
             String::from("BASE_URL"),
