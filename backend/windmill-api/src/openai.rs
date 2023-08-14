@@ -9,6 +9,7 @@ use axum::{
     Router,
 };
 use magic_crypt::MagicCryptTrait;
+use serde_json::json;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error};
 
@@ -24,6 +25,17 @@ pub fn workspaced_service() -> Router {
 struct OpenaiResource {
     api_key: String,
     organization_id: Option<String>,
+}
+
+fn create_openai_json_error(msg: String) -> Error {
+    Error::OpenAIError(
+        serde_json::to_string(&json!({
+            "error": {
+                "message": msg
+            }
+        }))
+        .unwrap(),
+    )
 }
 
 struct Variable {
@@ -72,7 +84,7 @@ async fn proxy(
     tx.commit().await?;
 
     if openai_resource_path.is_none() {
-        return Err(Error::InternalErr(
+        return Err(create_openai_json_error(
             "OpenAI resource not configured".to_string(),
         ));
     }
@@ -92,7 +104,7 @@ async fn proxy(
     tx.commit().await?;
 
     if resource.is_none() {
-        return Err(Error::InternalErr(
+        return Err(create_openai_json_error(
             "OpenAI resource missing value".to_string(),
         ));
     }

@@ -64,6 +64,8 @@ pub enum Error {
     JsonErr(serde_json::Value),
     #[error("Custom Status Code: {0:#?}")]
     CustomStatusCode(StatusCode, serde_json::Value),
+    #[error("{0}")]
+    OpenAIError(String),
 }
 
 impl Error {
@@ -87,7 +89,9 @@ impl IntoResponse for Error {
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
             Self::CustomStatusCode(code, _) => code,
-            Self::SqlErr(_) | Self::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
+                axum::http::StatusCode::BAD_REQUEST
+            }
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::error!(error = e.to_string());
