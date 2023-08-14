@@ -27,7 +27,6 @@
 	// state
 	let funcDesc: string = ''
 	let genLoading: boolean = false
-	let button: HTMLButtonElement | undefined
 	let input: HTMLInputElement | undefined
 	let generatedCode = ''
 	let selection: Selection | undefined
@@ -59,8 +58,12 @@
 			}
 			funcDesc = ''
 		} catch (err) {
-			sendUserToast('Failed to generate code', true)
-			console.error(err)
+			if (err?.message) {
+				sendUserToast('Failed to generate code: ' + err.message, true)
+			} else {
+				sendUserToast('Failed to generate code', true)
+				console.error(err)
+			}
 		} finally {
 			genLoading = false
 		}
@@ -162,7 +165,6 @@
 			{#if inlineScript}
 				<Button
 					size="lg"
-					bind:element={button}
 					color="light"
 					btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 					loading={genLoading}
@@ -177,7 +179,6 @@
 					size="xs"
 					color="light"
 					spacingSize="md"
-					bind:element={button}
 					startIcon={{ icon: faMagicWandSparkles }}
 					{iconOnly}
 					loading={genLoading}
