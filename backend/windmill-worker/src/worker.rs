@@ -20,6 +20,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hasher, Hash},
 };
+use regex::Regex;
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -261,6 +262,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
+
+    pub static ref PWSH_ANSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
 }
 
 //only matter if CLOUD_HOSTED
@@ -1717,12 +1720,12 @@ async fn handle_powershell_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash run", job.timeout).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash/powershell run", job.timeout).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
         .last()
-        .map(|x| x.to_string())
+        .map(|x| PWSH_ANSI_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new)))
 }
 
