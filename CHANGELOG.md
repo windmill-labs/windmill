@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.148.0](https://github.com/windmill-labs/windmill/compare/v1.147.3...v1.148.0) (2023-08-14)
+
+
+### Features
+
+* add s3 snippets ([#2052](https://github.com/windmill-labs/windmill/issues/2052)) ([beb4a00](https://github.com/windmill-labs/windmill/commit/beb4a000e3631a1b0a27a68923361652317aec63))
+
+
+### Bug Fixes
+
+* allow multiple db schema explorers ([#2054](https://github.com/windmill-labs/windmill/issues/2054)) ([e1b4f0a](https://github.com/windmill-labs/windmill/commit/e1b4f0a8328bc62a19e693bac99589711d08d566))
+* **frontend:** Fix Dark mode in the sleep helpbox ([#2072](https://github.com/windmill-labs/windmill/issues/2072)) ([c6ef1a6](https://github.com/windmill-labs/windmill/commit/c6ef1a6d4fbe5661f6b9018121e21061952908d0))
+* handle object pat in sig of typescript ([1d8213a](https://github.com/windmill-labs/windmill/commit/1d8213a25ba90f3d4af952e03c74196f8ce908ab))
+* remove ansi codes from result ([#2069](https://github.com/windmill-labs/windmill/issues/2069)) ([a3fa174](https://github.com/windmill-labs/windmill/commit/a3fa174cd46ce1bd67a69f7781dbdfa0719d3d06))
+* script fix no resource + error handling ([#2053](https://github.com/windmill-labs/windmill/issues/2053)) ([00b1afb](https://github.com/windmill-labs/windmill/commit/00b1afb1c90773408d1dc3233a25fa93e24d4da0))
+
 ## [1.147.3](https://github.com/windmill-labs/windmill/compare/v1.147.2...v1.147.3) (2023-08-13)
 
 
