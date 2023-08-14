@@ -47,7 +47,7 @@ const deployer = new aws.ec2.KeyPair("deployer", {
 });
 
 const rdSubnet = new aws.rds.SubnetGroup("windmill-bench-sng", {
-  subnetIds: vpc.publicSubnetIds,
+  subnetIds: vpc.publicSubnetIds.apply((ids) => ids.sort()),
   tags: {
     Name: "bench",
   },
@@ -67,38 +67,38 @@ const db = new aws.rds.Instance("windmill-bench-rds", {
   availabilityZone: "us-east-2a",
 });
 
-const instance = db.address.apply((address) => {
-  // Create and launch an Amazon Linux EC2 instance into the public subnet.
-  const instance = new aws.ec2.Instance("windmill-bench-instance", {
-    ami: ami.id,
-    availabilityZone: "us-east-2a",
-    keyName: deployer.keyName,
-    instanceType: "t3.nano",
-    subnetId: vpc.publicSubnetIds[0],
-    rootBlockDevice: {
-      volumeSize: 20,
-    },
-    vpcSecurityGroupIds: db.vpcSecurityGroupIds.apply((ids) => [
-      securityGroup.id,
-      ...ids,
-    ]),
-    userData: `
-        #!/bin/bash
-        yum update -y
-        yum install -y docker
-        service docker start
-        systemctl enable docker
-        systemctl start docker
-        sudo docker run -p 80:8000 -d -e DATABASE_URL=postgres://postgres:postgres@${address}/windmill?sslmode=disable ghcr.io/windmill-labs/windmill:main
-        
-    `,
-  });
-  return instance;
-});
+// const instance = db.address.apply((address) => {
+//   // Create and launch an Amazon Linux EC2 instance into the public subnet.
+//   const instance = new aws.ec2.Instance("windmill-bench-instance", {
+//     ami: ami.id,
+//     availabilityZone: "us-east-2a",
+//     keyName: deployer.keyName,
+//     instanceType: "t3.nano",
+//     subnetId: vpc.publicSubnetIds[0],
+//     rootBlockDevice: {
+//       volumeSize: 20,
+//     },
+//     vpcSecurityGroupIds: db.vpcSecurityGroupIds.apply((ids) => [
+//       securityGroup.id,
+//       ...ids,
+//     ]),
+//     userData: `
+//         #!/bin/bash
+//         yum update -y
+//         yum install -y docker
+//         service docker start
+//         systemctl enable docker
+//         systemctl start docker
+//         sudo docker run -p 80:8000 -d -e DATABASE_URL=postgres://postgres:postgres@${address}/windmill?sslmode=disable ghcr.io/windmill-labs/windmill:main
+
+//     `,
+//   });
+//   return instance;
+// });
 
 // Export the instance's publicly accessible URL.
 module.exports = {
   databaseAddress: db.address,
   databaseUrl: pulumi.interpolate`postgres://${db.username}:${db.password}@${db.address}:5432/${db.dbName}?sslmode=disable`,
-  instanceURL: pulumi.interpolate`http://${instance.publicIp}`,
+  // instanceURL: pulumi.interpolate`http://${instance.publicIp}`,
 };
