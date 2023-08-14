@@ -232,7 +232,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "go",
             "deno",
-            "bun",
+            // "bun",
         ],
     )
     .await
