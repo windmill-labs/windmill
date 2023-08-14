@@ -344,17 +344,16 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
-    if let Err(e) =
-        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
-    {
-        tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
-        return;
-    };
-
     tracing::info!(
         "Finished untaring denogobun tar to /tmpcache. took: {}s",
         start.elapsed().as_secs()
     );
+
+    if let Err(e) =
+        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
+    {
+        tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
+    };
 }
 
 #[cfg(feature = "enterprise")]
