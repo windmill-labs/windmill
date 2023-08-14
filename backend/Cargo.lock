@@ -7193,7 +7193,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "syn 1.0.109",
+ "syn 2.0.28",
  "uuid 1.4.1",
 ]
 
