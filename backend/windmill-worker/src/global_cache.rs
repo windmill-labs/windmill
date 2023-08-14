@@ -285,7 +285,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
 pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     tracing::info!("Copying deno,go,bun cache from bucket {bucket} as tar");
 
-    let start: Instant = Instant::now();
+    let mut start: Instant = Instant::now();
 
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
@@ -305,6 +305,31 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
+    tracing::info!(
+        "Fonished copying denogobun tar for from bucket as tar. took {}s",
+        start.elapsed().as_secs()
+    );
+
+    start = Instant::now();
+
+    if let Err(e) = execute_command(
+        ROOT_CACHE_DIR,
+        "tar",
+        vec!["-xpvf", &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")],
+    )
+    .await
+    {
+        tracing::info!("Failed to untar denogobun tar to cache. Error: {:?}", e);
+        return;
+    }
+
+    tracing::info!(
+        "Finished untaring denogobun tar to cache. took: {}s",
+        start.elapsed().as_secs()
+    );
+
+    start = Instant::now();
+
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "tar",
@@ -315,19 +340,19 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     )
     .await
     {
-        tracing::info!("Failed to untar denogobun tar. Error: {:?}", e);
+        tracing::info!("Failed to untar denogobun tar to tmpcache. Error: {:?}", e);
         return;
     }
 
-    // if let Err(e) =
-    //     tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
-    // {
-    //     tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
-    //     return;
-    // };
+    if let Err(e) =
+        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
+    {
+        tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
+        return;
+    };
 
     tracing::info!(
-        "Finished copying denogobuntar from bucket {bucket} as tar, took: {:?}s",
+        "Finished untaring denogobun tar to /tmpcache. took: {}s",
         start.elapsed().as_secs()
     );
 }
