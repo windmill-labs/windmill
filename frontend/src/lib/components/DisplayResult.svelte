@@ -113,6 +113,14 @@
 
 	let jsonViewer: Drawer
 	$: jsonStr = JSON.stringify(result, null, 4)
+
+	function contentOrRootString(obj: string | { filename: string; content: string }) {
+		if (typeof obj === 'string') {
+			return obj
+		} else {
+			return obj.content
+		}
+	}
 </script>
 
 <div class="inline-highlight">
@@ -190,19 +198,19 @@
 				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'png'}
-			<div class="h-full"
-				><img
+			<div class="h-full">
+				<img
 					alt="png rendered"
 					class="w-auto h-full"
-					src="data:image/png;base64,{result.png.content}"
+					src="data:image/png;base64,{contentOrRootString(result.png)}"
 				/>
 			</div>
 		{:else if !forceJson && resultKind == 'jpeg'}
-			<div class="h-full"
-				><img
+			<div class="h-full">
+				<img
 					alt="jpeg rendered"
 					class="w-auto h-full"
-					src="data:image/jpeg;base64,{result.jpeg.content}"
+					src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 				/>
 			</div>
 		{:else if !forceJson && resultKind == 'svg'}
@@ -211,18 +219,18 @@
 			</div>
 			<div class="h-full overflow-auto">{@html result.svg} </div>
 		{:else if !forceJson && resultKind == 'gif'}
-			<div class="h-full"
-				><img
+			<div class="h-full">
+				<img
 					alt="gif rendered"
 					class="w-auto h-full"
-					src="data:image/gif;base64,{result.gif.content}"
+					src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 				/>
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
 				><a
 					download={result.filename ?? 'windmill.file'}
-					href="data:application/octet-stream;base64,{result.file.content}">Download</a
+					href="data:application/octet-stream;base64,{contentOrRootString(result.file)}">Download</a
 				>
 			</div>
 		{:else if !forceJson && resultKind == 'error' && result?.error}<div
