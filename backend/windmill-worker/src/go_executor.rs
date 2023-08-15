@@ -245,6 +245,8 @@ func Run(req Req) (interface{{}}, error){{
         run_go
             .current_dir(job_dir)
             .env_clear()
+            .envs(envs)
+            .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
