@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchema, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
+	import { dbSchemas, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -13,7 +13,8 @@
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
 
 	export let resourceType: string | undefined
-	export let resourcePath: String | undefined = undefined
+	export let resourcePath: string | undefined = undefined
+	let dbSchema: DBSchema | undefined = undefined
 
 	let drawer: Drawer
 
@@ -132,7 +133,7 @@ export async function main(args: any) {
 
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
-		dbSchema.set(undefined)
+		delete $dbSchemas[resourceType]
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
@@ -147,29 +148,31 @@ export async function main(args: any) {
 
 		tryEvery({
 			tryCode: async () => {
-				const testResult = await JobService.getCompletedJob({
-					workspace: $workspaceStore!,
-					id: job
-				})
-				if (!testResult.success) {
-					console.error(testResult.result?.['error']?.['message'])
-				} else {
-					if (resourceType === 'postgresql') {
-						dbSchema.set({
-							lang: 'postgresql',
-							schema: testResult.result,
-							publicOnly: true
-						})
-					} else if (resourceType === 'mysql') {
-						dbSchema.set({
-							lang: 'mysql',
-							schema: testResult.result
-						})
-					} else if (resourceType === 'graphql') {
-						dbSchema.set({
-							lang: 'graphql',
-							schema: testResult.result
-						})
+				if (resourcePath) {
+					const testResult = await JobService.getCompletedJob({
+						workspace: $workspaceStore!,
+						id: job
+					})
+					if (!testResult.success) {
+						console.error(testResult.result?.['error']?.['message'])
+					} else {
+						if (resourceType === 'postgresql') {
+							$dbSchemas[resourcePath] = {
+								lang: 'postgresql',
+								schema: testResult.result,
+								publicOnly: true
+							}
+						} else if (resourceType === 'mysql') {
+							$dbSchemas[resourcePath] = {
+								lang: 'mysql',
+								schema: testResult.result
+							}
+						} else if (resourceType === 'graphql') {
+							$dbSchemas[resourcePath] = {
+								lang: 'graphql',
+								schema: testResult.result
+							}
+						}
 					}
 				}
 			},
@@ -209,15 +212,17 @@ export async function main(args: any) {
 	$: resourcePath && ['postgresql', 'mysql', 'graphql'].includes(resourceType || '') && getSchema()
 
 	function clearSchema() {
-		dbSchema.set(undefined)
+		if (resourcePath) {
+			delete $dbSchemas[resourcePath]
+		}
 	}
 
-	$: !resourcePath && $dbSchema && clearSchema()
+	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 
 	onDestroy(clearSchema)
 </script>
 
-{#if $dbSchema && resourcePath}
+{#if dbSchema}
 	<Button
 		size="xs"
 		variant="border"
@@ -230,16 +235,16 @@ export async function main(args: any) {
 	</Button>
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent title="Schema Explorer" on:close={drawer.closeDrawer}>
-			{#if $dbSchema.lang === 'postgresql'}
-				<ToggleButtonGroup class="mb-4" bind:selected={$dbSchema.publicOnly}>
+			{#if dbSchema.lang === 'postgresql'}
+				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
 					<ToggleButton value={false} label="All" />
 				</ToggleButtonGroup>
 			{/if}
-			{#if $dbSchema.lang === 'graphql'}
-				<GraphqlSchemaViewer code={formatGraphqlSchema($dbSchema)} class="h-full" />
+			{#if dbSchema.lang === 'graphql'}
+				<GraphqlSchemaViewer code={formatGraphqlSchema(dbSchema)} class="h-full" />
 			{:else}
-				<ObjectViewer json={formatSchema($dbSchema)} pureViewer />
+				<ObjectViewer json={formatSchema(dbSchema)} pureViewer />
 			{/if}
 		</DrawerContent>
 	</Drawer>

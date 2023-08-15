@@ -109,6 +109,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
             "tar {folder_name} does not exist in bucket"
         )));
     }
+    // tracing::info!("B: {target} {folder}");
 
     extract_pip_tar(&target, &folder).await?;
     tokio::fs::remove_file(&target).await?;
@@ -150,9 +151,9 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--size-only",
             "--fast-list",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -195,9 +196,9 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--size-only",
             "--fast-list",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -231,8 +232,8 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             "-f",
             &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "go",
-            "deno",
-            "bun",
+            "deno/npm",
+            "deno/deps", // "bun",
         ],
     )
     .await
@@ -282,11 +283,9 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
 
 #[cfg(feature = "enterprise")]
 pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
-    use tokio::fs::metadata;
-
     tracing::info!("Copying deno,go,bun cache from bucket {bucket} as tar");
 
-    let start: Instant = Instant::now();
+    let mut start: Instant = Instant::now();
 
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
@@ -306,6 +305,13 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
+    tracing::info!(
+        "Fonished copying denogobun tar for from bucket as tar. took {}s",
+        start.elapsed().as_secs()
+    );
+
+    start = Instant::now();
+
     if let Err(e) = execute_command(
         ROOT_CACHE_DIR,
         "tar",
@@ -316,26 +322,41 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     )
     .await
     {
-        tracing::info!("Failed to untar denogobun tar. Error: {:?}", e);
+        tracing::info!("Failed to untar denogobun tar to cache. Error: {:?}", e);
         return;
     }
 
-    let denogen = format!("{ROOT_TMP_CACHE_DIR}deno/gen/file");
-    if metadata(&denogen).await.is_ok() {
-        let _ = tokio::fs::remove_dir_all(denogen).await;
+    tracing::info!(
+        "Finished untaring denogobun tar to cache. took: {}s",
+        start.elapsed().as_secs()
+    );
+
+    start = Instant::now();
+
+    if let Err(e) = execute_command(
+        ROOT_TMP_CACHE_DIR,
+        "tar",
+        vec![
+            "-xpvf",
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+        ],
+    )
+    .await
+    {
+        tracing::info!("Failed to untar denogobun tar to tmpcache. Error: {:?}", e);
+        return;
     }
+
+    tracing::info!(
+        "Finished untaring denogobun tar to /tmpcache. took: {}s",
+        start.elapsed().as_secs()
+    );
 
     if let Err(e) =
         tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
     {
         tracing::info!("Failed to remove denogobuntar cache. Error: {:?}", e);
-        return;
     };
-
-    tracing::info!(
-        "Finished copying denogobuntar from bucket {bucket} as tar, took: {:?}s",
-        start.elapsed().as_secs()
-    );
 }
 
 #[cfg(feature = "enterprise")]
@@ -394,9 +415,9 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             ROOT_CACHE_DIR,
             // "-l",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -446,6 +467,7 @@ pub async fn untar_all_piptars() -> error::Result<()> {
             if metadata(&folder).await.is_ok() {
                 continue;
             }
+            // tracing::info!("A: {path} {folder}");
             extract_pip_tar(&path, &folder).await?;
             Ok(()) as error::Result<()>
         } {
@@ -490,9 +512,9 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             ROOT_TMP_CACHE_DIR,
             // "-l",
             "--filter",
-            "- deno/gen/file/**",
+            "+ deno/npm/**",
             "--filter",
-            "+ deno/**",
+            "+ deno/deps/**",
             // "--filter",
             // "+ bun/**",
             "--filter",
@@ -511,6 +533,7 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
 
 #[cfg(feature = "enterprise")]
 pub async fn execute_command(dir: &str, command: &str, args: Vec<&str>) -> error::Result<()> {
+    tracing::info!("Executing command: {command} {}", args.iter().join(" "));
     match Command::new(command)
         .current_dir(dir)
         .args(args.clone())

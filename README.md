@@ -170,9 +170,10 @@ variables from your instance if necessary. See more:
 
 ### Sandboxing
 
-Windmill uses [nsjail](https://github.com/google/nsjail) on top of the deno
-sandboxing. It is production multi-tenant grade secure. Do not take our word for
-it, take [fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/).
+Windmill uses [nsjail](https://github.com/google/nsjail) and deno's sandboxing
+capabilities. It is production multi-tenant grade secure. Do not take our word
+for it, take
+[fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/).
 
 ### Secrets, credentials and sensitive values
 

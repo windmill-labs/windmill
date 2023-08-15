@@ -375,8 +375,6 @@
 
 		const errors = getResultErrors(res)
 
-		console.log('errors', errors)
-
 		if (errors) {
 			const transformerResult = transformer
 				? { error: 'Transformer could not be run because of previous errors' }

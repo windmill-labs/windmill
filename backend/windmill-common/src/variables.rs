@@ -73,7 +73,7 @@ pub fn get_reserved_variables(
     flow_path: Option<String>,
     schedule_path: Option<String>,
     step_id: Option<String>,
-) -> [ContextualVariable; 14] {
+) -> [ContextualVariable; 15] {
     let state_path = {
         let flow_path = flow_path
             .clone()
@@ -115,6 +115,27 @@ pub fn get_reserved_variables(
         } else {
             format!("u/{username}/tmp_state")
         }
+    };
+
+    let joined_schedule_path = schedule_path
+        .clone()
+        .unwrap_or("manual".to_string())
+        .split("/")
+        .collect::<Vec<&str>>()
+        .join("_");
+    let ts = chrono::Utc::now().timestamp_millis();
+    let object_path = if let Some(flow_path) = flow_path.clone() {
+        let flow_path = flow_path.split("/").collect::<Vec<&str>>().join("_");
+        let step_id = step_id.clone().unwrap_or("".to_string());
+        format!("{flow_path}/{joined_schedule_path}/{step_id}/{ts}_{job_id}")
+    } else {
+        let joined_script_path = path
+            .clone()
+            .unwrap_or("".to_string())
+            .split("/")
+            .collect::<Vec<&str>>()
+            .join("_");
+        format!("{joined_script_path}/{joined_schedule_path}/{ts}_{job_id}")
     };
 
     [
@@ -192,5 +213,10 @@ pub fn get_reserved_variables(
             value: step_id.unwrap_or_else(|| "".to_string()),
             description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
         },
+        ContextualVariable {
+            name: "WM_OBJECT_PATH".to_string(),
+            value: object_path,
+            description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
+        }
     ]
 }

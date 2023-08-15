@@ -22,7 +22,7 @@
 {#if opened}
 	<div
 		transition:slide|local
-		class="bg-gray-100 border-l-4 border-gray-600 text-secondary p-4 m-4"
+		class="bg-surface-secondary border-l-4 text-secondary p-4 m-4"
 		role="alert"
 		id="dynamic-input-help-box"
 	>

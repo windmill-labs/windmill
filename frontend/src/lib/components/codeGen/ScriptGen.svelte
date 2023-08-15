@@ -8,7 +8,7 @@
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
-	import { dbSchema, existsOpenaiResourcePath } from '$lib/stores'
+	import { dbSchemas, existsOpenaiResourcePath, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
@@ -27,11 +27,11 @@
 	// state
 	let funcDesc: string = ''
 	let genLoading: boolean = false
-	let button: HTMLButtonElement | undefined
 	let input: HTMLInputElement | undefined
 	let generatedCode = ''
 	let selection: Selection | undefined
 	let isEdit = false
+	let dbSchema: DBSchema | undefined = undefined
 
 	async function onGenerate() {
 		if (funcDesc.length <= 0) {
@@ -46,21 +46,25 @@
 					language: lang,
 					description: funcDesc,
 					selectedCode,
-					dbSchema: $dbSchema
+					dbSchema: dbSchema
 				})
 				generatedCode = originalCode.replace(selectedCode, result.code + '\n')
 			} else {
 				const result = await generateScript({
 					language: lang,
 					description: funcDesc,
-					dbSchema: $dbSchema
+					dbSchema: dbSchema
 				})
 				generatedCode = result.code
 			}
 			funcDesc = ''
 		} catch (err) {
-			sendUserToast('Failed to generate code', true)
-			console.error(err)
+			if (err?.message) {
+				sendUserToast('Failed to generate code: ' + err.message, true)
+			} else {
+				sendUserToast('Failed to generate code', true)
+				console.error(err)
+			}
 		} finally {
 			genLoading = false
 		}
@@ -105,6 +109,7 @@
 	$: !generatedCode && hideDiff()
 	$: editor && setSelectionHandler()
 	$: selection && (isEdit = !selection.isEmpty())
+	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
 </script>
 
 {#if generatedCode}
@@ -162,7 +167,6 @@
 			{#if inlineScript}
 				<Button
 					size="lg"
-					bind:element={button}
 					color="light"
 					btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
 					loading={genLoading}
@@ -177,7 +181,6 @@
 					size="xs"
 					color="light"
 					spacingSize="md"
-					bind:element={button}
 					startIcon={{ icon: faMagicWandSparkles }}
 					{iconOnly}
 					loading={genLoading}
@@ -219,7 +222,7 @@
 						<Icon data={faMagicWandSparkles} />
 					</Button>
 				</div>
-				{#if ['postgresql', 'mysql'].includes(lang) && $dbSchema}
+				{#if ['postgresql', 'mysql'].includes(lang) && dbSchema}
 					<div class="flex flex-row items-center justify-between w-96 mt-2">
 						<p class="text-sm">
 							Will take into account the DB schema
@@ -227,8 +230,8 @@
 								In order to better generate the script, we pass the selected DB schema to GPT-4.
 							</Tooltip>
 						</p>
-						{#if $dbSchema.lang === 'postgresql'}
-							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={$dbSchema.publicOnly}>
+						{#if dbSchema.lang === 'postgresql'}
+							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
 								<ToggleButton value={true} label="Public schema" />
 								<ToggleButton value={false} label="All schemas" />
 							</ToggleButtonGroup>
