@@ -34,6 +34,14 @@
 		value = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
 			: [{ error: 'input was not an array' }]
+		if (api) {
+			let selected = api.getSelectedNodes()
+			if (selected.length > 0) {
+				let data = { ...selected[0].data }
+				delete data['__index']
+				outputs?.selectedRow?.set(data)
+			}
+		}
 	}
 
 	const { worldStore, selectedComponent, componentControl, darkMode } =
@@ -108,6 +116,8 @@
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
 		extraConfig = resolvedConfig.extraConfig
 	}
+
+	let api: any = undefined
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -183,6 +193,7 @@
 											e.api.getRowNode(index.toString())?.setSelected(true)
 										}
 									}
+									api = e.api
 								}}
 							/>
 						{/key}
