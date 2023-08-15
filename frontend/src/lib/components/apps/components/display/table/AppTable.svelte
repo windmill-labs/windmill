@@ -332,6 +332,7 @@
 												on:keydown={() => toggleRow(row, rowIndex)}
 												on:click={() => toggleRow(row, rowIndex)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
+												style={'width: ' + cell.column.getSize() + 'px'}
 											>
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
