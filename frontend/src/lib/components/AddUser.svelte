@@ -113,11 +113,12 @@
 			color="blue"
 			size="sm"
 			on:click={() => {
-				addUser()
-				// @ts-ignore
-				email = undefined
-				// @ts-ignore
-				username = undefined
+				addUser().then(() => {
+					// @ts-ignore
+					email = undefined
+					// @ts-ignore
+					username = undefined
+				})
 			}}
 			disabled={email === undefined || username === undefined}
 		>

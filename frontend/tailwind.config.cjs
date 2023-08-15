@@ -495,6 +495,11 @@ const config = {
 					'--color-border': lightThemeRgb.border,
 					'--color-border-hover': lightThemeRgb.borderHover,
 
+					'--vscode-editorSuggestWidget-background': '#f3f3f3',
+					'--vscode-editorHoverWidget-foreground': '#616161',
+					'--vscode-editorHoverWidget-border': '#c8c8c8',
+					'--vscode-editorHoverWidget-statusBarBackground': '#e7e7e7',
+
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
 					},
@@ -526,7 +531,12 @@ const config = {
 						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
 
 						'--color-border': darkThemeRgb.border,
-						'--color-border-hover': darkThemeRgb.borderHover
+						'--color-border-hover': darkThemeRgb.borderHover,
+
+						'--vscode-editorSuggestWidget-background': '#252526',
+						'--vscode-editorHoverWidget-foreground': '#cccccc',
+						'--vscode-editorHoverWidget-border': '#454545',
+						'--vscode-editorHoverWidget-statusBarBackground': '#2c2c2d'
 					}
 				},
 				h1: {
