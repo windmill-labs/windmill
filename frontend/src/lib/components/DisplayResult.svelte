@@ -191,14 +191,18 @@
 			</div>
 		{:else if !forceJson && resultKind == 'png'}
 			<div class="h-full"
-				><img alt="png rendered" class="w-auto h-full" src="data:image/png;base64,{result.png}" />
+				><img
+					alt="png rendered"
+					class="w-auto h-full"
+					src="data:image/png;base64,{result.png.content}"
+				/>
 			</div>
 		{:else if !forceJson && resultKind == 'jpeg'}
 			<div class="h-full"
 				><img
 					alt="jpeg rendered"
 					class="w-auto h-full"
-					src="data:image/jpeg;base64,{result.jpeg}"
+					src="data:image/jpeg;base64,{result.jpeg.content}"
 				/>
 			</div>
 		{:else if !forceJson && resultKind == 'svg'}
@@ -208,13 +212,17 @@
 			<div class="h-full overflow-auto">{@html result.svg} </div>
 		{:else if !forceJson && resultKind == 'gif'}
 			<div class="h-full"
-				><img alt="gif rendered" class="w-auto h-full" src="data:image/gif;base64,{result.gif}" />
+				><img
+					alt="gif rendered"
+					class="w-auto h-full"
+					src="data:image/gif;base64,{result.gif.content}"
+				/>
 			</div>
 		{:else if !forceJson && resultKind == 'file'}
 			<div
 				><a
 					download={result.filename ?? 'windmill.file'}
-					href="data:application/octet-stream;base64,{result.file}">Download</a
+					href="data:application/octet-stream;base64,{result.file.content}">Download</a
 				>
 			</div>
 		{:else if !forceJson && resultKind == 'error' && result?.error}<div
