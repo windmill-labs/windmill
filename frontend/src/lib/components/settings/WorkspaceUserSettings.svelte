@@ -185,7 +185,7 @@
 										value="author"
 										size="xs"
 										label="Author"
-										tooltip="An Author can execute and view scripts/flows/apps, but he can also create new ones."
+										tooltip="An Author can execute and view scripts/flows/apps, but they can also create new ones."
 									/>
 
 									<ToggleButton
