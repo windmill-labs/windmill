@@ -65,6 +65,7 @@
 	})
 
 	let inputs = {}
+	let loading: boolean = false
 
 	$: setSearch(searchValue)
 
@@ -251,7 +252,15 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:loading
+>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
@@ -528,6 +537,7 @@
 				{table}
 				class={css?.tableFooter?.class}
 				style={css?.tableFooter?.style}
+				{loading}
 			/>
 		</div>
 	{:else if result != undefined}
