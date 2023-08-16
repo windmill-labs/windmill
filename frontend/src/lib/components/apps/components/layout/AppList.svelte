@@ -22,7 +22,7 @@
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let page: number = 0
+	$: page = 0
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -57,6 +57,49 @@
 		isPreviousLoading = false
 		isNextLoading = false
 	}
+
+	function getPagination(
+		configuration: {
+			auto: { pageSize: number | undefined }
+			manual: { pageCount: number | undefined }
+		},
+		mode: 'auto' | 'manual' = 'auto',
+		initialData: Array<any> | undefined = [],
+		page: number = 0
+	) {
+		if (mode === 'auto') {
+			const pageSize: number = configuration.auto.pageSize ?? 0
+			const data = initialData?.slice(0 + page * pageSize, pageSize + page * pageSize) ?? []
+			const shouldDisplayPagination = pageSize < initialData.length
+			const total = Math.ceil(initialData?.length / pageSize ?? 0)
+
+			return {
+				data,
+				shouldDisplayPagination,
+				indexOffset: page * pageSize,
+				disableNext: pageSize > 0 && (page + 1) * pageSize >= initialData?.length,
+				total: total
+			}
+		} else {
+			const pageCount = configuration.manual.pageCount ?? 0
+			const total = pageCount
+
+			return {
+				shouldDisplayPagination: true,
+				data: initialData ?? [],
+				indexOffset: 0,
+				disableNext: page + 1 >= pageCount,
+				total: total
+			}
+		}
+	}
+
+	$: pagination = getPagination(
+		resolvedConfig.pagination?.configuration,
+		resolvedConfig.pagination?.selected,
+		result,
+		page
+	)
 </script>
 
 {#each Object.keys(components['listcomponent'].initialData.configuration) as key (key)}
@@ -85,8 +128,8 @@
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>
 			{#if $app.subgrids?.[`${id}-0`]}
-				{#if Array.isArray(result) && result.length > 0}
-					{#each result ?? [] as value, index}
+				{#if Array.isArray(pagination.data) && pagination.data.length > 0}
+					{#each pagination?.data ?? [] as value, index}
 						<div
 							style={`${
 								isCard
@@ -101,7 +144,7 @@
 								}}
 								bind:inputs
 								{value}
-								{index}
+								index={index + pagination.indexOffset}
 							>
 								<SubGridEditor
 									visible={render}
@@ -130,7 +173,7 @@
 				{/if}
 			{/if}
 		</div>
-		{#if resolvedConfig.paginated?.selected == 'paginated'}
+		{#if pagination.shouldDisplayPagination}
 			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center">
 				<Button
 					size="xs2"
@@ -161,7 +204,7 @@
 						page = page + 1
 						outputs?.page.set(page, true)
 					}}
-					disabled={resolvedConfig.paginated?.configuration?.paginated?.disableNext}
+					disabled={pagination.disableNext}
 				>
 					<div class="flex flex-row gap-1 items-center">
 						Next
@@ -173,7 +216,7 @@
 						{/if}
 					</div>
 				</Button>
-				<div class="text-xs">Page: {page + 1}</div>
+				<div class="text-xs">{page + 1} of {pagination.total}</div>
 			</div>
 		{/if}
 	</div>
