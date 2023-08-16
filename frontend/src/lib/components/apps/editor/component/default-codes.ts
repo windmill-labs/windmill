@@ -11,7 +11,7 @@ export const DEFAULT_CODES: Partial<
 	>
 > = {
 	tablecomponent: {
-		deno: `export async function main(page: number) {
+		deno: `export async function main(page?: number) {
 	return [
 		{
 			"id": 1,
@@ -532,7 +532,7 @@ return {
 `
 	},
 	listcomponent: {
-		deno: `export async function main(page: number) {
+		deno: `export async function main(page?: number) {
 	return [{
 		"foo": 1,
 	}, {
