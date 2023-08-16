@@ -432,7 +432,7 @@ const paginationOneOf = {
 	selected: 'auto',
 	labels: {
 		auto: 'Managed by component',
-		manual: "Managed by runnable with parameter 'page'"
+		manual: 'Managed by runnable'
 	},
 	tooltip:
 		'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. A "page" parameter is automatically added to the runnable and connected.',
@@ -612,7 +612,7 @@ export const components = {
 					selected: 'auto',
 					labels: {
 						auto: 'Managed by component',
-						manual: "Managed by runnable with parameter 'page'"
+						manual: 'Managed by runnable'
 					},
 					tooltip:
 						'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. A "page" parameter is automatically added to the runnable and connected.',
