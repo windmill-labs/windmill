@@ -431,9 +431,11 @@ const paginationOneOf = {
 	type: 'oneOf',
 	selected: 'auto',
 	labels: {
-		auto: 'Auto',
-		manual: 'Manual'
+		auto: 'Managed by component',
+		manual: 'Managed by runnable'
 	},
+	tooltip:
+		'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. The current page number is available in the component outputs.',
 	configuration: {
 		auto: {
 			pageSize: {
@@ -603,7 +605,36 @@ export const components = {
 					fieldType: 'number',
 					value: 280,
 					tooltip: 'Height in pixels'
-				}
+				},
+
+				pagination: {
+					type: 'oneOf',
+					selected: 'auto',
+					labels: {
+						auto: 'Managed by component',
+						manual: 'Managed by runnable'
+					},
+					tooltip:
+						'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. The current page number is available in the component outputs.',
+					configuration: {
+						manual: {
+							pageCount: {
+								type: 'static',
+								fieldType: 'number',
+								value: -1,
+								tooltip: 'Number of pages (-1 if you do not know)'
+							}
+						},
+						auto: {
+							pageSize: {
+								type: 'static',
+								fieldType: 'number',
+								value: 20,
+								tooltip: 'Number of items per page'
+							}
+						}
+					}
+				} as const
 			},
 			componentInput: {
 				type: 'static',

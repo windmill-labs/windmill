@@ -33,7 +33,7 @@
 	<div class="mb-2 text-sm font-semibold">
 		{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
 		{#if tooltip}
-			<Tooltip>{tooltip}</Tooltip>
+			<Tooltip light>{tooltip}</Tooltip>
 		{/if}
 	</div>
 	<select
@@ -69,6 +69,7 @@
 					onlyStatic={config?.['onlyStatic']}
 					customTitle={config?.['customTitle']}
 					noVariablePicker={config?.['noVariablePicker']}
+					tooltip={config?.['tooltip']}
 				/>
 			{/if}
 		{/each}
