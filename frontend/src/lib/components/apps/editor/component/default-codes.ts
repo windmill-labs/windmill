@@ -11,7 +11,8 @@ export const DEFAULT_CODES: Partial<
 	>
 > = {
 	tablecomponent: {
-		deno: `export async function main(page?: number) {
+		deno: `// page is an optional parameter you can use to paginate the table
+export async function main(page?: number) {
 	return [
 		{
 			"id": 1,
@@ -25,7 +26,8 @@ export const DEFAULT_CODES: Partial<
 		}
 	]
 }`,
-		python3: `def main(page: int):
+		python3: `# page is an optional parameter you can use to paginate the table
+def main(page: int):
 	return [
 		{
 			"id": 1,
@@ -532,7 +534,8 @@ return {
 `
 	},
 	listcomponent: {
-		deno: `export async function main(page?: number) {
+		deno: `// page is an optional parameter you can use to paginate the list
+export async function main(page?: number) {
 	return [{
 		"foo": 1,
 	}, {
@@ -541,7 +544,8 @@ return {
 		"foo": 3,
 	}];
 }`,
-		python3: `def main(page: int):
+		python3: `# page is an optional parameter you can use to paginate the list
+def main(page: int):
 	return [{"foo": 1}, {"foo": 2}, {"foo": 3}]`
 	}
 } as const
