@@ -11,7 +11,7 @@ export const DEFAULT_CODES: Partial<
 	>
 > = {
 	tablecomponent: {
-		deno: `export async function main() {
+		deno: `export async function main(page: number) {
 	return [
 		{
 			"id": 1,
@@ -25,7 +25,7 @@ export const DEFAULT_CODES: Partial<
 		}
 	]
 }`,
-		python3: `def main():
+		python3: `def main(page: int):
 	return [
 		{
 			"id": 1,
@@ -530,5 +530,18 @@ return {
 		"required": []
 	}
 `
+	},
+	listcomponent: {
+		deno: `export async function main(page: number) {
+	return [{
+		"foo": 1,
+	}, {
+		"foo": 2,
+	}, {
+		"foo": 3,
+	}];
+}`,
+		python3: `def main(page: int):
+	return [{"foo": 1}, {"foo": 2}, {"foo": 3}]`
 	}
 } as const

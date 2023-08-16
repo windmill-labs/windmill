@@ -22,13 +22,13 @@
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
-	$: page = 0
+	let page = 0
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
 		inputs: {},
-		page
+		page: 0
 	})
 
 	let resolvedConfig = initConfig(
@@ -70,7 +70,7 @@
 		if (mode === 'auto') {
 			const pageSize: number = configuration.auto.pageSize ?? 0
 			const data = initialData?.slice(0 + page * pageSize, pageSize + page * pageSize) ?? []
-			const shouldDisplayPagination = pageSize < initialData.length
+			const shouldDisplayPagination = pageSize < initialData?.length ?? false
 			const total = Math.ceil(initialData?.length / pageSize ?? 0)
 
 			return {
