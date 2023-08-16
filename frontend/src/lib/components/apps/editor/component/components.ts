@@ -435,7 +435,7 @@ const paginationOneOf = {
 		manual: 'Managed by runnable'
 	},
 	tooltip:
-		'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. A "page" parameter is automatically added to the runnable and connected.',
+		'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. The current page number is available in the component outputs.',
 	configuration: {
 		auto: {
 			pageSize: {
@@ -615,7 +615,7 @@ export const components = {
 						manual: 'Managed by runnable'
 					},
 					tooltip:
-						'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. A "page" parameter is automatically added to the runnable and connected.',
+						'Pagination can be managed using two methods: By the component: Based on a specified page size, the component divides the array into several pages. By the runnable: The component shows all items, leaving the task of pagination to the runnable. The current page number is available in the component outputs.',
 					configuration: {
 						manual: {
 							pageCount: {

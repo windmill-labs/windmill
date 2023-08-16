@@ -99,34 +99,6 @@
 					fieldType: 'number'
 				}
 			}
-		} else if (componentType === 'listcomponent') {
-			const componentOutputs = $worldStore?.outputsById[id]
-
-			if (componentOutputs.page) {
-				newFields['page'] = {
-					type: 'connected',
-					connection: {
-						componentId: id,
-						path: 'page'
-					},
-					value: componentOutputs.page.peak(),
-					fieldType: 'number'
-				}
-			}
-		} else if (componentType === 'tablecomponent') {
-			const componentOutputs = $worldStore?.outputsById[id]
-
-			if (componentOutputs.page) {
-				newFields['page'] = {
-					type: 'connected',
-					connection: {
-						componentId: id,
-						path: 'page'
-					},
-					value: componentOutputs.page.peak(),
-					fieldType: 'number'
-				}
-			}
 		}
 	}
 
