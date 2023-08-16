@@ -603,7 +603,27 @@ export const components = {
 					fieldType: 'number',
 					value: 280,
 					tooltip: 'Height in pixels'
-				}
+				},
+
+				paginated: {
+					type: 'oneOf',
+					selected: 'noPagination',
+					labels: {
+						noPagination: 'No pagination',
+						paginated: 'Paginated'
+					},
+					configuration: {
+						paginated: {
+							disableNext: {
+								type: 'static',
+								fieldType: 'boolean',
+								value: false,
+								tooltip: 'Disable next button'
+							}
+						},
+						noPagination: {}
+					}
+				} as const
 			},
 			componentInput: {
 				type: 'static',
