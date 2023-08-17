@@ -2,6 +2,7 @@ from typing import Any, Union, Dict
 from typing import Generic, TypeVar, TypeAlias
 
 import os
+import json
 
 from time import sleep
 from windmill_api.models.whoami_response_200 import WhoamiResponse200
@@ -163,7 +164,12 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
     path = path or get_state_path()
     parsed = get_resource_api.sync_detailed(
         workspace=get_workspace(), path=path, client=create_client()
-    ).parsed
+    )
+    try:
+        parsed = json.loads(parsed.content.decode("utf-8"))
+    except:
+        parsed = None
+
     if parsed is None:
         if none_if_undefined:
             return None
