@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.150.0](https://github.com/windmill-labs/windmill/compare/v1.149.0...v1.150.0) (2023-08-17)
+
+
+### Features
+
+* copilot tokens streaming + cancel ([#2107](https://github.com/windmill-labs/windmill/issues/2107)) ([82612c3](https://github.com/windmill-labs/windmill/commit/82612c35bd4cd15af21582f9650b615d3e12c06c))
+* graphql custom headers ([#2111](https://github.com/windmill-labs/windmill/issues/2111)) ([6733b85](https://github.com/windmill-labs/windmill/commit/6733b8552b1128663c8fb8086c85ad0406d9b999))
+
+
+### Bug Fixes
+
+* powershell icon ([#2109](https://github.com/windmill-labs/windmill/issues/2109)) ([c817af7](https://github.com/windmill-labs/windmill/commit/c817af769457a069617fafb2d3fcf38a85212690))
+* set NETRC at init and not for every job ([359845f](https://github.com/windmill-labs/windmill/commit/359845fa9dd14e8445cc95e73cc646dce1f45ddb))
+* unify clients to use server-side interpolation to retrieve full resources ([067908c](https://github.com/windmill-labs/windmill/commit/067908c0b59f1e73222cad0e5f214f3605006ef3))
+* unify clients to use server-side interpolation to retrieve full resources ([930839a](https://github.com/windmill-labs/windmill/commit/930839aad22eaeee0737f1d057b8cfb538d26d3f))
+* unify clients to use server-side interpolation to retrieve full resources ([e9c19b5](https://github.com/windmill-labs/windmill/commit/e9c19b5b985c0e03524b2d12b1f26a0e6fdc6e0b))
+
 ## [1.149.0](https://github.com/windmill-labs/windmill/compare/v1.148.0...v1.149.0) (2023-08-17)
 
 
