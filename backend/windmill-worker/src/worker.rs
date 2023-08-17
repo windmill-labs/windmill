@@ -1260,6 +1260,7 @@ pub async fn transform_json_value(
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
+    tracing::info!("transform_json_value {name}", name = name);
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
@@ -1581,8 +1582,10 @@ async fn handle_bash_job(
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let hm = match job.args {
-        Some(Value::Object(ref hm)) => hm.clone(),
+    let client = client.get_authed().await;
+    let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
+    {
+        Value::Object(ref hm) => hm.clone(),
         _ => serde_json::Map::new(),
     };
     let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
@@ -1662,24 +1665,28 @@ async fn handle_powershell_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    let hm: serde_json::Map<String, Value> = match job.args {
-        Some(Value::Object(ref hm)) => hm.clone(),
-        _ => serde_json::Map::new(),
-    };
+    let pwsh_args = {
+        let client = client.get_authed().await;
+        let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
+        {
+            Value::Object(ref hm) => hm.clone(),
+            _ => serde_json::Map::new(),
+        };
 
-    let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
-        .args
-        .iter()
-        .map(|arg| {
-            (arg.name.clone(), hm.get(&arg.name)
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => serde_json::to_string(v).ok(),
-                })
-                .unwrap_or_else(String::new))
-        })
-        .collect::<Vec<(String, String)>>();
-    let pwsh_args = args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ");
+        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
+            .args
+            .iter()
+            .map(|arg| {
+                (arg.name.clone(), hm.get(&arg.name)
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => serde_json::to_string(v).ok(),
+                    })
+                    .unwrap_or_else(String::new))
+            })
+            .collect::<Vec<(String, String)>>();
+        args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ")
+    };
 
     let content = content
         .replace('$', r"\$") // escape powershell variables
