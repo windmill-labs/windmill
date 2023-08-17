@@ -41,6 +41,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_variables))
         .route("/list_contextual", get(list_contextual_variables))
         .route("/get/*path", get(get_variable))
+        .route("/get_value/*path", get(get_value))
         .route("/exists/*path", get(exists_variable))
         .route("/update/*path", post(update_variable))
         .route("/delete/*path", delete(delete_variable))
@@ -143,7 +144,7 @@ async fn get_variable(
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-                Some(_refresh_token(tx, &variable.path, w_id, variable.account.unwrap()).await?)
+                Some(_refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?)
             } else if !value.is_empty() && decrypt_secret {
                 let mc = build_crypt(&mut tx, &w_id).await?;
                 tx.commit().await?;
@@ -162,6 +163,63 @@ async fn get_variable(
     };
 
     Ok(Json(r))
+}
+
+async fn get_value(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<String> {
+    let path = path.to_path();
+    let tx = user_db.begin(&authed).await?;
+    return get_value_internal(tx, &w_id, &path, &authed.username)
+        .await
+        .map(Json);
+}
+
+pub async fn get_value_internal<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+    username: &str,
+) -> Result<String> {
+    let variable_o = sqlx::query!(
+        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
+        LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let variable = not_found_if_none(variable_o, "Variable", &path)?;
+
+    let r = if variable.is_secret {
+        audit_log(
+            &mut *tx,
+            username,
+            "variables.decrypt_secret",
+            ActionKind::Execute,
+            &w_id,
+            Some(&variable.path),
+            None,
+        )
+        .await?;
+        let value = variable.value;
+        if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
+            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?
+        } else if !value.is_empty() {
+            let mc = build_crypt(&mut tx, &w_id).await?;
+            tx.commit().await?;
+
+            mc.decrypt_base64_to_string(value)
+                .map_err(|e| Error::InternalErr(e.to_string()))?
+        } else {
+            "".to_string()
+        }
+    } else {
+        variable.value
+    };
+
+    Ok(r)
 }
 
 async fn exists_variable(

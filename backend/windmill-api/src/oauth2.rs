@@ -509,7 +509,7 @@ async fn refresh_token(
 ) -> error::Result<String> {
     let tx = user_db.begin(&authed).await?;
 
-    _refresh_token(tx, &path, w_id, id).await?;
+    _refresh_token(tx, &path, &w_id, id).await?;
 
     Ok(format!("Token at path {path} refreshed"))
 }
@@ -517,7 +517,7 @@ async fn refresh_token(
 pub async fn _refresh_token<'c>(
     mut tx: Transaction<'c, Postgres>,
     path: &str,
-    w_id: String,
+    w_id: &str,
     id: i32,
 ) -> error::Result<String> {
     let account = sqlx::query!(

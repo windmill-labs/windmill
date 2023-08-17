@@ -73,3 +73,4 @@ regex.workspace = true
 bytes.workspace = true
 mail-send.workspace = true
 samael = { workspace = true, optional = true }
+async-recursion.workspace = true
