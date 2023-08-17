@@ -10,33 +10,105 @@ prompts:
       Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
       You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
       Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    example_description: say hello to the passed name and return a random number between 0 and 100
+    example_answer: |-
+      ```python
+      import random
+
+      def main(name: str):
+          print("hello", name) # print hello name to the console
+          return random.randint(0, 100) # return a random number between 0 and 100
+      ```
   deno:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    example_description: say hello to the passed name and return a random number between 0 and 100
+    example_answer: |-
+      ```typescript
+      export async function main(name: string) {
+        console.log("hello", name) // print hello name to the console
+        return Math.floor(Math.random() * 100) // return a random number between 0 and 100
+      }
+      ```
   go:
     prompt: |-
       Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
+    example_description: say hello to the passed name and return a random number between 0 and 100
+    example_answer: |-
+      ```go
+      package inner
+
+      import (
+        "fmt"
+        "math/rand"
+      )
+
+      func main(name string) (int, error) {
+        fmt.Println("hello", name) // print hello name to the console
+        return rand.Intn(100), nil // return a random number between 0 and 100
+      }
+      ```
   bash:
     prompt: |-
       Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+    example_description: say hello to the passed name
+    example_answer: |-
+      ```shell
+      # shellcheck shell=bash
+      name="$1" # get the name argument
+      echo "hello $name" # print hello name
+      ```
   postgresql:
     prompt: |-
       Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    example_description: insert a name and a price into the products table
+    example_answer: |-
+      ```sql
+      -- $1 name
+      -- $2 price
+      INSERT INTO products (name, price) VALUES ($1::text, $2::numeric)
+      ```
   mysql:
     prompt: |-
       Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
+    example_description: insert a name and a price into the products table
+    example_answer: |-
+      ```sql
+      -- ? name (text)
+      -- ? price (float)
+      INSERT INTO products (name, price) VALUES (?, ?)
+      ```
   nativets:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    example_description: query sample data from jsonplaceholder
+    example_answer: |-
+      ```typescript
+      export async function main() {
+        // fetch the data from jsonplaceholder
+        const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+          headers: { "Content-Type": "application/json" },
+        });
+        return res.json();
+      }
+      ```
   bun:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
       You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    example_description: say hello to the passed name and return a random number between 0 and 100
+    example_answer: |-
+      ```typescript
+      export async function main(name: string) {
+        console.log("hello", name) // print hello name to the console
+        return Math.floor(Math.random() * 100) // return a random number between 0 and 100
+      }
+      ```
   frontend:
     prompt: |-
       Write client-side javascript code that should {description}. You have access to a few helpers:
@@ -47,3 +119,12 @@ prompts:
       Use the recompute function to recompute a component: recompute(id: string)
       Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
       The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
+    example_description: set the value of the input with id 'my_field' to the context variable email
+    example_answer: |-
+      ```javascript
+      // Access the email from the context object
+      var email = ctx.email;
+
+      // Use the setValue function to set the value of the input field with id 'my_field' to the email
+      setValue('my_field', email);
+      ```

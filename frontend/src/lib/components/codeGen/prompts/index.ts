@@ -2,19 +2,21 @@ import editObj from './edit.yaml'
 import fixObj from './fix.yaml'
 import genObj from './gen.yaml'
 
-interface PromptsConfig {
+export interface PromptsConfig {
 	system: string
 	prompts: {
-		[key: string]: {
+		[lang: string]: {
 			prompt: string
+			example_description: string
+			example_answer: string
+			example_code: string
+			example_error: string
 		}
 	}
 }
 
-const EDIT_CONFIG = editObj as PromptsConfig
+export const EDIT_CONFIG = editObj as PromptsConfig
 
-const FIX_CONFIG = fixObj as PromptsConfig
+export const FIX_CONFIG = fixObj as PromptsConfig
 
-const GEN_CONFIG = genObj as PromptsConfig
-
-export { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG }
+export const GEN_CONFIG = genObj as PromptsConfig

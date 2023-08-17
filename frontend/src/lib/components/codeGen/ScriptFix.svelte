@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, fixScript } from './lib'
+	import { SUPPORTED_LANGUAGES, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -11,6 +11,12 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
 	import Popup from '../common/popup/Popup.svelte'
+	import { writable } from 'svelte/store'
+	import { sleep } from '$lib/utils'
+	import { WindmillIcon } from '../icons'
+	import HighlightCode from '../HighlightCode.svelte'
+	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
+	import { autoPlacement } from '@floating-ui/core'
 
 	// props
 	export let lang: SupportedLanguage
@@ -20,24 +26,36 @@
 
 	// state
 	let genLoading: boolean = false
-	let generatedCode = ''
-	let explanation = ''
+	let generatedCode = writable<string>('')
+	let generatedExplanation = writable<string>('')
 	let dbSchema: DBSchema | undefined = undefined
+	let abortController: AbortController | undefined = undefined
 
-	async function onFix() {
+	async function onFix(closePopup: () => void) {
 		if (!error) {
 			return
 		}
 		try {
 			genLoading = true
-			const result = await fixScript({
-				language: lang,
-				code: editor?.getCode() || '',
-				error,
-				dbSchema: dbSchema
-			})
-			generatedCode = result.code
-			explanation = result.explanation
+			abortController = new AbortController()
+			await copilot(
+				{
+					language: lang,
+					code: editor?.getCode() || '',
+					error,
+					dbSchema: dbSchema,
+					type: 'fix'
+				},
+				generatedCode,
+				abortController,
+				generatedExplanation
+			)
+			setupDiff()
+			diffEditor?.setModified($generatedCode)
+			await sleep(500)
+			closePopup()
+			await sleep(300)
+			showDiff()
 		} catch (err) {
 			if (err?.message) {
 				sendUserToast('Failed to generate code: ' + err.message, true)
@@ -45,6 +63,7 @@
 				sendUserToast('Failed to generate code', true)
 				console.error(err)
 			}
+			closePopup()
 		} finally {
 			genLoading = false
 		}
@@ -53,18 +72,19 @@
 	function acceptDiff() {
 		editor?.setCode(diffEditor?.getModified() || '')
 		editor?.format()
-		generatedCode = ''
-		explanation = ''
-		error = ''
+		clear()
 	}
 
 	function rejectDiff() {
-		generatedCode = ''
-		explanation = ''
+		clear()
+	}
+
+	function setupDiff() {
+		diffEditor?.setupModel(scriptLangToEditorLang(lang))
+		diffEditor?.setOriginal(editor?.getCode() || '')
 	}
 
 	function showDiff() {
-		diffEditor?.setDiff(editor?.getCode() || '', generatedCode, scriptLangToEditorLang(lang))
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -74,17 +94,21 @@
 		diffEditor?.hide()
 	}
 
-	$: lang && (generatedCode = '')
+	function clear() {
+		$generatedCode = ''
+		$generatedExplanation = ''
+	}
 
-	$: generatedCode && showDiff()
-	$: !generatedCode && hideDiff()
+	$: lang && clear()
+
+	$: !$generatedCode && hideDiff()
 
 	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
 </script>
 
-{#if error && SUPPORTED_LANGUAGES.has(lang)}
+{#if SUPPORTED_LANGUAGES.has(lang)}
 	<div class="mt-2">
-		{#if generatedCode}
+		{#if !genLoading && $generatedCode.length > 0}
 			<div class="flex gap-1">
 				<Button
 					title="Discard generated code"
@@ -106,50 +130,82 @@
 				>
 					Accept
 				</Button>
-				{#if explanation}
+				{#if $generatedExplanation.length > 0}
 					<Popover>
-						<svelte:fragment slot="text">{explanation}</svelte:fragment>
+						<svelte:fragment slot="text">{$generatedExplanation}</svelte:fragment>
 						<Button size="xs" color="light" variant="contained" spacingSize="xs2">Explain</Button
 						></Popover
 					>
 				{/if}
 			</div>
 		{:else}
-			{#if $existsOpenaiResourcePath}
-				<Button
-					title="Fix code"
-					size="xs"
-					color="blue"
-					spacingSize="xs2"
-					startIcon={{ icon: faMagicWandSparkles }}
-					loading={genLoading}
-					on:click={onFix}
-				>
-					AI Fix
-				</Button>
-			{:else}
-				<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }}>
-					<svelte:fragment slot="button">
-						<Button
-							title="Fix code"
-							size="xs"
-							color="blue"
-							spacingSize="xs2"
-							startIcon={{ icon: faMagicWandSparkles }}
-							nonCaptureEvent={true}
-						>
+			<Popup
+				floatingConfig={{
+					middleware: [
+						autoPlacement({
+							allowedPlacements: [
+								'bottom-start',
+								'bottom-end',
+								'top-start',
+								'top-end',
+								'top',
+								'bottom'
+							]
+						})
+					]
+				}}
+				let:close
+			>
+				<svelte:fragment slot="button">
+					<Button
+						title="Fix code"
+						size="xs"
+						color={genLoading ? 'red' : 'blue'}
+						spacingSize="xs2"
+						startIcon={genLoading ? undefined : { icon: faMagicWandSparkles }}
+						nonCaptureEvent={!genLoading}
+						on:click={genLoading ? () => abortController?.abort() : undefined}
+						>{#if genLoading}
+							<WindmillIcon
+								white
+								class="mr-1 text-white"
+								height="16px"
+								width="20px"
+								spin="veryfast"
+							/>
+							Cancel
+						{:else}
 							AI Fix
-						</Button>
-					</svelte:fragment>
-					<div>
+						{/if}
+					</Button>
+				</svelte:fragment>
+				{@const fixAction = (_) => {
+					onFix(() => close(null))
+				}}
+				<div use:fixAction>
+					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
+						{#if $generatedCode.length > 0}
+							<div class="overflow-x-scroll">
+								<HighlightCode language={lang} code={$generatedCode} />
+							</div>
+							{#if $generatedExplanation.length > 0}
+								<p class="text-sm mt-2"
+									><span class="font-bold">Explanation:</span> {$generatedExplanation}</p
+								>
+							{/if}
+						{:else}
+							<LoadingIcon />
+						{/if}
+					</div>
+					{#if !$existsOpenaiResourcePath}
 						<p class="text-sm"
 							>Enable Windmill AI in the <a href="/workspace_settings?tab=openai"
 								>workspace settings.</a
 							></p
 						>
-					</div>
-				</Popup>
-			{/if}
-		{/if}</div
-	>
+					{/if}
+				</div>
+			</Popup>
+		{/if}
+	</div>
 {/if}
