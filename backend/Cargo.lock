@@ -7089,7 +7089,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7124,7 +7124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7183,7 +7183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7200,7 +7200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7213,7 +7213,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -7238,7 +7238,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7246,7 +7246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7257,7 +7257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7267,7 +7267,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7278,7 +7278,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7289,7 +7289,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7306,7 +7306,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7317,7 +7317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7333,7 +7333,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7351,7 +7351,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7380,7 +7380,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.150.0"
+version = "1.151.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7511,9 +7511,9 @@ checksum = "b6ade45bc8bf02ae2aa34a9d54ba660a1a58204da34ba793c00d83ca3730b5f1"
 
 [[package]]
 name = "winnow"
-version = "0.5.12"
+version = "0.5.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83817bbecf72c73bad717ee86820ebf286203d2e04c3951f3cd538869c897364"
+checksum = "d09770118a7eb1ccaf4a594a221334119a44a814fcb0d31c5b85e83e97227a97"
 dependencies = [
  "memchr",
 ]

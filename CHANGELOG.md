@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.151.0](https://github.com/windmill-labs/windmill/compare/v1.150.0...v1.151.0) (2023-08-17)
+
+
+### Features
+
+* **frontend:** Fix workspace switch + always displays confirmation modal on top of splitpanel separator ([#2115](https://github.com/windmill-labs/windmill/issues/2115)) ([eea9ce9](https://github.com/windmill-labs/windmill/commit/eea9ce93b918115e9ed6b951d000049ca66bd5fd))
+
+
+### Bug Fixes
+
+* fix python get_resource ([cb00a13](https://github.com/windmill-labs/windmill/commit/cb00a1358d0e47575d8315e70695a9693190f211))
+
 ## [1.150.0](https://github.com/windmill-labs/windmill/compare/v1.149.0...v1.150.0) (2023-08-17)
 
 
