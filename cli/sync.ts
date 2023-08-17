@@ -829,6 +829,10 @@ async function push(
 }
 
 const command = new Command()
+  .description(
+    "sync local with a remote workspaces or the opposite (push or pull)"
+  )
+
   .action(() =>
     log.info("2 actions available, pull and push. Use -h to display help.")
   )
