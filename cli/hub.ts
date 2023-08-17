@@ -62,6 +62,12 @@ async function pull(opts: GlobalOptions) {
   });
 
   for (const x of list) {
+    try {
+      x.schema = JSON.parse(x.schema);
+    } catch (e) {
+      log.info("failed to parse schema for " + x.name);
+      continue;
+    }
     if (
       resourceTypes.find(
         (y) =>
@@ -74,12 +80,7 @@ async function pull(opts: GlobalOptions) {
       continue;
     }
     log.info("syncing " + x.name);
-    try {
-      x.schema = JSON.parse(x.schema);
-    } catch (e) {
-      log.info("failed to parse schema for " + x.name);
-      continue;
-    }
+
     await pushResourceType(
       workspace.workspaceId,
       x.name + ".resource-type.json",
