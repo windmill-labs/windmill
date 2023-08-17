@@ -333,7 +333,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
     if let Some(ref netrc) = *NETRC {
-        tracing::info!("Writing netrc at {}/.netrc: {}", HOME_ENV.as_str(), netrc);
+        tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).await.expect("could not write netrc");
     }
 
