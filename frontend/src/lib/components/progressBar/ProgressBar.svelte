@@ -82,6 +82,9 @@
 			{state.length ? $percent.toFixed(0) : 0}%
 		</span>
 	</div>
+	<!-- {#each state as step, index}
+		{index} {JSON.stringify(step)}
+	{/each} -->
 	<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
 		{#each state as step, index}
 			<div
