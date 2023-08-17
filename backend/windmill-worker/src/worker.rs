@@ -1002,6 +1002,20 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e));
     }
 
+    let (cache_ttl, step) = if job.is_flow_step {
+        update_flow_status_in_progress(
+            db,
+            &job.workspace_id,
+            job.parent_job
+                .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
+            job.id,
+        )
+        .await?
+    } else {
+        (None, None)
+    };
+
+    
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -1030,18 +1044,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             set_logs(&logs, &job.id, db).await;
 
 
-            let (cache_ttl, step) = if job.is_flow_step {
-                update_flow_status_in_progress(
-                    db,
-                    &job.workspace_id,
-                    job.parent_job
-                        .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
-                    job.id,
-                )
-                .await?
-            } else {
-                (None, None)
-            };
 
             let cached_res_path = if cache_ttl.is_some() {
                 let flow_path = sqlx::query_scalar!(

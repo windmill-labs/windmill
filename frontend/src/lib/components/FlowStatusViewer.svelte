@@ -483,15 +483,15 @@
 								<div class="px-2 flex gap-2 min-w-0">
 									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 									{#if node.job_id}
-										<div class="truncate"
+										<div class="truncate min-w-1/2"
 											><div class=" text-primary whitespace-nowrap truncate">
-												<span class="font-bold">Job Id</span>
+												<span class="font-bold mr-2">Job Id</span>
 												<a
 													rel="noreferrer"
 													target="_blank"
 													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 												>
-													{truncateRev(node.job_id ?? '', 10) ?? ''}
+													{truncateRev(node.job_id ?? '', 1) ?? ''}
 												</a>
 											</div>
 										</div>

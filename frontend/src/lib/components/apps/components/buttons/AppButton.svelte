@@ -2,7 +2,13 @@
 	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -32,6 +38,9 @@
 
 	const { worldStore, app, componentControl, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
+
 	let resolvedConfig = initConfig(
 		components['buttoncomponent'].initialData.configuration,
 		configuration
@@ -81,6 +90,9 @@
 
 		$selectedComponent = [id]
 
+		if (rowContext && rowInputs) {
+			rowInputs(id, { result: outputs.result.peak(), loading: true })
+		}
 		if (preclickAction) {
 			await preclickAction()
 		}
@@ -89,6 +101,9 @@
 			runnableWrapper?.handleSideEffect(true)
 		} else {
 			await runnableComponent?.runComponent()
+		}
+		if (rowContext && rowInputs) {
+			rowInputs(id, { result: outputs.result.peak(), loading: false })
 		}
 	}
 	let loading = false
