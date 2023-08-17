@@ -272,7 +272,7 @@ db.address.apply((address) => {
     family: "windmill-worker",
     containerDefinitions: JSON.stringify([
       {
-        name: "first",
+        name: "windmill-worker",
         image: "ghcr.io/windmill-labs/windmill:latest",
         cpu: 1024,
         memory: 2048,
@@ -285,6 +285,7 @@ db.address.apply((address) => {
         ],
         environment: [
           { name: "DISABLE_SERVER", value: "true" },
+          { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
             name: "DATABASE_URL",
@@ -300,6 +301,9 @@ db.address.apply((address) => {
             "awslogs-create-group": "true",
             "awslogs-stream-prefix": "windmill-worker",
           },
+        },
+        dockerLabels: {
+          PROMETHEUS_EXPORTER_PORT: "8001",
         },
       },
     ]),
@@ -318,13 +322,14 @@ db.address.apply((address) => {
     family: "windmill-server",
     containerDefinitions: JSON.stringify([
       {
-        name: "server",
+        name: "windmill-server",
         image: "ghcr.io/windmill-labs/windmill:latest",
         cpu: 1024,
         memory: 1024,
         essential: true,
         environment: [
           { name: "NUM_WORKERS", value: "0" },
+          { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
             name: "DATABASE_URL",
@@ -340,7 +345,13 @@ db.address.apply((address) => {
             "awslogs-stream-prefix": "windmill-server",
           },
         },
+        dockerLabels: {
+          PROMETHEUS_EXPORTER_PORT: "8001",
+        },
         portMappings: [
+          {
+            containerPort: 8000,
+          },
           {
             containerPort: 8000,
           },
