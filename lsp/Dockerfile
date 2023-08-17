@@ -1,3 +1,18 @@
+FROM debian:buster-slim as downloader
+
+ARG TARGETPLATFORM
+
+SHELL ["/bin/bash", "-c"]
+
+RUN apt update -y
+RUN apt install -y unzip curl
+
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.36.1/deno-linux-arm64.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.36.1/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+
+RUN unzip deno.zip && rm deno.zip
+
+
 FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
 
 RUN apt-get update \
@@ -26,13 +41,9 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 RUN pip3 install black tornado python-lsp-jsonrpc ruff-lsp
-COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
-# docker does not support conditional COPY and we want to use the same Dockerfile for both amd64 and arm64 and privilege the official image
-COPY --from=lukechannings/deno:latest /usr/bin/deno /usr/bin/deno-arm
-ARG TARGETPLATFORM
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then rm /usr/bin/deno-arm; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then mv /usr/bin/deno-arm /usr/bin/deno; fi
-
+COPY --from=downloader /deno /usr/bin/deno
+RUN chmod 755 /usr/bin/deno
 
 COPY Pipfile .
 
