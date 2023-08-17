@@ -332,6 +332,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
+    if let Some(ref netrc) = *NETRC {
+        tracing::info!("Writing netrc at {}/.netrc: {}", HOME_ENV.as_str(), netrc);
+        write_file(&HOME_ENV, ".netrc", netrc).await.expect("could not write netrc");
+    }
+
     DirBuilder::new()
         .recursive(true)
         .create(&worker_dir)
