@@ -2,12 +2,13 @@
 	export let height = '24px'
 	export let width = '24px'
 	export let white = false
-	export let spin: 'slow' | 'medium' | 'fast' | undefined = undefined
+	export let spin: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined = undefined
 </script>
 
 <!-- Generator: Adobe Illustrator 26.5.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
 <svg
 	class={$$props.class}
+	class:animate-[spin_2s_linear_infinite]={spin === 'veryfast'}
 	class:animate-[spin_5s_linear_infinite]={spin === 'fast'}
 	class:animate-[spin_15s_linear_infinite]={spin === 'medium'}
 	class:animate-[spin_50s_linear_infinite]={spin === 'slow'}

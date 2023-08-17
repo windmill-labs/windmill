@@ -131,15 +131,17 @@
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2">
 						<DisplayResult workspaceId={testJob?.workspace_id} jobId={testJob?.id} result={testJob.result}>
-						{#if lang && editor && diffEditor && testJob?.result?.error}
-								<ScriptFix
-									error={JSON.stringify(testJob.result.error)}
-									{lang}
-									{editor}
-									{diffEditor}
-								/>
-							{/if}
-					</DisplayResult>
+							<svelte:fragment slot="copilot-fix">
+								{#if lang && editor && diffEditor && testJob?.result?.error}
+									<ScriptFix
+										error={JSON.stringify(testJob.result.error)}
+										{lang}
+										{editor}
+										{diffEditor}
+									/>
+								{/if}
+							</svelte:fragment>
+						</DisplayResult>
 					</pre>
 				{:else}
 					<div class="p-2">

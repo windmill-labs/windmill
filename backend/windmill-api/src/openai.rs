@@ -145,7 +145,7 @@ async fn proxy(
         request = request.header("OpenAI-Organization", org_id);
     }
 
-    let resp = request.send().await.map_err(to_anyhow)?;
+    let response = request.send().await.map_err(to_anyhow)?;
 
     tx = db.begin().await?;
     audit_log(
@@ -160,13 +160,19 @@ async fn proxy(
     .await?;
     tx.commit().await?;
 
+    if response.error_for_status_ref().is_err() {
+        return Err(Error::OpenAIError(
+            response.text().await.unwrap_or("".to_string()),
+        ));
+    }
+
     let mut headers = HeaderMap::new();
-    for (k, v) in resp.headers().iter() {
+    for (k, v) in response.headers().iter() {
         headers.insert(k, v.clone());
     }
 
-    let status_code = resp.status();
-    let stream = resp.bytes_stream();
+    let status_code = response.status();
+    let stream = response.bytes_stream();
 
     Ok((status_code, headers, StreamBody::new(stream)))
 }

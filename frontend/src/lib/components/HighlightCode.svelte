@@ -4,13 +4,17 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import go from 'svelte-highlight/languages/go'
 	import shell from 'svelte-highlight/languages/shell'
+	import graphql from 'svelte-highlight/languages/graphql'
+	import javascript from 'svelte-highlight/languages/javascript'
+	import sql from 'svelte-highlight/languages/sql'
+	import powershell from 'svelte-highlight/languages/powershell'
 	import type { Script } from '$lib/gen'
 
 	export let code: string = ''
-	export let language: Script.language | undefined
+	export let language: Script.language | 'frontend' | undefined
 	export let lines = false
 
-	function getLang(lang: string | undefined) {
+	function getLang(lang: Script.language | 'frontend' | undefined) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -24,6 +28,20 @@
 				return go
 			case 'bash':
 				return shell
+			case 'frontend':
+				return javascript
+			case 'graphql':
+				return graphql
+			case 'mysql':
+				return sql
+			case 'postgresql':
+				return sql
+			case 'snowflake':
+				return sql
+			case 'bigquery':
+				return sql
+			case 'powershell':
+				return powershell
 			default:
 				return typescript
 		}
