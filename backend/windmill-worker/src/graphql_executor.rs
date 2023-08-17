@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
@@ -11,6 +13,7 @@ use crate::{transform_json_value, AuthedClient, JobCompleted};
 struct GraphqlApi {
     bearer_token: Option<String>,
     base_url: String,
+    custom_headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -56,6 +59,12 @@ pub async fn do_graphql(
 
     if let Some(token) = &api.bearer_token {
         request = request.bearer_auth(token.as_str());
+    }
+
+    if let Some(headers) = &api.custom_headers {
+        for (k, v) in headers {
+            request = request.header(k, v);
+        }
     }
 
     let response = request
