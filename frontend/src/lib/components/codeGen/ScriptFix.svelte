@@ -107,7 +107,7 @@
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
-	<div class="mt-2">
+	<div class="mb-2">
 		{#if !genLoading && $generatedCode.length > 0}
 			<div class="flex gap-1">
 				<Button

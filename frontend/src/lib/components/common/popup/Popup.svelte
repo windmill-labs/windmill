@@ -8,7 +8,7 @@
 		placement: 'bottom-start'
 	}
 
-	export let containerClasses: string = 'rounded-lg shadow-lg p-4 bg-surface'
+	export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
 
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 </script>

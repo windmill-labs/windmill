@@ -118,9 +118,14 @@
 <div class="inline-highlight">
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
-			<div class="mb-2 text-tertiary text-sm bg-gray-50/20">
-				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
-			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+			<div class="flex flex-row w-full justify-between items-center">
+				<div class="mb-2 text-tertiary text-sm">
+					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
+				>
+				<slot name="copilot-fix" />
+			</div>
+		{/if}
+		{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
@@ -217,9 +222,8 @@
 					href="data:application/octet-stream;base64,{result.file}">Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error' && result?.error}<div
-				class="flex flex-col items-start"
-			>
+		{:else if !forceJson && resultKind == 'error' && result?.error}
+			<div class="flex flex-col items-start">
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span

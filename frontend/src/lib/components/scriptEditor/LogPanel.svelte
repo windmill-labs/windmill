@@ -92,20 +92,22 @@
 					</Pane>
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
-							<div class="relative w-full h-full p-2"
-								><DisplayResult
+							<div class="relative w-full h-full p-2">
+								<DisplayResult
 									workspaceId={previewJob?.workspace_id}
 									jobId={previewJob?.id}
 									result={previewJob.result}
 								>
-									{#if lang && editor && diffEditor && previewJob?.result?.error}
-										<ScriptFix
-											error={JSON.stringify(previewJob.result.error)}
-											{lang}
-											{editor}
-											{diffEditor}
-										/>
-									{/if}
+									<svelte:fragment slot="copilot-fix">
+										{#if lang && editor && diffEditor && previewJob?.result?.error}
+											<ScriptFix
+												error={JSON.stringify(previewJob.result.error)}
+												{lang}
+												{editor}
+												{diffEditor}
+											/>
+										{/if}
+									</svelte:fragment>
 								</DisplayResult>
 							</div>
 						{:else}

@@ -262,8 +262,14 @@ export async function copilot(
 		}
 
 		code = match[1]
-		generatedCode.set(code)
+		if (!code.endsWith('`')) {
+			// skip displaying if possible that part of three ticks (end of code block)s
+			generatedCode.set(code)
+		}
 	}
+
+	// make sure we display the latest and complete code
+	generatedCode.set(code)
 
 	if (code.length === 0) {
 		throw new Error('No code block found')
