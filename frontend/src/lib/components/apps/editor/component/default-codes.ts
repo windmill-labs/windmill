@@ -530,5 +530,18 @@ return {
 		"required": []
 	}
 `
+	},
+	listcomponent: {
+		deno: `export async function main() {
+	return [{
+		"foo": 1,
+	}, {
+		"foo": 2,
+	}, {
+		"foo": 3,
+	}];
+}`,
+		python3: `def main():
+	return [{"foo": 1}, {"foo": 2}, {"foo": 3}]`
 	}
 } as const

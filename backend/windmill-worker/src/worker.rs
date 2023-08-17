@@ -36,7 +36,7 @@ use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED,
 use serde_json::{json, Value};
 
 use tokio::{
-    fs::{metadata, symlink, DirBuilder, File},
+    fs::{symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -684,6 +684,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
                     DirBuilder::new()
+                        .recursive(true)
                         .create(&job_dir)
                         .await
                         .expect("could not create job dir");
@@ -695,18 +696,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if same_worker && job.parent_job.is_some() {
                         let parent_flow = job.parent_job.unwrap();
                         let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                        if metadata(&parent_shared_dir).await.is_err() {
-                            DirBuilder::new()
-                                .recursive(true)
-                                .create(&parent_shared_dir)
-                                .await
-                                .expect("could not create parent shared dir");
-                        }
+                        DirBuilder::new()
+                            .recursive(true)
+                            .create(&parent_shared_dir)
+                            .await
+                            .expect("could not create parent shared dir");
+                        
                         symlink(&parent_shared_dir, target)
                             .await
                             .expect("could not symlink target");
                     } else {
                         DirBuilder::new()
+                            .recursive(true)
                             .create(target)
                             .await
                             .expect("could not create shared dir");

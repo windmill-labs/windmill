@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faDownload } from '@fortawesome/free-solid-svg-icons'
 	import type { Table } from '@tanstack/svelte-table'
-	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
@@ -16,6 +16,7 @@
 	export { c as class }
 	export let style = ''
 	export let download: boolean = true
+	export let loading: boolean = false
 
 	function convertJSONToCSV(objArray: Record<string, any>[]) {
 		let str = ''
@@ -45,6 +46,14 @@
 		downloadAnchorNode.click()
 		downloadAnchorNode.remove()
 	}
+
+	let isPreviousLoading = false
+	let isNextLoading = false
+
+	$: if (!loading) {
+		isPreviousLoading = false
+		isNextLoading = false
+	}
 </script>
 
 {#if result.length > pageSize || manualPagination || download}
@@ -55,26 +64,43 @@
 		{#if result.length > pageSize || manualPagination}
 			<div class="flex items-center gap-2 flex-row">
 				<Button
-					size="xs"
+					size="xs2"
 					variant="border"
 					color="light"
-					btnClasses="!py-1 !pl-1"
-					on:click={() => $table.previousPage()}
+					on:click={() => {
+						isPreviousLoading = true
+						$table.previousPage()
+					}}
 					disabled={!$table.getCanPreviousPage()}
 				>
-					<ChevronLeft size={14} />
-					Previous
+					<div class="flex flex-row gap-1 items-center">
+						{#if isPreviousLoading && loading}
+							<Loader2 size={14} class="animate-spin" />
+						{:else}
+							<ChevronLeft size={14} />
+						{/if}
+						Previous
+					</div>
 				</Button>
 				<Button
-					size="xs"
+					size="xs2"
 					variant="border"
 					color="light"
-					btnClasses="!py-1 !pr-1"
-					on:click={() => $table.nextPage()}
+					on:click={() => {
+						isNextLoading = true
+						$table.nextPage()
+					}}
 					disabled={!$table.getCanNextPage()}
 				>
-					Next
-					<ChevronRight size={14} />
+					<div class="flex flex-row gap-1 items-center">
+						Next
+
+						{#if isNextLoading && loading}
+							<Loader2 size={14} class="animate-spin" />
+						{:else}
+							<ChevronRight size={14} />
+						{/if}
+					</div>
 				</Button>
 				{$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
 			</div>
