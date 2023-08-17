@@ -24,10 +24,6 @@ mysql = TypeAlias
 bigquery = TypeAlias
 
 
-VAR_RESOURCE_PREFIX = "$var:"
-RES_RESOURCE_PREFIX = "$res:"
-
-
 class JobStatus(Enum):
     WAITING = 1
     RUNNING = 2
@@ -160,7 +156,9 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
     """
     Returns the resource at a given path
     """
-    from windmill_api.api.resource import get_resource as get_resource_api
+    from windmill_api.api.resource import (
+        get_resource_value_interpolated as get_resource_api,
+    )
 
     path = path or get_state_path()
     parsed = get_resource_api.sync_detailed(
@@ -174,11 +172,7 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
                 f"Resource at path {path} does not exist or you do not have read permissions on it"
             )
 
-    if isinstance(parsed.value, Unset):
-        return None
-
-    raw = parsed.value
-    return _transform_leaf(raw)
+    return parsed
 
 
 def whoami() -> WhoamiResponse200 | None:
@@ -286,7 +280,7 @@ def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
     """
-    from windmill_api.api.variable import get_variable as get_variable_api
+    from windmill_api.api.variable import get_variable_value as get_variable_api
 
     res = get_variable_api.sync_detailed(
         workspace=get_workspace(), path=path, client=create_client()
@@ -296,7 +290,7 @@ def get_variable(path: str) -> str:
             f"Variable at path {path} does not exist or you do not have read permissions on it"
         )
 
-    return res.value  # type: ignore
+    return res
 
 
 def set_variable(path: str, value: str) -> None:
@@ -356,23 +350,3 @@ def get_resume_urls(approver: str | None = None) -> Dict:
         return res.parsed.to_dict()
     else:
         raise Exception("Failed to get resume urls")
-
-
-def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: _transform_leaf(v) for k, v in d.items()}
-
-
-def _transform_leaf(v: Any) -> Any:
-    if isinstance(v, dict):
-        return _transform_leaves(v)  # type: ignore
-    elif isinstance(v, str):
-        if v.startswith(VAR_RESOURCE_PREFIX):
-            var_name = v[len(VAR_RESOURCE_PREFIX) :]
-            return get_variable(var_name)
-        if v.startswith(RES_RESOURCE_PREFIX):
-            res_name = v[len(RES_RESOURCE_PREFIX) :]
-            return get_resource(res_name)
-        else:
-            return v
-    else:
-        return v

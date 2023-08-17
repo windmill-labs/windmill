@@ -18,6 +18,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
@@ -32,6 +33,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
+        .route(
+            "/get_value_interpolated/*path",
+            get(get_resource_value_interpolated),
+        )
         .route("/update/*path", post(update_resource))
         .route("/update_value/*path", post(update_resource_value))
         .route("/delete/*path", delete(delete_resource))
@@ -238,6 +243,84 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+async fn get_resource_value_interpolated(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+
+    let value_o = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let value = not_found_if_none(value_o, "Resource", path)?;
+    if let Some(value) = value {
+        Ok(Json(Some(
+            transform_json_value(&authed, &user_db, &w_id, value).await?,
+        )))
+    } else {
+        Ok(Json(None))
+    }
+}
+
+use async_recursion::async_recursion;
+
+#[async_recursion]
+pub async fn transform_json_value<'c>(
+    authed: &Authed,
+    user_db: &UserDB,
+    workspace: &str,
+    v: Value,
+) -> Result<Value> {
+    match v {
+        Value::String(y) if y.starts_with("$var:") => {
+            let path = y.strip_prefix("$var:").unwrap();
+            let tx: Transaction<'_, Postgres> = user_db.clone().begin(&authed).await?;
+            let v =
+                crate::variables::get_value_internal(tx, workspace, path, &authed.username).await?;
+            Ok(Value::String(v))
+        }
+        Value::String(y) if y.starts_with("$res:") => {
+            let path = y.strip_prefix("$res:").unwrap();
+            if path.split("/").count() < 2 {
+                return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
+            }
+            let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(&authed).await?;
+            let v = sqlx::query_scalar!(
+                "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+                path,
+                &workspace
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            let v = not_found_if_none(v, "Resource", path)?;
+            if let Some(v) = v {
+                transform_json_value(authed, user_db, workspace, v).await
+            } else {
+                Ok(Value::Null)
+            }
+        }
+        Value::Object(mut m) => {
+            for (a, b) in m.clone().into_iter() {
+                m.insert(
+                    a.clone(),
+                    transform_json_value(authed, user_db, workspace, b).await?,
+                );
+            }
+            Ok(Value::Object(m))
+        }
+        a @ _ => Ok(a),
+    }
+}
+
 async fn check_path_conflict<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
@@ -262,7 +345,7 @@ async fn check_path_conflict<'c>(
 
 #[derive(Deserialize)]
 struct CreateResourceQuery {
-    update_if_exists: Option<bool>
+    update_if_exists: Option<bool>,
 }
 async fn create_resource(
     authed: Authed,
@@ -281,7 +364,7 @@ async fn create_resource(
     if !update_if_exists {
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
-    
+
     sqlx::query!(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type)

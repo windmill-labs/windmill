@@ -172,7 +172,12 @@ pub async fn get_latest_deployed_hash_for_path<'c>(
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
-    Ok((scripts::ScriptHash(script.hash), script.tag, script.concurrent_limit, script.concurrency_time_window_s))
+    Ok((
+        scripts::ScriptHash(script.hash),
+        script.tag,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+    ))
 }
 
 pub async fn get_latest_hash_for_path<'c>(
@@ -192,5 +197,10 @@ pub async fn get_latest_hash_for_path<'c>(
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
-    Ok((scripts::ScriptHash(script.hash), script.tag, script.concurrent_limit, script.concurrency_time_window_s))
+    Ok((
+        scripts::ScriptHash(script.hash),
+        script.tag,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+    ))
 }

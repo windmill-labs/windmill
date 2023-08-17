@@ -41,16 +41,14 @@ func GetVariable(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := client.Client.GetVariableWithResponse(context.Background(), client.Workspace, path, &api.GetVariableParams{
-		DecryptSecret: newBool(true),
-	})
+	res, err := client.Client.GetVariableValueWithResponse(context.Background(), client.Workspace, path)
 	if res.StatusCode()/100 != 2 {
 		return "", errors.New(string(res.Body))
 	}
 	if err != nil {
 		return "", err
 	}
-	return *res.JSON200.Value, nil
+	return *res.JSON200, nil
 }
 
 func GetResource(path string) (interface{}, error) {
@@ -58,14 +56,14 @@ func GetResource(path string) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := client.Client.GetResourceWithResponse(context.Background(), client.Workspace, path)
+	res, err := client.Client.GetResourceValueInterpolatedWithResponse(context.Background(), client.Workspace, path)
 	if res.StatusCode()/100 != 2 {
 		return nil, errors.New(string(res.Body))
 	}
 	if err != nil {
 		return nil, err
 	}
-	return *res.JSON200.Value, nil
+	return *res.JSON200, nil
 }
 
 func SetResource(path string, value interface{}) error {

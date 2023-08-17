@@ -311,9 +311,9 @@ async fn op_variable(
     if let Some(client) = client {
         let result = client
             .get_client()
-            .get_variable(&client.workspace, path, None)
+            .get_variable_value(&client.workspace, path)
             .await?;
-        Ok(result.into_inner().value.unwrap_or_else(|| "".to_owned()))
+        Ok(result.into_inner())
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -370,7 +370,7 @@ async fn op_resource(
     if let Some(client) = client {
         let result = client
             .get_client()
-            .get_resource_value(&client.workspace, path)
+            .get_resource_value_interpolated(&client.workspace, path)
             .await?;
         Ok(result.into_inner())
     } else {

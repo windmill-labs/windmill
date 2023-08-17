@@ -1263,14 +1263,11 @@ pub async fn transform_json_value(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = client.get_client()
-                .get_variable(workspace, path, Some(true))
+            client.get_client()
+                .get_variable_value(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| v.into_inner())?
-                .value
-                .unwrap_or_else(|| String::new());
-            Ok(Value::String(v))
+                .map(|v| json!(v.into_inner()))
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -1279,12 +1276,11 @@ pub async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            let v = client.get_client()
-                .get_resource_value(workspace, path)
+            Ok(client.get_client()
+                .get_resource_value_interpolated(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner();
-            transform_json_value(name, client, workspace, v).await
+                .into_inner())
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
