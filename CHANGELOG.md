@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.149.0](https://github.com/windmill-labs/windmill/compare/v1.148.0...v1.149.0) (2023-08-17)
+
+
+### Features
+
+* **frontend:** Add List pagination + add loading state in tables ([#2096](https://github.com/windmill-labs/windmill/issues/2096)) ([9b15e40](https://github.com/windmill-labs/windmill/commit/9b15e409a5b902874d0cf1566b57db6fc23a87ec))
+
+
+### Bug Fixes
+
+* appgrid refresh selected on row on result changes ([0af264f](https://github.com/windmill-labs/windmill/commit/0af264f6f8d0ff018094b97a2af9fe6f02e6ccfe))
+* fix folder creation if job folder already exist ([c320ea8](https://github.com/windmill-labs/windmill/commit/c320ea865f1632e517d4c597491517da89ff77e7))
+* fix go envs passing ([ed6494f](https://github.com/windmill-labs/windmill/commit/ed6494ff7a1f6102eaad8c0052c1ac3f82d4cadf))
+* **frontend:** Fix toast when adding a user + set default vscoode the… ([#2080](https://github.com/windmill-labs/windmill/issues/2080)) ([801f2a8](https://github.com/windmill-labs/windmill/commit/801f2a8299956f0debe95bb13faef798a0ea0b08))
+
 ## [1.148.0](https://github.com/windmill-labs/windmill/compare/v1.147.3...v1.148.0) (2023-08-14)
 
 
