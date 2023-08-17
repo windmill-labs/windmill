@@ -6,14 +6,6 @@ system: |-
   Explain the error and the fix in the following format:
   explanation: "Here's the explanation"
   Also put the explanations in the code as comments.
-prompt: |-
-  Here's my environment: {environment}
-  Here's my code: 
-  ```{lang}
-  {code}
-  ```
-  I get the following error: {error}
-  Fix my code.
 prompts:
   python3:
     prompt: |-
@@ -26,6 +18,16 @@ prompts:
       Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      print("Hello world")
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nNo main function found"}}`
+    example_answer: |-
+      ```python
+      def main():
+          print("Hello world")
+      ```
+      explanation: "The code should be wrapped it in a function called "main"."
   deno:
     prompt: |-
       Here's my TypeScript code in a deno running environment:
@@ -37,6 +39,17 @@ prompts:
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      console.log("Hello world")
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nmain function was not findable (expected to find 'export function main(...)'"}}`
+    example_answer: |-
+      ```typescript
+      export async function main() {
+          console.log("Hello world")
+      }
+      ```
+      explanation: "The code should be wrapped in an exported function called "main"."
   go:
     prompt: |-
       Here's my go code: 
@@ -46,6 +59,33 @@ prompts:
       Additional information: We have to export a "main" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner"
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      package inner
+
+      import (
+        "fmt"
+      )
+
+      func main() (interface{}) {
+        fmt.Println("Hello World")
+        return nil
+      }
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"ExitCode: 2, last log lines:\\n# mymod/inner\\ninner/runner.go:7:12: not enough return values\\n\\thave (interface{})\\n\\twant (interface{}, error)"}}
+    example_answer: |-
+      ```go
+      package inner
+
+      import (
+        "fmt"
+      )
+
+      func main() (interface{}, error) {
+        fmt.Println("Hello World")
+        return nil, nil
+      }
+      ```
+      explanation: "The return type of the function should be ({return_type}, error) and therefore the function should return two parameters: the result and an error or nil."
   bash:
     prompt: |-
       Here's my bash code: 
@@ -55,6 +95,19 @@ prompts:
       Additional information: Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      # shellcheck shell=bash
+      msg = "$1"
+      echo "Hello $msg"
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"ExitCode: 127, last log lines:\\nmain.sh: line 4: msg: command not found"}}
+    example_answer: |-
+      ```shell
+      # shellcheck shell=bash
+      msg="$1"
+      echo "Hello $msg"
+      ```
+      explanation: "The variable assignment should be msg="$1"."
   postgresql:
     prompt: |-
       Here's my PostgreSQL code: 
@@ -64,15 +117,33 @@ prompts:
       Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      selec * from demo
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\ndb error: ERROR: syntax error at or near \\"selec\\""}}
+    example_answer: |-
+      ```sql
+      select * from demo
+      ```
+      explanation: "You're missing a "t" in "select"."
   mysql:
     prompt: |-
       Here's my MySQL code: 
       ```sql
-      {code}
+      {code}bonjour
       ```
       Additional information: Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      selec * from demo
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\ndb error: ERROR: syntax error at or near \\"selec\\""}}
+    example_answer: |-
+      ```sql
+      select * from demo
+      ``` 
+      explanation: "You're missing a "t" in "select"."
   nativets:
     prompt: |-
       Here's my TypeScript code: 
@@ -85,6 +156,22 @@ prompts:
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
       I get the following error: {error}
       Fix my code.
+    example_code: |-
+      await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+        headers: { "Content-Type": "application/json" },
+      });
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nmain function was not findable (expected to find 'export function main(...)'"}}`
+    example_answer: |-
+      ```typescript
+      export async function main() {
+        const result = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+          headers: { "Content-Type": "application/json" },
+        });
+        return result.json();
+      }
+      ```
+      explanation: "The code should be wrapped in an exported function called "main"."
   bun:
     prompt: |-
       Here's my TypeScript code in a node.js running environment: 
@@ -96,18 +183,14 @@ prompts:
       Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
       I get the following error: {error}
       Fix my code.
-  frontend:
-    prompt: |-
-      Here's my client-side javascript code: 
+    example_code: |-
+      console.log("Hello world")
+    example_error: |-
+      {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nmain function was not findable (expected to find 'export function main(...)'"}}`
+    example_answer: |-
       ```typescript
-      {code}
+      export async function main() {
+          console.log("Hello world")
+      }
       ```
-      Additional information: You can access the context object with the ctx global variable. 
-      The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
-      You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
-      Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
-      Use the recompute function to recompute a component: recompute(id: string)
-      Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
-      The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
-      I get the following error: {error}
-      Fix my code.
+      explanation: "The code should be wrapped in an exported function called "main"."
