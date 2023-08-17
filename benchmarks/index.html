@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="/logo.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		
+		<link rel="modulepreload" href="/_app/immutable/entry/start.c7d20f19.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/index.31c40b0e.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/singletons.6fbf31dc.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/index.bb98bf49.js">
+		<link rel="modulepreload" href="/_app/immutable/entry/app.f74ef3b8.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/preload-helper.a4192956.js">
+	</head>
+
+	<body data-sveltekit-preload-code="viewport" class="outline-none focus:outline-none">
+		<div style="display: contents"> 
+			<script>
+				{
+					__sveltekit_ark41 = {
+						base: "",
+						env: {}
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("/_app/immutable/entry/start.c7d20f19.js"),
+						import("/_app/immutable/entry/app.f74ef3b8.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element);
+					});
+				}
+			</script>
+		 </div>
+	</body>
+</html>

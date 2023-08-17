@@ -2,7 +2,6 @@ import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as awsx from "@pulumi/awsx";
 import * as tailscale from "@pulumi/tailscale";
-import { randomInt } from "crypto";
 
 const vpc = new aws.ec2.Vpc("bench", { cidrBlock: "10.0.0.0/16" });
 
@@ -15,7 +14,7 @@ const securityGroup = new aws.ec2.SecurityGroup("bench", {
       cidrBlocks: ["0.0.0.0/0"],
       protocol: "tcp",
       fromPort: 80,
-      toPort: 80,
+      toPort: 50000,
     },
     {
       cidrBlocks: ["0.0.0.0/0"],
@@ -69,12 +68,6 @@ const subnetA = new aws.ec2.Subnet("bench-a", {
   },
 });
 
-// Associate the route table with the public subnet.
-const routeTableAssociation = new aws.ec2.RouteTableAssociation("bench-a", {
-  subnetId: subnetA.id,
-  routeTableId: routes.id,
-});
-
 const subnetB = new aws.ec2.Subnet("bench-b", {
   availabilityZone: "us-east-2b",
   vpcId: vpc.id,
@@ -82,6 +75,30 @@ const subnetB = new aws.ec2.Subnet("bench-b", {
   tags: {
     Name: "bench",
   },
+});
+
+const subnetC = new aws.ec2.Subnet("bench-c", {
+  availabilityZone: "us-east-2c",
+  vpcId: vpc.id,
+  cidrBlock: "10.0.7.0/24",
+  tags: {
+    Name: "bench",
+  },
+});
+
+new aws.ec2.RouteTableAssociation("bench-a", {
+  subnetId: subnetA.id,
+  routeTableId: routes.id,
+});
+
+new aws.ec2.RouteTableAssociation("bench-b", {
+  subnetId: subnetB.id,
+  routeTableId: routes.id,
+});
+
+new aws.ec2.RouteTableAssociation("bench-c", {
+  subnetId: subnetC.id,
+  routeTableId: routes.id,
 });
 
 const rdSubnet = new aws.rds.SubnetGroup("bench", {
@@ -98,7 +115,7 @@ const db = new aws.rds.Instance("bench", {
   dbName: "windmill",
   engine: "postgres",
   engineVersion: "14.8",
-  instanceClass: "db.t3.micro",
+  instanceClass: "db.t4g.medium",
   password: "postgres",
   skipFinalSnapshot: true,
   username: "postgres",
@@ -167,7 +184,11 @@ const amiEcs = pulumi.output(
     filters: [{ name: "name", values: ["amzn2-ami-ecs-*-x86_64-*"] }],
   })
 );
-const lt = new aws.ec2.LaunchTemplate("asg", {
+
+const clusterName = "windmill";
+const cluster = new aws.ecs.Cluster("cluster", { name: clusterName });
+
+const lt = new aws.ec2.LaunchTemplate("lt2", {
   namePrefix: "windmill",
   imageId: amiEcs.id,
   keyName: deployer.keyName,
@@ -175,19 +196,22 @@ const lt = new aws.ec2.LaunchTemplate("asg", {
   iamInstanceProfile: {
     name: "ecsInstanceRole",
   },
+
   updateDefaultVersion: true,
   vpcSecurityGroupIds: [securityGroup.id],
+  userData: btoa(`#!/bin/bash
+echo ECS_CLUSTER=${clusterName} >> /etc/ecs/ecs.config
+`),
 });
 
-const asg = new aws.autoscaling.Group("asg", {
-  availabilityZones: ["us-east-2a"],
+const asg = new aws.autoscaling.Group("asg3", {
   launchTemplate: {
     id: lt.id,
     version: "$Latest",
   },
-
   minSize: 0,
-  maxSize: 1,
+  maxSize: 20,
+  vpcZoneIdentifiers: [subnetA.id],
   tags: [
     {
       key: "AmazonECSManaged",
@@ -210,8 +234,6 @@ const capProvider = new aws.ecs.CapacityProvider("cap-provider", {
   },
 });
 
-const cluster = new aws.ecs.Cluster("cluster", {});
-
 const clusterCapProvider = new aws.ecs.ClusterCapacityProviders(
   "cap-provider",
   {
@@ -220,10 +242,11 @@ const clusterCapProvider = new aws.ecs.ClusterCapacityProviders(
   }
 );
 
-const lb = new awsx.lb.ApplicationLoadBalancer("lb", {
+const lb = new awsx.lb.ApplicationLoadBalancer("lb2", {
   defaultTargetGroup: {
     targetType: "instance",
   },
+  subnetIds: [subnetA.id, subnetB.id, subnetC.id],
 });
 // const service = new awsx.ecs.FargateService("service", {
 //   cluster: cluster.arn,
@@ -244,47 +267,120 @@ const lb = new awsx.lb.ApplicationLoadBalancer("lb", {
 //   },
 // });
 
-const td = new aws.ecs.TaskDefinition("td", {
-  family: "test-family",
-  containerDefinitions: JSON.stringify([
-    {
-      name: "first",
-      image: "nginx:latest",
-      cpu: 10,
-      memory: 512,
-      essential: true,
-      portMappings: [
-        {
-          containerPort: 80,
-        },
-      ],
-    },
-  ]),
-  volumes: [
-    {
-      name: "service-storage",
-      hostPath: "/ecs/service-storage",
-    },
-  ],
-});
+db.address.apply((address) => {
+  const worker_td = new aws.ecs.TaskDefinition("worker", {
+    family: "windmill-worker",
+    containerDefinitions: JSON.stringify([
+      {
+        name: "first",
+        image: "ghcr.io/windmill-labs/windmill:latest",
+        cpu: 1024,
+        memory: 2048,
+        essential: true,
+        mountPaths: [
+          {
+            containerPath: "/tmp/windmill/cache",
+            sourceVolume: "dependency_cache",
+          },
+        ],
+        environment: [
+          { name: "DISABLE_SERVER", value: "true" },
+          { name: "RUST_LOG", value: "info" },
+          {
+            name: "DATABASE_URL",
+            value: `postgres://postgres:postgres@${address}/windmill?sslmode=disable`,
+          },
+        ],
 
-const service = new aws.ecs.Service("service", {
-  cluster: cluster.id,
-  taskDefinition: td.arn,
-  desiredCount: 3,
-  orderedPlacementStrategies: [
-    {
-      type: "binpack",
-      field: "cpu",
-    },
-  ],
-  loadBalancers: [
-    {
-      targetGroupArn: lb.defaultTargetGroup.arn,
-      containerName: "first",
-      containerPort: 80,
-    },
-  ],
+        logConfiguration: {
+          logDriver: "awslogs",
+          options: {
+            "awslogs-group": "windmill-worker",
+            "awslogs-region": "us-east-2",
+            "awslogs-create-group": "true",
+            "awslogs-stream-prefix": "windmill-worker",
+          },
+        },
+      },
+    ]),
+    volumes: [
+      {
+        name: "dependency_cache",
+        dockerVolumeConfiguration: {
+          scope: "shared",
+          autoprovision: true,
+        },
+      },
+    ],
+  });
+
+  const server_td = new aws.ecs.TaskDefinition("server", {
+    family: "windmill-server",
+    containerDefinitions: JSON.stringify([
+      {
+        name: "server",
+        image: "ghcr.io/windmill-labs/windmill:latest",
+        cpu: 1024,
+        memory: 1024,
+        essential: true,
+        environment: [
+          { name: "NUM_WORKERS", value: "0" },
+          { name: "RUST_LOG", value: "info" },
+          {
+            name: "DATABASE_URL",
+            value: `postgres://postgres:postgres@${address}/windmill?sslmode=disable`,
+          },
+        ],
+        logConfiguration: {
+          logDriver: "awslogs",
+          options: {
+            "awslogs-group": "windmill-server",
+            "awslogs-region": "us-east-2",
+            "awslogs-create-group": "true",
+            "awslogs-stream-prefix": "windmill-server",
+          },
+        },
+        portMappings: [
+          {
+            containerPort: 8000,
+          },
+        ],
+      },
+    ]),
+  });
+
+  const service_server = new aws.ecs.Service("service-server", {
+    cluster: cluster.id,
+    taskDefinition: server_td.arn,
+    desiredCount: 2,
+    forceNewDeployment: true,
+    orderedPlacementStrategies: [
+      {
+        type: "binpack",
+        field: "cpu",
+      },
+    ],
+    loadBalancers: [
+      {
+        targetGroupArn: lb.defaultTargetGroup.arn,
+        containerName: "server",
+        containerPort: 8000,
+      },
+    ],
+  });
+
+  const service_worker = new aws.ecs.Service("service-worker", {
+    cluster: cluster.id,
+    taskDefinition: worker_td.arn,
+    desiredCount: 40,
+    forceNewDeployment: true,
+    orderedPlacementStrategies: [
+      {
+        type: "binpack",
+        field: "cpu",
+      },
+    ],
+  });
 });
 
 module.exports = {
