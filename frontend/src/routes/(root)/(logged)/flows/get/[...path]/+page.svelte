@@ -242,7 +242,12 @@
 {#if flow}
 	<DetailPageLayout
 		isOperator={$userStore?.operator}
-		flow_json={flow}
+		flow_json={{
+			value: flow.value,
+			summary: flow.summary,
+			description: flow.description,
+			schema: flow.schema
+		}}
 		hasStepDetails={Boolean(stepDetail)}
 	>
 		<svelte:fragment slot="header">
