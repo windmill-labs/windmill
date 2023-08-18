@@ -38,7 +38,16 @@
 	$: handleDefault(defaultValue)
 
 	function formatDate(dateString: string, format: string = 'DD.MM.YYYY') {
-		const date = new Date(dateString)
+		const [year, month, day, hour = '0', minute = '0', second = '0'] = dateString.split(/[\sT:-]/)
+
+		const date = new Date(
+			Number(year),
+			Number(month) - 1,
+			Number(day),
+			Number(hour),
+			Number(minute),
+			Number(second)
+		)
 
 		if (format === '') {
 			format = 'DD.MM.YYYY'
