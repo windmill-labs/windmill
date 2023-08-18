@@ -668,12 +668,12 @@ pub async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone +
         }
     } else {
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
-            struct LastCompletedJob {
+            struct PreviousCompletedJob {
                 success: bool,
                 result: Option<serde_json::Value>,
             }
-            let last_completed_job = sqlx::query_as!(
-                LastCompletedJob,
+            let previous_completed_job = sqlx::query_as!(
+                PreviousCompletedJob,
                 "SELECT success, result FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT 1",
                 &schedule.workspace_id,
                 &schedule.path,
@@ -681,15 +681,15 @@ pub async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone +
                 job_id
             ).fetch_optional(&mut tx).await?;
 
-            if let Some(last_completed_job) = last_completed_job {
-                if !last_completed_job.success {
+            if let Some(previous_completed_job) = previous_completed_job {
+                if !previous_completed_job.success {
                     let on_recovery_result = handle_on_recovery(
                         tx,
                         schedule_path,
                         script_path,
                         w_id,
                         &on_recovery_path,
-                        last_completed_job.result,
+                        previous_completed_job.result,
                         result,
                         &schedule.email,
                         &schedule_to_user(&schedule.path),
