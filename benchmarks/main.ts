@@ -269,9 +269,9 @@ await new Command()
       const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
         const sum = jobsSent.reduce((a, b) => a + b, 0);
-        const queue_length = -1;
+        let queue_length = -1;
         try {
-          (
+          queue_length = (
             await (
               await fetch(
                 host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
