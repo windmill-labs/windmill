@@ -7089,7 +7089,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -7124,7 +7124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7183,7 +7183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7200,7 +7200,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "chrono",
  "serde",
@@ -7213,7 +7213,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -7238,7 +7238,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -7246,7 +7246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7257,7 +7257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7267,7 +7267,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7278,7 +7278,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7289,7 +7289,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7306,7 +7306,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7317,7 +7317,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7333,7 +7333,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7351,7 +7351,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7380,7 +7380,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.151.1"
+version = "1.151.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7454,9 +7454,9 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27f51fb4c64f8b770a823c043c7fad036323e1c48f55287b7bbb7987b2fcdf3b"
+checksum = "d92ecb8ae0317859f509f17b19adc74b0763b0fa3b085dea8ed01085c8dac222"
 dependencies = [
  "windows_aarch64_gnullvm",
  "windows_aarch64_msvc",
@@ -7469,45 +7469,45 @@ dependencies = [
 
 [[package]]
 name = "windows_aarch64_gnullvm"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde1bb55ae4ce76a597a8566d82c57432bc69c039449d61572a7a353da28f68c"
+checksum = "d14b0ee96970be7108701212f097ce67ca772fd84cb0ffbc86d26a94e77ba929"
 
 [[package]]
 name = "windows_aarch64_msvc"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1513e8d48365a78adad7322fd6b5e4c4e99d92a69db8df2d435b25b1f1f286d4"
+checksum = "1332277d49f440c8fc6014941e320ee47ededfcce10cb272728470f56cc092c9"
 
 [[package]]
 name = "windows_i686_gnu"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60587c0265d2b842298f5858e1a5d79d146f9ee0c37be5782e92a6eb5e1d7a83"
+checksum = "d992130ac399d56f02c20564e9975ac5ba08cb25cb832849bbc0d736a101abe5"
 
 [[package]]
 name = "windows_i686_msvc"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "224fe0e0ffff5d2ea6a29f82026c8f43870038a0ffc247aa95a52b47df381ac4"
+checksum = "962e96d0fa4b4773c63977977ea6564f463fb10e34a6e07360428b53ae7a3f71"
 
 [[package]]
 name = "windows_x86_64_gnu"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62fc52a0f50a088de499712cbc012df7ebd94e2d6eb948435449d76a6287e7ad"
+checksum = "30652a53018a48a9735fbc2986ff0446c37bc8bed0d3f98a0ed4d04cdb80027e"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2093925509d91ea3d69bcd20238f4c2ecdb1a29d3c281d026a09705d0dd35f3d"
+checksum = "b5bb3f0331abfe1a95af56067f1e64b3791b55b5373b03869560b6025de809bf"
 
 [[package]]
 name = "windows_x86_64_msvc"
-version = "0.48.3"
+version = "0.48.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6ade45bc8bf02ae2aa34a9d54ba660a1a58204da34ba793c00d83ca3730b5f1"
+checksum = "bd1df36d9fd0bbe4849461de9b969f765170f4e0f90497d580a235d515722b10"
 
 [[package]]
 name = "winnow"
