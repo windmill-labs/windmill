@@ -231,6 +231,7 @@
 										options={monthsOfYearOptions}
 										selectedOptionsDraggable={false}
 										placeholder="Every month"
+										ulOptionsClass={'!bg-surface-secondary'}
 									/>
 								</div>
 							{/if}
@@ -243,6 +244,7 @@
 										options={daysOfWeekOptions}
 										selectedOptionsDraggable={false}
 										placeholder="Every day"
+										ulOptionsClass={'!bg-surface-secondary'}
 									/>
 								</div>
 							{/if}
@@ -260,6 +262,7 @@
 												options={daysOfMonthOptions}
 												selectedOptionsDraggable={false}
 												placeholder="Every day"
+												ulOptionsClass={'!bg-surface-secondary'}
 											/>
 										</div>
 
