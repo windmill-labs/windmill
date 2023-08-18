@@ -269,14 +269,19 @@ await new Command()
       const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
         const sum = jobsSent.reduce((a, b) => a + b, 0);
-        const queue_length = (
-          await (
-            await fetch(
-              host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-              { headers: { ["Authorization"]: "Bearer " + config.token } }
-            )
-          ).json()
-        ).database_length;
+        const queue_length = -1;
+        try {
+          (
+            await (
+              await fetch(
+                host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+                { headers: { ["Authorization"]: "Bearer " + config.token } }
+              )
+            ).json()
+          ).database_length;
+        } catch (e) {
+          console.error("Error reading queue count: " + e);
+        }
         await Deno.stdout.write(
           enc(
             `elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(

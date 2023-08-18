@@ -25,7 +25,8 @@
 		'Canceled',
 		'Missing service editorService',
 		'Unexpected usage',
-		'NetworkError when attempting to fetch resource.'
+		'NetworkError when attempting to fetch resource.',
+		"Client got disposed and can't be restarted."
 	]
 
 	async function setUserWorkspaceStore() {
@@ -162,7 +163,8 @@
 		interval && clearInterval(interval)
 	})
 
-	const darkMode = window.localStorage.getItem('dark-mode') ?? 
+	const darkMode =
+		window.localStorage.getItem('dark-mode') ??
 		(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 
 	if (darkMode === 'dark') {
