@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.151.2](https://github.com/windmill-labs/windmill/compare/v1.151.1...v1.151.2) (2023-08-18)
+
+
+### Bug Fixes
+
+* **frontend:** Fix app multiselect dark mode ([#2121](https://github.com/windmill-labs/windmill/issues/2121)) ([be577e5](https://github.com/windmill-labs/windmill/commit/be577e561dff33a404bb6f29f178b01f20aa0121))
+* **frontend:** Fix JSON pane scroll issues ([#2123](https://github.com/windmill-labs/windmill/issues/2123)) ([d367716](https://github.com/windmill-labs/windmill/commit/d367716b0a8198573b26a3c82ac7e4fd9cefe753))
+
 ## [1.151.1](https://github.com/windmill-labs/windmill/compare/v1.151.0...v1.151.1) (2023-08-18)
 
 
