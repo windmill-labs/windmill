@@ -270,17 +270,23 @@ await new Command()
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
         const sum = jobsSent.reduce((a, b) => a + b, 0);
         let queue_length = -1;
-        try {
-          queue_length = (
-            await (
-              await fetch(
-                host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-                { headers: { ["Authorization"]: "Bearer " + config.token } }
-              )
-            ).json()
-          ).database_length;
-        } catch (e) {
-          console.error("Error reading queue count: " + e);
+        while (queue_length === -1) {
+          try {
+            queue_length = (
+              await (
+                await fetch(
+                  host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+                  { headers: { ["Authorization"]: "Bearer " + config.token } }
+                )
+              ).json()
+            ).database_length;
+          } catch (e) {
+            console.log(
+              `queue count not reachable. waiting...                                                           `
+            );
+            await sleep(0.5);
+            continue;
+          }
         }
         await Deno.stdout.write(
           enc(
