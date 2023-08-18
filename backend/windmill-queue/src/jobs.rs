@@ -361,20 +361,31 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
 
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+    tx = apply_schedule_handlers(
+        tx,
+        db,
+        queued_job.schedule_path.as_ref().unwrap(),
+        queued_job.script_path.as_ref().unwrap(),
+        &queued_job.workspace_id,
+        success,
+        &result,
+        job_id,
+    )
+    .await?;
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
+        // only for scripts
+        // for flows, scheduling is handled at the end of the first step
         tx = handle_maybe_scheduled_job(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
-            success,
-            if success { None } else { Some(&result) },
         )
         .await?;
     }
@@ -541,8 +552,6 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-    success: bool,
-    result: Option<&serde_json::Value>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
@@ -556,45 +565,6 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     let schedule = schedule.unwrap();
 
     if schedule.enabled && script_path == schedule.script_path {
-        if !success {
-            if let Some(on_failure_path) = schedule.on_failure.clone() {
-                let on_failure_result = handle_on_failure(
-                    tx,
-                    schedule_path,
-                    script_path,
-                    w_id,
-                    &on_failure_path,
-                    result,
-                    &schedule.email,
-                    &schedule_to_user(&schedule.path),
-                    username_to_permissioned_as(&schedule.edited_by),
-                )
-                .await;
-
-                match on_failure_result {
-                    Ok(ntx) => {
-                        tx = ntx;
-                    }
-                    Err(err) => {
-                        sqlx::query!(
-                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                        format!("Could not trigger error handler: {err}"),
-                        &schedule.workspace_id,
-                        &schedule.path
-                    )
-                    .execute(db)
-                    .await?;
-                        tracing::warn!(
-                            "Could not trigger error handler for {}: {}",
-                            schedule_path,
-                            err
-                        );
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
         let res = push_scheduled_job(
             tx,
             Schedule {
@@ -614,6 +584,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 email: schedule.email,
                 error: None,
                 on_failure: schedule.on_failure,
+                on_recovery: schedule.on_recovery,
             },
         )
         .await;
@@ -637,13 +608,131 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     }
 }
 
+pub async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
+    db: &Pool<Postgres>,
+    schedule_path: &str,
+    script_path: &str,
+    w_id: &str,
+    success: bool,
+    result: &serde_json::Value,
+    job_id: Uuid,
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
+
+    if schedule.is_none() {
+        tracing::error!(
+            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+        );
+        return Ok(tx);
+    }
+
+    let schedule = schedule.unwrap();
+
+    if !success {
+        if let Some(on_failure_path) = schedule.on_failure.clone() {
+            let on_failure_result = handle_on_failure(
+                tx,
+                schedule_path,
+                script_path,
+                w_id,
+                &on_failure_path,
+                result,
+                &schedule.email,
+                &schedule_to_user(&schedule.path),
+                username_to_permissioned_as(&schedule.edited_by),
+            )
+            .await;
+
+            match on_failure_result {
+                Ok(ntx) => {
+                    tx = ntx;
+                }
+                Err(err) => {
+                    sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    format!("Could not trigger error handler: {err}"),
+                    &schedule.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await?;
+                    tracing::warn!(
+                        "Could not trigger error handler for {}: {}",
+                        schedule_path,
+                        err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+    } else {
+        if let Some(on_recovery_path) = schedule.on_recovery.clone() {
+            struct LastCompletedJob {
+                success: bool,
+                result: Option<serde_json::Value>,
+            }
+            let last_completed_job = sqlx::query_as!(
+                LastCompletedJob,
+                "SELECT success, result FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT 1",
+                &schedule.workspace_id,
+                &schedule.path,
+                &schedule.script_path,
+                job_id
+            ).fetch_optional(&mut tx).await?;
+
+            if let Some(last_completed_job) = last_completed_job {
+                if !last_completed_job.success {
+                    let on_recovery_result = handle_on_recovery(
+                        tx,
+                        schedule_path,
+                        script_path,
+                        w_id,
+                        &on_recovery_path,
+                        last_completed_job.result,
+                        result,
+                        &schedule.email,
+                        &schedule_to_user(&schedule.path),
+                        username_to_permissioned_as(&schedule.edited_by),
+                    )
+                    .await;
+
+                    match on_recovery_result {
+                        Ok(ntx) => {
+                            tx = ntx;
+                        }
+                        Err(err) => {
+                            sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                            format!("Could not trigger recovery handler: {err}"),
+                            &schedule.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(db)
+                        .await?;
+                            tracing::warn!(
+                                "Could not trigger recovery handler for {}: {}",
+                                schedule_path,
+                                err
+                            );
+                            return Err(err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(tx)
+}
+
 async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
     on_failure_path: &str,
-    result: Option<&serde_json::Value>,
+    result: &serde_json::Value,
     username: &str,
     email: &str,
     permissioned_as: String,
@@ -651,12 +740,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     let (payload, tag) =
         get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
 
-    let mut args = result
-        .map(|x| x.clone())
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .unwrap()
-        .clone();
+    let mut args = result.clone().as_object().unwrap().clone();
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
     let (uuid, tx) = push(
@@ -683,6 +767,59 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     .await?;
     tracing::info!(
         "Pushed on_failure job {} for {} to queue",
+        uuid,
+        schedule_path
+    );
+    return Ok(tx);
+}
+
+async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
+    schedule_path: &str,
+    script_path: &str,
+    w_id: &str,
+    on_recovery_path: &str,
+    previous_job_error: Option<serde_json::Value>,
+    result: &serde_json::Value,
+    username: &str,
+    email: &str,
+    permissioned_as: String,
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let (payload, tag) =
+        get_payload_tag_from_prefixed_path(on_recovery_path, tx.transaction_mut(), w_id).await?;
+
+    let mut args = previous_job_error
+        .unwrap_or(json!({}))
+        .as_object()
+        .unwrap()
+        .clone();
+    args.insert("schedule_path".to_string(), json!(schedule_path));
+    args.insert("path".to_string(), json!(script_path));
+    args.insert("latest_result".to_string(), result.clone());
+    let (uuid, tx) = push(
+        tx,
+        w_id,
+        payload,
+        args,
+        username,
+        email,
+        permissioned_as,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!(
+        "Pushed on_recovery job {} for {} to queue",
         uuid,
         schedule_path
     );

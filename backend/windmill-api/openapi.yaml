@@ -6754,6 +6754,8 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_recovery:
+          type: string
       required:
         - path
         - edited_by
@@ -6807,6 +6809,8 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_recovery:
+          type: string
       required:
         - path
         - schedule
@@ -6826,6 +6830,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
+          type: string
+        on_recovery:
           type: string
       required:
         - schedule

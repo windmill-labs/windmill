@@ -531,8 +531,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                 flow_job.schedule_path.as_ref().unwrap(),
                 flow_job.script_path.as_ref().unwrap(),
                 &w_id,
-                success,
-                if success { None } else { Some(&nresult) },
             )
             .await?;
         }

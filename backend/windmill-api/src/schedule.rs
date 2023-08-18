@@ -55,6 +55,7 @@ pub struct NewSchedule {
     pub args: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub on_failure: Option<String>,
+    pub on_recovery: Option<String>,
 }
 
 async fn check_path_conflict<'c>(
@@ -104,7 +105,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email, on_failure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
+         is_flow, args, enabled, email, on_failure, on_recovery) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -115,7 +116,8 @@ async fn create_schedule(
         ns.args,
         ns.enabled.unwrap_or(false),
         &authed.email,
-        ns.on_failure
+        ns.on_failure,
+        ns.on_recovery
     )
     .fetch_one(&mut tx)
     .await
@@ -177,12 +179,13 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4 WHERE path \
-         = $5 AND workspace_id = $6 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_recovery = $5 WHERE path \
+         = $6 AND workspace_id = $7 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
         es.on_failure,
+        es.on_recovery,
         path,
         w_id,
     )
@@ -267,6 +270,7 @@ pub struct ScheduleWJobs {
     pub email: String,
     pub error: Option<String>,
     pub on_failure: Option<String>,
+    pub on_recovery: Option<String>,
     pub jobs: Option<Vec<serde_json::Value>>,
 }
 
@@ -462,6 +466,7 @@ pub struct EditSchedule {
     pub timezone: String,
     pub args: Option<serde_json::Value>,
     pub on_failure: Option<String>,
+    pub on_recovery: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

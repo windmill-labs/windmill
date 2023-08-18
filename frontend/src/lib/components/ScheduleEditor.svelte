@@ -23,6 +23,8 @@
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
 	let errorHandlerPath: string | undefined = undefined
+	let recoveryHandlerPath: string | undefined = undefined
+	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
 
 	let script_path = ''
 	let initialScriptPath = ''
@@ -109,6 +111,14 @@
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
 			}
+			if (s.on_recovery) {
+				let splitted = s.on_recovery.split('/')
+				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
+				recoveryHandlerPath = splitted.slice(1)?.join('/')
+			} else {
+				recoveryHandlerPath = undefined
+				recoveryHandlerItemKind = 'script'
+			}
 			args = s.args ?? {}
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (err) {
@@ -125,7 +135,10 @@
 					schedule: formatCron(schedule),
 					timezone,
 					args,
-					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+					on_recovery: recoveryHandlerPath
+						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+						: undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -140,7 +153,10 @@
 					is_flow,
 					args,
 					enabled: true,
-					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined
+					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+					on_recovery: recoveryHandlerPath
+						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+						: undefined
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -287,6 +303,34 @@
 				<Button
 					wrapperClasses="mt-6"
 					href="/scripts/add?hub=hub%2F1087%2Fwindmill%2Fschedule_error_handler_template"
+					target="_blank">Use template</Button
+				>
+			</div>
+
+			<h2 class="border-b pb-1 mt-8 mb-2">Recovery Handler</h2>
+
+			<ScriptPicker
+				disabled={!can_write}
+				initialPath={recoveryHandlerPath}
+				kind={Script.kind.SCRIPT}
+				allowFlow={true}
+				bind:scriptPath={recoveryHandlerPath}
+				bind:itemKind={recoveryHandlerItemKind}
+				canRefresh
+			/>
+			<div class="flex gap-20 items-start mt-3">
+				<div class="text-tertiary text-sm"
+					>The following args will be passed to the recovery handler:
+					<ul class="mt-1 ml-2">
+						<li><b>path</b>: The path of the script or flow that errored.</li>
+						<li><b>schedule_path</b>: The path of the schedule.</li>
+						<li><b>error</b>: The error of the last job that errored</li>
+						<li><b>latest_result</b>: The result of the latest successful job</li>
+					</ul>
+				</div>
+				<Button
+					wrapperClasses="mt-6"
+					href="/scripts/add?hub=hub%2F2416%2Fwindmill%2FSchedule_recovery_handler_template"
 					target="_blank">Use template</Button
 				>
 			</div>
