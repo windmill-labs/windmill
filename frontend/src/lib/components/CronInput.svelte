@@ -280,7 +280,7 @@
 
 							{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
 								<div class="w-full flex flex-col gap-1">
-									<small class="font-bold">At UTC Time</small>
+									<small class="font-bold">At Time</small>
 									<input
 										{disabled}
 										type="time"
