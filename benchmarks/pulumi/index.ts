@@ -115,11 +115,12 @@ const db = new aws.rds.Instance("bench", {
   dbName: "windmill",
   engine: "postgres",
   engineVersion: "14.8",
-  instanceClass: "db.t4g.medium",
+  instanceClass: "db.m5d.large",
   password: "postgres",
   skipFinalSnapshot: true,
   username: "postgres",
   availabilityZone: "us-east-2a",
+  performanceInsightsEnabled: true,
 });
 
 const deployer = new aws.ec2.KeyPair("bench", {
@@ -210,7 +211,7 @@ const asg = new aws.autoscaling.Group("asg3", {
     version: "$Latest",
   },
   minSize: 0,
-  maxSize: 20,
+  maxSize: 15,
   vpcZoneIdentifiers: [subnetA.id],
   tags: [
     {
@@ -268,14 +269,14 @@ const lb = new awsx.lb.ApplicationLoadBalancer("lb2", {
 // });
 
 db.address.apply((address) => {
-  const worker_td = new aws.ecs.TaskDefinition("worker", {
+  const worker_td = new aws.ecs.TaskDefinition("worker-2", {
     family: "windmill-worker",
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
         image: "ghcr.io/windmill-labs/windmill:latest",
         cpu: 1024,
-        memory: 2048,
+        memory: 1800,
         essential: true,
         mountPaths: [
           {
@@ -383,7 +384,7 @@ db.address.apply((address) => {
   const service_worker = new aws.ecs.Service("service-worker", {
     cluster: cluster.id,
     taskDefinition: worker_td.arn,
-    desiredCount: 40,
+    desiredCount: 30,
     forceNewDeployment: true,
     orderedPlacementStrategies: [
       {
