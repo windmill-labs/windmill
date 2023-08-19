@@ -36,7 +36,7 @@ use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED,
 use serde_json::{json, Value};
 
 use tokio::{
-    fs::{metadata, symlink, DirBuilder, File},
+    fs::{symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -331,6 +331,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
+
+    if let Some(ref netrc) = *NETRC {
+        tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
+        write_file(&HOME_ENV, ".netrc", netrc).await.expect("could not write netrc");
+    }
 
     DirBuilder::new()
         .recursive(true)
@@ -684,6 +689,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
                     DirBuilder::new()
+                        .recursive(true)
                         .create(&job_dir)
                         .await
                         .expect("could not create job dir");
@@ -695,18 +701,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if same_worker && job.parent_job.is_some() {
                         let parent_flow = job.parent_job.unwrap();
                         let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                        if metadata(&parent_shared_dir).await.is_err() {
-                            DirBuilder::new()
-                                .recursive(true)
-                                .create(&parent_shared_dir)
-                                .await
-                                .expect("could not create parent shared dir");
-                        }
+                        DirBuilder::new()
+                            .recursive(true)
+                            .create(&parent_shared_dir)
+                            .await
+                            .expect("could not create parent shared dir");
+                        
                         symlink(&parent_shared_dir, target)
                             .await
                             .expect("could not symlink target");
                     } else {
                         DirBuilder::new()
+                            .recursive(true)
                             .create(target)
                             .await
                             .expect("could not create shared dir");
@@ -996,6 +1002,20 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e));
     }
 
+    let (cache_ttl, step) = if job.is_flow_step {
+        update_flow_status_in_progress(
+            db,
+            &job.workspace_id,
+            job.parent_job
+                .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
+            job.id,
+        )
+        .await?
+    } else {
+        (None, None)
+    };
+
+    
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -1024,18 +1044,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             set_logs(&logs, &job.id, db).await;
 
 
-            let (cache_ttl, step) = if job.is_flow_step {
-                update_flow_status_in_progress(
-                    db,
-                    &job.workspace_id,
-                    job.parent_job
-                        .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
-                    job.id,
-                )
-                .await?
-            } else {
-                (None, None)
-            };
 
             let cached_res_path = if cache_ttl.is_some() {
                 let flow_path = sqlx::query_scalar!(
@@ -1254,17 +1262,15 @@ pub async fn transform_json_value(
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
+    tracing::info!("transform_json_value {name}", name = name);
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = client.get_client()
-                .get_variable(workspace, path, Some(true))
+            client.get_client()
+                .get_variable_value(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| v.into_inner())?
-                .value
-                .unwrap_or_else(|| String::new());
-            Ok(Value::String(v))
+                .map(|v| json!(v.into_inner()))
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -1273,12 +1279,11 @@ pub async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            let v = client.get_client()
-                .get_resource_value(workspace, path)
+            Ok(client.get_client()
+                .get_resource_value_interpolated(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner();
-            transform_json_value(name, client, workspace, v).await
+                .into_inner())
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
@@ -1579,8 +1584,10 @@ async fn handle_bash_job(
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let hm = match job.args {
-        Some(Value::Object(ref hm)) => hm.clone(),
+    let client = client.get_authed().await;
+    let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
+    {
+        Value::Object(ref hm) => hm.clone(),
         _ => serde_json::Map::new(),
     };
     let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
@@ -1660,24 +1667,28 @@ async fn handle_powershell_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    let hm: serde_json::Map<String, Value> = match job.args {
-        Some(Value::Object(ref hm)) => hm.clone(),
-        _ => serde_json::Map::new(),
-    };
+    let pwsh_args = {
+        let client = client.get_authed().await;
+        let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
+        {
+            Value::Object(ref hm) => hm.clone(),
+            _ => serde_json::Map::new(),
+        };
 
-    let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
-        .args
-        .iter()
-        .map(|arg| {
-            (arg.name.clone(), hm.get(&arg.name)
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => serde_json::to_string(v).ok(),
-                })
-                .unwrap_or_else(String::new))
-        })
-        .collect::<Vec<(String, String)>>();
-    let pwsh_args = args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ");
+        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
+            .args
+            .iter()
+            .map(|arg| {
+                (arg.name.clone(), hm.get(&arg.name)
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => serde_json::to_string(v).ok(),
+                    })
+                    .unwrap_or_else(String::new))
+            })
+            .collect::<Vec<(String, String)>>();
+        args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ")
+    };
 
     let content = content
         .replace('$', r"\$") // escape powershell variables

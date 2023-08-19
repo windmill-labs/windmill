@@ -42,9 +42,9 @@
 		} else {
 			await goto('/')
 
-			const shouldSwitch = await waitForNextUpdate(dirtyStore)
+			const isStillDirty = await waitForNextUpdate(dirtyStore)
 
-			if (shouldSwitch) {
+			if (!isStillDirty) {
 				switchWorkspace(id)
 			}
 		}

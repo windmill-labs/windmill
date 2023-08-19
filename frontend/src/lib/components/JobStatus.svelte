@@ -46,7 +46,7 @@
 	<div>
 		<Badge large color="yellow">
 			<Icon data={faCircle} scale={SMALL_ICON_SCALE} class="mr-2" />
-			Running {#if job.flow_status}({job.flow_status?.step ?? ''} of {job.raw_flow?.modules
+			Running {#if job.flow_status}({job.flow_status?.step + 1 ?? ''} of {job.raw_flow?.modules
 					?.length ?? '?'}){/if}
 		</Badge>
 	</div>

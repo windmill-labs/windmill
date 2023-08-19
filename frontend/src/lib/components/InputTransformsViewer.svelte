@@ -16,12 +16,12 @@
 					{#if typeof val.value == 'object'}
 						<ObjectViewer json={val.value} />
 					{:else}
-						<span class="text-xs text-black whitespace-pre-wrap ml-2">
+						<span class="text-xs text-primary whitespace-pre-wrap ml-2">
 							{val.value}
 						</span>
 					{/if}
 				{:else}
-					<span class="text-xs text-black whitespace-pre-wrap ml-2">
+					<span class="text-xs text-primary whitespace-pre-wrap ml-2">
 						{cleanExpr(val.expr)}
 					</span>
 				{/if}

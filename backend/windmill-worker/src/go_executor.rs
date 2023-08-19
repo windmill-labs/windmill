@@ -18,7 +18,7 @@ use crate::{
     common::{capitalize, read_result, set_logs},
     create_args_and_out_file, get_reserved_variables, handle_child, write_file,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NETRC, NSJAIL_PATH, PATH_ENV,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -238,9 +238,6 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        if let Some(ref netrc) = *NETRC {
-            write_file(&HOME_ENV, ".netrc", netrc).await?;
-        }
         let mut run_go = Command::new("./main");
         run_go
             .current_dir(job_dir)

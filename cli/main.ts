@@ -31,7 +31,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.148.0";
+export const VERSION = "v1.151.2";
 
 let command: any = new Command()
   .name("wmill")
@@ -101,6 +101,9 @@ if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
 
 export let showDiffs = false;
 try {
+  if (Deno.args.length === 0) {
+    command.showHelp();
+  }
   const LOG_LEVEL =
     Deno.args.includes("--verbose") || Deno.args.includes("--debug")
       ? "DEBUG"

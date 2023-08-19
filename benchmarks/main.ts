@@ -21,7 +21,7 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
-export const VERSION = "v1.148.0";
+export const VERSION = "v1.151.2";
 
 await new Command()
   .name("wmillbench")
@@ -275,14 +275,25 @@ await new Command()
       const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
         const sum = jobsSent.reduce((a, b) => a + b, 0);
-        const queue_length = (
-          await (
-            await fetch(
-              host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-              { headers: { ["Authorization"]: "Bearer " + config.token } }
-            )
-          ).json()
-        ).database_length;
+        let queue_length = -1;
+        while (queue_length === -1) {
+          try {
+            queue_length = (
+              await (
+                await fetch(
+                  host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+                  { headers: { ["Authorization"]: "Bearer " + config.token } }
+                )
+              ).json()
+            ).database_length;
+          } catch (e) {
+            console.log(
+              `queue count not reachable. waiting...                                                           `
+            );
+            await sleep(0.5);
+            continue;
+          }
+        }
         await Deno.stdout.write(
           enc(
             `elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(

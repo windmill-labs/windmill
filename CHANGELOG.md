@@ -1,6 +1,67 @@
 # Changelog
 
 
+## [1.151.2](https://github.com/windmill-labs/windmill/compare/v1.151.1...v1.151.2) (2023-08-18)
+
+
+### Bug Fixes
+
+* **frontend:** Fix app multiselect dark mode ([#2121](https://github.com/windmill-labs/windmill/issues/2121)) ([be577e5](https://github.com/windmill-labs/windmill/commit/be577e561dff33a404bb6f29f178b01f20aa0121))
+* **frontend:** Fix JSON pane scroll issues ([#2123](https://github.com/windmill-labs/windmill/issues/2123)) ([d367716](https://github.com/windmill-labs/windmill/commit/d367716b0a8198573b26a3c82ac7e4fd9cefe753))
+
+## [1.151.1](https://github.com/windmill-labs/windmill/compare/v1.151.0...v1.151.1) (2023-08-18)
+
+
+### Bug Fixes
+
+* at UTC Time ([0193fcc](https://github.com/windmill-labs/windmill/commit/0193fcc1d7c24147e553a0e3f9f0ab8d6f5d5996))
+* improve flow progress bar ([67cb451](https://github.com/windmill-labs/windmill/commit/67cb4516c913926c1755e46bc7acf46340fdb692))
+* show help on empty cli args ([237460b](https://github.com/windmill-labs/windmill/commit/237460b121846d160a40e849bf85fabbb7c14fdc))
+
+## [1.151.0](https://github.com/windmill-labs/windmill/compare/v1.150.0...v1.151.0) (2023-08-17)
+
+
+### Features
+
+* **frontend:** Fix workspace switch + always displays confirmation modal on top of splitpanel separator ([#2115](https://github.com/windmill-labs/windmill/issues/2115)) ([eea9ce9](https://github.com/windmill-labs/windmill/commit/eea9ce93b918115e9ed6b951d000049ca66bd5fd))
+
+
+### Bug Fixes
+
+* fix python get_resource ([cb00a13](https://github.com/windmill-labs/windmill/commit/cb00a1358d0e47575d8315e70695a9693190f211))
+
+## [1.150.0](https://github.com/windmill-labs/windmill/compare/v1.149.0...v1.150.0) (2023-08-17)
+
+
+### Features
+
+* copilot tokens streaming + cancel ([#2107](https://github.com/windmill-labs/windmill/issues/2107)) ([82612c3](https://github.com/windmill-labs/windmill/commit/82612c35bd4cd15af21582f9650b615d3e12c06c))
+* graphql custom headers ([#2111](https://github.com/windmill-labs/windmill/issues/2111)) ([6733b85](https://github.com/windmill-labs/windmill/commit/6733b8552b1128663c8fb8086c85ad0406d9b999))
+
+
+### Bug Fixes
+
+* powershell icon ([#2109](https://github.com/windmill-labs/windmill/issues/2109)) ([c817af7](https://github.com/windmill-labs/windmill/commit/c817af769457a069617fafb2d3fcf38a85212690))
+* set NETRC at init and not for every job ([359845f](https://github.com/windmill-labs/windmill/commit/359845fa9dd14e8445cc95e73cc646dce1f45ddb))
+* unify clients to use server-side interpolation to retrieve full resources ([067908c](https://github.com/windmill-labs/windmill/commit/067908c0b59f1e73222cad0e5f214f3605006ef3))
+* unify clients to use server-side interpolation to retrieve full resources ([930839a](https://github.com/windmill-labs/windmill/commit/930839aad22eaeee0737f1d057b8cfb538d26d3f))
+* unify clients to use server-side interpolation to retrieve full resources ([e9c19b5](https://github.com/windmill-labs/windmill/commit/e9c19b5b985c0e03524b2d12b1f26a0e6fdc6e0b))
+
+## [1.149.0](https://github.com/windmill-labs/windmill/compare/v1.148.0...v1.149.0) (2023-08-17)
+
+
+### Features
+
+* **frontend:** Add List pagination + add loading state in tables ([#2096](https://github.com/windmill-labs/windmill/issues/2096)) ([9b15e40](https://github.com/windmill-labs/windmill/commit/9b15e409a5b902874d0cf1566b57db6fc23a87ec))
+
+
+### Bug Fixes
+
+* appgrid refresh selected on row on result changes ([0af264f](https://github.com/windmill-labs/windmill/commit/0af264f6f8d0ff018094b97a2af9fe6f02e6ccfe))
+* fix folder creation if job folder already exist ([c320ea8](https://github.com/windmill-labs/windmill/commit/c320ea865f1632e517d4c597491517da89ff77e7))
+* fix go envs passing ([ed6494f](https://github.com/windmill-labs/windmill/commit/ed6494ff7a1f6102eaad8c0052c1ac3f82d4cadf))
+* **frontend:** Fix toast when adding a user + set default vscoode the… ([#2080](https://github.com/windmill-labs/windmill/issues/2080)) ([801f2a8](https://github.com/windmill-labs/windmill/commit/801f2a8299956f0debe95bb13faef798a0ea0b08))
+
 ## [1.148.0](https://github.com/windmill-labs/windmill/compare/v1.147.3...v1.148.0) (2023-08-14)
 
 

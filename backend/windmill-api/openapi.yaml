@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.148.0
+  version: 1.151.2
   title: Windmill API
 
   contact:
@@ -1444,6 +1444,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ListableVariable"
 
+  /w/{workspace}/variables/get_value/{path}:
+    get:
+      summary: get variable value
+      operationId: getVariableValue
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: variable
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/variables/exists/{path}:
     get:
       summary: does variable exists at path
@@ -1853,6 +1870,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Resource"
+
+  /w/{workspace}/resources/get_value_interpolated/{path}:
+    get:
+      summary:
+        get resource interpolated (variables and resources are fully unrolled)
+      operationId: getResourceValueInterpolated
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource value
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/resources/get_value/{path}:
     get:
@@ -5926,6 +5960,7 @@ components:
               "script",
               "preview",
               "dependencies",
+              "flowdependencies",
               "flow",
               "flowpreview",
               "script_hub",
@@ -6030,6 +6065,7 @@ components:
               "preview",
               "dependencies",
               "flow",
+              "flowdependencies",
               "flowpreview",
               "script_hub",
               "identity",

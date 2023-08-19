@@ -65,6 +65,7 @@
 	})
 
 	let inputs = {}
+	let loading: boolean = false
 
 	$: setSearch(searchValue)
 
@@ -251,7 +252,15 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:loading
+>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
@@ -332,6 +341,7 @@
 												on:keydown={() => toggleRow(row, rowIndex)}
 												on:click={() => toggleRow(row, rowIndex)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
+												style={'width: ' + cell.column.getSize() + 'px'}
 											>
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
@@ -528,6 +538,7 @@
 				{table}
 				class={css?.tableFooter?.class}
 				style={css?.tableFooter?.style}
+				{loading}
 			/>
 		</div>
 	{:else if result != undefined}

@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, editScript, generateScript } from './lib'
+	import { SUPPORTED_LANGUAGES, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCancel,
+		faCheck,
+		faClose,
+		faMagicWandSparkles
+	} from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { dbSchemas, existsOpenaiResourcePath, type DBSchema } from '$lib/stores'
@@ -16,6 +21,12 @@
 	import Tooltip from '../Tooltip.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { writable } from 'svelte/store'
+	import { WindmillIcon } from '../icons'
+	import HighlightCode from '../HighlightCode.svelte'
+	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
+	import { sleep } from '$lib/utils'
+	import { autoPlacement } from '@floating-ui/core'
 
 	// props
 	export let iconOnly: boolean = false
@@ -28,35 +39,55 @@
 	let funcDesc: string = ''
 	let genLoading: boolean = false
 	let input: HTMLInputElement | undefined
-	let generatedCode = ''
+	let generatedCode = writable<string>('')
 	let selection: Selection | undefined
 	let isEdit = false
 	let dbSchema: DBSchema | undefined = undefined
+	let abortController: AbortController | undefined = undefined
 
-	async function onGenerate() {
+	let button: HTMLButtonElement | undefined
+
+	async function onGenerate(closePopup: () => void) {
 		if (funcDesc.length <= 0) {
 			return
 		}
 		try {
 			genLoading = true
+			abortController = new AbortController()
 			if (isEdit && selection) {
 				const selectedCode = editor?.getSelectedLines() || ''
 				const originalCode = editor?.getCode() || ''
-				const result = await editScript({
-					language: lang,
-					description: funcDesc,
-					selectedCode,
-					dbSchema: dbSchema
-				})
-				generatedCode = originalCode.replace(selectedCode, result.code + '\n')
+				await copilot(
+					{
+						language: lang,
+						description: funcDesc,
+						code: selectedCode,
+						dbSchema: dbSchema,
+						type: 'edit'
+					},
+					generatedCode,
+					abortController
+				)
+				setupDiff()
+				diffEditor?.setModified(originalCode.replace(selectedCode, $generatedCode + '\n'))
 			} else {
-				const result = await generateScript({
-					language: lang,
-					description: funcDesc,
-					dbSchema: dbSchema
-				})
-				generatedCode = result.code
+				await copilot(
+					{
+						language: lang,
+						description: funcDesc,
+						dbSchema: dbSchema,
+						type: 'gen'
+					},
+					generatedCode,
+					abortController
+				)
+				setupDiff()
+				diffEditor?.setModified($generatedCode)
 			}
+			await sleep(500)
+			closePopup()
+			await sleep(300)
+			showDiff()
 			funcDesc = ''
 		} catch (err) {
 			if (err?.message) {
@@ -73,19 +104,19 @@
 	function acceptDiff() {
 		editor?.setCode(diffEditor?.getModified() || '')
 		editor?.format()
-		generatedCode = ''
+		clear()
 	}
 
 	function rejectDiff() {
-		generatedCode = ''
+		clear()
+	}
+
+	function setupDiff() {
+		diffEditor?.setupModel(lang === 'frontend' ? 'javascript' : scriptLangToEditorLang(lang))
+		diffEditor?.setOriginal(editor?.getCode() || '')
 	}
 
 	function showDiff() {
-		diffEditor?.setDiff(
-			editor?.getCode() || '',
-			generatedCode,
-			lang === 'frontend' ? 'javascript' : scriptLangToEditorLang(lang)
-		)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -103,16 +134,19 @@
 
 	$: input?.focus()
 
-	$: lang && (generatedCode = '')
+	function clear() {
+		$generatedCode = ''
+	}
 
-	$: generatedCode && showDiff()
-	$: !generatedCode && hideDiff()
+	$: lang && clear()
+
+	$: !$generatedCode && hideDiff()
 	$: editor && setSelectionHandler()
 	$: selection && (isEdit = !selection.isEmpty())
 	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
 </script>
 
-{#if generatedCode}
+{#if $generatedCode.length > 0 && !genLoading}
 	{#if inlineScript}
 		<div class="flex gap-1">
 			<Button
@@ -161,37 +195,72 @@
 		</div>
 	{/if}
 {/if}
-{#if !generatedCode && SUPPORTED_LANGUAGES.has(lang)}
-	<Popup floatingConfig={{ placement: 'bottom-end', strategy: 'absolute' }} let:close>
+{#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang)}
+	<Popup
+		floatingConfig={{
+			middleware: [
+				autoPlacement({
+					allowedPlacements: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'top', 'bottom']
+				})
+			]
+		}}
+		let:close
+	>
 		<svelte:fragment slot="button">
 			{#if inlineScript}
 				<Button
 					size="lg"
-					color="light"
-					btnClasses="!px-2 !bg-surface-secondary hover:!bg-surface-hover"
-					loading={genLoading}
-					nonCaptureEvent={true}
+					color={genLoading ? 'red' : 'light'}
+					btnClasses={genLoading ? '!px-3' : '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
+					nonCaptureEvent={!genLoading}
+					on:click={genLoading ? () => abortController?.abort() : undefined}
+					bind:element={button}
 				>
-					<Icon scale={0.8} data={faMagicWandSparkles} />
+					{#if genLoading}
+						<Icon scale={0.8} data={faCancel} />
+					{:else}
+						<Icon scale={0.8} data={faMagicWandSparkles} />
+					{/if}
 				</Button>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses="!font-medium text-secondary"
+					btnClasses="!font-medium"
 					size="xs"
-					color="light"
+					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={{ icon: faMagicWandSparkles }}
-					{iconOnly}
-					loading={genLoading}
-					nonCaptureEvent={true}
+					startIcon={genLoading ? undefined : { icon: faMagicWandSparkles }}
+					nonCaptureEvent={!genLoading}
+					on:click={genLoading ? () => abortController?.abort() : undefined}
+					bind:element={button}
 				>
-					{isEdit ? 'AI Edit' : 'AI Gen'}
+					{#if genLoading}
+						<WindmillIcon
+							white={true}
+							class="mr-1 text-white"
+							height="16px"
+							width="20px"
+							spin="veryfast"
+						/>
+						Cancel
+					{:else}
+						{isEdit ? 'AI Edit' : 'AI Gen'}
+					{/if}
 				</Button>
 			{/if}
 		</svelte:fragment>
-		<label class="block text-primary">
-			{#if $existsOpenaiResourcePath}
+		<div class="block text-primary">
+			{#if genLoading}
+				<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
+					{#if $generatedCode.length > 0}
+						<div class="overflow-x-scroll">
+							<HighlightCode language={lang} code={$generatedCode} /></div
+						>
+					{:else}
+						<LoadingIcon />
+					{/if}
+				</div>
+			{:else if $existsOpenaiResourcePath}
 				<div class="flex w-96">
 					<input
 						type="text"
@@ -199,8 +268,7 @@
 						bind:value={funcDesc}
 						on:keypress={({ key }) => {
 							if (key === 'Enter' && funcDesc.length > 0) {
-								close(input || null)
-								onGenerate()
+								onGenerate(() => close(input || null))
 							}
 						}}
 						placeholder={isEdit
@@ -214,8 +282,7 @@
 						btnClasses="!p-1 !w-[38px] !ml-2"
 						aria-label="Generate"
 						on:click={() => {
-							close(input || null)
-							onGenerate()
+							onGenerate(() => close(input || null))
 						}}
 						disabled={funcDesc.length <= 0}
 					>
@@ -244,6 +311,6 @@
 					></p
 				>
 			{/if}
-		</label>
+		</div>
 	</Popup>
 {/if}

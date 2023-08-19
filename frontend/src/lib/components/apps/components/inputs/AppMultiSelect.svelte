@@ -136,7 +136,7 @@
 					bind:outerDiv
 					outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
 					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-					ulOptionsClass={'p-2'}
+					ulOptionsClass={'p-2 !bg-surface-secondary'}
 					bind:selected={value}
 					on:change={() => {
 						outputs?.result.set([...(value ?? [])])

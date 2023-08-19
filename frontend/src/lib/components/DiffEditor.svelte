@@ -11,7 +11,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 
-	const SIDE_BY_SIDE_MIN_WIDTH = 650
+	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
 	export let automaticLayout = true
 	export let fixedOverflowWidgets = true
@@ -37,23 +37,25 @@
 		})
 	}
 
-	export function setDiff(
-		original: string,
-		modified: string,
+	export function setupModel(
 		lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'javascript' | 'powershell'
-	): void {
+	) {
 		diffEditor?.setModel({
-			original: meditor.createModel(original, lang),
-			modified: meditor.createModel(modified, lang)
+			original: meditor.createModel('', lang),
+			modified: meditor.createModel('', lang)
 		})
+	}
 
-		if (lang !== 'shell') {
-			diffEditor?.getModifiedEditor().getAction('editor.action.formatDocument')?.run()
-		}
+	export function setOriginal(code: string) {
+		diffEditor?.getModel()?.original?.setValue(code)
 	}
 
 	export function getOriginal(): string {
 		return diffEditor?.getModel()?.original.getValue() ?? ''
+	}
+
+	export function setModified(code: string) {
+		diffEditor?.getModel()?.modified?.setValue(code)
 	}
 
 	export function getModified(): string {

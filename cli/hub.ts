@@ -3,6 +3,7 @@ import { Command, ResourceService, log } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
+import { deepEqual } from "./utils.ts";
 
 async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
@@ -61,21 +62,25 @@ async function pull(opts: GlobalOptions) {
   });
 
   for (const x of list) {
-    if (
-      resourceTypes.find(
-        (y) => y.name === x.name && typeof y.schema !== "string"
-      )
-    ) {
-      log.info("skipping " + x.name);
-      continue;
-    }
-    log.info("syncing " + x.name);
     try {
       x.schema = JSON.parse(x.schema);
     } catch (e) {
       log.info("failed to parse schema for " + x.name);
       continue;
     }
+    if (
+      resourceTypes.find(
+        (y) =>
+          y.name === x.name &&
+          typeof y.schema !== "string" &&
+          deepEqual(y.schema, x.schema)
+      )
+    ) {
+      log.info("skipping " + x.name + " (same as current)");
+      continue;
+    }
+    log.info("syncing " + x.name);
+
     await pushResourceType(
       workspace.workspaceId,
       x.name + ".resource-type.json",

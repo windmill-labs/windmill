@@ -282,8 +282,7 @@
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
-  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get/${path}" \\
-  | jq -r .value`)
+  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path} | jq -r"`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -340,8 +339,8 @@
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
-  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get/${path}" \\
-  | jq -r .value`)
+  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" \\
+  | jq`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

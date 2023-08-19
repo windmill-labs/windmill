@@ -1,9 +1,9 @@
 - answer: |-
     ```python
     import psycopg2
-    from psycopg2 import OperationalError
     from typing import TypedDict
 
+    # Define the TypedDict for postgresql
     class postgresql(TypedDict):
         host: str
         port: int
@@ -13,40 +13,40 @@
         password: str
 
     def main(postgres: postgresql):
-        # Create a connection to the PostgreSQL database
-        try:
-            connection = psycopg2.connect(
-                host=postgres['host'],
-                port=postgres['port'],
-                user=postgres['user'],
-                password=postgres['password'],
-                dbname=postgres['dbname'],
-                sslmode=postgres['sslmode']
-            )
+        # Create connection string
+        conn_string = f"host={postgres['host']} dbname={postgres['dbname']} user={postgres['user']} password={postgres['password']}"
 
-            # Create a cursor object
-            cursor = connection.cursor()
+        # Connect to the PostgreSQL server
+        conn = psycopg2.connect(conn_string)
 
-            # Execute the SQL query
-            cursor.execute("SELECT * FROM orders")
+        # Create a cursor object
+        cur = conn.cursor()
 
-            # Fetch all the rows
-            rows = cursor.fetchall()
+        # Execute the SQL query
+        cur.execute("SELECT * FROM orders")
 
-            # Print all the rows
-            for row in rows:
-                print(row)
+        # Fetch all the rows
+        rows = cur.fetchall()
 
-        except OperationalError as e:
-            print(f"The error '{e}' occurred")
+        # Close the cursor and connection
+        cur.close()
+        conn.close()
 
-        finally:
-            # Close the connection
-            if connection:
-                cursor.close()
-                connection.close()
+        return rows
     ```
   description: Connect to postgres and list the rows in the orders table
+  example_answer: |-
+    ```python
+    import random
+
+    def main(name: str):
+        print("hello", name) # print hello name to the console
+        return random.randint(0, 100) # return a random number between 0 and 100
+    ```
+  example_prompt: |-
+    Write a function in python called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
   lang: python3
   template_prompt: |-
     Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
@@ -62,17 +62,32 @@
 - answer: |-
     ```python
     def main(num: int) -> int:
-      # Add a condition to check if num is zero.
-      # If num is zero, return a message to avoid division by zero error.
-      if num == 0:
-        raise ValueError('The input number cannot be zero')
-      return 3 / num
+        if num == 0:
+            return "Error: Division by zero is not allowed."
+        else:
+            return 3 / num
     ```
-    explanation: "The error occurs because you're trying to divide by zero which is not allowed in mathematics. The fix is to add a check at the beginning of the function to prevent division by zero. If the input number is zero, it raises a ValueError with an appropriate message."
+    explanation: "The error occurs when the function tries to divide by zero, which is not allowed in mathematics. To fix this, we can add a condition to check if the number is zero before performing the division. If the number is zero, we can return an error message instead."
   code: |-
     def main(num: int) -> int:
       return 3 / num
   error: division by zero
+  example_answer: |-
+    ```python
+    def main():
+        print("Hello world")
+    ```
+    explanation: "The code should be wrapped it in a function called "main"."
+  example_prompt: |-
+    Here's my python3 code:
+    ```python
+    print("Hello world")
+    ```
+    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    I get the following error: {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nNo main function found"}}`
+    Fix my code.
   lang: python3
   template_prompt: |-
     Here's my python3 code:
@@ -95,15 +110,36 @@
   type: fix
 - answer: |-
     ```python
-    # The function main is defined here. It takes an integer 'num' as an argument.
     def main(num: int) -> int:
-      # The function returns the result of the division of 'num' by 16.
+      # The function takes an integer as input,
+      # divides it by 16, and returns the result
       return num / 16
     ```
   code: |-
     def main(num: int) -> int:
       return num / 16
   description: Comment my code
+  example_answer: |-
+    ```python
+    import random
+
+    def main(name: str):
+        print("hello", name) # print hello name to the console
+        return random.randint(0, 100) # return a random number between 0 and 100
+    ```
+  example_prompt: |-
+    Here's my python3 code:
+    ```python
+    import random
+
+    def main(name: str):
+        print("hello", name)
+        return random.randint(0, 100)
+    ```
+    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
+    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+    My instructions: add comments
   lang: python3
   template_prompt: |-
     Here's my python3 code:
@@ -125,24 +161,33 @@
     ```go
     package inner
 
-    import (
-        "errors"
-        "fmt"
-    )
+    import "errors" // import errors package for error handling
 
-    // main function which accepts a float64 number and divides it by 16
-    // returns the result and an error if the input number is 0
-    func main(num float64) (float64, error) {
-        // check if the number is 0, as division by 0 is not allowed
-        if num == 0 {
-            return 0, errors.New("Cannot divide by zero")
-        }
-
-        result := num / 16.0
-        return result, nil
+    func main(number float64) (float64, error) {
+      if number == 0 { // check if the number is zero to avoid division by zero error
+        return 0, errors.New("division by zero") // return error if number is zero
+      }
+      result := number / 16 // divide the number by 16
+      return result, nil // return the result and nil error
     }
     ```
   description: Divide a number by 16
+  example_answer: |-
+    ```go
+    package inner
+
+    import (
+      "fmt"
+      "math/rand"
+    )
+
+    func main(name string) (int, error) {
+      fmt.Println("hello", name) // print hello name to the console
+      return rand.Intn(100), nil // return a random number between 0 and 100
+    }
+    ```
+  example_prompt: |-
+    Write a function in go called "main". The function should say hello to the passed name and return a random number between 0 and 100. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
   lang: go
   template_prompt: |-
     Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
@@ -155,20 +200,24 @@
   type: gen
 - answer: |-
     ```typescript
-    // Importing the required library
-    import { toWords } from "npm:number-to-words";
+    import { toWords } from "npm:lodash"; // import the toWords function from lodash
 
-    // Defining the main function
     export async function main(number: number): Promise<string> {
-      // Converting the number to word using the toWords function from the number-to-words library
-      const word = toWords(number);
-
-      // Returning the word
-      return word;
+      return toWords(number); // convert the number to words and return it
     }
     ```
-    In this function, we are using the `toWords` function from the `number-to-words` npm library to convert a number to a word. The function takes a number as input and returns a promise that resolves to a string. The string is the word representation of the number.
   description: Convert a number to a word
+  example_answer: |-
+    ```typescript
+    export async function main(name: string) {
+      console.log("hello", name) // print hello name to the console
+      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
+    }
+    ```
+  example_prompt: |-
+    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   lang: deno
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
@@ -183,10 +232,9 @@
   type: gen
 - answer: |-
     ```typescript
-    // Importing the required PostgreSQL library from npm
-    import { Client } from "npm:pg";
+    // Importing the required libraries
+    import { Client } from "https://deno.land/x/postgres/mod.ts";
 
-    // Defining the Postgresql type
     type Postgresql = {
       host: string,
       port: number,
@@ -196,35 +244,41 @@
       password: string
     }
 
-    // Defining the main function
     export async function main(postgres: Postgresql) {
-      // Creating a new client instance
+      // Create a new client using the provided Postgres details
       const client = new Client({
-        host: postgres.host,
+        hostname: postgres.host,
         port: postgres.port,
         user: postgres.user,
         password: postgres.password,
         database: postgres.dbname,
-        tls: { enforce: postgres.sslmode === "require" },
       });
 
-      // Connecting to the PostgreSQL server
+      // Connect to the Postgres server
       await client.connect();
 
-      // Running the query to list rows in the orders table
+      // Query the "orders" table and get all rows
       const result = await client.queryArray("SELECT * FROM orders;");
 
-      // Logging the rows from the orders table
-      console.log(res.rows);
-
-      // Closing the connection to the PostgreSQL server
+      // Disconnect from the Postgres server
       await client.end();
 
-      // Returning the result
-      return result.rows;
+      // Return the result of the query
+      return result.rows
     }
     ```
   description: Connect to postgres and list the rows in the orders table
+  example_answer: |-
+    ```typescript
+    export async function main(name: string) {
+      console.log("hello", name) // print hello name to the console
+      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
+    }
+    ```
+  example_prompt: |-
+    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   lang: deno
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
@@ -238,23 +292,25 @@
     Put explanations directly in the code as comments.
   type: gen
 - answer: |-
-    Here's a simple TypeScript function called "main" that converts a number to a word using the npm library "number-to-words". I've added the library import at the top of the file. The function takes a number as an argument and returns the word representation of that number.
-
     ```typescript
-    // Importing the library to convert numbers to words
-    import * as converter from 'number-to-words';
+    import { toWords } from 'number-to-words'; // npm library to convert numbers to words
 
-    // Defining the main function
-    export async function main(num: number): Promise<string> {
-      // Converting the number to word using the library function
-      let word = converter.toWords(num);
-
-      // Returning the word
-      return word;
+    export async function main(number: number): Promise<string> {
+      return toWords(number); // convert the number to a word and return it
     }
     ```
-    This function takes a number as input and returns a Promise that resolves to a string. The string is the word representation of the number. The function uses the 'number-to-words' npm library to convert the number to words.
   description: Convert a number to a word
+  example_answer: |-
+    ```typescript
+    export async function main(name: string) {
+      console.log("hello", name) // print hello name to the console
+      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
+    }
+    ```
+  example_prompt: |-
+    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   lang: bun
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
@@ -269,17 +325,26 @@
   type: gen
 - answer: |-
     ```sql
-    -- $1 email
-    -- $2 disabled = false
-    -- $3 is_admin = false
-    -- $4 operator = false
-    -- $5 username
-    -- $6 workspace_id
-    INSERT INTO usr (email, disabled, is_admin, operator, username, workspace_id)
-    VALUES ($1::varchar, $2::bool, $3::bool, $4::bool, $5::varchar, $6::varchar);
+    -- $1 role
+    -- $2 email
+    -- $3 disabled
+    -- $4 is_admin
+    -- $5 operator
+    -- $6 username
+    -- $7 created_at
+    -- $8 workspace_id
+    INSERT INTO usr (role, email, disabled, is_admin, operator, username, created_at, workspace_id)
+    VALUES ($1::varchar, $2::varchar, $3::boolean, $4::boolean, $5::boolean, $6::varchar, $7::timestamptz, $8::varchar)
     ```
-    This SQL code will insert a new user into the 'usr' table in your PostgreSQL database. The values for the fields are obtained directly in the statement with `$1::type`, `$2::type`, etc. The comments before the command name the parameters. The default values for 'disabled', 'is_admin', and 'operator' are all false.
   description: Insert an a new user
+  example_answer: |-
+    ```sql
+    -- $1 name
+    -- $2 price
+    INSERT INTO products (name, price) VALUES ($1::text, $2::numeric)
+    ```
+  example_prompt: |-
+    Write SQL code for a PostgreSQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   lang: postgresql
   template_prompt: |-
     Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
@@ -291,12 +356,20 @@
     Put explanations directly in the code as comments.
   type: gen
 - answer: |-
-    ```SQL
-    -- ? email (VARCHAR)
-    -- ? name (VARCHAR)
-    INSERT INTO users (email, name) VALUES (?, ?);
+    ```sql
+    -- ? email (text)
+    -- ? name (text)
+    INSERT INTO users (email, name) VALUES (?, ?)
     ```
   description: Insert an email and a name in the users table
+  example_answer: |-
+    ```sql
+    -- ? name (text)
+    -- ? price (float)
+    INSERT INTO products (name, price) VALUES (?, ?)
+    ```
+  example_prompt: |-
+    Write SQL code for MySQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
   lang: mysql
   template_prompt: |-
     Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
@@ -309,13 +382,20 @@
   type: gen
 - answer: |-
     ```bash
-    var1="$1"
-
-    # Use bc (an arbitrary precision calculator language) to perform the division
-    # Scale is set to 2 to get output up to two decimal places
-    echo "scale=2; $var1/16" | bc
+    # shellcheck shell=bash
+    num="$1" # get the number argument
+    divided_num=$(echo "scale=2; $num / 16" | bc) # divide the number by 16 with 2 decimal places
+    echo $divided_num # print the result
     ```
   description: Divide a number by 16
+  example_answer: |-
+    ```shell
+    # shellcheck shell=bash
+    name="$1" # get the name argument
+    echo "hello $name" # print hello name
+    ```
+  example_prompt: |-
+    Write bash code that should say hello to the passed name. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
   lang: bash
   template_prompt: |-
     Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
@@ -328,42 +408,33 @@
   type: gen
 - answer: |-
     ```bash
-    # Assign the arguments to variables
-    app_name="$1"
-    python_version="$2"
+    # shellcheck shell=bash
+    app_path="$1"  # Get the path to the python app
+    image_name="$2" # Get the name of the docker image
 
-    # Create a Dockerfile
-    cat << EOF > Dockerfile
-    # Use an official Python runtime as a parent image
-    FROM python:${python_version}
-
-    # Set the working directory in the container to /app
+    # Create a Dockerfile content for a Python app
+    dockerfile_content="FROM python:3.7
     WORKDIR /app
-
-    # Add the current directory contents into the container at /app
-    ADD . /app
-
-    # Install any needed packages specified in requirements.txt
+    COPY . /app
     RUN pip install --no-cache-dir -r requirements.txt
+    CMD [\"python\", \"./your-daemon-or-script.py\"]"
 
-    # Make port 80 available to the world outside this container
-    EXPOSE 80
-
-    # Define environment variable
-    ENV NAME ${app_name}
-
-    # Run app.py when the container launches
-    CMD ["python", "app.py"]
-    EOF
+    # Write the Dockerfile content into a Dockerfile
+    echo "$dockerfile_content" > "$app_path/Dockerfile"
 
     # Build the Docker image
-    docker build -t ${app_name} .
-
-    # Run the Docker image
-    docker run -p 4000:80 ${app_name}
+    docker build -t "$image_name" "$app_path"
     ```
-    This bash script creates a Dockerfile for a Python application. The Dockerfile is then used to build a Docker image and finally run the Docker container. The script takes two arguments: the name of the application and the Python version. The application name is used as the Docker image name and also set as an environment variable inside the Docker container. The Python version is used to select the parent image for the Docker container. The script assumes that the current directory contains a requirements.txt file with the Python packages required by the application and an app.py file which is the entry point of the application.
+    This script will create a Dockerfile in the directory of the Python app, then it will build a Docker image with the specified image name. Please replace "your-daemon-or-script.py" with your actual python script name.
   description: Write a docker image for a python app
+  example_answer: |-
+    ```shell
+    # shellcheck shell=bash
+    name="$1" # get the name argument
+    echo "hello $name" # print hello name
+    ```
+  example_prompt: |-
+    Write bash code that should say hello to the passed name. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
   lang: bash
   template_prompt: |-
     Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
@@ -376,39 +447,43 @@
   type: gen
 - answer: |-
     ```typescript
-    // Define Github type
     type Github = {
       token: string
     }
 
-    // Define the main function
-    export async function main(repo: string, github: Github): Promise<number> {
-      // Define the Github API URL
-      const url = `https://api.github.com/repos/${repo}`;
+    // Here we define our function
+    export async function main(github: Github, owner: string, repo: string): Promise<number> {
+      // We will fetch the data from the GitHub API
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          'Authorization': `token ${github.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
 
-      // Define the headers for the fetch request
-      const headers = {
-        "Authorization": `token ${github.token}`,
-        "Accept": "application/vnd.github.v3+json"
-      };
-
-      // Make the fetch request to the Github API
-      const response = await fetch(url, { headers });
-
-      // Check if response is ok
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Parse the response to JSON
+      // We will then parse the response as JSON
       const data = await response.json();
 
-      // Return the number of stars of the repo
+      // And finally return the number of stars
       return data.stargazers_count;
     }
     ```
-    This function takes a repo string and a Github object as parameters. It constructs the Github API URL and defines the headers for the fetch request. It then makes the fetch request to the Github API and checks if the response is ok. If the response is not ok, it throws an error. If the response is ok, it parses the response as JSON and returns the number of stars of the repo.
+    This function will take in three parameters: a `Github` object (which contains the GitHub token), and two strings representing the owner of the repository and the repository name, respectively. The function will then fetch the data for the given repository from the GitHub API, parse the response as JSON, and return the number of stars the repository has.
   description: Query the github api and return the number of stars of a repo
+  example_answer: |-
+    ```typescript
+    export async function main() {
+      // fetch the data from jsonplaceholder
+      const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
+        headers: { "Content-Type": "application/json" },
+      });
+      return res.json();
+    }
+    ```
+  example_prompt: |-
+    Write a function in TypeScript called "main". The function should query sample data from jsonplaceholder. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
+    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
+    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   lang: nativets
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
@@ -432,6 +507,23 @@
   description:
     set the value of the input with id 'my_field' to the context variable
     email
+  example_answer: |-
+    ```javascript
+    // Access the email from the context object
+    var email = ctx.email;
+
+    // Use the setValue function to set the value of the input field with id 'my_field' to the email
+    setValue('my_field', email);
+    ```
+  example_prompt: |-
+    Write client-side javascript code that should set the value of the input with id 'my_field' to the context variable email. You have access to a few helpers:
+    You can access the context object with the ctx global variable.
+    The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
+    You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
+    Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
+    Use the recompute function to recompute a component: recompute(id: string)
+    Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
+    The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
   lang: frontend
   template_prompt: |-
     Write client-side javascript code that should {description}. You have access to a few helpers:
@@ -453,29 +545,28 @@
     ```sql
     -- $1 username
     SELECT
-        DATE_TRUNC('month', timestamp) AS month,
-        COUNT(id) / COUNT(DISTINCT DATE_TRUNC('month', timestamp)) AS average_jobs
+        DATE_TRUNC('month', created_at) AS month,
+        COUNT(*)::float / COUNT(DISTINCT DATE_TRUNC('month', created_at)) AS avg_jobs_per_month
     FROM
-        audit
+        completed_job
     WHERE
-        username = $1::varchar AND operation = 'complete'
+        created_by = $1::varchar
     GROUP BY
         month
     ORDER BY
         month;
     ```
-    This SQL code calculates the average number of completed jobs per month for a given username.
-
-    It starts by truncating the timestamp to the month, which groups all the jobs completed in the same month together.
-
-    Then it counts the number of jobs completed in each month and divides by the total number of distinct months to get the average number of jobs per month.
-
-    The WHERE clause filters for the specified username and only considers 'complete' operations.
-
-    Finally, it orders the results by month.
   description:
     compute the average number of completed jobs per month for the given
     username
+  example_answer: |-
+    ```sql
+    -- $1 name
+    -- $2 price
+    INSERT INTO products (name, price) VALUES ($1::text, $2::numeric)
+    ```
+  example_prompt: |-
+    Write SQL code for a PostgreSQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   lang: postgresql
   template_prompt: |-
     Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
@@ -487,14 +578,26 @@
     Put explanations directly in the code as comments.
   type: gen
 - answer: |-
-    explanation: "The error message indicates that there's no column named 'is_secret' in the 'account' table. From the provided schema, it can be observed that the 'is_secret' column is actually in the 'variable' table, not the 'account' table. The correct SQL query should select from the 'variable' table instead of 'account'."
-
     ```sql
     SELECT is_secret FROM variable
     ```
+    explanation: "The `is_secret` column does not exist in the `account` table. Looking at your schema, it seems like the `is_secret` column is in the `variable` table, not the `account` table. So, you should select from the `variable` table instead."
   code: |-
     SELECT is_secret FROM account
   error: 'ExecutionError: db error: ERROR: column "is_secret" does not exist'
+  example_answer: |-
+    ```sql
+    select * from demo
+    ```
+    explanation: "You're missing a "t" in "select"."
+  example_prompt: |-
+    Here's my PostgreSQL code:
+    ```sql
+    selec * from demo
+    ```
+    Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    I get the following error: {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\ndb error: ERROR: syntax error at or near \\"selec\\""}}
+    Fix my code.
   lang: postgresql
   template_prompt: |-
     Here's my PostgreSQL code:
