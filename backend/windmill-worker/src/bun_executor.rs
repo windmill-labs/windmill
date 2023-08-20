@@ -5,10 +5,12 @@ use itertools::Itertools;
 use uuid::Uuid;
 
 use crate::{
-    common::{get_reserved_variables, handle_child, read_result, set_logs},
-    create_args_and_out_file, write_file, write_file_binary, AuthedClientBackgroundTask,
-    BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NPM_CONFIG_REGISTRY, NSJAIL_PATH,
-    PATH_ENV,
+    common::{
+        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
+        write_file, write_file_binary,
+    },
+    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::error::Result;

@@ -6,7 +6,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient, JobCompleted};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 

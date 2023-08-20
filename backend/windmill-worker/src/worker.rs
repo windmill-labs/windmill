@@ -33,8 +33,7 @@ use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED,
 use serde_json::{json, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File},
-    io::AsyncWriteExt,
+    fs::{symlink, DirBuilder},
     sync::{
         mpsc::{self, Sender}, RwLock, Barrier
     },
@@ -57,7 +56,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::handle_deno_job, 
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::handle_deno_job, 
 };
 
 #[cfg(feature = "enterprise")]
@@ -1215,67 +1214,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content.as_bytes()).await?;
-    file.flush().await?;
-    Ok(file)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content).await?;
-    file.flush().await?;
-    Ok(file)
-}
-
-#[async_recursion]
-pub async fn transform_json_value(
-    name: &str,
-    client: &AuthedClient,
-    workspace: &str,
-    v: Value,
-) -> error::Result<Value> {
-    tracing::info!("transform_json_value {name}", name = name);
-    match v {
-        Value::String(y) if y.starts_with("$var:") => {
-            let path = y.strip_prefix("$var:").unwrap();
-            client.get_client()
-                .get_variable_value(workspace, path)
-                .await
-                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| json!(v.into_inner()))
-        }
-        Value::String(y) if y.starts_with("$res:") => {
-            let path = y.strip_prefix("$res:").unwrap();
-            if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!(
-                    "Argument `{name}` is an invalid resource path: {path}",
-                )));
-            }
-            Ok(client.get_client()
-                .get_resource_value_interpolated(workspace, path)
-                .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner())
-        }
-        Value::Object(mut m) => {
-            for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
-                    transform_json_value(&a, client, workspace, b).await?,
-                );
-            }
-            Ok(Value::Object(m))
-        }
-        a @ _ => Ok(a),
-    }
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1538,24 +1476,6 @@ mount {{
     // println!("handled job: {:?}",  SystemTime::now());
 
     result
-}
-
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_args_and_out_file(
-    client: &AuthedClient,
-    job: &QueuedJob,
-    job_dir: &str,
-) -> Result<(), Error> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
-    } else {
-        None
-    };
-    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    write_file(job_dir, "args.json", &ser_args).await?;
-    write_file(job_dir, "result.json", "").await?;
-    Ok(())
 }
 
 

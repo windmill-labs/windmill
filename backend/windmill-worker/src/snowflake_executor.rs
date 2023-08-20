@@ -12,7 +12,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Serialize)]
 struct Claims {

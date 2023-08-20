@@ -15,10 +15,12 @@ use windmill_common::{
 use windmill_parser_go::parse_go_imports;
 
 use crate::{
-    common::{capitalize, get_reserved_variables, handle_child, read_result, set_logs},
-    create_args_and_out_file, write_file, AuthedClientBackgroundTask, DISABLE_NSJAIL,
-    DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH,
-    PATH_ENV,
+    common::{
+        capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
+        set_logs, write_file,
+    },
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
