@@ -43,7 +43,7 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
-	let nbOfJobs = 100
+	let nbOfJobs = 30
 
 	let queue_count: Tweened<number> | undefined = undefined
 
