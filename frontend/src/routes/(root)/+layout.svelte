@@ -10,6 +10,7 @@
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import EditorTheme from '$lib/components/EditorTheme.svelte'
+	import { computeDrift } from '$lib/forLater'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	if (token) {
@@ -126,6 +127,7 @@
 			}
 		}
 		setLicense()
+		computeDrift()
 
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()

@@ -428,10 +428,10 @@
 	>
 		<div class="flex flex-row justify-end gap-4">
 			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>
-				Add a resource type
+				Add Resource Type
 			</Button>
 			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
-				Add a resource
+				Add Resource
 			</Button>
 		</div>
 	</PageHeader>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, forLater, msToSec } from '$lib/utils'
+	import { displayDate, msToSec } from '$lib/utils'
 	import {
 		faCalendar,
 		faCheck,
@@ -13,6 +13,7 @@
 
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
 	import Badge from './common/badge/Badge.svelte'
+	import { forLater } from '$lib/forLater'
 
 	const SMALL_ICON_SCALE = 0.7
 

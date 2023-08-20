@@ -231,6 +231,7 @@ pub async fn run_server(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
+                .nest("/jobs", jobs::global_root_service())
                 .nest("/workers", workers::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/groups", groups::global_service())

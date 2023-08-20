@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import {
-		canWrite,
-		defaultIfEmptyString,
-		displayDaysAgo,
-		emptyString,
-		encodeState
-	} from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
 	import { faCodeFork, faEdit, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -34,6 +28,7 @@
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -267,7 +262,7 @@
 									<span class="text-lg font-semibold">{flow.path}</span>
 								{/if}
 								<span class="text-sm text-tertiary">
-									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 								</span>
 
 								{#if flow.archived}

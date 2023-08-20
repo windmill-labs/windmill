@@ -303,7 +303,7 @@
 				variableEditor.initNew()
 			}}
 		>
-			New variable
+			New Variable
 		</Button>
 	</div>
 </ItemPicker>
@@ -355,13 +355,14 @@
 >
 	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
 		<Button
+			startIcon={{ icon: faPlus }}
 			target="_blank"
 			variant="border"
 			color="blue"
 			size="sm"
 			href="/resources?connect_app=undefined"
 		>
-			Connect an API
+			Add Resource
 		</Button>
 	</div>
 </ItemPicker>

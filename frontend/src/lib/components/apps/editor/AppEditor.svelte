@@ -368,7 +368,7 @@
 				variableEditor?.initNew?.()
 			}}
 		>
-			New variable
+			New Variable
 		</Button>
 	</div>
 </ItemPicker>
