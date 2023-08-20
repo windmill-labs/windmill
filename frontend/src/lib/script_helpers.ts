@@ -13,7 +13,7 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
-export const NATIVETS_INIT_CODE = `// Fetch only script, no imports allowed but benefits from a dedicated highly efficient runtime
+export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
 
 export async function main() {
   const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
@@ -45,7 +45,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import { getVariable } from "windmill-client@${__pkg__.version}"
+import * as wmill from "windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -57,7 +57,7 @@ export async function main(
   d = "inferred type string from default arg",
   e = { nested: "object" },
 ) {
-  // let x = await getVariable('u/user/foo')
+  // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
 }
 `
@@ -107,7 +107,7 @@ export async function main(x: string) {
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import { getVariable } from "windmill-client@${__pkg__.version}"
+export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
   return x
