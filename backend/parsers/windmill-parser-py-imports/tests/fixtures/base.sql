@@ -2557,3 +2557,26 @@ import numpy as np
 '',
 '',
 'f/foo/baz', -28028598712388161, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+import difffolder
+from .bar import main
+',
+'{}',
+'',
+'',
+'f/foobar/baz', -28028598712388160, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+import innerdifffolder
+',
+'{}',
+'',
+'',
+'f/foobar/bar', -28028598712388159, 'python3', '');
