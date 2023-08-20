@@ -62,7 +62,10 @@ export async function getResource(
   const workspace = getWorkspace();
   path = path ?? getStatePath();
   try {
-    return ResourceService.getResourceValueInterpolated({ workspace, path });
+    return await ResourceService.getResourceValueInterpolated({
+      workspace,
+      path,
+    });
   } catch (e: any) {
     if (undefinedIfEmpty && e.status === 404) {
       return undefined;
