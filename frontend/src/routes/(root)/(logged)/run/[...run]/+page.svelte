@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, forLater, truncateHash } from '$lib/utils'
+	import { canWrite, displayDate,  truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -34,6 +34,7 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import { forLater } from '$lib/forLater'
 
 	let job: Job | undefined
 	const iconScale = 1
@@ -316,7 +317,7 @@
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>
-			<div class="mt-6">
+			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}<FlowMetadata {job} />{/if}
 			</div>

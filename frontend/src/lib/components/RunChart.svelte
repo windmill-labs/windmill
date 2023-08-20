@@ -16,8 +16,10 @@
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
+	import { getNow } from '$lib/forLater'
 
 	export let jobs: CompletedJob[] | undefined = []
+	export let maxIsNow: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -95,20 +97,34 @@
 		return x.path
 	}
 
-	$: minTime = getMinTime(jobs)
+	let minTime = addSeconds(new Date(), -300)
+	let maxTime = getNow()
+
+	$: computeMinMaxTime(jobs)
+
+	function computeMinMaxTime(jobs: CompletedJob[] | undefined) {
+		if (jobs == undefined || jobs?.length == 0) {
+			minTime = addSeconds(new Date(), -300)
+			maxTime = getNow()
+			return
+		}
+
+		const maxJob = maxIsNow ? getNow() : new Date(jobs?.[0].started_at)
+		const minJob = new Date(jobs?.[jobs?.length - 1].started_at)
+
+		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
+
+		minTime = addSeconds(minJob, -diff)
+		if (maxIsNow) {
+			maxTime = maxJob
+		} else {
+			maxTime = addSeconds(maxJob, diff)
+		}
+	}
 
 	function addSeconds(date: Date, seconds: number): Date {
 		date.setTime(date.getTime() + seconds * 1000)
 		return date
-	}
-	function getMinTime(jobs: CompletedJob[] | undefined): Date {
-		return addSeconds(new Date(jobs?.[jobs?.length - 1]?.started_at ?? new Date().toString()), -15)
-	}
-
-	$: maxTime = getMaxTime(jobs)
-
-	function getMaxTime(jobs: CompletedJob[] | undefined): Date {
-		return addSeconds(new Date(jobs?.[0]?.started_at ?? new Date().toString()), 15)
 	}
 
 	$: scatterOptions = {

@@ -169,7 +169,7 @@
 				startIcon={{ icon: faPlus }}
 				on:click={() => variableEditor?.initNew?.()}
 			>
-				New variable
+				New Variable
 			</Button>
 		</div>
 	</ItemPicker>

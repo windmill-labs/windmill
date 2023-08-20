@@ -5,7 +5,7 @@
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -41,7 +41,9 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
-	let nbObJobs = 30
+	let nbOfJobs = 100
+
+	let queue_count: undefined | number = undefined
 
 	$: path = $page.params.path
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -67,8 +69,8 @@
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
-			startedBefore,
-			startedAfter,
+			createdOrStartedBefore: startedBefore,
+			createdOrStartedAfter: startedAfter,
 			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
@@ -87,10 +89,10 @@
 	let loading: boolean = false
 	async function loadJobs(): Promise<void> {
 		loading = true
-		jobs = undefined
+		getCount()
 		try {
-			const newJobs = await fetchJobs(maxTs, minTs)
-			jobs = newJobs
+			jobs = await fetchJobs(maxTs, minTs)
+			computeCompletedJobs()
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -98,16 +100,29 @@
 		loading = false
 	}
 
+	async function getCount() {
+		queue_count = (await JobService.getQueueCount({ workspace: $workspaceStore! })).database_length
+	}
 	async function syncer() {
+		getCount()
 		if (sync && jobs && maxTs == undefined) {
-			const reversedJobs = [...jobs].reverse()
-			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
-			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
-			if (!ts) {
-				const date = jobs.length > 0 ? new Date(jobs[0]?.created_at!) : new Date()
-				date.setSeconds(date.getSeconds() + 1)
-				ts = date.toISOString()
+			let ts: string | undefined = undefined
+			let cursor = 0
+			while (cursor < jobs.length && minTs == undefined) {
+				let invCursor = jobs.length - 1 - cursor
+				let isQueuedJob = cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
+				if (isQueuedJob) {
+					if (cursor > 0) {
+						const date = new Date(jobs[invCursor + 1]?.created_at!)
+						date.setMilliseconds(date.getMilliseconds() + 1)
+						ts = date.toISOString()
+					}
+					break
+				}
+				cursor++
 			}
+
+			loading = true
 			const newJobs = await fetchJobs(maxTs, minTs ?? ts)
 			if (newJobs && newJobs.length > 0 && jobs) {
 				const oldJobs = jobs?.map((x) => x.id)
@@ -116,12 +131,15 @@
 					.filter((x) => oldJobs.includes(x.id))
 					.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
 				jobs = jobs
+				computeCompletedJobs()
 			}
+			loading = false
 		}
 	}
 
 	let sync = true
 	let mounted: boolean = false
+
 	onMount(() => {
 		mounted = true
 		loadPaths()
@@ -168,8 +186,12 @@
 
 	$: syncTsWithURL(minTs, maxTs)
 
-	$: completedJobs =
-		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
+	let completedJobs: CompletedJob[] | undefined = undefined
+
+	function computeCompletedJobs() {
+		completedJobs =
+			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
+	}
 
 	let searchPath = ''
 	$: searchPath = path
@@ -183,6 +205,7 @@
 	let argError = ''
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
+
 	function reloadLogsWithoutFilterError() {
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
@@ -201,49 +224,49 @@
 			}
 		},
 		{
-			label: 'Last 30 seconds',
+			label: 'Within 30 seconds',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last minute',
+			label: 'Within last minute',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 5 minutes',
+			label: 'Within last 5 minutes',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 30 minutes',
+			label: 'Within last 30 minutes',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 24 hours',
+			label: 'Within last 24 hours',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 7 days',
+			label: 'Within last 7 days',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last month',
+			label: 'Within last month',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
@@ -320,16 +343,35 @@
 
 	<div class="p-2 w-full">
 		<RunChart
+			maxIsNow={maxTs == undefined}
 			jobs={completedJobs}
 			on:zoom={async (e) => {
 				minTs = e.detail.min.toISOString()
 				maxTs = e.detail.max.toISOString()
-				jobs = await fetchJobs(maxTs, minTs)
+				loadJobs()
 			}}
 		/>
 	</div>
-	<div class="flex flex-col gap-1 md:flex-row w-full p-4 justify-between">
-		<div class="flex flex-row gap-1 w-full">
+	<div class="flex flex-col gap-1 md:flex-row w-full p-4">
+		<div class="flex gap-1 relative max-w-36 min-w-[50px]">
+			<div class="text-xs absolute -top-4 truncate hidden lg:block">Jobs Running or Queued</div>
+			<div class="mt-1">{queue_count ?? '...'}</div>
+		</div>
+		<div class="flex grow"
+			><Button
+				size="xs"
+				color="light"
+				variant="contained"
+				title="Require to be an admin. Cancel all jobs in queue"
+				disabled={!$userStore?.is_admin}
+				on:click={async () => {
+					let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
+					loadJobs()
+					sendUserToast(`Canceled ${uuids.length} jobs`)
+				}}>Cancel all</Button
+			></div
+		>
+		<div class="flex flex-row gap-1 w-full max-w-lg">
 			<div class="relative w-full">
 				<div class="flex gap-1 relative w-full">
 					<span class="text-xs absolute -top-4">Min datetime</span>
@@ -341,7 +383,7 @@
 						label="Min datetimes"
 						on:change={async ({ detail }) => {
 							minTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
+							loadJobs()
 						}}
 					/>
 				</div>
@@ -355,7 +397,7 @@
 						label="Max datetimes"
 						on:change={async ({ detail }) => {
 							maxTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
+							loadJobs()
 						}}
 					/>
 				</div>
@@ -370,7 +412,8 @@
 					minTs = undefined
 					maxTs = undefined
 					autoRefresh = true
-
+					jobs = undefined
+					completedJobs = undefined
 					selectedManualDate = 0
 					selectedId = undefined
 					loadJobs()
@@ -419,8 +462,7 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbObJobs
-						loadMoreQuantity={30}
+						bind:nbOfJobs
 						on:filterByPath={(e) => {
 							searchPath = e.detail
 						}}
@@ -450,8 +492,7 @@
 			<RunsTable
 				{jobs}
 				bind:selectedId
-				bind:nbObJobs
-				loadMoreQuantity={30}
+				bind:nbOfJobs
 				on:select={() => {
 					runDrawer.openDrawer()
 				}}
