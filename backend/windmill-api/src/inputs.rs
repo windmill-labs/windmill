@@ -115,7 +115,7 @@ async fn get_input_history(
     let sql = &format!(
         "select * from completed_job \
         where {} = $1 and job_kind = $2 and workspace_id = $3 \
-        order by args, started_at desc limit $4 offset $5",
+        order by created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
     );
 
