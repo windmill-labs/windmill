@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE\n        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL ORDER BY created_at DESC LIMIT 20) AS jobs ) t\n        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
+  "query": "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE\n        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL ORDER BY started_at DESC LIMIT 20) AS jobs ) t\n        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -104,5 +104,5 @@
       null
     ]
   },
-  "hash": "7404fdf5ff9824fc8ebf0b9012cfe6a1204f4a67081beeb77bddda6bdf4b8987"
+  "hash": "7a00843921db4ac1eb20a1045e83363587c1a2cb62d2df25d5564ae78a03b097"
 }

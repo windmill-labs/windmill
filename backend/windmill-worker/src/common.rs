@@ -74,7 +74,6 @@ pub async fn transform_json_value(
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
-    tracing::info!("transform_json_value {name}", name = name);
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
