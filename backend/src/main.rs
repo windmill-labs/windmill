@@ -244,7 +244,7 @@ Windmill Community Edition {GIT_VERSION}
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => {
+                Some(_addr) => {
                     #[cfg(not(feature = "enterprise"))]
                     panic!("Metrics are only available in the Enterprise Edition");
 
