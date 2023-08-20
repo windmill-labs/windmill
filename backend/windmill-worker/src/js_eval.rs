@@ -266,9 +266,10 @@ async function resource(path) {{
 {api_code}
 {}
 {by_id_code}
-(async () => {{ 
+{HAS_CYCLE}
+((async () => {{ 
     {f};
-}})()
+}})()).then((r) => hasCycle(r) ? 'cycle detected' : r)
         "#,
         env.into_iter()
             .map(|(a, b)| {
@@ -290,6 +291,42 @@ async function resource(path) {{
     Ok(serde_v8::from_v8::<serde_json::Value>(scope, local)?)
 }
 
+const HAS_CYCLE: &str = r#"
+function hasCycle(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        return false;
+    }
+
+    let visited = new WeakSet();
+
+    function _detectCycle(o) {
+        if (o === null || typeof o !== 'object') {
+            return false;
+        }
+
+        // If this object was visited before, then there's a cycle
+        if (visited.has(o)) {
+        return true;
+        }
+
+        // Mark this object as visited
+        visited.add(o);
+
+        // Recursively check properties
+        for (let key in o) {
+        if (o.hasOwnProperty(key)) {
+            if (_detectCycle(o[key])) {
+            return true;
+            }
+        }
+        }
+
+        return false;
+    }
+
+    return _detectCycle(obj);
+} 
+"#;
 // #[warn(dead_code)]
 // async fn op_test(
 //     _state: Rc<RefCell<OpState>>,
