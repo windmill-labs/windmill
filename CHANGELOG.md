@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.153.0](https://github.com/windmill-labs/windmill/compare/v1.152.0...v1.153.0) (2023-08-20)
+
+
+### Features
+
+* multiline support in bash ([e1469cc](https://github.com/windmill-labs/windmill/commit/e1469cc64d672b5fc42edac313bc11a017812511))
+
+
+### Bug Fixes
+
+* update deno-client to use new Resource and Variable endpoints ([c13428a](https://github.com/windmill-labs/windmill/commit/c13428ad089999e38768b86bfd251d747759dc69))
+
 ## [1.152.0](https://github.com/windmill-labs/windmill/compare/v1.151.2...v1.152.0) (2023-08-20)
 
 
