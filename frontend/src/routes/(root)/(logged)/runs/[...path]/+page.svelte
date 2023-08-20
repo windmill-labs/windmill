@@ -5,7 +5,7 @@
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -386,7 +386,7 @@
 					color="light"
 					variant="contained"
 					title="Require to be an admin. Cancel all jobs in queue"
-					disabled={!$userStore?.is_admin}
+					disabled={!$userStore?.is_admin && !$superadmin}
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				></div
 			>
