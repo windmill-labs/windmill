@@ -9,6 +9,7 @@
 	let subIndex: number | undefined = undefined
 	let subLength: number | undefined = undefined
 	let length = 1
+	let nextInProgress = false
 
 	$: if (job) updateJobProgress(job)
 
@@ -18,46 +19,49 @@
 			return
 		}
 
-		let maxDone = 0
 		let subStepIndex: undefined | number = undefined
 		let subStepLength: undefined | number = undefined
 		let newError: number | undefined = undefined
-		modules.forEach((module, i) => {
+		let newNextInProgress = false
+
+		let maxDone = job?.flow_status?.step ?? 0
+		if (modules.length > maxDone) {
+			const nextModule = modules[maxDone]
+			if (nextModule.type === FlowStatusModule.type.IN_PROGRESS) {
+				newNextInProgress = true
+			}
+		}
+
+		let module = modules[maxDone]
+		if (module) {
 			if (
 				module.type === FlowStatusModule.type.FAILURE ||
 				(module.type === FlowStatusModule.type.SUCCESS && job['success'] === false)
 			) {
-				newError = i
+				newError = maxDone
+				maxDone = maxDone + 1
 			}
+		}
 
-			let isDone = isJobStepDone(module.type)
-			if (isDone) {
-				maxDone = i + 1
-				return
+		// Loop is still iterating
+		if (module?.iterator) {
+			const stepIndex = module.iterator.index || 0
+			const stepLength = module.iterator.itered?.length || 0
+			if (module.iterator.index != undefined) {
+				subStepIndex = stepIndex
+				subStepLength = stepLength
 			}
+		} else if (module?.branchall) {
+			subStepIndex = module.branchall.branch
+			subStepLength = module.branchall.len
+		}
 
-			// Loop is still iterating
-			if (module.iterator) {
-				const stepIndex = module.iterator.index || 0
-				const stepLength = module.iterator.itered?.length || 0
-				if (module.iterator.index != undefined) {
-					subStepIndex = stepIndex
-					subStepLength = stepLength
-				}
-			} else if (module.branchall) {
-				subStepIndex = module.branchall.branch
-				subStepLength = module.branchall.len
-			}
-		})
 		error = newError
 		subLength = subStepLength ? Math.max(subStepLength, 1) : undefined
 		subIndex = subStepIndex
 		length = Math.max(modules.length, 1)
 		index = maxDone
-	}
-
-	function isJobStepDone(type: FlowStatusModule.type | undefined) {
-		return type === FlowStatusModule.type.SUCCESS || type === FlowStatusModule.type.FAILURE
+		nextInProgress = newNextInProgress
 	}
 
 	let resetP: any
@@ -72,4 +76,13 @@
 	}
 </script>
 
-<ProgressBar bind:resetP {length} {index} {subLength} {subIndex} {error} class={$$props.class} />
+<ProgressBar
+	bind:resetP
+	{length}
+	{index}
+	{nextInProgress}
+	{subLength}
+	{subIndex}
+	{error}
+	class={$$props.class}
+/>
