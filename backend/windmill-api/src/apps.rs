@@ -262,7 +262,7 @@ async fn get_app_w_draft(
         INNER JOIN app_version ON
         app_version.id = app.versions[array_upper(app.versions, 1)]
         LEFT JOIN draft ON 
-        app.path = draft.path AND app.workspace_id = draft.workspace_id AND draft.typ = 'app' 
+        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
         WHERE app.path = $1 AND app.workspace_id = $2"#,
         path.to_owned(),
         &w_id

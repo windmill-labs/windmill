@@ -518,7 +518,7 @@ async fn get_flow_by_path_w_draft(
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
         "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft, flow.tag FROM flow
         LEFT JOIN draft ON 
-        flow.path = draft.path AND flow.workspace_id = draft.workspace_id AND draft.typ = 'flow' 
+        flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",
     )
     .bind(path)

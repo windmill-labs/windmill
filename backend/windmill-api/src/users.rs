@@ -704,7 +704,7 @@ async fn list_users(
              , LATERAL (
                 SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0) executions
                   FROM completed_job
-                 WHERE workspace_id = usr.workspace_id
+                 WHERE workspace_id = $1
                    AND job_kind NOT IN ('flow', 'flowpreview')
                    AND email = usr.email
                    AND now() - '5 week'::interval < created_at 
