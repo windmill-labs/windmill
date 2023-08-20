@@ -99,11 +99,8 @@ lazy_static::lazy_static! {
         WHERE id = (
             SELECT id
             FROM queue
-            WHERE ((running = false
-                   AND scheduled_for <= now())
-               OR (suspend_until IS NOT NULL
-                   AND (   suspend <= 0
-                        OR suspend_until <= now()))) 
+            WHERE ((running = false AND scheduled_for <= now())
+               OR (suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()))) 
                 {}
             ORDER BY scheduled_for, created_at
             FOR UPDATE SKIP LOCKED
