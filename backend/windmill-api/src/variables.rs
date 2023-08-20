@@ -85,8 +85,8 @@ async fn list_variables(
          resource.path IS NOT NULL as is_linked,
          account.refresh_token != '' as is_refreshed
          from variable
-         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
-         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
+         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
+         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
          WHERE variable.workspace_id = $1 ORDER BY path",
     )
     .bind(&w_id)
@@ -117,7 +117,7 @@ async fn get_variable(
         account.refresh_token != '' as is_refreshed
         from variable
         LEFT JOIN account ON variable.account = account.id
-        LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
+        LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $2
         WHERE variable.path = $1 AND variable.workspace_id = $2
         LIMIT 1",
     )

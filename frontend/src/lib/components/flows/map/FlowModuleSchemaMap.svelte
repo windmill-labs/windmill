@@ -146,7 +146,7 @@
 			deleteCallback = undefined
 		}}
 	>
-		<div class="text-gray-800 pb-2"
+		<div class="text-primary pb-2"
 			>Found the following steps that will require changes after this step is deleted:</div
 		>
 		{#each Object.entries(dependents) as [k, v]}

@@ -190,8 +190,8 @@ async fn get_resource(
         variable.is_oauth as \"is_oauth?\",
         variable.account
         FROM resource
-        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id
-        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id
+        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
+        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
         WHERE resource.path = $1 AND resource.workspace_id = $2",
         path.to_owned(),
         &w_id

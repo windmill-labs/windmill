@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate,  truncateHash } from '$lib/utils'
+	import { canWrite, displayDate, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -325,6 +325,13 @@
 
 		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
 			<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
+			<div class="w-full pt-8">
+				<LogViewer
+					jobId={job.id}
+					isLoading={!(job && 'logs' in job && job.logs)}
+					content={job?.logs}
+				/>
+			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">
