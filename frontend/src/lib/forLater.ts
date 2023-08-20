@@ -14,7 +14,7 @@ function adjustDate(drift: number): Date {
 export async function computeDrift() {
 	const now = Date.now()
 	const dbClock = await JobService.getDbClock()
-	dbClockDrift.set(dbClock - now)
+	dbClockDrift.set(now - dbClock)
 }
 
 export function forLater(scheduledString: string): boolean {

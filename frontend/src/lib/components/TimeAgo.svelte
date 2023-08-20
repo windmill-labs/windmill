@@ -57,7 +57,7 @@
 		} else {
 			const now = Date.now()
 			const dbClock = await JobService.getDbClock()
-			const drift = dbClock - now
+			const drift = now - dbClock
 			$dbClockDrift = drift
 			return drift
 		}
