@@ -1,5 +1,5 @@
 use async_recursion::async_recursion;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
 use windmill_common::{
@@ -112,16 +112,23 @@ pub async fn transform_json_value(
     }
 }
 
-pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
-    let mut file = File::open(format!("{job_dir}/result.json")).await?;
+pub async fn read_file_content(path: &str) -> error::Result<String> {
+    let mut file = File::open(path).await?;
     let mut content = "".to_string();
     file.read_to_string(&mut content).await?;
+    Ok(content)
+}
+pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
+    let content = read_file_content(path).await?;
     if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
     }
     serde_json::from_str(&content)
         .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+}
+pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
+    return read_file(&format!("{job_dir}/result.json")).await;
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
