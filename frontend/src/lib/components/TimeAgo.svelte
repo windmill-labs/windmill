@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getNow } from '$lib/forLater'
+	import { getDbClockNow } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
 	import { onDestroy, onMount } from 'svelte'
 
@@ -32,7 +32,7 @@
 	}
 
 	function isToday(someDate: Date): boolean {
-		const today = getNow()
+		const today = getDbClockNow()
 		return (
 			someDate.getDate() == today.getDate() &&
 			someDate.getMonth() == today.getMonth() &&
@@ -41,12 +41,12 @@
 	}
 
 	function daysAgo(someDate: Date): number {
-		const today = getNow()
+		const today = getDbClockNow()
 		return Math.floor((today.getTime() - someDate.getTime()) / 86400000)
 	}
 
 	function secondsAgo(date: Date) {
-		return Math.max(0, Math.floor((getNow().getTime() - date.getTime()) / 1000))
+		return Math.max(0, Math.floor((getDbClockNow().getTime() - date.getTime()) / 1000))
 	}
 
 	async function displayDaysAgo(dateString: string): Promise<string> {

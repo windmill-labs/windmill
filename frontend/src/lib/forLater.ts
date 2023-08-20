@@ -18,15 +18,10 @@ export async function computeDrift() {
 }
 
 export function forLater(scheduledString: string): boolean {
-	let drift = get(dbClockDrift)
-	if (drift == undefined) {
-		computeDrift()
-		drift = 0
-	}
-	return adjustDate(drift) < subtractSeconds(new Date(scheduledString), 5)
+	return getDbClockNow() < subtractSeconds(new Date(scheduledString), 5)
 }
 
-export function getNow() {
+export function getDbClockNow() {
 	let drift = get(dbClockDrift)
 	if (drift == undefined) {
 		computeDrift()
