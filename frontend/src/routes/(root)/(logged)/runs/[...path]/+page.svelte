@@ -371,7 +371,7 @@
 				}}>Cancel all</Button
 			></div
 		>
-		<div class="flex flex-row gap-1 w-full max-w-lg">
+		<div class="flex flex-row gap-1 w-full max-w-xl">
 			<div class="relative w-full">
 				<div class="flex gap-1 relative w-full">
 					<span class="text-xs absolute -top-4">Min datetime</span>
