@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { JobService } from '$lib/gen'
-	import { dbClockDrift } from '$lib/stores'
+	import { getNow } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
 	import { onDestroy, onMount } from 'svelte'
 
@@ -33,7 +32,7 @@
 	}
 
 	function isToday(someDate: Date): boolean {
-		const today = new Date()
+		const today = getNow()
 		return (
 			someDate.getDate() == today.getDate() &&
 			someDate.getMonth() == today.getMonth() &&
@@ -42,32 +41,16 @@
 	}
 
 	function daysAgo(someDate: Date): number {
-		const today = new Date()
+		const today = getNow()
 		return Math.floor((today.getTime() - someDate.getTime()) / 86400000)
 	}
 
 	function secondsAgo(date: Date) {
-		return Math.max(0, Math.floor((new Date().getTime() - date.getTime()) / 1000))
+		return Math.max(0, Math.floor((getNow().getTime() - date.getTime()) / 1000))
 	}
 
-	async function computeDrift() {
-		const storeDrift = $dbClockDrift
-		if (storeDrift) {
-			return storeDrift
-		} else {
-			const now = Date.now()
-			const dbClock = await JobService.getDbClock()
-			const drift = now - dbClock
-			$dbClockDrift = drift
-			return drift
-		}
-	}
-
-	async function adjustDate(date: Date): Promise<Date> {
-		return new Date(date.getTime() + (await computeDrift()))
-	}
 	async function displayDaysAgo(dateString: string): Promise<string> {
-		const date = await adjustDate(new Date(dateString))
+		const date = await new Date(dateString)
 		const nbSecondsAgo = secondsAgo(date)
 		if (nbSecondsAgo < 600) {
 			return `${nbSecondsAgo}s ago`
