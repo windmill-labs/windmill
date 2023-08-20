@@ -279,7 +279,7 @@
 					JSON is too large to be displayed in full.
 				</div>
 				<ObjectViewer json={result} />
-			{:else if typeof result == 'string'}
+			{:else if typeof result == 'string' && result.length > 0}
 				<pre class="text-sm">{result}</pre>
 				<div class="flex">
 					<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
@@ -320,7 +320,7 @@
 						>
 						JSON is too large to be displayed in full.
 					</div>
-				{:else if typeof result == 'string'}
+				{:else if typeof result == 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>
 					<div class="flex">
 						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
