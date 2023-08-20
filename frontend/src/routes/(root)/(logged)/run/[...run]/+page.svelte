@@ -167,7 +167,7 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			{#if job?.type != 'CompletedJob' && !job?.schedule_path}
+			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
 						color="red"
