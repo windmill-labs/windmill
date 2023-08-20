@@ -279,15 +279,15 @@
 					JSON is too large to be displayed in full.
 				</div>
 				<ObjectViewer json={result} />
+			{:else if typeof result == 'string'}
+				<pre class="text-sm">{result}</pre>
+				<div class="flex">
+					<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+						<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+					</Button>
+				</div>
 			{:else}
-				<Highlight language={json} code={jsonStr} />
-				{#if typeof result == 'string'}
-					<div class="flex">
-						<Button size="xs" on:click={() => copyToClipboard(result)} color="light">
-							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-						</Button>
-					</div>
-				{/if}
+				<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 			{/if}
 		{/if}
 	{:else}
@@ -320,14 +320,15 @@
 						>
 						JSON is too large to be displayed in full.
 					</div>
-				{:else}
-					FOO
-					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
-					{#if typeof result == 'string'}
+				{:else if typeof result == 'string'}
+					<pre class="text-sm">{result}</pre>
+					<div class="flex">
 						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-							<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
 						</Button>
-					{/if}
+					</div>
+				{:else}
+					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 				{/if}
 			</DrawerContent>
 		</Drawer>
