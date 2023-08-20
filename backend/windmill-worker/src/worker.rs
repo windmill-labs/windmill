@@ -77,7 +77,7 @@ pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) 
                 &job.workspace_id,
                 &job.permissioned_as,
                 "ephemeral-script",
-                *SESSION_TOKEN_EXPIRY,
+                *SCRIPT_TOKEN_EXPIRY,
                 &job.email,
             )
             .await.expect("could not create job token");
@@ -148,7 +148,8 @@ const NUM_SECS_PING: u64 = 5;
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
 
-pub const DEFAULT_TIMEOUT: u64 = 900;
+pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
+pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
@@ -217,11 +218,14 @@ lazy_static::lazy_static! {
     static ref TIMEOUT: u64 = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_TIMEOUT);
+        .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
     pub static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT);
 
-    pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
+    pub static ref SCRIPT_TOKEN_EXPIRY: i32 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(900);
 
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
