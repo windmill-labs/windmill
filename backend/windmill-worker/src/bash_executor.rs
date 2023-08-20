@@ -71,6 +71,8 @@ pub async fn handle_bash_job(
         })
         .collect::<Vec<String>>();
     let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
+    let _ = write_file(job_dir, "result.json", "").await?;
+    let _ = write_file(job_dir, "result.out", "").await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -122,12 +124,29 @@ pub async fn handle_bash_job(
         job.timeout,
     )
     .await?;
+
+    let result_json_path = format!("{job_dir}/result.json");
+    if let Ok(metadata) = tokio::fs::metadata(&result_json_path).await {
+        if metadata.len() > 0 {
+            return Ok(read_file(&result_json_path).await?);
+        }
+    }
+
+    let result_out_path = format!("{job_dir}/result.out");
+    if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
+        if metadata.len() > 0 {
+            let result = read_file_content(&result_out_path).await?;
+            return Ok(json!(result));
+        }
+    }
+
     //for now bash jobs have an empty result object
-    Ok(serde_json::json!(logs
+    let last_line = serde_json::json!(logs
         .lines()
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new)))
+        .unwrap_or_else(String::new));
+    Ok(last_line)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -191,6 +210,7 @@ pub async fn handle_powershell_job(
 
     let _ = write_file(job_dir, "result.json", "").await?;
     let _ = write_file(job_dir, "result.out", "").await?;
+
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
@@ -240,22 +260,6 @@ pub async fn handle_powershell_job(
     )
     .await?;
 
-    let result_json_path = format!("{job_dir}/result.json");
-    if let Ok(metadata) = tokio::fs::metadata(&result_json_path).await {
-        if metadata.len() > 0 {
-            return Ok(read_file(&result_json_path).await?);
-        }
-    }
-
-    let result_out_path = format!("{job_dir}/result.out");
-    if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
-        if metadata.len() > 0 {
-            let result = read_file_content(&result_out_path).await?;
-            return Ok(json!(result));
-        }
-    }
-
-    //for now bash jobs have an empty result object
     let last_line = serde_json::json!(logs
         .lines()
         .last()
