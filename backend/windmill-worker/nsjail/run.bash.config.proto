@@ -86,6 +86,20 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{JOB_DIR}/result.json"
+    dst: "/tmp/result.json"
+    rw: true
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/result.out"
+    dst: "/tmp/result.out"
+    rw: true
+    is_bind: true
+}
+
 iface_no_lo: true
 
 {SHARED_MOUNT}

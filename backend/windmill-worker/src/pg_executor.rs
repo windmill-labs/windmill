@@ -17,7 +17,8 @@ use windmill_common::error::Error;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::{transform_json_value, AuthedClient, JobCompleted};
+use crate::common::transform_json_value;
+use crate::{AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
 struct PgDatabase {

@@ -9,9 +9,8 @@ use windmill_common::{error::Error, jobs::QueuedJob};
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 use crate::{
-    common::{get_reserved_variables, handle_child, set_logs},
-    transform_json_value, write_file, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER,
-    HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    common::{get_reserved_variables, handle_child, set_logs, transform_json_value, write_file},
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
 lazy_static::lazy_static! {
