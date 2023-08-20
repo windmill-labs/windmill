@@ -9,7 +9,10 @@ use windmill_common::{error::Error, jobs::QueuedJob};
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 use crate::{
-    common::{get_reserved_variables, handle_child, set_logs, transform_json_value, write_file},
+    common::{
+        get_reserved_variables, handle_child, read_file, read_file_content, set_logs,
+        transform_json_value, write_file,
+    },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
@@ -186,6 +189,8 @@ pub async fn handle_powershell_job(
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
+    let _ = write_file(job_dir, "result.json", "").await?;
+    let _ = write_file(job_dir, "result.out", "").await?;
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
@@ -234,10 +239,27 @@ pub async fn handle_powershell_job(
         job.timeout,
     )
     .await?;
+
+    let result_json_path = format!("{job_dir}/result.json");
+    if let Ok(metadata) = tokio::fs::metadata(&result_json_path).await {
+        if metadata.len() > 0 {
+            return Ok(read_file(&result_json_path).await?);
+        }
+    }
+
+    let result_out_path = format!("{job_dir}/result.out");
+    if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
+        if metadata.len() > 0 {
+            let result = read_file_content(&result_out_path).await?;
+            return Ok(json!(result));
+        }
+    }
+
     //for now bash jobs have an empty result object
-    Ok(serde_json::json!(logs
+    let last_line = serde_json::json!(logs
         .lines()
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new)))
+        .unwrap_or_else(String::new));
+    Ok(last_line)
 }
