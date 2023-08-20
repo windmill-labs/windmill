@@ -7,7 +7,7 @@
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
-	export let nbOfJobs: number = 100
+	export let nbOfJobs: number = 30
 	const loadMoreQuantity: number = 100
 
 	function getTime(job: Job): string | undefined {
