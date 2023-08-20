@@ -16,7 +16,7 @@
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import { getNow } from '$lib/forLater'
+	import { getDbClockNow } from '$lib/forLater'
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false
@@ -98,18 +98,18 @@
 	}
 
 	let minTime = addSeconds(new Date(), -300)
-	let maxTime = getNow()
+	let maxTime = getDbClockNow()
 
 	$: computeMinMaxTime(jobs)
 
 	function computeMinMaxTime(jobs: CompletedJob[] | undefined) {
 		if (jobs == undefined || jobs?.length == 0) {
 			minTime = addSeconds(new Date(), -300)
-			maxTime = getNow()
+			maxTime = getDbClockNow()
 			return
 		}
 
-		const maxJob = maxIsNow ? getNow() : new Date(jobs?.[0].started_at)
+		const maxJob = maxIsNow ? getDbClockNow() : new Date(jobs?.[0].started_at)
 		const minJob = new Date(jobs?.[jobs?.length - 1].started_at)
 
 		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
