@@ -1,19 +1,25 @@
-import type { FlowStatusModule } from "$lib/gen"
-import type { UserNodeType } from "./svelvet/types";
+import type { FlowStatusModule } from '$lib/gen'
+import type { UserNodeType } from './svelvet/types'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
 
-export type Node = UserNodeType & { parentIds: string[], edgeLabel?: string, host?: ModuleHost, type: 'node', loopDepth: number }
+export type Node = UserNodeType & {
+	parentIds: string[]
+	edgeLabel?: string
+	host?: ModuleHost
+	type: 'node'
+	loopDepth: number
+}
 
 export type Loop = {
-	type: 'loop',
+	type: 'loop'
 	items: NestedNodes
 }
 
 export type Branch = {
-	node: Node,
-	nodeEnd: Node,
-	type: 'branch',
+	node: Node
+	nodeEnd: Node
+	type: 'branch'
 	items: NestedNodes[]
 }
 
@@ -24,7 +30,7 @@ export type GraphModuleState = {
 	args: any
 	logs?: string
 	result?: any
-	scheduled_for?: string
+	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string
 	iteration_total?: number
