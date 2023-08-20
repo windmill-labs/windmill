@@ -927,7 +927,7 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
         .fetch_optional(db)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("expected content")))?,
-        _ => unreachable!()
+        _ => unreachable!("get_content called for non-script job kind: {:#?}", job.job_kind),
     };
     Ok(query)
 }
