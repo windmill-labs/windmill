@@ -248,6 +248,7 @@ Windmill Community Edition {GIT_VERSION}
                     #[cfg(not(feature = "enterprise"))]
                     panic!("Metrics are only available in the Enterprise Edition");
 
+                    #[cfg(feature = "enterprise")]
                     windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
                         .await
                         .map_err(anyhow::Error::from)
