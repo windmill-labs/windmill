@@ -22,6 +22,7 @@
 	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { tweened, type Tweened } from 'svelte/motion'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
@@ -44,7 +45,7 @@
 
 	let nbOfJobs = 100
 
-	let queue_count: undefined | number = undefined
+	let queue_count: Tweened<number> | undefined = undefined
 
 	$: path = $page.params.path
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -102,7 +103,12 @@
 	}
 
 	async function getCount() {
-		queue_count = (await JobService.getQueueCount({ workspace: $workspaceStore! })).database_length
+		const qc = (await JobService.getQueueCount({ workspace: $workspaceStore! })).database_length
+		if (queue_count) {
+			queue_count.set(qc)
+		} else {
+			queue_count = tweened(qc, { duration: 1000 })
+		}
 	}
 	async function syncer() {
 		getCount()
@@ -372,7 +378,7 @@
 		<div class="flex gap-2 grow mb-2">
 			<div class="flex gap-1 relative max-w-36 min-w-[50px]">
 				<div class="text-xs absolute -top-4 truncate">Jobs Running or Queued</div>
-				<div class="mt-1">{queue_count ?? '...'}</div>
+				<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
 			</div>
 			<div class="flex"
 				><Button
