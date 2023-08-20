@@ -21,6 +21,7 @@
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
 	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
@@ -277,8 +278,23 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
+	let cancelAllJobs = false
 </script>
 
+<ConfirmationModal
+	title="Confirm cancelling all jobs"
+	confirmationText="Cancel all jobs"
+	open={cancelAllJobs}
+	on:confirmed={async () => {
+		cancelAllJobs = false
+		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
+		loadJobs()
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}}
+	on:canceled={() => {
+		cancelAllJobs = false
+	}}
+/>
 <div class="w-full h-screen">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
@@ -353,24 +369,22 @@
 		/>
 	</div>
 	<div class="flex flex-col gap-1 md:flex-row w-full p-4">
-		<div class="flex gap-1 relative max-w-36 min-w-[50px]">
-			<div class="text-xs absolute -top-4 truncate hidden lg:block">Jobs Running or Queued</div>
-			<div class="mt-1">{queue_count ?? '...'}</div>
+		<div class="flex gap-2 grow mb-2">
+			<div class="flex gap-1 relative max-w-36 min-w-[50px]">
+				<div class="text-xs absolute -top-4 truncate">Jobs Running or Queued</div>
+				<div class="mt-1">{queue_count ?? '...'}</div>
+			</div>
+			<div class="flex"
+				><Button
+					size="xs"
+					color="light"
+					variant="contained"
+					title="Require to be an admin. Cancel all jobs in queue"
+					disabled={!$userStore?.is_admin}
+					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
+				></div
+			>
 		</div>
-		<div class="flex grow"
-			><Button
-				size="xs"
-				color="light"
-				variant="contained"
-				title="Require to be an admin. Cancel all jobs in queue"
-				disabled={!$userStore?.is_admin}
-				on:click={async () => {
-					let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
-					loadJobs()
-					sendUserToast(`Canceled ${uuids.length} jobs`)
-				}}>Cancel all</Button
-			></div
-		>
 		<div class="flex flex-row gap-1 w-full max-w-xl">
 			<div class="relative w-full">
 				<div class="flex gap-1 relative w-full">
