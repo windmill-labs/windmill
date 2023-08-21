@@ -13,7 +13,8 @@ import init, {
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
-	parse_powershell
+	parse_powershell,
+	get_outputs
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -268,4 +269,17 @@ export async function loadSchema(
 		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
 		return { schema: script.schema, summary: script.summary }
 	}
+}
+
+export async function parseOutputs(code: string, ignoreError): Promise<string[] | undefined> {
+	await init(wasmUrl)
+	const getOutputs = await get_outputs(code)
+	const outputs = JSON.parse(getOutputs)
+	if (outputs.error) {
+		if (ignoreError) {
+			return undefined
+		}
+		throw new Error(outputs.error)
+	}
+	return outputs.error ? [] : ([...new Set(outputs.outputs)] as string[])
 }

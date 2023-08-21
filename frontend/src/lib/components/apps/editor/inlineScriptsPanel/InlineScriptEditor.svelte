@@ -5,7 +5,7 @@
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
@@ -262,7 +262,10 @@
 							)
 							runLoading = false
 						}}
-						on:change={() => {
+						on:change={async (e) => {
+							console.log($worldStore?.outputsById)
+							console.log(await parseOutputs(e.detail.code, true))
+							// inlineScript?.refreshOn =
 							$app = $app
 						}}
 					/>
