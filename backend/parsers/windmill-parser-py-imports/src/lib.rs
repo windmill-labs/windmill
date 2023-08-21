@@ -32,6 +32,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "smb" => "pysmb",
     "PIL" => "Pillow",
     "googleapiclient" => "google-api-python-client",
+    "dateutil" => "python-dateutil",
 };
 
 fn replace_import(x: String) -> String {
