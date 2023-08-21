@@ -32,6 +32,7 @@
 		| 'app'
 		| 'raw_app'
 		| 'resource_type'
+		| 'folder'
 
 	export let kind: Kind
 	export let initialPath: string = ''

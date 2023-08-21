@@ -361,6 +361,9 @@ where
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
+        if parts.method == http::Method::OPTIONS {
+            return Ok(Tokened { token: "".to_string() });
+        };
         let already_tokened = parts.extensions.get::<Tokened>();
         if let Some(tokened) = already_tokened {
             Ok(tokened.clone())
@@ -425,6 +428,17 @@ where
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
+        if parts.method == http::Method::OPTIONS {
+            return Ok(Authed {
+                email: "".to_owned(),
+                username: "".to_owned(),
+                is_admin: false,
+                is_operator: false,
+                groups: Vec::new(),
+                folders: Vec::new(),
+                scopes: None,
+            });
+        };
         let already_authed = parts.extensions.get::<Authed>();
         if let Some(authed) = already_authed {
             Ok(authed.clone())
