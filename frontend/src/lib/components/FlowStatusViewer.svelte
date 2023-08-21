@@ -13,7 +13,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import {  emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -438,6 +438,7 @@
 						</div>
 
 						<FlowGraph
+							download
 							success={isSuccess(job?.['success'])}
 							flowModuleStates={localFlowModuleStates}
 							on:select={(e) => {
