@@ -24,7 +24,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
-use hyper::Method;
+use hyper::{http, Method};
 use mail_send::SmtpClientBuilder;
 use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
@@ -185,6 +185,7 @@ pub async fn run_server(
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
     #[cfg(feature = "enterprise")]
