@@ -137,16 +137,18 @@
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-tertiary text-xs absolute top-5.5 right-0">
+					<div class="text-tertiary text-xs absolute top-1 right-0">
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
 			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
-				class="grid grid-flow-col-dense border border-gray-200 rounded-md"
+				class="grid grid-flow-col-dense border rounded-md"
 			>
 				{#each Object.keys(result) as col}
 					<div class="flex flex-col max-h-40 min-w-full">
-						<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md">
+						<div
+							class="px-12 text-left uppercase border-b bg-surface-secondary overflow-hidden rounded-t-md"
+						>
 							{col}
 						</div>
 						{#if Array.isArray(result[col])}

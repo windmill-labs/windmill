@@ -7,6 +7,7 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { parseISO, format as formatDateFns } from 'date-fns'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -37,34 +38,17 @@
 
 	$: handleDefault(defaultValue)
 
-	function formatDate(dateString: string, format: string = 'DD.MM.YYYY') {
-		const [year, month, day, hour = '0', minute = '0', second = '0'] = dateString.split(/[\sT:-]/)
-
-		const date = new Date(
-			Number(year),
-			Number(month) - 1,
-			Number(day),
-			Number(hour),
-			Number(minute),
-			Number(second)
-		)
-
-		if (format === '') {
-			format = 'DD.MM.YYYY'
+	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
+		if (formatString === '') {
+			formatString = 'dd.MM.yyyy'
 		}
 
-		const padZero = (num: number) => (num < 10 ? '0' + num : num.toString())
-
-		const formatTokens = {
-			YYYY: date.getFullYear(),
-			MM: padZero(date.getMonth() + 1),
-			DD: padZero(date.getDate()),
-			hh: padZero(date.getHours()),
-			mm: padZero(date.getMinutes()),
-			ss: padZero(date.getSeconds())
+		try {
+			const isoDate = parseISO(dateString)
+			return formatDateFns(isoDate, formatString)
+		} catch (error) {
+			return 'Error formatting date:' + error.message
 		}
-
-		return format.replace(/YYYY|MM|DD|hh|mm|ss/g, (match) => formatTokens[match])
 	}
 
 	$: value && outputs?.result.set(formatDate(value, format))
