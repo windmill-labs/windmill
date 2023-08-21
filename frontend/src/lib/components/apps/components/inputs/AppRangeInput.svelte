@@ -29,6 +29,7 @@
 	let max = 42
 	let step = 1
 	let slider: HTMLElement
+	let disabled = false
 
 	let values: [number, number] = [0, 0]
 
@@ -66,6 +67,7 @@
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.defaultLow} bind:value={values[0]} />
 <InputValue {id} input={configuration.defaultHigh} bind:value={values[1]} />
+<InputValue {id} input={configuration.disabled} bind:value={disabled} />
 
 <InitializeComponent {id} />
 
@@ -88,6 +90,7 @@
 					min={!min ? 0 : +min}
 					max={!max ? 1 : +max}
 					range
+					{disabled}
 				/>
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
