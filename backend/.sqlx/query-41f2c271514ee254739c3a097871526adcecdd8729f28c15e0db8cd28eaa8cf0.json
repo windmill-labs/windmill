@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
+  "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -85,5 +85,5 @@
       true
     ]
   },
-  "hash": "7f443f5be90622eed3e878ada0ae8ca71902adb88861bc8a39713fc8942e652c"
+  "hash": "41f2c271514ee254739c3a097871526adcecdd8729f28c15e0db8cd28eaa8cf0"
 }

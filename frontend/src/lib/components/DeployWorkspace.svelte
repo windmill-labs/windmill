@@ -4,6 +4,7 @@
 	import {
 		AppService,
 		FlowService,
+		FolderService,
 		RawAppService,
 		ResourceService,
 		ScheduleService,
@@ -32,6 +33,7 @@
 		| 'app'
 		| 'raw_app'
 		| 'resource_type'
+		| 'folder'
 
 	export let kind: Kind
 	export let initialPath: string = ''
@@ -65,19 +67,21 @@
 			seeTarget = false
 		}
 
-		dependencies = (await getDependencies(kind, path)).map((x) => ({
+		const allDeps = await getDependencies(kind, path)
+		for (const dep of allDeps) {
+			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
+				dep.kind,
+				dep.path
+			)
+		}
+		dependencies = allDeps.map((x) => ({
 			...x,
 			include:
-				kind == 'variable' ||
-				kind == 'resource' ||
-				kind == 'resource_type' ||
-				(x.kind != 'variable' && x.kind != 'resource' && x.kind != 'resource_type')
+				x.kind != 'variable' &&
+				x.kind != 'resource' &&
+				x.kind != 'resource_type' &&
+				(x.kind != 'folder' || !allAlreadyExists[computeStatusPath(x.kind, x.path)])
 		}))
-		dependencies.forEach((x) => {
-			checkAlreadyExists(x.kind, x.path).then(
-				(y) => (allAlreadyExists[computeStatusPath(x.kind, x.path)] = y)
-			)
-		})
 	}
 
 	async function getDependencies(
@@ -145,6 +149,14 @@
 			toProcess.push(...(await rec(kind, path)))
 			processed.push({ kind, path })
 		}
+		let folders: string[] = []
+		for (const p of processed) {
+			let split = p.path.split('/')
+			if (split.length > 2 && split[0] == 'f' && !folders.includes(split[1])) {
+				folders.push(split[1])
+				processed.push({ kind: 'folder', path: split[1] })
+			}
+		}
 		processed.reverse()
 		return processed
 	}
@@ -190,6 +202,17 @@
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
+		} else if (kind == 'folder') {
+			let exists = true
+			try {
+				await FolderService.getFolder({
+					workspace: workspaceToDeployTo!,
+					name: path
+				})
+			} catch (e) {
+				exists = false
+			}
+			return exists
 		} else {
 			throw new Error(`Unknown kind ${kind}`)
 		}
@@ -366,6 +389,15 @@
 				// 		path: path
 				// 	}
 				// })
+			} else if (kind == 'folder') {
+				await FolderService.createFolder({
+					workspace: workspaceToDeployTo!,
+					requestBody: {
+						name: path
+					}
+				})
+			} else {
+				throw new Error(`Unknown kind ${kind}`)
 			}
 
 			allAlreadyExists[statusPath] = true
@@ -452,6 +484,16 @@
 				// 		path: path
 				// 	}
 				// })
+			} else if (kind == 'folder') {
+				const folder = await FolderService.getFolder({
+					workspace: workspace,
+					name: path
+				})
+				return {
+					name: folder.name
+				}
+			} else {
+				throw new Error(`Unknown kind ${kind}`)
 			}
 		} catch {
 			return {}
@@ -501,7 +543,7 @@
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
 			{#each dependencies ?? [] as { kind, path, include }}
 				{@const statusPath = computeStatusPath(kind, path)}
-				<div class="col-span-1 truncate text-secondary text-sm">{kind}</div><div
+				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
 					class="col-span-5 truncate font-semibold">{path}</div
 				><div class="col-span-1"><Toggle size="xs" bind:checked={include} /></div><div
 					class="col-span-1"
@@ -537,15 +579,17 @@
 						>
 					{/if}</div
 				>
-				<div class="col-span-1">
+				<div class="col-span-1 pr-1">
 					{#if deploymentStatus[statusPath]}
 						{#if deploymentStatus[statusPath].status == 'loading'}
 							<Loader2 class="animate-spin" />
 						{:else if deploymentStatus[statusPath].status == 'deployed'}
 							<Badge color="green">Deployed</Badge>
 						{:else if deploymentStatus[statusPath].status == 'failed'}
-							<Badge color="red">Failed</Badge>
-							<Tooltip>{deploymentStatus[statusPath].error}</Tooltip>
+							<div class="inline-flex gap-1">
+								<Badge color="red">Failed</Badge>
+								<Tooltip>{deploymentStatus[statusPath].error}</Tooltip></div
+							>
 						{/if}
 					{:else}
 						<Button color="light" size="xs" on:click={() => deploy(kind, path)}>Deploy</Button>

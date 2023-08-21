@@ -10,7 +10,7 @@ use windmill_common::{
     METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SESSION_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
 };
 
 lazy_static::lazy_static! {
@@ -116,7 +116,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             &job.workspace_id,
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
-            *SESSION_TOKEN_EXPIRY,
+            *SCRIPT_TOKEN_EXPIRY,
             &job.email,
         )
         .await

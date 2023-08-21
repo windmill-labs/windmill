@@ -57,8 +57,10 @@ use crate::global_cache::{build_tar_and_push, pull_from_tar};
 use crate::S3_CACHE_BUCKET;
 
 use crate::{
-    common::{read_result, set_logs},
-    create_args_and_out_file, get_reserved_variables, handle_child, write_file,
+    common::{
+        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
+        write_file,
+    },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
 };

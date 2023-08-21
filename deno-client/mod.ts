@@ -62,8 +62,10 @@ export async function getResource(
   const workspace = getWorkspace();
   path = path ?? getStatePath();
   try {
-    const resource = await ResourceService.getResource({ workspace, path });
-    return await _transformLeaf(resource.value);
+    return await ResourceService.getResourceValueInterpolated({
+      workspace,
+      path,
+    });
   } catch (e: any) {
     if (undefinedIfEmpty && e.status === 404) {
       return undefined;
@@ -83,31 +85,6 @@ export async function resolveDefaultResource(obj: any): Promise<any> {
     return await getResource(obj.substring(5), true);
   } else {
     return obj;
-  }
-}
-
-/**
- * Get the full resource value by path
- * @param path path of the resource,  default to internal state path
- * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
- * @returns full resource
- */
-export async function getFullResource(
-  path?: string,
-  undefinedIfEmpty?: boolean
-): Promise<any> {
-  const workspace = getWorkspace();
-  path = path ?? getStatePath();
-  try {
-    const resource = await ResourceService.getResource({ workspace, path });
-    const value = await _transformLeaf(resource.value);
-    return { ...resource, value };
-  } catch (e: any) {
-    if (undefinedIfEmpty && e.status === 404) {
-      return undefined;
-    } else {
-      throw Error(`Resource not found at ${path} or not visible to you`);
-    }
   }
 }
 
@@ -209,8 +186,7 @@ export async function getState(): Promise<any> {
 export async function getVariable(path: string): Promise<string | undefined> {
   const workspace = getWorkspace();
   try {
-    const variable = await VariableService.getVariable({ workspace, path });
-    return variable.value;
+    return await VariableService.getVariableValue({ workspace, path });
   } catch (e: any) {
     throw Error(`Variable not found at ${path} or not visible to you`);
   }
@@ -246,31 +222,6 @@ export async function setVariable(
         description: descriptionIfNotExist ?? "",
       },
     });
-  }
-}
-
-async function transformLeaves(d: {
-  [key: string]: any;
-}): Promise<{ [key: string]: any }> {
-  for (const k in d) {
-    d[k] = await _transformLeaf(d[k]);
-  }
-  return d;
-}
-
-const VAR_RESOURCE_PREFIX = "$var:";
-const RES_RESOURCE_PREFIX = "$res:";
-async function _transformLeaf(v: any): Promise<any> {
-  if (typeof v === "object") {
-    return transformLeaves(v);
-  } else if (typeof v === "string" && v.startsWith(VAR_RESOURCE_PREFIX)) {
-    const varName = v.substring(VAR_RESOURCE_PREFIX.length);
-    return await getVariable(varName);
-  } else if (typeof v === "string" && v.startsWith(RES_RESOURCE_PREFIX)) {
-    const resName = v.substring(RES_RESOURCE_PREFIX.length);
-    return await getResource(resName);
-  } else {
-    return v;
   }
 }
 

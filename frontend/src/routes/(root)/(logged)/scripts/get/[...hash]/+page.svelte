@@ -6,7 +6,6 @@
 		emptyString,
 		encodeState,
 		canWrite,
-		displayDaysAgo,
 		truncateHash
 	} from '$lib/utils'
 	import { faEdit, faCodeFork, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
@@ -57,6 +56,7 @@
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -462,7 +462,7 @@
 
 					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
 						<span class="text-sm text-secondary">
-							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="dark-blue">
 							{truncateHash(script?.hash ?? '')}

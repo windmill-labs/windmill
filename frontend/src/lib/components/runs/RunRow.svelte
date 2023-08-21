@@ -1,32 +1,17 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import {
-		displayDate,
-		displayDaysAgo,
-		forLater,
-		msToSec,
-		truncateHash,
-		truncateRev
-	} from '$lib/utils'
+	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
 	import { faRobot, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
-	import {
-		Calendar,
-		CalendarCheck,
-		Check,
-		FastForward,
-		Hourglass,
-		ListFilter,
-		Play,
-		X
-	} from 'lucide-svelte'
+	import { Calendar, Check, FastForward, Hourglass, ListFilter, Play, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import TimeAgo from '../TimeAgo.svelte'
+	import { forLater } from '$lib/forLater'
 
 	const dispatch = createEventDispatcher()
 	const SMALL_ICON_SCALE = 0.7
@@ -34,18 +19,6 @@
 	export let job: Job
 	export let selectedId: string | undefined = undefined
 	let scheduleEditor: ScheduleEditor
-
-	let time = Date.now()
-	let interval
-	onMount(() => {
-		interval = setInterval(() => {
-			time = Date.now()
-		}, 1000)
-	})
-
-	onDestroy(() => {
-		interval && clearInterval(interval)
-	})
 
 	function endedDate(started_at: string, duration_ms: number): string {
 		const started = new Date(started_at)
@@ -101,28 +74,23 @@
 	</Cell>
 	<Cell>
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
-			{#if 'started_at' in job && job.started_at}
-				{#if job?.['duration_ms']}
-					Ended {endedDate(job.started_at, job?.['duration_ms'])}
-					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToSec(job.duration_ms)}s)
+			{#if job}
+				{#if 'started_at' in job && job.started_at}
+					{#if job?.['duration_ms']}
+						Ended {endedDate(job.started_at, job?.['duration_ms'])}
+						{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+							(Ran in {msToSec(job.duration_ms)}s)
+						{/if}
+					{:else}
+						<div>
+							Started
+							<TimeAgo date={job.started_at ?? ''} />
+						</div>
 					{/if}
+				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
+					Scheduled for {displayDate(job.scheduled_for)}
 				{:else}
-					<div>
-						Started
-						{#key time}
-							{displayDaysAgo(job.started_at ?? '')}
-						{/key}
-					</div>
-				{/if}
-			{/if}
-
-			{#if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-				<CalendarCheck size={14} />
-				Scheduled
-
-				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					for {displayDate(job.scheduled_for ?? '')}
+					Waiting for executor (created <TimeAgo date={job.created_at || ''} />)
 				{/if}
 			{/if}
 		</div>

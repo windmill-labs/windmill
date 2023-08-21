@@ -339,7 +339,7 @@ async fn get_group(
 
     let members = sqlx::query_scalar!(
         "SELECT  usr.username  
-            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username 
+            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username AND usr_to_group.workspace_id = $2
             WHERE group_ = $1 AND usr.workspace_id = $2 AND usr_to_group.workspace_id = $2",
         name,
         w_id

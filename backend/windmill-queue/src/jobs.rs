@@ -99,11 +99,8 @@ lazy_static::lazy_static! {
         WHERE id = (
             SELECT id
             FROM queue
-            WHERE ((running = false
-                   AND scheduled_for <= now())
-               OR (suspend_until IS NOT NULL
-                   AND (   suspend <= 0
-                        OR suspend_until <= now()))) 
+            WHERE ((running = false AND scheduled_for <= now())
+               OR (suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()))) 
                 {}
             ORDER BY scheduled_for, created_at
             FOR UPDATE SKIP LOCKED
@@ -733,16 +730,17 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             FROM
                 (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count
                 FROM completed_job
-                WHERE script_path = $1 AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2)
+                WHERE script_path = $1 AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2) AND workspace_id = $3
                 GROUP BY script_path) as j
             FULL OUTER JOIN
                 (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as running_count
                 FROM queue
-                WHERE script_path = $1 AND running = true
+                WHERE script_path = $1 AND running = true AND workspace_id = $3
                 GROUP BY script_path) as q
             ON q.script_path = j.script_path",
             job_script_path,
             f64::from(job_custom_concurrency_time_window_s),
+            &pulled_job.workspace_id
         )
         .fetch_one(&mut tx)
         .await

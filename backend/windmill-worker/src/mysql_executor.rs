@@ -10,7 +10,7 @@ use windmill_common::{
 };
 use windmill_parser_sql::parse_mysql_sig;
 
-use crate::{transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient, JobCompleted};
 
 #[derive(Deserialize)]
 struct MysqlDatabase {

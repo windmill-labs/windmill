@@ -137,7 +137,8 @@
 				class="mb-2 w-full text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
-					<div class="text-tertiary text-xs absolute top-1 right-0">
+					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
+						<button on:click={() => copyToClipboard(jsonStr)}><ClipboardCopy size={16} /></button>
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					</div>
 				{/if}
@@ -280,8 +281,15 @@
 					JSON is too large to be displayed in full.
 				</div>
 				<ObjectViewer json={result} />
+			{:else if typeof result == 'string' && result.length > 0}
+				<pre class="text-sm">{result}</pre>
+				<div class="flex">
+					<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+						<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+					</Button>
+				</div>
 			{:else}
-				<Highlight language={json} code={jsonStr} />
+				<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 			{/if}
 		{/if}
 	{:else}
@@ -313,6 +321,13 @@
 							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
 						>
 						JSON is too large to be displayed in full.
+					</div>
+				{:else if typeof result == 'string' && result.length > 0}
+					<pre class="text-sm">{result}</pre>
+					<div class="flex">
+						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+						</Button>
 					</div>
 				{:else}
 					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />

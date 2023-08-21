@@ -11,10 +11,11 @@
 	import JobArgs from '../JobArgs.svelte'
 	import { writable } from 'svelte/store'
 	import LogViewer from '../LogViewer.svelte'
-	import { forLater, msToSec } from '$lib/utils'
+	import {  msToSec } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
 	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
 	import { Badge } from '../common'
+	import { forLater } from '$lib/forLater'
 
 	const POPUP_HEIGHT = 320 as const
 

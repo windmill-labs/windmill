@@ -30,7 +30,7 @@
 				color="light"
 				size="xs"
 			>
-				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+				<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
 			</Button>
 		</svelte:fragment>
 		{#if isString(jsonViewerContent)}

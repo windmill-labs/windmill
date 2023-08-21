@@ -1,6 +1,32 @@
 # Changelog
 
 
+## [1.153.0](https://github.com/windmill-labs/windmill/compare/v1.152.0...v1.153.0) (2023-08-20)
+
+
+### Features
+
+* multiline support in bash ([e1469cc](https://github.com/windmill-labs/windmill/commit/e1469cc64d672b5fc42edac313bc11a017812511))
+
+
+### Bug Fixes
+
+* update deno-client to use new Resource and Variable endpoints ([c13428a](https://github.com/windmill-labs/windmill/commit/c13428ad089999e38768b86bfd251d747759dc69))
+
+## [1.152.0](https://github.com/windmill-labs/windmill/compare/v1.151.2...v1.152.0) (2023-08-20)
+
+
+### Features
+
+* handle drift in every time referencing db times ([b9fb206](https://github.com/windmill-labs/windmill/commit/b9fb206c112798f3776ba0e6da70e86e7c769a1f))
+* prometheus metrics are now ee only ([2afea50](https://github.com/windmill-labs/windmill/commit/2afea504977f9cd08d62c5f85be1fd2cefe8a691))
+
+
+### Bug Fixes
+
+* improve progress bar UX ([85d2d47](https://github.com/windmill-labs/windmill/commit/85d2d4782779d981a131f48db6e1058fe79daeef))
+* reinit retry to undefined in flow steps ([75f4723](https://github.com/windmill-labs/windmill/commit/75f472381cfa73d77295b29a202efbd58c79918d))
+
 ## [1.151.2](https://github.com/windmill-labs/windmill/compare/v1.151.1...v1.151.2) (2023-08-18)
 
 

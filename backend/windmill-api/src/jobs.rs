@@ -28,6 +28,7 @@ use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
+use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -43,61 +44,105 @@ use windmill_common::{
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
         .route(
             "/run/f/*script_path",
-            post(run_flow_by_path).head(|| async { "" }),
+            post(run_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run/p/*script_path",
-            post(run_job_by_path).head(|| async { "" }),
+            post(run_job_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_script_by_hash).head(|| async { "" }),
+            post(run_wait_result_script_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/p/*script_path",
-            post(openai_sync_script_by_path).head(|| async { "" }),
+            post(openai_sync_script_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/f/*script_path",
-            post(openai_sync_flow_by_path).head(|| async { "" }),
+            post(openai_sync_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
-        .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
+        .route(
+            "/run/h/:hash",
+            post(run_job_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
+        )
         .route("/run/preview", post(run_preview_job))
         .route("/add_noop_jobs/:n", post(add_noop_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
-        .route("/completed/list", get(list_completed_jobs))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route("/queue/cancel_all", post(cancel_all))
+        .route(
+            "/completed/list",
+            get(list_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get/:id",
+            get(get_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get_result/:id",
+            get(get_completed_job_result).layer(cors.clone()),
+        )
         .route(
             "/completed/get_result_maybe/:id",
-            get(get_completed_job_result_maybe),
+            get(get_completed_job_result_maybe).layer(cors.clone()),
         )
-        .route("/completed/delete/:id", post(delete_completed_job))
-        .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
+        .route(
+            "/completed/delete/:id",
+            post(delete_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/flow/resume/:id",
+            post(resume_suspended_flow_as_owner).layer(cors.clone()),
+        )
         .route(
             "/job_signature/:job_id/:resume_id",
-            get(create_job_signature),
+            get(create_job_signature).layer(cors.clone()),
         )
-        .route("/resume_urls/:job_id/:resume_id", get(get_resume_urls))
-        .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
+        .route(
+            "/resume_urls/:job_id/:resume_id",
+            get(get_resume_urls).layer(cors.clone()),
+        )
+        .route(
+            "/result_by_id/:job_id/:node_id",
+            get(get_result_by_id).layer(cors.clone()),
+        )
 }
 
 pub fn global_service() -> Router {
@@ -135,12 +180,20 @@ pub fn global_service() -> Router {
         .route("/queue/force_cancel/:id", post(force_cancel))
 }
 
+pub fn global_root_service() -> Router {
+    Router::new().route("/db_clock", get(get_db_clock))
+}
+
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
 ) -> windmill_common::error::JsonResult<serde_json::Value> {
     let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id).await?;
     Ok(Json(res))
+}
+
+async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
+    Ok(Json(now_from_db(&db).await?.timestamp_millis()))
 }
 
 async fn cancel_job_api(
@@ -455,6 +508,10 @@ pub struct ListQueueQuery {
     pub created_by: Option<String>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub schedule_path: Option<String>,
     pub parent_job: Option<String>,
@@ -503,6 +560,23 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
+    if let Some(dt) = &lq.created_before {
+        sqlb.and_where_le("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(dt) = &lq.created_after {
+        sqlb.and_where_ge("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
+    if let Some(dt) = &lq.created_or_started_after {
+        let ts = dt.timestamp();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({})) OR (started_at IS NULL AND created_at >= to_timestamp({}))", ts, ts));
+    }
+
+    if let Some(dt) = &lq.created_or_started_before {
+        let ts = dt.timestamp();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({})) OR (started_at IS NULL AND created_at < to_timestamp({}))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -579,6 +653,22 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
+async fn cancel_all(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let uuids = sqlx::query_scalar!(
+        "UPDATE queue SET canceled = true WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id",
+        w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(uuids))
+}
+
 #[derive(Serialize, Debug, FromRow)]
 struct QueueStats {
     database_length: i64,
@@ -619,6 +709,10 @@ async fn list_jobs(
             created_by: lq.created_by,
             started_before: lq.started_before,
             started_after: lq.started_after,
+            created_before: lq.created_before,
+            created_after: lq.created_after,
+            created_or_started_before: lq.created_or_started_before,
+            created_or_started_after: lq.created_or_started_after,
             running: None,
             parent_job: lq.parent_job,
             order_desc: Some(true),
@@ -2381,6 +2475,14 @@ fn list_completed_jobs_query(
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
+
+    if let Some(dt) = &lq.created_or_started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(dt) = &lq.created_or_started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
@@ -2412,6 +2514,10 @@ pub struct ListCompletedQuery {
     pub created_by: Option<String>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,

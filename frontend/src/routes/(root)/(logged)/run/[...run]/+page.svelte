@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, forLater, truncateHash } from '$lib/utils'
+	import { canWrite, displayDate, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -34,6 +34,7 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import { forLater } from '$lib/forLater'
 
 	let job: Job | undefined
 	const iconScale = 1
@@ -166,7 +167,7 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			{#if job?.type != 'CompletedJob' && !job?.schedule_path}
+			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
 						color="red"
@@ -316,7 +317,7 @@
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>
-			<div class="mt-6">
+			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
 				{#if job}<FlowMetadata {job} />{/if}
 			</div>
@@ -324,6 +325,13 @@
 
 		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
 			<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
+			<div class="w-full pt-8">
+				<LogViewer
+					jobId={job.id}
+					isLoading={!(job && 'logs' in job && job.logs)}
+					content={job?.logs}
+				/>
+			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">

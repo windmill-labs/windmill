@@ -2,7 +2,7 @@
 	import { tweened } from 'svelte/motion'
 	import { linear } from 'svelte/easing'
 
-	export function getTween(initialValue = 0, duration = 200) {
+	function getTween(initialValue = 0, duration = 200) {
 		return tweened(initialValue, {
 			duration,
 			easing: linear
@@ -13,6 +13,7 @@
 	export let index: number
 	export let subIndex: number | undefined
 	export let subLength: number | undefined
+	export let nextInProgress: boolean = false
 
 	export let length: number
 	let duration = 200
@@ -48,7 +49,7 @@
 			: 'text-blue-700 dark:text-blue-200'}"
 	>
 		<span class="text-base">
-			{error
+			{error != undefined
 				? 'Error occured'
 				: finished
 				? 'Done'
@@ -70,13 +71,15 @@
 	<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
 		{#each new Array(length) as _, partIndex (partIndex)}
 			<div class="h-full relative border-white {partIndex === 0 ? '' : 'border-l'} w-full">
-				{#if partIndex < index - 1}
+				{#if partIndex == index && nextInProgress}
 					<div
-						class="absolute left-0 bottom-0 h-full w-full {error == partIndex
-							? 'bg-red-400'
-							: 'bg-blue-400'}"
+						class="absolute left-0 bottom-0 h-full bg-blue-400/50 animate-pulse"
+						style="width: 100%"
 					/>
-				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined)}
+				{/if}
+				{#if partIndex < index - 1}
+					<div class="absolute left-0 bottom-0 h-full w-full bg-blue-400" />
+				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined) || error == partIndex}
 					<div
 						class="absolute left-0 bottom-0 h-full {error == partIndex
 							? 'bg-red-400'
