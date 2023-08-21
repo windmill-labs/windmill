@@ -212,7 +212,7 @@ pub async fn run_server(
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service().layer(cors.clone()))
+                        .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
