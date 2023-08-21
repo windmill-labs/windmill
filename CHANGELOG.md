@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.154.0](https://github.com/windmill-labs/windmill/compare/v1.153.0...v1.154.0) (2023-08-21)
+
+
+### Features
+
+* deploy folders as well in the UI deployer ([bcf5d4e](https://github.com/windmill-labs/windmill/commit/bcf5d4e5d42a7d17e2d1932b030cca101d9de9b4))
+
+
+### Bug Fixes
+
+* avoid stack-overflow on jsruntime for recursive objects ([127eea3](https://github.com/windmill-labs/windmill/commit/127eea3c8144b14b8f78a196f5c2cd245d2caad9))
+* do not require auth for OPTIONS requests ([bdd59c9](https://github.com/windmill-labs/windmill/commit/bdd59c94a9bde10e808427ef529d1b6ab6e78a45))
+
 ## [1.153.0](https://github.com/windmill-labs/windmill/compare/v1.152.0...v1.153.0) (2023-08-20)
 
 
