@@ -28,6 +28,7 @@ use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
+use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -43,40 +44,61 @@ use windmill_common::{
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_origin(Any);
+
     Router::new()
         .route(
             "/run/f/*script_path",
-            post(run_flow_by_path).head(|| async { "" }),
+            post(run_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run/p/*script_path",
-            post(run_job_by_path).head(|| async { "" }),
+            post(run_job_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_script_by_hash).head(|| async { "" }),
+            post(run_wait_result_script_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/p/*script_path",
-            post(openai_sync_script_by_path).head(|| async { "" }),
+            post(openai_sync_script_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/f/*script_path",
-            post(openai_sync_flow_by_path).head(|| async { "" }),
+            post(openai_sync_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
-        .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
+        .route(
+            "/run/h/:hash",
+            post(run_job_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
+        )
         .route("/run/preview", post(run_preview_job))
         .route("/add_noop_jobs/:n", post(add_noop_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
@@ -84,21 +106,42 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel_all", post(cancel_all))
-        .route("/completed/list", get(list_completed_jobs))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route(
+            "/completed/list",
+            get(list_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get/:id",
+            get(get_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get_result/:id",
+            get(get_completed_job_result).layer(cors.clone()),
+        )
         .route(
             "/completed/get_result_maybe/:id",
-            get(get_completed_job_result_maybe),
+            get(get_completed_job_result_maybe).layer(cors.clone()),
         )
-        .route("/completed/delete/:id", post(delete_completed_job))
-        .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
+        .route(
+            "/completed/delete/:id",
+            post(delete_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/flow/resume/:id",
+            post(resume_suspended_flow_as_owner).layer(cors.clone()),
+        )
         .route(
             "/job_signature/:job_id/:resume_id",
-            get(create_job_signature),
+            get(create_job_signature).layer(cors.clone()),
         )
-        .route("/resume_urls/:job_id/:resume_id", get(get_resume_urls))
-        .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
+        .route(
+            "/resume_urls/:job_id/:resume_id",
+            get(get_resume_urls).layer(cors.clone()),
+        )
+        .route(
+            "/result_by_id/:job_id/:node_id",
+            get(get_result_by_id).layer(cors.clone()),
+        )
 }
 
 pub fn global_service() -> Router {
