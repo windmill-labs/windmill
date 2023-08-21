@@ -9,6 +9,7 @@ use regex::Regex;
  */
 // use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
+use swc_ecma_visit::{fold_expr, Fold};
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
@@ -23,6 +24,41 @@ use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<()> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let lexer = Lexer::new(
+        // We want to parse ecmascript
+        Syntax::Typescript(TsConfig::default()),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    let mut err_s = "".to_string();
+    for e in parser.take_errors() {
+        err_s += &e.into_kind().msg().to_string();
+    }
+
+    let expr = parser
+        .parse_expr()
+        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+
+    let visitor = Fold {
+        fold_ident: |ident| {
+            println!("ident: {:#?}", ident);
+            ident
+        },
+        ..Fold::default()
+    }
+    fold_expr(visitor, &expr);
+
+    Ok(())
+}
 
 pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
