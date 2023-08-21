@@ -3,6 +3,7 @@ use deno_fetch::FetchPermissions;
 use deno_web::{BlobStore, TimersPermission};
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct PermissionsContainer;
 
@@ -48,7 +49,10 @@ fn main() {
         deno_webidl::deno_webidl::init_ops_and_esm(),
         deno_url::deno_url::init_ops_and_esm(),
         deno_console::deno_console::init_ops_and_esm(),
-        deno_web::deno_web::init_ops_and_esm::<PermissionsContainer>(BlobStore::default(), None),
+        deno_web::deno_web::init_ops_and_esm::<PermissionsContainer>(
+            Arc::new(BlobStore::default()),
+            None,
+        ),
         deno_fetch::deno_fetch::init_ops_and_esm::<PermissionsContainer>(Default::default()),
         fetch::init_ops_and_esm(),
     ];
@@ -65,7 +69,7 @@ fn main() {
             startup_snapshot: None,
             extensions: exts,
             compression_cb: None,
-            snapshot_module_load_cb: None,
+            with_runtime_cb: None,
         },
     );
 }
