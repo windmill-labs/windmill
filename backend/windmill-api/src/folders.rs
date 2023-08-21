@@ -163,7 +163,7 @@ async fn create_folder(
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
-    let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
+    let owners = &ng.owners.unwrap_or_else(|| vec![owner.clone()]);
 
     if let Some(extra_perms) = ng.extra_perms.clone() {
         for o in owners {
