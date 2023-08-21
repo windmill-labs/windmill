@@ -7,9 +7,9 @@
  */
 
 use crate::{
-    db::{UserDB, DB},
+    db::{ApiAuthed, DB},
     schedule::clear_schedule,
-    users::{maybe_refresh_folders, require_owner_of_path, AuthCache, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -31,6 +31,7 @@ use std::{
 };
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult, Result},
     jobs::JobPayload,
     schedule::Schedule,
@@ -43,7 +44,7 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
+use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -103,7 +104,7 @@ pub fn workspaced_service() -> Router {
 }
 
 async fn list_scripts(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -192,7 +193,7 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-async fn list_hub_scripts(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
+async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
     let asks = list_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchData?approved=true",
@@ -209,7 +210,7 @@ fn hash_script(ns: &NewScript) -> i64 {
 }
 
 async fn create_script(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
@@ -429,7 +430,7 @@ async fn create_script(
             clear_schedule(tx.transaction_mut(), &schedule.path, false, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule).await?;
+                tx = push_scheduled_job(&db, tx, schedule).await?;
             }
         }
     } else {
@@ -488,6 +489,8 @@ async fn create_script(
         );
     }
 
+    let mut tx = PushIsolationLevel::Transaction(tx);
+
     if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
@@ -498,6 +501,7 @@ async fn create_script(
             _ => ns.content,
         };
         let (_, new_tx) = windmill_queue::push(
+            &db,
             tx,
             &w_id,
             JobPayload::Dependencies { hash, dependencies, language: ns.language, path: ns.path },
@@ -519,20 +523,30 @@ async fn create_script(
             None,
         )
         .await?;
-        tx = new_tx;
+        tx = PushIsolationLevel::Transaction(new_tx);
     }
 
-    tx.commit().await?;
+    match tx {
+        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
+        _ => {
+            return Err(Error::InternalErr(
+                "Expected a transaction here".to_string(),
+            ));
+        }
+    }
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
 
-pub async fn get_hub_script_by_path(authed: Authed, Path(path): Path<StripPath>) -> Result<String> {
+pub async fn get_hub_script_by_path(
+    authed: ApiAuthed,
+    Path(path): Path<StripPath>,
+) -> Result<String> {
     windmill_common::scripts::get_hub_script_by_path(&authed.email, path, &HTTP_CLIENT).await
 }
 
 pub async fn get_full_hub_script_by_path(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(path): Path<StripPath>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
@@ -541,7 +555,7 @@ pub async fn get_full_hub_script_by_path(
 }
 
 async fn get_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Script> {
@@ -564,7 +578,7 @@ async fn get_script_by_path(
 }
 
 async fn get_script_by_path_w_draft(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ScriptWDraft> {
@@ -589,7 +603,7 @@ async fn get_script_by_path_w_draft(
 }
 
 async fn list_paths(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
@@ -619,7 +633,7 @@ async fn get_tokened_raw_script_by_path(
 }
 
 async fn raw_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -742,7 +756,7 @@ async fn get_deployment_status(
     Ok(Json(status))
 }
 
-pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
     return crate::users::require_is_writer(
         authed,
         path,
@@ -757,7 +771,7 @@ pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) 
 }
 
 async fn archive_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -796,7 +810,7 @@ async fn archive_script_by_path(
 }
 
 async fn archive_script_by_hash(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
@@ -832,7 +846,7 @@ async fn archive_script_by_hash(
 }
 
 async fn delete_script_by_hash(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
@@ -872,7 +886,7 @@ async fn delete_script_by_hash(
 }
 
 async fn delete_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,

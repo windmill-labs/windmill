@@ -6,10 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::ApiAuthed;
 use crate::{
-    db::{UserDB, DB},
+    db::DB,
     schedule::clear_schedule,
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -18,6 +19,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
@@ -25,6 +27,7 @@ use sql_builder::SqlBuilder;
 use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
     flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
@@ -34,7 +37,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, schedule::push_scheduled_job, QueueTransaction};
+use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -56,7 +59,7 @@ pub fn global_service() -> Router {
 }
 
 async fn list_flows(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -120,7 +123,7 @@ async fn list_flows(
     Ok(Json(rows))
 }
 
-async fn list_hub_flows(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
+async fn list_hub_flows(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
     let flows = list_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchFlowData?approved=true",
@@ -131,7 +134,7 @@ async fn list_hub_flows(Authed { email, .. }: Authed) -> JsonResult<serde_json::
 }
 
 async fn list_paths(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
@@ -149,7 +152,7 @@ async fn list_paths(
 }
 
 pub async fn get_hub_flow_by_id(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
@@ -185,7 +188,7 @@ async fn check_path_conflict<'c>(
 }
 
 async fn create_flow(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -246,7 +249,9 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
+    let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
@@ -305,7 +310,7 @@ async fn check_schedule_conflict<'c>(
     Ok(())
 }
 
-pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
     return crate::users::require_is_writer(
         authed,
         path,
@@ -318,7 +323,7 @@ pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) 
 }
 
 async fn update_flow(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -393,7 +398,7 @@ async fn update_flow(
         clear_schedule(tx.transaction_mut(), &schedule.path, true, &w_id).await?;
 
         if schedule.enabled {
-            tx = push_scheduled_job(tx, schedule).await?;
+            tx = push_scheduled_job(&db, tx, schedule).await?;
         }
     }
 
@@ -430,7 +435,10 @@ async fn update_flow(
         },
     );
 
+    let tx = PushIsolationLevel::Transaction(tx);
+
     let (dependency_job_uuid, mut tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
@@ -473,7 +481,7 @@ async fn update_flow(
 }
 
 async fn get_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Flow> {
@@ -508,7 +516,7 @@ pub struct FlowWDraft {
 }
 
 async fn get_flow_by_path_w_draft(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<FlowWDraft> {
@@ -555,7 +563,7 @@ struct Archived {
 }
 
 async fn archive_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -593,7 +601,7 @@ async fn archive_flow_by_path(
 }
 
 async fn delete_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,

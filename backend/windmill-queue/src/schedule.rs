@@ -7,11 +7,13 @@
  */
 
 use crate::push;
+use crate::PushIsolationLevel;
 use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::str::FromStr;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
@@ -20,6 +22,7 @@ use windmill_common::{
 };
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    db: &DB,
     mut tx: QueueTransaction<'c, R>,
     schedule: Schedule,
 ) -> Result<QueueTransaction<'c, R>> {
@@ -48,7 +51,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         &schedule.path,
         next
     )
-    .fetch_one(&mut tx)
+    .fetch_one(db)
     .await?
     .unwrap_or(false);
 
@@ -96,8 +99,9 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     )
     .execute(&mut tx)
     .await?;
-
+    let tx = PushIsolationLevel::Transaction(tx);
     let (_, tx) = push(
+        &db,
         tx,
         &schedule.workspace_id,
         payload,

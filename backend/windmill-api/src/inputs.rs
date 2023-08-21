@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{db::UserDB, jobs::CompletedJob, users::Authed};
+use crate::{db::ApiAuthed, jobs::CompletedJob};
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -21,6 +21,7 @@ use std::{
     vec,
 };
 use windmill_common::{
+    db::UserDB,
     error::JsonResult,
     jobs::JobKind,
     scripts::to_i64,
@@ -102,7 +103,7 @@ pub struct Input {
 }
 
 async fn get_input_history(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -158,7 +159,7 @@ async fn get_input_history(
 }
 
 async fn list_saved_inputs(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -209,7 +210,7 @@ pub struct CreateInput {
 }
 
 async fn create_input(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(r): Query<RunnableParams>,
@@ -245,7 +246,7 @@ pub struct UpdateInput {
 }
 
 async fn update_input(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(input): Json<UpdateInput>,
@@ -266,7 +267,7 @@ async fn update_input(
 }
 
 async fn delete_input(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, i_id)): Path<(String, Uuid)>,
 ) -> JsonResult<String> {

@@ -6,21 +6,18 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{self, Error},
     users::SUPERADMIN_SECRET_EMAIL,
+    DB,
 };
 
-pub async fn require_super_admin<'c>(
-    db: &mut Transaction<'c, Postgres>,
-    email: &str,
-) -> error::Result<()> {
+pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     if email == SUPERADMIN_SECRET_EMAIL {
         return Ok(());
     }
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(&mut **db)
+        .fetch_optional(db)
         .await
         .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
         .unwrap_or(false);

@@ -7,8 +7,8 @@
  */
 
 use crate::{
-    db::{UserDB, DB},
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    db::{ApiAuthed, DB},
+    users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -23,6 +23,7 @@ use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
 };
@@ -117,7 +118,7 @@ pub struct ListResourceQuery {
     resource_type_exclude: Option<String>,
 }
 async fn list_resources(
-    authed: Authed,
+    authed: ApiAuthed,
     Query(lq): Query<ListResourceQuery>,
     Query(pagination): Query<Pagination>,
     Extension(user_db): Extension<UserDB>,
@@ -175,7 +176,7 @@ async fn list_resources(
 }
 
 async fn get_resource(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableResource> {
@@ -223,7 +224,7 @@ async fn exists_resource(
 }
 
 async fn get_resource_value(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
@@ -244,7 +245,7 @@ async fn get_resource_value(
 }
 
 async fn get_resource_value_interpolated(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
@@ -274,7 +275,7 @@ use async_recursion::async_recursion;
 
 #[async_recursion]
 pub async fn transform_json_value<'c>(
-    authed: &Authed,
+    authed: &ApiAuthed,
     user_db: &UserDB,
     workspace: &str,
     v: Value,
@@ -282,7 +283,7 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let tx: Transaction<'_, Postgres> = user_db.clone().begin(&authed).await?;
+            let tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
             let v =
                 crate::variables::get_value_internal(tx, workspace, path, &authed.username).await?;
             Ok(Value::String(v))
@@ -292,7 +293,7 @@ pub async fn transform_json_value<'c>(
             if path.split("/").count() < 2 {
                 return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
             }
-            let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(&authed).await?;
+            let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
                 path,
@@ -348,7 +349,7 @@ struct CreateResourceQuery {
     update_if_exists: Option<bool>,
 }
 async fn create_resource(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
@@ -402,7 +403,7 @@ async fn create_resource(
 }
 
 async fn delete_resource(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -445,7 +446,7 @@ async fn delete_resource(
 }
 
 async fn update_resource(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
@@ -527,7 +528,7 @@ struct UpdateResource {
 }
 
 async fn update_resource_value(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -599,7 +600,7 @@ async fn list_resource_types_names(
 }
 
 async fn get_resource_type(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<ResourceType> {
@@ -636,7 +637,7 @@ async fn exists_resource_type(
 }
 
 async fn create_resource_type(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -703,7 +704,7 @@ async fn check_rt_path_conflict<'c>(
 }
 
 async fn delete_resource_type(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -739,7 +740,7 @@ async fn delete_resource_type(
 }
 
 async fn update_resource_type(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,

@@ -6,18 +6,18 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    db::{UserDB, DB},
-    users::{require_owner_of_path, Authed},
-};
+use crate::{db::DB, users::require_owner_of_path};
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
     Json, Router,
 };
 
+use crate::db::ApiAuthed;
+
 use serde::{Deserialize, Serialize};
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
@@ -36,7 +36,7 @@ pub struct GranularAcl {
 }
 
 async fn add_granular_acl(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -83,7 +83,7 @@ async fn add_granular_acl(
 }
 
 async fn remove_granular_acl(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -135,7 +135,7 @@ async fn remove_granular_acl(
 }
 
 async fn get_granular_acls(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<serde_json::Value> {
