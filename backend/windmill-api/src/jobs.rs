@@ -46,6 +46,7 @@ use windmill_queue::{get_queued_job, push, QueueTransaction};
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
     Router::new()
