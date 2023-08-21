@@ -304,21 +304,18 @@ function hasCycle(obj) {
             return false;
         }
 
-        // If this object was visited before, then there's a cycle
         if (visited.has(o)) {
-        return true;
+            return true;
         }
 
-        // Mark this object as visited
         visited.add(o);
 
-        // Recursively check properties
         for (let key in o) {
-        if (o.hasOwnProperty(key)) {
-            if (_detectCycle(o[key])) {
-            return true;
+            if (Boolean(o.hasOwnProperty) && o.hasOwnProperty(key)) {
+                if (_detectCycle(o[key])) {
+                    return true;
+                }
             }
-        }
         }
 
         return false;
