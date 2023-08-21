@@ -1832,6 +1832,14 @@ This is a paragraph.
 					value: 1,
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true,
+					tooltip:
+						'Determine if the slider is disabled, or enabled (only disables interactions, and events)'
 				}
 			}
 		}
