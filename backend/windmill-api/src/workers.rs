@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{db::UserDB, users::Authed};
 use axum::{
     extract::{Extension, Query},
     routing::get,
@@ -18,6 +17,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
+    db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
 };
@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 #[cfg(feature = "benchmark")]
 use windmill_queue::IDLE_WORKERS;
+
+use crate::db::ApiAuthed;
 
 #[cfg(not(feature = "benchmark"))]
 pub fn global_service() -> Router {
@@ -92,7 +94,7 @@ struct EnableWorkerQuery {
 }
 
 async fn list_worker_pings(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<WorkerPing>> {
