@@ -15,6 +15,17 @@ export {
 
 export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
 
+export async function main(example_input: number = 3) {
+  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
+export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
+
 export async function main() {
   const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
     headers: { "Content-Type": "application/json" },
@@ -376,6 +387,8 @@ export function getResetCode(
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {
 		return PYTHON_INIT_CODE_CLEAR
+	} else if (language === 'nativets') {
+		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
 	} else {
