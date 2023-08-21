@@ -156,7 +156,7 @@ export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
 INSERT INTO demo VALUES (?, ?)
 `
 
-export const GRAPHQL_INIT_CODE = `query($name1: String, $name2: Int, $name3: [String]) {
+export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
 		name2,
