@@ -233,15 +233,12 @@ export function appComponentFromType<T extends keyof typeof components>(
 							type: value.type,
 							selected: value.selected,
 							configuration: Object.fromEntries(
-								Object.entries(value.configuration).map(([choice, config]) => {
-									const conf = initConfig(config, configuration?.[key]?.configuration?.[choice])
-									Object.entries(config).forEach(([innerKey, innerValue]) => {
-										if (innerValue.type === 'static' && !(innerKey in conf)) {
-											conf[innerKey] = innerValue.value
-										}
-									})
-									return [choice, conf]
-								})
+								Object.entries(value.configuration).map(([key, val]) => [
+									key,
+									Object.fromEntries(
+										Object.entries(val).map(([key, val]) => cleanseValue(key, val))
+									)
+								])
 							)
 						}
 					]
@@ -526,7 +523,20 @@ export function initConfig<
 									configuration: Object.fromEntries(
 										Object.entries(value.configuration).map(([choice, config]) => [
 											choice,
-											initConfig(config, configuration?.[key]?.configuration?.[choice])
+											Object.fromEntries(
+												Object.entries(value.configuration).map(([choice, config]) => {
+													const conf = initConfig(
+														config,
+														configuration?.[key]?.configuration?.[choice]
+													)
+													Object.entries(config).forEach(([innerKey, innerValue]) => {
+														if (innerValue.type === 'static' && !(innerKey in conf)) {
+															conf[innerKey] = innerValue.value
+														}
+													})
+													return [choice, conf]
+												})
+											)
 										])
 									)
 								}
