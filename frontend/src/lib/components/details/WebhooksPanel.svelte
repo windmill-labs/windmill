@@ -71,41 +71,48 @@
 		}
 		return headers
 	}
+
 	function fetchCode() {
-		return `${
-			requestType !== 'get_path'
-				? 'let body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');'
-				: ''
-		}
-fetch(\`${url}\`, {
+    let fetchMain = `
+const url = \`${url}\`;
+const response = await fetch(url, {
 	method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-	headers: ${JSON.stringify(headers(), null, 2)},
-	${requestType !== 'get_path' ? `body: body` : ''}
-}).then(
-	response => response.${webhookType === 'sync' ? 'json' : 'text'}()
-).then(data => {
-	${
-		webhookType === 'sync'
-			? 'console.log(data)'
-			: `let UUID = data;
-    let checkCompletion = setInterval(() => {
-		fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, 
-	{
-		method: 'GET',
-		headers: {
-				'Authorization': 'Bearer ${token}'
-		}
-	}).then(response => response.json())
-	.then(data => {
-		if (data.completed) {
-			console.log(data.result);
+	headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t')},
+	${requestType !== 'get_path' ? `body` : ''}
+});
+
+const data = await response.${webhookType === 'sync' ? 'json' : 'text'}();
+    `;
+
+    let fetchData = webhookType === 'sync'
+        ? `console.log(data);`
+        : `
+const UUID = data;
+let checkCompletion = setInterval(async () => {
+	try {
+		let completionResponse = await fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
+			method: 'GET',
+			headers: {
+					'Authorization': 'Bearer ${token}'
+			}
+		});
+		let completionData = await completionResponse.json();
+		if (completionData.completed) {
+			console.log(completionData.result);
 			clearInterval(checkCompletion);
 		}
-	});
-}, 1000);`
+	} catch (error) {
+		console.error("Error checking completion:", error);
 	}
-});`
-	}
+}, 1000);`;
+
+    let fetchCodeString = `${requestType !== 'get_path'? 'const body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');': '' }
+${fetchMain}
+${fetchData}`;
+
+    return fetchCodeString;
+}
+
 
 	function curlCode() {
 		return `${
@@ -258,6 +265,7 @@ done`
 					{#key requestType}
 						{#key webhookType}
 							{#key tokenType}
+							{#key token}
 								<div
 									class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
 									on:click={(e) => {
@@ -268,7 +276,7 @@ done`
 									<Highlight language={typescript} code={fetchCode()} />
 									<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
 								</div>
-							{/key}{/key}{/key}
+							{/key}{/key}{/key}{/key}
 				{/key}
 			</TabContent>
 		</svelte:fragment>

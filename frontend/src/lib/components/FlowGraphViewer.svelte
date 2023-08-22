@@ -14,6 +14,8 @@
 	import { cleanExpr } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
+
 	export let flow: {
 		summary: string
 		description?: string
@@ -196,6 +198,8 @@
 								src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
 							/>
 						</div>
+					{:else}
+						<FlowModuleScript path={stepDetail.value.path} />
 					{/if}
 				{:else if stepDetail.value.type == 'forloopflow'}
 					<div>
