@@ -206,10 +206,7 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
-export function cleanseValue(
-	key: string,
-	value: { type: 'eval' | 'static'; value?: any; expr?: string }
-) {
+function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
 	if (!value) {
 		return [key, undefined]
 	}
