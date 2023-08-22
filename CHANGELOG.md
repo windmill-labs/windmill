@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.154.1](https://github.com/windmill-labs/windmill/compare/v1.154.0...v1.154.1) (2023-08-22)
+
+
+### Bug Fixes
+
+* **frontend:** Fix hub navigation ([#2151](https://github.com/windmill-labs/windmill/issues/2151)) ([d0ed8f0](https://github.com/windmill-labs/windmill/commit/d0ed8f0fefe3176b9bab621a6b3e9231254504e2))
+* show for-loop settings ([ab8a27f](https://github.com/windmill-labs/windmill/commit/ab8a27f123fbca187eee3b372d512797f8a03916))
+
 ## [1.154.0](https://github.com/windmill-labs/windmill/compare/v1.153.0...v1.154.0) (2023-08-21)
 
 
