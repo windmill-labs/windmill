@@ -4,6 +4,7 @@ import type {
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
+	GeneralAppInput,
 	GridItem
 } from '../types'
 import {
@@ -215,6 +216,18 @@ function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any
 		return [key, { type: value.type, expr: value.expr }]
 	}
 }
+
+export function cleanseOneOfConfiguration(
+	configuration: Record<string, Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput)>>
+) {
+	return Object.fromEntries(
+		Object.entries(configuration).map(([key, val]) => [
+			key,
+			Object.fromEntries(Object.entries(val).map(([key, val]) => cleanseValue(key, val)))
+		])
+	)
+}
+
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T,
 	overrideConfiguration?: Partial<InitialAppComponent['configuration']>
@@ -232,14 +245,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 						{
 							type: value.type,
 							selected: value.selected,
-							configuration: Object.fromEntries(
-								Object.entries(value.configuration).map(([key, val]) => [
-									key,
-									Object.fromEntries(
-										Object.entries(val).map(([key, val]) => cleanseValue(key, val))
-									)
-								])
-							)
+							configuration: cleanseOneOfConfiguration(value.configuration)
 						}
 					]
 				}
@@ -521,10 +527,15 @@ export function initConfig<
 									selected: value.selected,
 									type: 'oneOf',
 									configuration: Object.fromEntries(
-										Object.entries(value.configuration).map(([choice, config]) => [
-											choice,
-											initConfig(config, configuration?.[key]?.configuration?.[choice])
-										])
+										Object.entries(value.configuration).map(([choice, config]) => {
+											const conf = initConfig(config, configuration?.[key]?.configuration?.[choice])
+											Object.entries(config).forEach(([innerKey, innerValue]) => {
+												if (innerValue.type === 'static' && !(innerKey in conf)) {
+													conf[innerKey] = innerValue.value
+												}
+											})
+											return [choice, conf]
+										})
 									)
 								}
 						  ]
