@@ -492,7 +492,7 @@
 													target="_blank"
 													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 												>
-													{truncateRev(node.job_id ?? '', 1) ?? ''}
+													{truncateRev(node.job_id ?? '', 10) ?? ''}
 												</a>
 											</div>
 										</div>
