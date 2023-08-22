@@ -508,29 +508,41 @@ export function initConfig<
 	return JSON.parse(
 		JSON.stringify(
 			Object.fromEntries(
-				Object.entries(r).map(([key, value]) =>
-					value.type == 'static'
-						? [
-								key,
-								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
-						  ]
-						: value.type == 'oneOf'
-						? [
-								key,
-								{
-									selected: value.selected,
-									type: 'oneOf',
-									configuration: Object.fromEntries(
-										Object.entries(value.configuration).map(([choice, config]) => [
-											choice,
-											initConfig(config, configuration?.[key]?.configuration?.[choice])
-										])
-									)
-								}
-						  ]
-						: [key, undefined]
-				)
-			) as any
+				Object.entries(r).map(([key, value]) => {
+					if (value.type == 'static') {
+						return [
+							key,
+							configuration?.[key]?.type === 'static' ? configuration?.[key]?.['value'] : undefined
+						]
+					} else if (value.type == 'oneOf') {
+						const newConfig = Object.fromEntries(
+							Object.entries(value.configuration).map(([choice, config]) => {
+								const conf = initConfig(config, configuration?.[key]?.configuration?.[choice])
+								const confEntries = Object.entries(config)
+
+								// If an inner key in the config is missing in the new configuration, set it to default value
+								confEntries.forEach(([innerKey, innerValue]) => {
+									if (innerValue.type === 'static' && !(innerKey in conf)) {
+										conf[innerKey] = innerValue.value
+									}
+								})
+
+								return [choice, conf]
+							})
+						)
+						return [
+							key,
+							{
+								type: 'oneOf',
+								selected: value.selected,
+								configuration: newConfig
+							}
+						]
+					} else {
+						return [key, {}]
+					}
+				})
+			)
 		)
 	)
 }

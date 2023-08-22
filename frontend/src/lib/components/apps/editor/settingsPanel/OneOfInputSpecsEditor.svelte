@@ -26,6 +26,14 @@
 		if (oneOf?.configuration[oneOf?.selected] == undefined) {
 			oneOf.configuration[oneOf.selected] = {}
 		}
+
+		if (oneOf.selected === '') {
+			oneOf = {
+				configuration: inputSpecsConfiguration,
+				selected: Object.keys(inputSpecsConfiguration ?? {})[0],
+				type: 'oneOf'
+			}
+		}
 	}
 </script>
 
