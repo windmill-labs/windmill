@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Pool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -201,9 +201,11 @@ pub struct RawCode {
 
 type Tag = String;
 
-pub async fn script_path_to_payload<'c>(
+pub type DB = Pool<Postgres>;
+
+pub async fn script_path_to_payload(
     script_path: &str,
-    db: &mut Transaction<'c, Postgres>,
+    db: &DB,
     w_id: &str,
 ) -> error::Result<(JobPayload, Option<Tag>)> {
     let (job_payload, tag) = if script_path.starts_with("hub/") {
@@ -248,13 +250,13 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     ))
 }
 
-pub async fn get_payload_tag_from_prefixed_path<'c>(
+pub async fn get_payload_tag_from_prefixed_path(
     path: &str,
-    db: &mut Transaction<'c, Postgres>,
+    db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>), Error> {
     let (payload, tag) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id).await?
+        script_path_to_payload(path.strip_prefix("script/").unwrap(), &db, w_id).await?
     } else if path.starts_with("flow/") {
         (
             JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),

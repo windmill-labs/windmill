@@ -15,6 +15,17 @@ export {
 
 export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
 
+export async function main(example_input: number = 3) {
+  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
+export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
+
 export async function main() {
   const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
     headers: { "Content-Type": "application/json" },
@@ -145,7 +156,7 @@ export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
 INSERT INTO demo VALUES (?, ?)
 `
 
-export const GRAPHQL_INIT_CODE = `query($name1: String, $name2: Int, $name3: [String]) {
+export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
 		name2,
@@ -376,6 +387,8 @@ export function getResetCode(
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {
 		return PYTHON_INIT_CODE_CLEAR
+	} else if (language === 'nativets') {
+		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
 	} else {

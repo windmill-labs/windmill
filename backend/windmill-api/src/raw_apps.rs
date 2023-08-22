@@ -6,8 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 use crate::{
-    db::{UserDB, DB},
-    users::{require_owner_of_path, Authed},
+    db::{ApiAuthed, DB},
+    users::require_owner_of_path,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -26,6 +26,7 @@ use std::str;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
+    db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
@@ -66,7 +67,7 @@ pub struct EditApp {
 }
 
 async fn list_apps(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -113,7 +114,7 @@ async fn list_apps(
 }
 
 async fn get_data(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, _version, path)): Path<(String, u16, StripPath)>,
 ) -> Result<Response> {
@@ -139,7 +140,7 @@ async fn get_data(
 }
 
 async fn create_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -199,7 +200,7 @@ async fn create_app(
 }
 
 async fn delete_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -234,7 +235,7 @@ async fn delete_app(
 }
 
 async fn update_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,

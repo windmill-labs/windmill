@@ -6,16 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::ApiAuthed;
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
 use crate::workers::ALL_TAGS;
 use crate::{
-    db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
-    users::{Authed, OptAuthed},
+    users::OptAuthed,
     webhook_util::WebhookShared,
 };
 use anyhow::Context;
@@ -34,6 +34,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
+use windmill_common::db::UserDB;
 use windmill_common::utils::rd_string;
 
 use windmill_common::error::AppError;
@@ -239,7 +240,7 @@ pub async fn run_server(
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
-                .route_layer(from_extractor::<Authed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest(
                     "/saml",

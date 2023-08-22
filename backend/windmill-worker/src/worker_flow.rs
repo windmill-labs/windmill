@@ -29,7 +29,9 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
-use windmill_queue::{add_completed_job, add_completed_job_error, handle_maybe_scheduled_job};
+use windmill_queue::{
+    add_completed_job, add_completed_job_error, handle_maybe_scheduled_job, PushIsolationLevel,
+};
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
@@ -1410,8 +1412,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.root_job.or_else(|| Some(flow_job.id))
         };
 
+        let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, inner_tx) = push(
-            tx,
+            &db,
+            tx2,
             &flow_job.workspace_id,
             payload_tag.payload,
             ok.unwrap_or_else(|| Map::new()),
@@ -1708,8 +1712,7 @@ async fn compute_next_flow_transform(
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
             let (payload, tag) = if script_hash.is_none() {
-                let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
-                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
+                script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
             } else {
                 let hash = script_hash.clone().unwrap();
                 let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;

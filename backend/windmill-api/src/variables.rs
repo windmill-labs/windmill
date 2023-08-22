@@ -7,9 +7,9 @@
  */
 
 use crate::{
-    db::{UserDB, DB},
+    db::{ApiAuthed, DB},
     oauth2::_refresh_token,
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -22,6 +22,7 @@ use hyper::StatusCode;
 use serde_json::Value;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
     variables::{get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable},
@@ -51,7 +52,7 @@ pub fn workspaced_service() -> Router {
 
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
-    Authed { username, email, .. }: Authed,
+    ApiAuthed { username, email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
@@ -72,7 +73,7 @@ async fn list_contextual_variables(
 }
 
 async fn list_variables(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ListableVariable>> {
@@ -103,7 +104,7 @@ struct GetVariableQuery {
 }
 
 async fn get_variable(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -166,7 +167,7 @@ async fn get_variable(
 }
 
 async fn get_value(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
@@ -263,7 +264,7 @@ async fn check_path_conflict<'c>(
 }
 
 async fn create_variable(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -338,7 +339,7 @@ async fn encrypt_value(
 }
 
 async fn delete_variable(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -395,7 +396,7 @@ struct AlreadyEncrypted {
 }
 
 async fn update_variable(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
