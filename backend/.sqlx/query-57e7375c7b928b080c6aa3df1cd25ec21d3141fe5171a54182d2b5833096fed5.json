@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
+  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_recovery) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,11 @@
         "ordinal": 13,
         "name": "on_failure",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "on_recovery",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -85,6 +90,7 @@
         "Bool",
         "Jsonb",
         "Bool",
+        "Varchar",
         "Varchar",
         "Varchar"
       ]
@@ -103,8 +109,9 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "80e632cb6618cde2bac2c12d0afc796a4a1768f902d0540af33fe6f442cf583a"
+  "hash": "57e7375c7b928b080c6aa3df1cd25ec21d3141fe5171a54182d2b5833096fed5"
 }

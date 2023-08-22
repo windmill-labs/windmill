@@ -2619,7 +2619,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     in_test_worker(
         &db,
         async move {
-            str.next().await; // error job
+            str.next().await; // completed error job
 
             let uuid = timeout(Duration::from_millis(5000), str.next()).await; // error handler
 
@@ -2675,7 +2675,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     in_test_worker(
         &db,
         async move {
-            str.next().await; // working job
+            str.next().await; // completed working job
             let uuid = timeout(Duration::from_millis(5000), str.next()).await; // recovery handler
 
             if uuid.is_err() {
@@ -2744,8 +2744,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     in_test_worker(
         &db,
         async move {
-            str.next().await; // error step
-            str.next().await; // error flow
+            str.next().await; // completed error step
+            str.next().await; // completed error flow
 
             let uuid = timeout(Duration::from_millis(5000), str.next()).await; // error handler
 
@@ -2801,8 +2801,8 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     in_test_worker(
         &db,
         async move {
-            str.next().await; // working step
-            str.next().await; // working flow
+            str.next().await; // completed working step
+            str.next().await; // completed working flow
             let uuid = timeout(Duration::from_millis(5000), str.next()).await; // recovery handler
 
             if uuid.is_err() {

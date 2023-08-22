@@ -568,6 +568,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
 
     if schedule.enabled && script_path == schedule.script_path {
         let res = push_scheduled_job(
+            db,
             tx,
             Schedule {
                 workspace_id: w_id.to_owned(),
@@ -781,7 +782,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
 
 async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     db: &Pool<Postgres>,
-    mut tx: QueueTransaction<'c, R>,
+    tx: QueueTransaction<'c, R>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
@@ -792,8 +793,7 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     email: &str,
     permissioned_as: String,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    let (payload, tag) =
-        get_payload_tag_from_prefixed_path(on_recovery_path, tx.transaction_mut(), w_id).await?;
+    let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
     let mut args = previous_job_error
         .unwrap_or(json!({}))

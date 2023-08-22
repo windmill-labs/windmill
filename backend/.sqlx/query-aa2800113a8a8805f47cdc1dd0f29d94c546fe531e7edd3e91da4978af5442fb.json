@@ -72,6 +72,11 @@
         "ordinal": 13,
         "name": "on_failure",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "on_recovery",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -94,6 +99,7 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },

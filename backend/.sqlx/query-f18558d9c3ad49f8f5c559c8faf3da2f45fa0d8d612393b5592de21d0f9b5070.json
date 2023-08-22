@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4 WHERE path = $5 AND workspace_id = $6 RETURNING *",
+  "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_recovery = $5 WHERE path = $6 AND workspace_id = $7 RETURNING *",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,11 @@
         "ordinal": 13,
         "name": "on_failure",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "on_recovery",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -79,6 +84,7 @@
         "Varchar",
         "Varchar",
         "Jsonb",
+        "Varchar",
         "Varchar",
         "Text",
         "Text"
@@ -98,8 +104,9 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "1e0769c59ada78848e034250c11be0ca2e8c49b96a0066b9ab67f5a205ec456d"
+  "hash": "f18558d9c3ad49f8f5c559c8faf3da2f45fa0d8d612393b5592de21d0f9b5070"
 }
