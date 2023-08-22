@@ -32,6 +32,9 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "smb" => "pysmb",
     "PIL" => "Pillow",
     "googleapiclient" => "google-api-python-client",
+    "dateutil" => "python-dateutil",
+    "mailparser" => "mail-parser",
+    "mailparser-reply" => "mail-parser-reply",
 };
 
 fn replace_import(x: String) -> String {
@@ -145,19 +148,20 @@ pub async fn parse_python_imports(
             .collect();
         for n in nimports.iter() {
             let nested = if n.starts_with("relative:") {
+                let rpath = n.replace("relative:", "");
                 let code = sqlx::query_scalar!(
                     r#"
                     SELECT content FROM script WHERE path = $1 AND workspace_id = $2
                     AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND 
                     workspace_id = $2)
                     "#,
-                    n.replace("relative:", ""),
+                    &rpath,
                     w_id
                 )
                 .fetch_optional(db)
                 .await?
                 .unwrap_or_else(|| "".to_string());
-                parse_python_imports(&code, w_id, path, db).await?
+                parse_python_imports(&code, w_id, &rpath, db).await?
             } else {
                 vec![replace_import(n.to_string())]
             };

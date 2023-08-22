@@ -20,7 +20,7 @@ use windmill_common::{
     jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
-use windmill_queue::get_queued_job;
+use windmill_queue::{get_queued_job, PushIsolationLevel};
 
 async fn initialize_tracing() {
     use std::sync::Once;
@@ -846,8 +846,10 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), None);
         let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
-            (None, db.begin().await.unwrap()).into(),
+            &db,
+            tx,
             "test-workspace",
             payload,
             args,

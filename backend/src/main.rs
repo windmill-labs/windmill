@@ -244,8 +244,12 @@ Windmill Community Edition {GIT_VERSION}
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => {
-                    windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
+                Some(_addr) => {
+                    #[cfg(not(feature = "enterprise"))]
+                    panic!("Metrics are only available in the Enterprise Edition");
+
+                    #[cfg(feature = "enterprise")]
+                    windmill_common::serve_metrics(_addr, rx.resubscribe(), num_workers > 0)
                         .await
                         .map_err(anyhow::Error::from)
                 }

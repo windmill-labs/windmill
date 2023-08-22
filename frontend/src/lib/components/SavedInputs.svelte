@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
-	import { classNames, displayDate, displayDaysAgo, sendUserToast } from '$lib/utils.js'
+	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -10,6 +10,7 @@
 	import { ArrowLeftIcon, Edit, ExternalLink, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import TimeAgo from './TimeAgo.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -287,7 +288,7 @@
 									<div
 										class="whitespace-nowrap col-span-3 font-normal overflow-hidden text-ellipsis flex-shrink text-center"
 									>
-										{displayDaysAgo(i.created_at)}
+										<TimeAgo date={i.created_at ?? ''} />
 									</div>
 									<div class="col-span-2">
 										<a

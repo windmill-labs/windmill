@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.151.0
+  version: 1.154.0
   title: Windmill API
 
   contact:
@@ -3811,6 +3811,45 @@ paths:
                 items:
                   $ref: "#/components/schemas/QueuedJob"
 
+  /w/{workspace}/jobs/queue/count:
+    get:
+      summary: get queue count
+      operationId: getQueueCount
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: queue count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_length:
+                    type: integer
+                required:
+                  - database_length
+
+  /w/{workspace}/jobs/queue/cancel_all:
+    post:
+      summary: cancel all jobs
+      operationId: cancelAll
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: uuids of canceled jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/jobs/completed/list:
     get:
       summary: list all available completed jobs
@@ -3869,6 +3908,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -3897,6 +3938,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Job"
+
+  /jobs/db_clock:
+    get:
+      summary: get db clock
+      operationId: getDbClock
+      tags:
+        - job
+      responses:
+        "200":
+          description:
+            the timestamp of the db that can be used to compute the drift
+          content:
+            application/json:
+              schema:
+                type: integer
 
   /w/{workspace}/jobs_u/get/{id}:
     get:
@@ -5552,14 +5608,32 @@ components:
         type: string
     StartedBefore:
       name: started_before
-      description: filter on created before (inclusive) timestamp
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
     StartedAfter:
       name: started_after
-      description: filter on created after (exclusive) timestamp
+      description: filter on started after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedAfter:
+      name: created_or_started_after
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedBefore:
+      name: created_or_started_before
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        before (inclusive) timestamp
       in: query
       schema:
         type: string
@@ -5960,6 +6034,7 @@ components:
               "script",
               "preview",
               "dependencies",
+              "flowdependencies",
               "flow",
               "flowpreview",
               "script_hub",
@@ -6064,6 +6139,7 @@ components:
               "preview",
               "dependencies",
               "flow",
+              "flowdependencies",
               "flowpreview",
               "script_hub",
               "identity",

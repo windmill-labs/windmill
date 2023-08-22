@@ -1,4 +1,8 @@
-use crate::{db::DB, users::Authed, variables::build_crypt, HTTP_CLIENT};
+use crate::{
+    db::{ApiAuthed, DB},
+    variables::build_crypt,
+    HTTP_CLIENT,
+};
 
 use axum::{
     body::{Bytes, StreamBody},
@@ -69,7 +73,7 @@ lazy_static::lazy_static! {
 }
 
 async fn proxy(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, openai_path)): Path<(String, String)>,
     body: Bytes,

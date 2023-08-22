@@ -5,10 +5,12 @@ use itertools::Itertools;
 use uuid::Uuid;
 
 use crate::{
-    common::{read_result, set_logs},
-    create_args_and_out_file, get_reserved_variables, handle_child, write_file, write_file_binary,
+    common::{
+        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
+        write_file, write_file_binary,
+    },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NPM_CONFIG_REGISTRY, NSJAIL_CONFIG_RUN_BUN_CONTENT, NSJAIL_PATH, PATH_ENV,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::error::Result;
@@ -21,6 +23,8 @@ use windmill_parser::Typ;
 const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
 
 const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.ts");
+
+const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
 const EMPTY_FILE: &str = "<empty>";

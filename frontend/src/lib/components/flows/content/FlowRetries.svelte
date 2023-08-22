@@ -48,6 +48,9 @@
 					on:change={() => {
 						if (isConstantRetryEnabled && flowModule.retry?.constant) {
 							flowModule.retry.constant = undefined
+							if (!isExponentialRetryEnabled) {
+								flowModule.retry = undefined
+							}
 						} else {
 							setConstantRetries()
 						}
@@ -74,6 +77,9 @@
 					on:change={() => {
 						if (isExponentialRetryEnabled && flowModule.retry?.exponential) {
 							flowModule.retry.exponential = undefined
+							if (!isConstantRetryEnabled) {
+								flowModule.retry = undefined
+							}
 						} else {
 							setExpoentialRetries()
 						}

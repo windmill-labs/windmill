@@ -8,9 +8,11 @@
 
 use std::sync::Arc;
 
+use crate::db::ApiAuthed;
+
 use crate::{
-    db::{UserDB, DB},
-    users::{AuthCache, Authed, Tokened},
+    db::DB,
+    users::{AuthCache, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -22,6 +24,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{self, to_anyhow, JsonResult, Result},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, Pagination},
@@ -74,7 +77,7 @@ pub struct Owner {
 }
 
 async fn list_folders(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -96,7 +99,7 @@ async fn list_folders(
     Ok(Json(rows))
 }
 async fn list_foldernames(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -145,7 +148,7 @@ lazy_static! {
 }
 
 async fn create_folder(
-    authed: Authed,
+    authed: ApiAuthed,
     Tokened { token }: Tokened,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
@@ -163,7 +166,7 @@ async fn create_folder(
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
-    let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
+    let owners = &ng.owners.unwrap_or_else(|| vec![owner.clone()]);
 
     if let Some(extra_perms) = ng.extra_perms.clone() {
         for o in owners {
@@ -220,13 +223,13 @@ async fn create_folder(
 }
 
 pub async fn is_owner_api(
-    authed: Authed,
+    authed: ApiAuthed,
     Path((_w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
     Ok(Json(is_owner(&authed, &name)))
 }
 
-pub fn is_owner(Authed { is_admin, folders, .. }: &Authed, name: &str) -> bool {
+pub fn is_owner(ApiAuthed { is_admin, folders, .. }: &ApiAuthed, name: &str) -> bool {
     if *is_admin {
         true
     } else {
@@ -234,7 +237,7 @@ pub fn is_owner(Authed { is_admin, folders, .. }: &Authed, name: &str) -> bool {
     }
 }
 
-pub fn require_is_owner(authed: &Authed, name: &str) -> Result<()> {
+pub fn require_is_owner(authed: &ApiAuthed, name: &str) -> Result<()> {
     if is_owner(authed, name) {
         Ok(())
     } else {
@@ -246,7 +249,7 @@ pub fn require_is_owner(authed: &Authed, name: &str) -> Result<()> {
 }
 
 async fn update_folder(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -343,7 +346,7 @@ pub async fn get_folderopt<'c>(
 }
 
 async fn get_folder(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<Folder> {
@@ -365,7 +368,7 @@ struct FolderUsage {
     pub variables: i64,
 }
 async fn get_folder_usage(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<FolderUsage> {
@@ -446,7 +449,7 @@ async fn get_folder_usage(
 }
 
 async fn delete_folder(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -483,7 +486,7 @@ async fn delete_folder(
 }
 
 async fn add_owner(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -550,7 +553,7 @@ pub async fn get_folders_for_user(
 }
 
 async fn remove_owner(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,

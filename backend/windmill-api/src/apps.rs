@@ -8,8 +8,8 @@ use std::collections::HashMap;
  * LICENSE-AGPL for a copy of the license.
  */
 use crate::{
-    db::{UserDB, DB},
-    users::{require_owner_of_path, Authed, OptAuthed},
+    db::{ApiAuthed, DB},
+    users::{require_owner_of_path, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -30,6 +30,7 @@ use std::str;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
+    db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
@@ -37,7 +38,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, QueueTransaction};
+use windmill_queue::push;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -159,7 +160,7 @@ pub struct EditApp {
 }
 
 async fn list_apps(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -220,7 +221,7 @@ async fn list_apps(
 }
 
 async fn get_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersion> {
@@ -245,7 +246,7 @@ async fn get_app(
 }
 
 async fn get_app_w_draft(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersionAndDraft> {
@@ -262,7 +263,7 @@ async fn get_app_w_draft(
         INNER JOIN app_version ON
         app_version.id = app.versions[array_upper(app.versions, 1)]
         LEFT JOIN draft ON 
-        app.path = draft.path AND app.workspace_id = draft.workspace_id AND draft.typ = 'app' 
+        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
         WHERE app.path = $1 AND app.workspace_id = $2"#,
         path.to_owned(),
         &w_id
@@ -276,7 +277,7 @@ async fn get_app_w_draft(
 }
 
 async fn get_app_by_id(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<AppWithLastVersion> {
@@ -341,7 +342,7 @@ async fn get_public_app_by_secret(
 }
 
 async fn get_secret_id(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -369,7 +370,7 @@ async fn get_secret_id(
 }
 
 async fn create_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -461,7 +462,7 @@ async fn create_app(
     Ok((StatusCode::CREATED, app.path))
 }
 
-async fn list_hub_apps(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
+async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
     let flows = list_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchUiData?approved=true",
@@ -472,7 +473,7 @@ async fn list_hub_apps(Authed { email, .. }: Authed) -> JsonResult<serde_json::V
 }
 
 pub async fn get_hub_app_by_id(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(id): Path<i32>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
@@ -489,7 +490,7 @@ pub async fn get_hub_app_by_id(
 }
 
 async fn delete_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -539,7 +540,7 @@ async fn delete_app(
 }
 
 async fn update_app(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -709,7 +710,6 @@ async fn execute_component(
     };
 
     let path = path.to_path();
-    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
@@ -738,7 +738,7 @@ async fn execute_component(
             path,
             &w_id
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&db)
         .await?;
 
         let policy = not_found_if_none(policy_o, "App", path)?;
@@ -782,15 +782,16 @@ async fn execute_component(
             (payload, args, None)
         }
         ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) =
-                get_payload_tag_from_prefixed_path(path, tx.transaction_mut(), &w_id).await?;
+            let (payload, tag) = get_payload_tag_from_prefixed_path(path, &db, &w_id).await?;
             let args = build_args(policy, component, path.to_string(), args)?;
             (payload, args, tag)
         }
         _ => unreachable!(),
     };
+    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         job_payload,
@@ -841,7 +842,7 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
     Ok((permissioned_as, email))
 }
 
-pub async fn require_is_writer(authed: &Authed, path: &str, w_id: &str, db: DB) -> Result<()> {
+pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
     return crate::users::require_is_writer(
         authed,
         path,

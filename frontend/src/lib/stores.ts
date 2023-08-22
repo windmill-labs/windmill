@@ -30,6 +30,7 @@ export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
+export const dbClockDrift = writable<number | undefined>(undefined)
 export const premiumStore = writable<{ premium: boolean; usage?: number }>({ premium: false })
 export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)

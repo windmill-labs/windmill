@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { FlowStatusModule, Job } from '$lib/gen'
-	import { ProgressBar, type GeneralStep, type LoopStep, type ProgressStep } from '../progressBar'
+	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
-	export let duration = 200
-	let jobProgress: { steps: ProgressStep[]; error: boolean } = { steps: [], error: false }
+
+	let error: number | undefined = undefined
+	let index = 0
+	let subIndex: number | undefined = undefined
+	let subLength: number | undefined = undefined
+	let length = 1
+	let nextInProgress = false
 
 	$: if (job) updateJobProgress(job)
 
@@ -14,51 +19,70 @@
 			return
 		}
 
-		jobProgress.steps = modules.map((module) => {
+		let subStepIndex: undefined | number = undefined
+		let subStepLength: undefined | number = undefined
+		let newError: number | undefined = undefined
+		let newNextInProgress = false
+
+		let maxDone = job?.flow_status?.step ?? 0
+		if (modules.length > maxDone) {
+			const nextModule = modules[maxDone]
+			if (nextModule.type === FlowStatusModule.type.IN_PROGRESS) {
+				newNextInProgress = true
+			}
+		}
+
+		let module = modules[maxDone]
+		if (module) {
 			if (
 				module.type === FlowStatusModule.type.FAILURE ||
 				(module.type === FlowStatusModule.type.SUCCESS && job['success'] === false)
 			) {
-				jobProgress.error = true
+				newError = maxDone
+				maxDone = maxDone + 1
 			}
-
-			// Loop is still iterating
-			if (module.iterator) {
-				return <LoopStep>{
-					type: 'loop',
-					isDone: isJobStepDone(module.type),
-					index: module.iterator.index || 0,
-					length: module.iterator.itered?.length || 0
-				}
-			}
-			// Loop is finished
-			else if (module['flow_jobs']) {
-				return <LoopStep>{
-					type: 'loop',
-					isDone: isJobStepDone(module.type),
-					index: module['flow_jobs'].length,
-					length: module['flow_jobs'].length
-				}
-			}
-			// Not a loop
-			return <GeneralStep>{
-				type: 'general',
-				isDone: isJobStepDone(module.type)
-			}
-		})
-	}
-
-	function isJobStepDone(type: FlowStatusModule.type | undefined) {
-		if (!type) {
-			return false
 		}
-		return type === FlowStatusModule.type.SUCCESS || type === FlowStatusModule.type.FAILURE
+
+		// Loop is still iterating
+		if (module?.iterator) {
+			const stepIndex = module.iterator.index || 0
+			const stepLength = module.iterator.itered?.length || 0
+			if (module.iterator.index != undefined) {
+				subStepIndex = stepIndex
+				subStepLength = stepLength
+			}
+		} else if (module?.branchall) {
+			subStepIndex = module.branchall.branch
+			subStepLength = module.branchall.len
+		}
+
+		error = newError
+		subLength = subStepLength ? Math.max(subStepLength, 1) : undefined
+		subIndex = subStepIndex
+		length = Math.max(modules.length, 1)
+		index = maxDone
+		nextInProgress = newNextInProgress
 	}
+
+	let resetP: any
 
 	export function reset() {
-		jobProgress.error = false
-		jobProgress.steps = []
+		resetP?.()
+		error = undefined
+		subIndex = undefined
+		subLength = undefined
+		length = 1
+		index = 0
 	}
 </script>
 
-<ProgressBar {...jobProgress} {duration} class={$$props.class} />
+<ProgressBar
+	bind:resetP
+	{length}
+	{index}
+	{nextInProgress}
+	{subLength}
+	{subIndex}
+	{error}
+	class={$$props.class}
+/>

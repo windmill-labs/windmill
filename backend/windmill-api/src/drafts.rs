@@ -7,8 +7,8 @@
  */
 
 use crate::{
-    db::{UserDB, DB},
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    db::{ApiAuthed, DB},
+    users::{maybe_refresh_folders, require_owner_of_path},
 };
 
 use axum::{
@@ -18,7 +18,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use windmill_common::{error::Result, utils::StripPath};
+use windmill_common::{db::UserDB, error::Result, utils::StripPath};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -43,7 +43,7 @@ pub struct Draft {
 }
 
 pub async fn require_writer_of_path(
-    authed: &Authed,
+    authed: &ApiAuthed,
     path: &str,
     w_id: &str,
     db: DB,
@@ -63,7 +63,7 @@ pub async fn require_writer_of_path(
 }
 
 async fn create_draft(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
@@ -95,7 +95,7 @@ async fn create_draft(
 }
 
 async fn delete_draft(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, kind, path)): Path<(String, DraftType, StripPath)>,
 ) -> Result<String> {
@@ -115,7 +115,7 @@ async fn delete_draft(
 }
 
 // async fn get_draft(
-//     authed: Authed,
+//     authed: ApiAuthed,
 //     Extension(user_db): Extension<UserDB>,
 //     Path((w_id, path)): Path<(String, StripPath)>,
 // ) -> JsonResult<Draft> {

@@ -7,8 +7,8 @@
  */
 
 use crate::{
-    db::{UserDB, DB},
-    users::{maybe_refresh_folders, Authed},
+    db::{ApiAuthed, DB},
+    users::maybe_refresh_folders,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -22,6 +22,7 @@ use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{Error, JsonResult, Result},
     jobs::JobKind,
     schedule::Schedule,
@@ -81,7 +82,7 @@ async fn check_path_conflict<'c>(
 }
 
 async fn create_schedule(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -143,7 +144,7 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(tx, schedule).await?
+        tx = push_scheduled_job(&db, tx, schedule).await?
     }
     tx.commit().await?;
 
@@ -151,7 +152,7 @@ async fn create_schedule(
 }
 
 async fn edit_schedule(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -210,7 +211,7 @@ async fn edit_schedule(
     .await?;
 
     if schedule.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
+        tx = push_scheduled_job(&db, tx, schedule).await?;
     }
     tx.commit().await?;
 
@@ -226,7 +227,7 @@ pub struct ListScheduleQuery {
 }
 
 async fn list_schedule(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lsq): Query<ListScheduleQuery>,
@@ -275,7 +276,7 @@ pub struct ScheduleWJobs {
 }
 
 async fn list_schedule_with_jobs(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -284,7 +285,7 @@ async fn list_schedule_with_jobs(
     let (per_page, offset) = paginate(pagination);
     let rows = sqlx::query_as!(ScheduleWJobs,
         "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
-        completed_job.schedule_path = schedule.path AND schedule.workspace_id = completed_job.workspace_id AND parent_job IS NULL ORDER BY created_at DESC LIMIT 20) AS jobs ) t
+        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL ORDER BY started_at DESC LIMIT 20) AS jobs ) t
         WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
@@ -307,7 +308,7 @@ async fn list_schedule_with_jobs(
 //    ) t;
 
 async fn get_schedule(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Schedule> {
@@ -356,7 +357,8 @@ pub async fn preview_schedule(
 }
 
 pub async fn set_enabled(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -392,7 +394,7 @@ pub async fn set_enabled(
     .await?;
 
     if payload.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
+        tx = push_scheduled_job(&db, tx, schedule).await?;
     }
     tx.commit().await?;
 
@@ -403,7 +405,7 @@ pub async fn set_enabled(
 }
 
 async fn delete_schedule(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {

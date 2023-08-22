@@ -9,8 +9,10 @@
 use std::net::SocketAddr;
 
 use error::Error;
+use sqlx::{Pool, Postgres};
 
 pub mod apps;
+pub mod db;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
@@ -155,8 +157,10 @@ pub async fn connect(
 
 type Tag = String;
 
-pub async fn get_latest_deployed_hash_for_path<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub type DB = Pool<Postgres>;
+
+pub async fn get_latest_deployed_hash_for_path(
+    db: &DB,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
@@ -167,7 +171,7 @@ pub async fn get_latest_deployed_hash_for_path<'c>(
         script_path,
         w_id
     )
-    .fetch_optional(&mut **db)
+    .fetch_optional(db)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;

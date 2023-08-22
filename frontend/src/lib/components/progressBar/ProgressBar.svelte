@@ -1,100 +1,91 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
-	import { writable } from 'svelte/store'
-	import {
-		type ProgressStep,
-		type ProgressState,
-		type LoopState,
-		isLoopStep,
-		isLoopState,
-		getTween,
-		type ProgressStateStoreValue
-	} from './model'
-	import ProgressBarGeneralPart from './ProgressBarGeneralPart.svelte'
-	import ProgressBarLoopPart from './ProgressBarLoopPart.svelte'
+	import { tweened } from 'svelte/motion'
+	import { linear } from 'svelte/easing'
 
-	export let steps: ProgressStep[]
-	export let error = false
-	export let duration = 100
+	function getTween(initialValue = 0, duration = 200) {
+		return tweened(initialValue, {
+			duration,
+			easing: linear
+		})
+	}
+
+	export let error: number | undefined = undefined
+	export let index: number
+	export let subIndex: number | undefined
+	export let subLength: number | undefined
+	export let nextInProgress: boolean = false
+
+	export let length: number
+	let duration = 200
+
 	let percent = getTween(0, duration)
-	let finished = false
-	let state: ProgressState[] = []
 
-	const stateStore = writable<ProgressStateStoreValue>({
-		length: state.length,
-		index: 0,
-		finished,
-		error
-	})
-	setContext('state', stateStore)
+	export function resetP() {
+		percent = getTween(0, duration)
+	}
 
-	$: state = steps.map((step, i) => {
-		if (isLoopStep(step)) {
-			return {
-				type: step.type,
-				isDone: error ? false : step.isDone,
-				isDoneChanged: !state[i]?.isDone && step.isDone,
-				length: step.length,
-				index: step.index,
-				indexChanged: (state[i] as LoopState)?.index !== step.index
-			}
-		} else {
-			return {
-				type: step.type,
-				isDone: step.isDone,
-				isDoneChanged: !state[i]?.isDone && step.isDone
-			}
+	$: percent.set(
+		(length
+			? index / length + (subIndex && subLength ? subIndex / (subLength ?? 1) / length : 0)
+			: 0) * 100
+	)
+
+	function getPercent(partIndex: number, _pct: number) {
+		if (!length) {
+			return 0
 		}
-	})
-	$: stateStore.update(({ index }) => ({ length: state.length, index, finished, error }))
-	$: stepIndex = state.findIndex(({ isDone }) => !isDone)
-	$: lastStep = state.at(-1)
-	$: if (typeof lastStep?.isDone === 'boolean') {
-		finished = lastStep.isDone
-		if ($percent >= 100 && !lastStep.isDone) {
-			percent = getTween(0, duration)
-		}
+
+		const res = Math.min(($percent - (partIndex / length) * 100) * length, 100)
+		return res
 	}
-	$: subStepIndex = lastStep ? lastStep['index'] : undefined
-	$: length = 100 / (state.length || 1)
-	$: if (finished) {
-		percent.set(100)
-	} else {
-		const product = length * stepIndex
-		percent.set(product < 0 ? 0 : product)
-	}
+
+	$: finished = index == length
 </script>
 
 <div class={$$props.class}>
 	<div
-		class="flex justify-between items-end font-medium mb-1 {error
+		class="flex justify-between items-end font-medium mb-1 {error != undefined
 			? 'text-red-700 dark:text-red-200'
 			: 'text-blue-700 dark:text-blue-200'}"
 	>
 		<span class="text-base">
-			{error
+			{error != undefined
 				? 'Error occured'
 				: finished
 				? 'Done'
-				: `Step ${stepIndex + 1}${subStepIndex !== undefined ? `.${subStepIndex + 1}` : ''}`}
+				: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
 		</span>
 		<span class="text-sm">
-			{state.length ? $percent.toFixed(0) : 0}%
+			{$percent.toFixed(0)}%
 		</span>
 	</div>
 	<!-- {#each state as step, index}
 		{index} {JSON.stringify(step)}
 	{/each} -->
+	<!-- A: {index}, B: {length}
+	{#each new Array(length) as _, index (index)}
+		{index} -
+		{getPercent(index)}
+		|
+	{/each} -->
 	<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-		{#each state as step, index}
-			<div
-				class="h-full relative border-white {index === 0 ? '' : 'border-l'}"
-				style="width: {length}%;"
-			>
-				{#if isLoopState(step)}
-					<ProgressBarLoopPart {step} {index} {duration} />
-				{:else}
-					<ProgressBarGeneralPart {step} {index} {duration} />
+		{#each new Array(length) as _, partIndex (partIndex)}
+			<div class="h-full relative border-white {partIndex === 0 ? '' : 'border-l'} w-full">
+				{#if partIndex == index && nextInProgress}
+					<div
+						class="absolute left-0 bottom-0 h-full bg-blue-400/50 animate-pulse"
+						style="width: 100%"
+					/>
+				{/if}
+				{#if partIndex < index - 1}
+					<div class="absolute left-0 bottom-0 h-full w-full bg-blue-400" />
+				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined) || error == partIndex}
+					<div
+						class="absolute left-0 bottom-0 h-full {error == partIndex
+							? 'bg-red-400'
+							: 'bg-blue-400'}"
+						style="width: {getPercent(partIndex, $percent)}%"
+					/>
 				{/if}
 			</div>
 		{/each}

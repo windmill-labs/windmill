@@ -13,7 +13,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -107,7 +107,7 @@
 				}).then((job) => {
 					localFlowModuleStates[mod.id ?? ''] = {
 						type: mod.type,
-						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
+						scheduled_for: job?.['scheduled_for'],
 						job_id: job?.id,
 						parent_module: mod['parent_module'],
 						args: job?.args
@@ -438,6 +438,7 @@
 						</div>
 
 						<FlowGraph
+							download
 							success={isSuccess(job?.['success'])}
 							flowModuleStates={localFlowModuleStates}
 							on:select={(e) => {
@@ -481,7 +482,7 @@
 								{/if}
 							{:else if node}
 								<div class="px-2 flex gap-2 min-w-0">
-									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
+									<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
 									{#if node.job_id}
 										<div class="truncate min-w-1/2"
 											><div class=" text-primary whitespace-nowrap truncate">

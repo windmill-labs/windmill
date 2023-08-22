@@ -6,10 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Pool, Postgres, Transaction};
-use windmill_common::error::Error;
-
-use crate::users::Authed;
+use sqlx::{Pool, Postgres};
+use windmill_common::{
+    db::{Authable, Authed},
+    error::Error,
+};
 
 pub type DB = Pool<Postgres>;
 
@@ -28,84 +29,58 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Clone)]
-pub struct UserDB {
-    db: DB,
+#[derive(Clone, Debug)]
+pub struct ApiAuthed {
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_operator: bool,
+    pub groups: Vec<String>,
+    // (folder name, can write, is owner)
+    pub folders: Vec<(String, bool, bool)>,
+    pub scopes: Option<Vec<String>>,
 }
 
-impl UserDB {
-    pub fn new(db: DB) -> Self {
-        Self { db }
+impl From<ApiAuthed> for Authed {
+    fn from(value: ApiAuthed) -> Self {
+        Self {
+            email: value.email,
+            username: value.username,
+            is_admin: value.is_admin,
+            is_operator: value.is_operator,
+            groups: value.groups,
+            folders: value.folders,
+            scopes: value.scopes,
+        }
+    }
+}
+
+impl Authable for ApiAuthed {
+    fn is_admin(&self) -> bool {
+        self.is_admin
     }
 
-    pub async fn begin(
-        self,
-        authed: &Authed,
-    ) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
-        let mut tx = self.db.begin().await?;
-        let user = if authed.is_admin {
-            "windmill_admin"
-        } else {
-            "windmill_user"
-        };
+    fn is_operator(&self) -> bool {
+        self.is_operator
+    }
 
-        sqlx::query(&format!("SET LOCAL ROLE {}", user))
-            .execute(&mut *tx)
-            .await?;
+    fn groups(&self) -> &[String] {
+        &self.groups
+    }
 
-        sqlx::query!(
-            "SELECT set_config('session.user', $1, true)",
-            authed.username
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+    fn folders(&self) -> &[(String, bool, bool)] {
+        &self.folders
+    }
 
-        sqlx::query!(
-            "SELECT set_config('session.groups', $1, true)",
-            &authed.groups.join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+    fn scopes(&self) -> Option<&[std::string::String]> {
+        self.scopes.as_ref().map(|x| x.as_slice())
+    }
 
-        sqlx::query!(
-            "SELECT set_config('session.pgroups', $1, true)",
-            &authed
-                .groups
-                .iter()
-                .map(|x| format!("g/{}", x))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+    fn email(&self) -> &str {
+        &self.email
+    }
 
-        let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
-            &authed.folders.clone().into_iter().partition(|x| x.1);
-
-        let mut folders_read = folders_read.clone();
-        folders_read.extend(folders_write.clone());
-        sqlx::query!(
-            "SELECT set_config('session.folders_read', $1, true)",
-            folders_read
-                .iter()
-                .map(|x| x.0.clone())
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        sqlx::query!(
-            "SELECT set_config('session.folders_write', $1, true)",
-            folders_write
-                .iter()
-                .map(|x| x.0.clone())
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        Ok(tx)
+    fn username(&self) -> &str {
+        &self.username
     }
 }

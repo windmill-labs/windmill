@@ -6,16 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::ApiAuthed;
 use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
 use crate::workers::ALL_TAGS;
 use crate::{
-    db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
-    users::{Authed, OptAuthed},
+    users::OptAuthed,
     webhook_util::WebhookShared,
 };
 use anyhow::Context;
@@ -24,7 +24,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
-use hyper::Method;
+use hyper::{http, Method};
 use mail_send::SmtpClientBuilder;
 use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
@@ -34,6 +34,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
+use windmill_common::db::UserDB;
 use windmill_common::utils::rd_string;
 
 use windmill_common::error::AppError;
@@ -185,6 +186,7 @@ pub async fn run_server(
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
     #[cfg(feature = "enterprise")]
@@ -212,7 +214,7 @@ pub async fn run_server(
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service().layer(cors.clone()))
+                        .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
@@ -231,13 +233,14 @@ pub async fn run_server(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
+                .nest("/jobs", jobs::global_root_service())
                 .nest("/workers", workers::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
-                .route_layer(from_extractor::<Authed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest(
                     "/saml",

@@ -82,7 +82,7 @@
 							</Pane>
 						</Splitpanes>
 					</TabContent>
-					<TabContent value="flow_json" class="flex flex-col flex-1 h-full">
+					<TabContent value="flow_json" class="flex flex-col flex-1 h-full overflow-auto">
 						<div class="relative pt-2">
 							<Button
 								on:click={() => copyToClipboard(JSON.stringify(flow_json, null, 4))}
@@ -94,11 +94,7 @@
 							>
 								Copy content
 							</Button>
-							<Highlight
-								language={json}
-								code={JSON.stringify(flow_json, null, 4)}
-								class="overflow-auto"
-							/>
+							<Highlight language={json} code={JSON.stringify(flow_json, null, 4)} />
 						</div>
 					</TabContent>
 					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">

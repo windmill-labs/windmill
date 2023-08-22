@@ -7,17 +7,21 @@
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
-	export let nbObJobs: number = 30
-	export let loadMoreQuantity: number = 30
+	export let nbOfJobs: number = 30
+	const loadMoreQuantity: number = 100
 
+	function getTime(job: Job): string | undefined {
+		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
+	}
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
 		const groupedLogs: Record<string, Job[]> = {}
 
 		if (!jobs) return groupedLogs
 
 		for (const job of jobs) {
-			if ('started_at' in job && job.started_at) {
-				const date = new Date(job.started_at)
+			const field: string | undefined = getTime(job)
+			if (field) {
+				const date = new Date(field)
 				date.setMilliseconds(date.getMilliseconds() + (job['duration_ms'] ?? 0))
 
 				const day = date.toLocaleDateString('en-US', {
@@ -36,7 +40,7 @@
 
 		for (const day in groupedLogs) {
 			groupedLogs[day].sort((a, b) => {
-				return new Date(b.started_at!).getTime() - new Date(a.started_at!).getTime()
+				return new Date(getTime(b)!).getTime() - new Date(getTime(a)!).getTime()
 			})
 		}
 
@@ -52,15 +56,15 @@
 		return sortedLogs
 	}
 
-	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbObJobs))
+	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbOfJobs))
 </script>
 
 <DataTable
 	rounded={false}
 	size="sm"
 	loadMore={loadMoreQuantity}
-	shouldLoadMore={nbObJobs < jobs.length}
-	on:loadMore={() => (nbObJobs += loadMoreQuantity)}
+	shouldLoadMore={nbOfJobs < jobs.length}
+	on:loadMore={() => (nbOfJobs += loadMoreQuantity)}
 >
 	<Head>
 		<Cell first head class="w-8" />

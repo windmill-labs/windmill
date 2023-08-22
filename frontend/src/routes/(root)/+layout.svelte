@@ -10,6 +10,7 @@
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import EditorTheme from '$lib/components/EditorTheme.svelte'
+	import { computeDrift } from '$lib/forLater'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	if (token) {
@@ -25,7 +26,8 @@
 		'Canceled',
 		'Missing service editorService',
 		'Unexpected usage',
-		'NetworkError when attempting to fetch resource.'
+		'NetworkError when attempting to fetch resource.',
+		"Client got disposed and can't be restarted."
 	]
 
 	async function setUserWorkspaceStore() {
@@ -125,6 +127,7 @@
 			}
 		}
 		setLicense()
+		computeDrift()
 
 		if ($page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
@@ -162,7 +165,8 @@
 		interval && clearInterval(interval)
 	})
 
-	const darkMode = window.localStorage.getItem('dark-mode') ?? 
+	const darkMode =
+		window.localStorage.getItem('dark-mode') ??
 		(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 
 	if (darkMode === 'dark') {

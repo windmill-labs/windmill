@@ -305,7 +305,7 @@
 	size="800px"
 >
 	<DrawerContent
-		title="Connect an API or add a Resource"
+		title="Add a Resource"
 		on:close={drawer.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"

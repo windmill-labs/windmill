@@ -6,9 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::ApiAuthed;
+
 use crate::{
-    db::{UserDB, DB},
-    users::{check_scopes, require_owner_of_path, Authed, OptAuthed},
+    db::DB,
+    users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
     variables::get_workspace_key,
     workers::{CUSTOM_TAGS, CUSTOM_TAGS_PER_WORKSPACE},
@@ -28,9 +30,11 @@ use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
+use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
     flows::FlowValue,
@@ -40,64 +44,108 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{get_queued_job, push, QueueTransaction};
+use windmill_queue::{get_queued_job, push, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
         .route(
             "/run/f/*script_path",
-            post(run_flow_by_path).head(|| async { "" }),
+            post(run_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run/p/*script_path",
-            post(run_job_by_path).head(|| async { "" }),
+            post(run_job_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/h/:hash",
-            post(run_wait_result_script_by_hash).head(|| async { "" }),
+            post(run_wait_result_script_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/p/*script_path",
-            post(openai_sync_script_by_path).head(|| async { "" }),
+            post(openai_sync_script_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
         .route(
             "/openai_sync/f/*script_path",
-            post(openai_sync_flow_by_path).head(|| async { "" }),
+            post(openai_sync_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone()),
         )
-        .route("/run/h/:hash", post(run_job_by_hash).head(|| async { "" }))
+        .route(
+            "/run/h/:hash",
+            post(run_job_by_hash)
+                .head(|| async { "" })
+                .layer(cors.clone()),
+        )
         .route("/run/preview", post(run_preview_job))
         .route("/add_noop_jobs/:n", post(add_noop_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
-        .route("/completed/list", get(list_completed_jobs))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route("/queue/cancel_all", post(cancel_all))
+        .route(
+            "/completed/list",
+            get(list_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get/:id",
+            get(get_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/completed/get_result/:id",
+            get(get_completed_job_result).layer(cors.clone()),
+        )
         .route(
             "/completed/get_result_maybe/:id",
-            get(get_completed_job_result_maybe),
+            get(get_completed_job_result_maybe).layer(cors.clone()),
         )
-        .route("/completed/delete/:id", post(delete_completed_job))
-        .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
+        .route(
+            "/completed/delete/:id",
+            post(delete_completed_job).layer(cors.clone()),
+        )
+        .route(
+            "/flow/resume/:id",
+            post(resume_suspended_flow_as_owner).layer(cors.clone()),
+        )
         .route(
             "/job_signature/:job_id/:resume_id",
-            get(create_job_signature),
+            get(create_job_signature).layer(cors.clone()),
         )
-        .route("/resume_urls/:job_id/:resume_id", get(get_resume_urls))
-        .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
+        .route(
+            "/resume_urls/:job_id/:resume_id",
+            get(get_resume_urls).layer(cors.clone()),
+        )
+        .route(
+            "/result_by_id/:job_id/:node_id",
+            get(get_result_by_id).layer(cors.clone()),
+        )
 }
 
 pub fn global_service() -> Router {
@@ -135,12 +183,20 @@ pub fn global_service() -> Router {
         .route("/queue/force_cancel/:id", post(force_cancel))
 }
 
+pub fn global_root_service() -> Router {
+    Router::new().route("/db_clock", get(get_db_clock))
+}
+
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
 ) -> windmill_common::error::JsonResult<serde_json::Value> {
     let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id).await?;
     Ok(Json(res))
+}
+
+async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
+    Ok(Json(now_from_db(&db).await?.timestamp_millis()))
 }
 
 async fn cancel_job_api(
@@ -249,8 +305,8 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_tag_and_limits_for_hash<'c>(
-    db: &mut Transaction<'c, Postgres>,
+pub async fn get_path_tag_and_limits_for_hash(
+    db: &DB,
     w_id: &str,
     hash: i64,
 ) -> error::Result<(String, Option<String>, Option<i32>, Option<i32>)> {
@@ -259,7 +315,7 @@ pub async fn get_path_tag_and_limits_for_hash<'c>(
         hash,
         w_id
     )
-    .fetch_one(&mut **db)
+    .fetch_one(db)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
@@ -402,12 +458,12 @@ lazy_static::lazy_static! {
 impl RunJobQuery {
     async fn get_scheduled_for<'c>(
         &self,
-        db: &mut Transaction<'c, Postgres>,
+        db: &DB,
     ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
         if let Some(scheduled_for) = self.scheduled_for {
             Ok(Some(scheduled_for))
         } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
-            let now = now_from_db(&mut **db).await?;
+            let now = now_from_db(db).await?;
             Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
         } else {
             Ok(None)
@@ -455,6 +511,10 @@ pub struct ListQueueQuery {
     pub created_by: Option<String>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub schedule_path: Option<String>,
     pub parent_job: Option<String>,
@@ -503,6 +563,23 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
+    if let Some(dt) = &lq.created_before {
+        sqlb.and_where_le("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(dt) = &lq.created_after {
+        sqlb.and_where_ge("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
+    if let Some(dt) = &lq.created_or_started_after {
+        let ts = dt.timestamp();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({})) OR (started_at IS NULL AND created_at >= to_timestamp({}))", ts, ts));
+    }
+
+    if let Some(dt) = &lq.created_or_started_before {
+        let ts = dt.timestamp();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({})) OR (started_at IS NULL AND created_at < to_timestamp({}))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -579,6 +656,22 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
+async fn cancel_all(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let uuids = sqlx::query_scalar!(
+        "UPDATE queue SET canceled = true WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id",
+        w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(uuids))
+}
+
 #[derive(Serialize, Debug, FromRow)]
 struct QueueStats {
     database_length: i64,
@@ -600,7 +693,7 @@ async fn count_queue_jobs(
 }
 
 async fn list_jobs(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -619,6 +712,10 @@ async fn list_jobs(
             created_by: lq.created_by,
             started_before: lq.started_before,
             started_after: lq.started_after,
+            created_before: lq.created_before,
+            created_after: lq.created_after,
+            created_or_started_before: lq.created_or_started_before,
+            created_or_started_after: lq.created_or_started_after,
             running: None,
             parent_job: lq.parent_job,
             order_desc: Some(true),
@@ -713,7 +810,7 @@ async fn list_jobs(
 }
 
 pub async fn resume_suspended_flow_as_owner(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
@@ -1036,7 +1133,7 @@ pub async fn get_suspended_job_flow(
 }
 
 pub async fn create_job_signature(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
@@ -1081,7 +1178,7 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
@@ -1434,7 +1531,8 @@ fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> error:
 }
 
 pub async fn run_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
@@ -1445,20 +1543,21 @@ pub async fn run_flow_by_path(
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let tag = sqlx::query_scalar!(
         "SELECT tag from flow WHERE path = $1 and workspace_id = $2",
         flow_path,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?
     .flatten();
     check_tag_available_for_workspace(&w_id, &tag)?;
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -1485,7 +1584,8 @@ pub async fn run_flow_by_path(
 }
 
 pub async fn run_job_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
@@ -1496,15 +1596,16 @@ pub async fn run_job_by_path(
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let (job_payload, tag) =
-        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
+
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         job_payload,
@@ -1535,7 +1636,7 @@ struct Guard {
     id: Uuid,
     w_id: String,
     db: UserDB,
-    authed: Authed,
+    authed: ApiAuthed,
 }
 
 impl Drop for Guard {
@@ -1567,7 +1668,7 @@ impl Drop for Guard {
 }
 
 async fn run_wait_result<T>(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     timeout: i32,
     uuid: Uuid,
@@ -1632,7 +1733,7 @@ async fn run_wait_result<T>(
     }
 }
 
-pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Result<()> {
+pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()
@@ -1640,7 +1741,7 @@ pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Re
             AND (   suspend <= 0
                  OR suspend_until <= now())))",
         )
-        .fetch_one(&db)
+        .fetch_one(db)
         .await?
         .unwrap_or(0);
 
@@ -1677,7 +1778,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_wait_result_job_by_path_get(
     method: hyper::http::Method,
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -1698,16 +1799,16 @@ pub async fn run_wait_result_job_by_path_get(
         serde_json::Map::new()
     };
 
-    check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
+    check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let (job_payload, tag) =
-        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         job_payload,
@@ -1743,7 +1844,7 @@ pub async fn run_wait_result_job_by_path_get(
 
 pub async fn run_wait_result_flow_by_path_get(
     method: hyper::http::Method,
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
@@ -1781,7 +1882,7 @@ pub async fn run_wait_result_flow_by_path_get(
 }
 
 pub async fn run_wait_result_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -1830,7 +1931,7 @@ fn convert_from_openai_json(
 }
 
 pub async fn openai_sync_script_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -1858,7 +1959,7 @@ async fn run_wait_result_script_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     script_path: StripPath,
-    authed: Authed,
+    authed: ApiAuthed,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     w_id: String,
@@ -1866,19 +1967,19 @@ async fn run_wait_result_script_by_path_internal(
     args: Option<serde_json::Map<String, serde_json::Value>>,
     raw_string: Option<String>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
+    check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let (job_payload, tag) =
-        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         job_payload,
@@ -1913,7 +2014,7 @@ async fn run_wait_result_script_by_path_internal(
 }
 
 pub async fn run_wait_result_script_by_hash(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -1922,19 +2023,20 @@ pub async fn run_wait_result_script_by_hash(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
-    check_queue_too_long(db, run_query.queue_limit).await?;
+    check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let (path, tag, concurrent_limit, concurrency_time_window_s) =
-        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+        get_path_tag_and_limits_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::ScriptHash {
@@ -1974,7 +2076,7 @@ pub async fn run_wait_result_script_by_hash(
 }
 
 pub async fn openai_sync_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -1999,7 +2101,7 @@ pub async fn openai_sync_flow_by_path(
 }
 
 pub async fn run_wait_result_flow_by_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
@@ -2018,7 +2120,7 @@ async fn run_wait_result_flow_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
     flow_path: StripPath,
-    authed: Authed,
+    authed: ApiAuthed,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     headers: HeaderMap,
@@ -2026,13 +2128,12 @@ async fn run_wait_result_flow_by_path_internal(
     raw_string: Option<String>,
     w_id: String,
 ) -> Result<Json<serde_json::Value>, Error> {
-    check_queue_too_long(db, run_query.queue_limit).await?;
+    check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
     let tag = sqlx::query_scalar!(
@@ -2040,12 +2141,14 @@ async fn run_wait_result_flow_by_path_internal(
         flow_path,
         w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?
     .flatten();
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -2080,7 +2183,8 @@ async fn run_wait_result_flow_by_path_internal(
 }
 
 async fn run_preview_job(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
@@ -2094,12 +2198,13 @@ async fn run_preview_job(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
     check_tag_available_for_workspace(&w_id, &preview.tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         match preview.kind {
@@ -2138,17 +2243,18 @@ async fn run_preview_job(
 }
 
 async fn add_noop_jobs(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, n)): Path<(String, i32)>,
 ) -> error::JsonResult<Vec<String>> {
-    require_super_admin(&mut db.begin().await?, &authed.email).await?;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let mut uuids: Vec<String> = Vec::new();
     for _ in 0..n {
         let (uuid, ntx) = push(
+            &db,
             tx,
             &w_id,
             JobPayload::Noop,
@@ -2170,15 +2276,21 @@ async fn add_noop_jobs(
             None,
         )
         .await?;
-        tx = ntx;
+        tx = PushIsolationLevel::Transaction(ntx);
         uuids.push(uuid.to_string());
     }
-    tx.commit().await?;
+    match tx {
+        PushIsolationLevel::Transaction(tx) => {
+            tx.commit().await?;
+        }
+        _ => (),
+    }
 
     Ok(Json(uuids))
 }
 async fn run_preview_flow_job(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
@@ -2192,12 +2304,13 @@ async fn run_preview_flow_job(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
     check_tag_available_for_workspace(&w_id, &raw_flow.tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
@@ -2225,7 +2338,9 @@ async fn run_preview_flow_job(
 }
 
 pub async fn run_job_by_hash(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
@@ -2234,17 +2349,18 @@ pub async fn run_job_by_hash(
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     let (path, tag, concurrent_limit, concurrency_time_window_s) =
-        get_path_tag_and_limits_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+        get_path_tag_and_limits_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
-    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
     check_tag_available_for_workspace(&w_id, &tag)?;
+    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         &w_id,
         JobPayload::ScriptHash {
@@ -2381,6 +2497,14 @@ fn list_completed_jobs_query(
     if let Some(dt) = &lq.started_after {
         sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
+
+    if let Some(dt) = &lq.created_or_started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(dt) = &lq.created_or_started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
@@ -2412,6 +2536,10 @@ pub struct ListCompletedQuery {
     pub created_by: Option<String>,
     pub started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
@@ -2428,7 +2556,7 @@ pub struct ListCompletedQuery {
 }
 
 async fn list_completed_jobs(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -2541,7 +2669,7 @@ async fn get_completed_job_result_maybe(
 }
 
 async fn delete_completed_job(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<CompletedJob> {

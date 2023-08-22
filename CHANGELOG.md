@@ -1,6 +1,62 @@
 # Changelog
 
 
+## [1.154.0](https://github.com/windmill-labs/windmill/compare/v1.153.0...v1.154.0) (2023-08-21)
+
+
+### Features
+
+* deploy folders as well in the UI deployer ([bcf5d4e](https://github.com/windmill-labs/windmill/commit/bcf5d4e5d42a7d17e2d1932b030cca101d9de9b4))
+
+
+### Bug Fixes
+
+* avoid stack-overflow on jsruntime for recursive objects ([127eea3](https://github.com/windmill-labs/windmill/commit/127eea3c8144b14b8f78a196f5c2cd245d2caad9))
+* do not require auth for OPTIONS requests ([bdd59c9](https://github.com/windmill-labs/windmill/commit/bdd59c94a9bde10e808427ef529d1b6ab6e78a45))
+
+## [1.153.0](https://github.com/windmill-labs/windmill/compare/v1.152.0...v1.153.0) (2023-08-20)
+
+
+### Features
+
+* multiline support in bash ([e1469cc](https://github.com/windmill-labs/windmill/commit/e1469cc64d672b5fc42edac313bc11a017812511))
+
+
+### Bug Fixes
+
+* update deno-client to use new Resource and Variable endpoints ([c13428a](https://github.com/windmill-labs/windmill/commit/c13428ad089999e38768b86bfd251d747759dc69))
+
+## [1.152.0](https://github.com/windmill-labs/windmill/compare/v1.151.2...v1.152.0) (2023-08-20)
+
+
+### Features
+
+* handle drift in every time referencing db times ([b9fb206](https://github.com/windmill-labs/windmill/commit/b9fb206c112798f3776ba0e6da70e86e7c769a1f))
+* prometheus metrics are now ee only ([2afea50](https://github.com/windmill-labs/windmill/commit/2afea504977f9cd08d62c5f85be1fd2cefe8a691))
+
+
+### Bug Fixes
+
+* improve progress bar UX ([85d2d47](https://github.com/windmill-labs/windmill/commit/85d2d4782779d981a131f48db6e1058fe79daeef))
+* reinit retry to undefined in flow steps ([75f4723](https://github.com/windmill-labs/windmill/commit/75f472381cfa73d77295b29a202efbd58c79918d))
+
+## [1.151.2](https://github.com/windmill-labs/windmill/compare/v1.151.1...v1.151.2) (2023-08-18)
+
+
+### Bug Fixes
+
+* **frontend:** Fix app multiselect dark mode ([#2121](https://github.com/windmill-labs/windmill/issues/2121)) ([be577e5](https://github.com/windmill-labs/windmill/commit/be577e561dff33a404bb6f29f178b01f20aa0121))
+* **frontend:** Fix JSON pane scroll issues ([#2123](https://github.com/windmill-labs/windmill/issues/2123)) ([d367716](https://github.com/windmill-labs/windmill/commit/d367716b0a8198573b26a3c82ac7e4fd9cefe753))
+
+## [1.151.1](https://github.com/windmill-labs/windmill/compare/v1.151.0...v1.151.1) (2023-08-18)
+
+
+### Bug Fixes
+
+* at UTC Time ([0193fcc](https://github.com/windmill-labs/windmill/commit/0193fcc1d7c24147e553a0e3f9f0ab8d6f5d5996))
+* improve flow progress bar ([67cb451](https://github.com/windmill-labs/windmill/commit/67cb4516c913926c1755e46bc7acf46340fdb692))
+* show help on empty cli args ([237460b](https://github.com/windmill-labs/windmill/commit/237460b121846d160a40e849bf85fabbb7c14fdc))
+
 ## [1.151.0](https://github.com/windmill-labs/windmill/compare/v1.150.0...v1.151.0) (2023-08-17)
 
 
