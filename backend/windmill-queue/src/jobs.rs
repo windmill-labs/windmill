@@ -372,6 +372,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             success,
             &result,
             job_id,
+            queued_job.started_at.unwrap_or(chrono::Utc::now()),
         )
         .await?;
     }
@@ -611,6 +612,11 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     }
 }
 
+struct CompletedJobSubset {
+    success: bool,
+    result: Option<serde_json::Value>,
+    started_at: chrono::DateTime<chrono::Utc>,
+}
 async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
     db: &Pool<Postgres>,
@@ -620,6 +626,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
     success: bool,
     result: &serde_json::Value,
     job_id: Uuid,
+    started_at: DateTime<Utc>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
@@ -672,21 +679,17 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
         }
     } else {
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
-            struct PreviousCompletedJob {
-                success: bool,
-                result: Option<serde_json::Value>,
-            }
-            let previous_completed_job = sqlx::query_as!(
-                PreviousCompletedJob,
-                "SELECT success, result FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT 1",
+            let failed_job = sqlx::query_as!(
+                CompletedJobSubset,
+                "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT 1",
                 &schedule.workspace_id,
                 &schedule.path,
                 &schedule.script_path,
                 job_id
             ).fetch_optional(&mut tx).await?;
 
-            if let Some(previous_completed_job) = previous_completed_job {
-                if !previous_completed_job.success {
+            if let Some(failed_job) = failed_job {
+                if !failed_job.success {
                     let on_recovery_result = handle_on_recovery(
                         db,
                         tx,
@@ -694,8 +697,9 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
                         script_path,
                         w_id,
                         &on_recovery_path,
-                        previous_completed_job.result,
+                        failed_job,
                         result,
+                        started_at,
                         &schedule.email,
                         &schedule_to_user(&schedule.path),
                         username_to_permissioned_as(&schedule.edited_by),
@@ -787,22 +791,29 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     script_path: &str,
     w_id: &str,
     on_recovery_path: &str,
-    previous_job_error: Option<serde_json::Value>,
-    result: &serde_json::Value,
+    error_job: CompletedJobSubset,
+    successful_job_result: &serde_json::Value,
+    successful_job_started_at: DateTime<Utc>,
     username: &str,
     email: &str,
     permissioned_as: String,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
-    let mut args = previous_job_error
+    let mut args = error_job
+        .result
         .unwrap_or(json!({}))
         .as_object()
         .unwrap()
         .clone();
+    args.insert("error_started_at".to_string(), json!(error_job.started_at));
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
-    args.insert("latest_result".to_string(), result.clone());
+    args.insert("success_result".to_string(), successful_job_result.clone());
+    args.insert(
+        "success_started_at".to_string(),
+        json!(successful_job_started_at),
+    );
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,

@@ -325,12 +325,14 @@
 						<li><b>path</b>: The path of the script or flow that errored.</li>
 						<li><b>schedule_path</b>: The path of the schedule.</li>
 						<li><b>error</b>: The error of the last job that errored</li>
-						<li><b>latest_result</b>: The result of the latest successful job</li>
+						<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
+						<li><b>success_result</b>: The result of the latest successful job</li>
+						<li><b>success_started_at</b>: The start datetime of the latest successful job</li>
 					</ul>
 				</div>
 				<Button
 					wrapperClasses="mt-6"
-					href="/scripts/add?hub=hub%2F2416%2Fwindmill%2FSchedule_recovery_handler_template"
+					href="/scripts/add?hub=hub%2F2418%2Fwindmill%2FSchedule_recovery_handler_template"
 					target="_blank">Use template</Button
 				>
 			</div>

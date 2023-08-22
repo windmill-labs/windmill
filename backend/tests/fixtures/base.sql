@@ -59,13 +59,15 @@ export async function main(
   path: string, // The path of the script or flow that errored
   schedule_path: string, // The path of the schedule
   error: object, // The error of the last job that errored
-  latest_result: object, // The result of the latest successful
+  error_started_at: string, // The start datetime of the last job that errored
+  success_result: object, // The result of the latest successful job
+  success_started_at: string, // The start datetime of the latest successful job
 ) {
   console.log(
-    `Schedule ${schedule_path} failed (script or flow: ${path})`,
+    `Schedule ${schedule_path} failed and then recovered (script or flow: ${path})`,
   );
-  console.log(error);
-  console.log(latest_result)
+  console.log("Error:", error);
+  console.log("Success result:", success_result)
   return error;
 }
 ',
