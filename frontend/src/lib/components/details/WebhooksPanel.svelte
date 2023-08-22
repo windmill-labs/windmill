@@ -73,46 +73,79 @@
 	}
 
 	function fetchCode() {
-    let fetchMain = `
-const url = \`${url}\`;
-const response = await fetch(url, {
-	method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-	headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t')},
-	${requestType !== 'get_path' ? `body` : ''}
-});
-
-const data = await response.${webhookType === 'sync' ? 'json' : 'text'}();
-    `;
-
-    let fetchData = webhookType === 'sync'
-        ? `console.log(data);`
-        : `
-const UUID = data;
-let checkCompletion = setInterval(async () => {
-	try {
-		let completionResponse = await fetch(\`${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\$\{UUID\}\`, {
-			method: 'GET',
-			headers: {
-					'Authorization': 'Bearer ${token}'
-			}
-		});
-		let completionData = await completionResponse.json();
-		if (completionData.completed) {
-			console.log(completionData.result);
-			clearInterval(checkCompletion);
-		}
-	} catch (error) {
-		console.error("Error checking completion:", error);
-	}
-}, 1000);`;
-
-    let fetchCodeString = `${requestType !== 'get_path'? 'const body = JSON.stringify(' + JSON.stringify(args, null, 2) + ');': '' }
-${fetchMain}
-${fetchData}`;
-
-    return fetchCodeString;
+		if (webhookType === 'sync') {
+			return `
+export async function main() {
+	const jobTriggerResponse = await triggerJob();
+	const data = await jobTriggerResponse.json();
+	return data;
 }
 
+async function triggerJob() {
+	const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
+	const endpoint = \`${url}\`;
+
+	return await fetch(endpoint, {
+		method: ${requestType === 'get_path' ? 'GET' : 'POST'},
+		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
+		body
+	});
+}`
+		}
+
+		// Main function
+		let mainFunction = `
+export async function main() {
+	const jobTriggerResponse = await triggerJob();
+	const UUID = await jobTriggerResponse.text();
+	const jobCompletionData = await waitForJobCompletion(UUID);
+	return jobCompletionData;
+}`
+
+		// triggerJob function
+		let triggerJobFunction = `
+async function triggerJob() {
+	const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
+	const endpoint = \`${url}\`;
+
+	return await fetch(endpoint, {
+		method: ${requestType === 'get_path' ? 'GET' : 'POST'},
+		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
+		body
+	});
+}`
+
+		// waitForJobCompletion function
+		let waitForJobCompletionFunction = `
+function waitForJobCompletion(UUID) {
+	return new Promise(async (resolve, reject) => {
+		try {
+			const endpoint = \`${url}/jobs_u/completed/get_result_maybe/\${UUID}\`;
+			const checkResponse = await fetch(endpoint, {
+				method: 'GET',
+				headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
+			});
+
+			const checkData = await checkResponse.json();
+
+			if (checkData.completed) {
+				resolve(checkData);
+			} else {
+				// If not completed, wait for a second then try again
+				setTimeout(async () => {
+					const result = await waitForJobCompletion(UUID);
+					resolve(result);
+				}, 1000);
+			}
+		} catch (error) {
+			reject(error);
+		}
+	});
+}`
+
+		// Combine and return
+		return `${mainFunction}\n\n${triggerJobFunction}\n\n${waitForJobCompletionFunction}`
+	}
 
 	function curlCode() {
 		return `${
@@ -265,18 +298,18 @@ done`
 					{#key requestType}
 						{#key webhookType}
 							{#key tokenType}
-							{#key token}
-								<div
-									class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-									on:click={(e) => {
-										e.preventDefault()
-										copyToClipboard(fetchCode())
-									}}
-								>
-									<Highlight language={typescript} code={fetchCode()} />
-									<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-								</div>
-							{/key}{/key}{/key}{/key}
+								{#key token}
+									<div
+										class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+										on:click={(e) => {
+											e.preventDefault()
+											copyToClipboard(fetchCode())
+										}}
+									>
+										<Highlight language={typescript} code={fetchCode()} />
+										<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+									</div>
+								{/key}{/key}{/key}{/key}
 				{/key}
 			</TabContent>
 		</svelte:fragment>
