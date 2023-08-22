@@ -94,20 +94,12 @@
 		}
 	}
 
-	$: pagination = resolvedConfig.pagination
-		? getPagination(
-				resolvedConfig.pagination?.configuration,
-				resolvedConfig.pagination?.selected,
-				result,
-				page
-		  )
-		: {
-				data: result,
-				shouldDisplayPagination: false,
-				indexOffset: 0,
-				disableNext: true,
-				total: 0
-		  }
+	$: pagination = getPagination(
+		resolvedConfig.pagination?.configuration,
+		resolvedConfig.pagination?.selected,
+		result,
+		page
+	)
 </script>
 
 {#each Object.keys(components['listcomponent'].initialData.configuration) as key (key)}
