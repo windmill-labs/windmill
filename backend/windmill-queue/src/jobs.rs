@@ -361,25 +361,29 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
 
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
-    tx = apply_schedule_handlers(
-        tx,
-        db,
-        queued_job.schedule_path.as_ref().unwrap(),
-        queued_job.script_path.as_ref().unwrap(),
-        &queued_job.workspace_id,
-        success,
-        &result,
-        job_id,
-    )
-    .await?;
+    if !queued_job.is_flow_step
+        && queued_job.schedule_path.is_some()
+        && queued_job.script_path.is_some()
+    {
+        tx = apply_schedule_handlers(
+            tx,
+            db,
+            queued_job.schedule_path.as_ref().unwrap(),
+            queued_job.script_path.as_ref().unwrap(),
+            &queued_job.workspace_id,
+            success,
+            &result,
+            job_id,
+        )
+        .await?;
+    }
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        // only for scripts
-        // for flows, scheduling is handled at the end of the first step
+        // script only
         tx = handle_maybe_scheduled_job(
             tx,
             db,
@@ -608,7 +612,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     }
 }
 
-pub async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
