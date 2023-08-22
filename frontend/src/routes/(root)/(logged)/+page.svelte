@@ -229,7 +229,7 @@
 					<Tabs
 						bind:selected={subtab}
 						on:selected={() => {
-							setQuery($page.url, 'kind', subtab, true)
+							setQuery($page.url, 'kind', subtab, window.location.hash)
 						}}
 					>
 						<Tab size="md" value="script">

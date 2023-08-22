@@ -4,10 +4,8 @@ export async function setQuery(
 	url: URL,
 	key: string,
 	value: string | undefined,
-	keepHash: boolean = false
+	currentHash: string | undefined = undefined
 ): Promise<void> {
-	const currentHash = url.hash
-
 	if (value !== undefined) {
 		url.searchParams.set(key, value)
 	} else {
@@ -15,7 +13,7 @@ export async function setQuery(
 	}
 
 	await goto(
-		keepHash && currentHash
+		currentHash
 			? `?${url.searchParams.toString()}${currentHash}`
 			: `?${url.searchParams.toString()}`
 	)
