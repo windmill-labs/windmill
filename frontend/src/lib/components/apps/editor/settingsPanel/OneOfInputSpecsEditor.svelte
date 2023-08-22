@@ -26,6 +26,37 @@
 		if (oneOf?.configuration[oneOf?.selected] == undefined) {
 			oneOf.configuration[oneOf.selected] = {}
 		}
+
+		// If the configuration is empty, we set the first one as selected.
+		// It happens when the configuration was added after the component was created
+		if (oneOf.selected === '') {
+			const extractValuesAndType = (inputData: {
+				[x: string]: {
+					[x: string]: {
+						type: any
+						value: any
+					}
+				}
+			}) => {
+				let result = {}
+				for (const key in inputData) {
+					result[key] = {}
+					for (const subKey in inputData[key]) {
+						result[key][subKey] = {
+							type: inputData[key][subKey].type,
+							value: inputData[key][subKey].value
+						}
+					}
+				}
+				return result
+			}
+
+			oneOf = {
+				configuration: extractValuesAndType(inputSpecsConfiguration),
+				selected: Object.keys(inputSpecsConfiguration ?? {})[0],
+				type: 'oneOf'
+			}
+		}
 	}
 </script>
 
