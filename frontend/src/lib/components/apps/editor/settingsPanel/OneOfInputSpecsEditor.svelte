@@ -2,6 +2,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import type { RichConfiguration } from '../../types'
+	import { cleanseOneOfConfiguration } from '../appUtils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let key: string
@@ -25,6 +26,16 @@
 		}
 		if (oneOf?.configuration[oneOf?.selected] == undefined) {
 			oneOf.configuration[oneOf.selected] = {}
+		}
+
+		// If the configuration is empty, we set the first one as selected.
+		// It happens when the configuration was added after the component was created
+		if (oneOf.selected === '') {
+			oneOf = {
+				configuration: cleanseOneOfConfiguration(inputSpecsConfiguration),
+				selected: Object.keys(inputSpecsConfiguration ?? {})[0],
+				type: 'oneOf'
+			}
 		}
 	}
 </script>
