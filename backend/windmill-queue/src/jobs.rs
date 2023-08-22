@@ -140,7 +140,11 @@ pub async fn cancel_job<'c: 'async_recursion>(
         return Ok((tx, None));
     }
     let job_running = job_running.unwrap();
-    if job_running.running && !force_cancel {
+    if job_running.running
+        && job_running.job_kind != JobKind::Flow
+        && job_running.job_kind != JobKind::FlowPreview
+        && !force_cancel
+    {
         sqlx::query!(
         "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
          AND workspace_id = $4 ",
