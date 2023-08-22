@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.154.2](https://github.com/windmill-labs/windmill/compare/v1.154.1...v1.154.2) (2023-08-22)
+
+
+### Bug Fixes
+
+* fix cancel job for flows in some edge cases ([58bb19a](https://github.com/windmill-labs/windmill/commit/58bb19a4471ce8cfced4b144fca40069b5ce0820))
+
 ## [1.154.1](https://github.com/windmill-labs/windmill/compare/v1.154.0...v1.154.1) (2023-08-22)
 
 
