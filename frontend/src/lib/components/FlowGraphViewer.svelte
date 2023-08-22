@@ -125,9 +125,10 @@
 							{:else if stepDetail.value.type == 'identity'}
 								Identity
 							{:else if stepDetail.value.type == 'forloopflow'}
-								For loop
+								For loop {#if stepDetail.value.parallel}(parallel){/if}
+								{#if stepDetail.value.skip_failures}(skip failures){/if}
 							{:else if stepDetail.value.type == 'branchall'}
-								Run all branches
+								Run all branches {#if stepDetail.value.parallel}(parallel){/if}
 							{:else if stepDetail.value.type == 'branchone'}
 								Run one branch
 							{:else if stepDetail.value.type == 'flow'}
