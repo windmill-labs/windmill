@@ -4,6 +4,7 @@ import type {
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
+	GeneralAppInput,
 	GridItem
 } from '../types'
 import {
@@ -205,7 +206,10 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
-function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
+export function cleanseValue(
+	key: string,
+	value: { type: 'eval' | 'static'; value?: any; expr?: string }
+) {
 	if (!value) {
 		return [key, undefined]
 	}
@@ -215,6 +219,18 @@ function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any
 		return [key, { type: value.type, expr: value.expr }]
 	}
 }
+
+export function cleanseOneOfConfiguration(
+	configuration: Record<string, Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput)>>
+) {
+	return Object.fromEntries(
+		Object.entries(configuration).map(([key, val]) => [
+			key,
+			Object.fromEntries(Object.entries(val).map(([key, val]) => cleanseValue(key, val)))
+		])
+	)
+}
+
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T,
 	overrideConfiguration?: Partial<InitialAppComponent['configuration']>
@@ -232,14 +248,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 						{
 							type: value.type,
 							selected: value.selected,
-							configuration: Object.fromEntries(
-								Object.entries(value.configuration).map(([key, val]) => [
-									key,
-									Object.fromEntries(
-										Object.entries(val).map(([key, val]) => cleanseValue(key, val))
-									)
-								])
-							)
+							configuration: cleanseOneOfConfiguration(value.configuration)
 						}
 					]
 				}
