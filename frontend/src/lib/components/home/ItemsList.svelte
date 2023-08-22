@@ -18,6 +18,7 @@
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
 
 	export let filter = ''
+	export let subtab: 'flow' | 'script' | 'app' = 'script'
 
 	import AppRow from '$lib/components/common/table/AppRow.svelte'
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
@@ -290,6 +291,9 @@
 			<ToggleButtonGroup
 				bind:selected={itemKind}
 				on:selected={() => {
+					if (itemKind != 'all') {
+						subtab = itemKind
+					}
 					setQuery($page.url, 'kind', itemKind)
 				}}
 				class="h-10"

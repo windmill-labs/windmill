@@ -21,6 +21,8 @@
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { setQuery } from '$lib/navigation'
+	import { page } from '$app/stores'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -29,7 +31,7 @@
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
 
-	let subtab: 'flows' | 'scripts' | 'apps' = 'apps'
+	let subtab: 'flow' | 'script' | 'app' = 'app'
 
 	let filter: string = ''
 
@@ -224,46 +226,47 @@
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
 				{#if tab == 'hub'}
-					<Tabs bind:selected={subtab}>
-						<Tab size="md" value="scripts">
+					<Tabs
+						bind:selected={subtab}
+						on:selected={() => {
+							setQuery($page.url, 'kind', subtab, window.location.hash)
+						}}
+					>
+						<Tab size="md" value="script">
 							<div class="flex gap-2 items-center my-1"> Scripts </div>
 						</Tab>
-						<Tab size="md" value="flows">
+						<Tab size="md" value="flow">
 							<div class="flex gap-2 items-center my-1"> Flows </div>
 						</Tab>
-						<Tab size="md" value="apps">
+						<Tab size="md" value="app">
 							<div class="flex gap-2 items-center my-1"> Apps </div>
 						</Tab>
 					</Tabs>
 					<div class="my-2" />
 
-					{#if subtab == 'scripts'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}
-							><Button
+					{#if subtab == 'script'}
+						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+							<Button
 								target="_blank"
 								href="https://hub.windmill.dev"
 								variant="border"
-								color="light">Go to Hub</Button
-							></PickHubScript
-						>
-					{:else if subtab == 'flows'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}
-							><Button
-								target="_blank"
-								href="https://hub.windmill.dev"
-								variant="border"
-								color="light">Go to Hub</Button
-							></PickHubFlow
-						>
-					{:else if subtab == 'apps'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}
-							><Button
-								target="_blank"
-								href="https://hub.windmill.dev"
-								variant="border"
-								color="light">Go to Hub</Button
-							></PickHubApp
-						>
+								color="light"
+							>
+								Go to Hub
+							</Button>
+						</PickHubScript>
+					{:else if subtab == 'flow'}
+						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
+								>Go to Hub
+							</Button>
+						</PickHubFlow>
+					{:else if subtab == 'app'}
+						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+							<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
+								>Go to Hub</Button
+							>
+						</PickHubApp>
 					{/if}
 				{/if}
 			</div>
@@ -272,5 +275,5 @@
 </div>
 
 {#if tab == 'workspace'}
-	<ItemsList bind:filter />
+	<ItemsList bind:filter bind:subtab />
 {/if}
