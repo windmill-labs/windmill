@@ -51,7 +51,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         &schedule.path,
         next
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await?
     .unwrap_or(false);
 
