@@ -86,7 +86,7 @@ async function triggerJob() {
 	const endpoint = \`${url}\`;
 
 	return await fetch(endpoint, {
-		method: ${requestType === 'get_path' ? 'GET' : 'POST'},
+		method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
 		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
 		body
 	});
@@ -109,7 +109,7 @@ async function triggerJob() {
 	const endpoint = \`${url}\`;
 
 	return await fetch(endpoint, {
-		method: ${requestType === 'get_path' ? 'GET' : 'POST'},
+		method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
 		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
 		body
 	});
