@@ -182,7 +182,7 @@
 		}
 	}
 
-	async function evalExpr(input: EvalAppInput): Promise<any> {
+	async function evalExpr(input: EvalAppInput | EvalV2AppInput): Promise<any> {
 		if (iterContext && $iterContext.disabled) return
 		try {
 			const r = await eval_like(

@@ -224,7 +224,7 @@
 						staticRunnableInputs[k] = field.value
 					} else if (field?.type == 'user') {
 						nonStaticRunnableInputs[k] = args?.[k]
-					} else if (field?.type == 'eval' && inputValues[k]) {
+					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
 						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 					} else {
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
