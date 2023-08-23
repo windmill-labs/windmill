@@ -311,7 +311,7 @@
 				onclick: () => {
 					if (!script) return
 
-					goto(
+					window.open(
 						scriptToHubUrl(
 							script.content,
 							script.summary,
@@ -319,8 +319,9 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.language == 'deno' ? '' : script.lock
-						).toString()
+							script.language == 'deno' ? '' : script.lock ?? ''
+						).toString(),
+						'_blank'
 					)
 				}
 			})
