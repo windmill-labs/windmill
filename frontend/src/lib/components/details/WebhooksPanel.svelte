@@ -50,9 +50,15 @@
 		webhooks[webhookType][requestType] +
 		(tokenType === 'query'
 			? `?token=${token}${
-					requestType === 'get_path' ? `&payload=\${encodeURIComponent(btoa(body))\}` : ''
+					requestType === 'get_path'
+						? `&payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						: ''
 			  }`
-			: `${requestType === 'get_path' ? `&payload=\${encodeURIComponent(btoa(body))\}` : ''}`)
+			: `${
+					requestType === 'get_path'
+						? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						: ''
+			  }`)
 
 	function headers() {
 		const headers = {}
@@ -70,74 +76,78 @@
 		if (webhookType === 'sync') {
 			return `
 export async function main() {
-	const jobTriggerResponse = await triggerJob();
-	const data = await jobTriggerResponse.json();
-	return data;
+  const jobTriggerResponse = await triggerJob();
+  const data = await jobTriggerResponse.json();
+  return data;
 }
 
 async function triggerJob() {
-	const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
-	const endpoint = \`${url}\`;
+  ${
+		requestType === 'get_path'
+			? '// Payload is a base64 encoded string of the arguments'
+			: `const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});`
+	}
+  const endpoint = \`${url}\`;
 
-	return await fetch(endpoint, {
-		method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
+  return await fetch(endpoint, {
+    method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
+    headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
 				requestType === 'get_path' ? '' : `,\n\t\tbody`
 			}
-	});
+  });
 }`
 		}
 
 		// Main function
 		let mainFunction = `
 export async function main() {
-	const jobTriggerResponse = await triggerJob();
-	const UUID = await jobTriggerResponse.text();
-	const jobCompletionData = await waitForJobCompletion(UUID);
-	return jobCompletionData;
+  const jobTriggerResponse = await triggerJob();
+  const UUID = await jobTriggerResponse.text();
+  const jobCompletionData = await waitForJobCompletion(UUID);
+  return jobCompletionData;
 }`
 
 		// triggerJob function
 		let triggerJobFunction = `
 async function triggerJob() {
-	const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
-	const endpoint = \`${url}\`;
+  const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
+  const endpoint = \`${url}\`;
 
-	return await fetch(endpoint, {
-		method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
-		body
-	});
+  return await fetch(endpoint, {
+    method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
+    headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
+    body
+  });
 }`
 
 		// waitForJobCompletion function
 		let waitForJobCompletionFunction = `
 function waitForJobCompletion(UUID) {
-	return new Promise(async (resolve, reject) => {
-		try {
-			const endpoint = \`${
+  return new Promise(async (resolve, reject) => {
+    try {
+      const endpoint = \`${
 				$page.url.origin
 			}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\${UUID}\`;
-			const checkResponse = await fetch(endpoint, {
-				method: 'GET',
-				headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
-			});
+      const checkResponse = await fetch(endpoint, {
+        method: 'GET',
+        headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
+      });
 
-			const checkData = await checkResponse.json();
+      const checkData = await checkResponse.json();
 
-			if (checkData.completed) {
-				resolve(checkData);
-			} else {
-				// If not completed, wait for a second then try again
-				setTimeout(async () => {
-					const result = await waitForJobCompletion(UUID);
-					resolve(result);
-				}, 1000);
-			}
-		} catch (error) {
-			reject(error);
-		}
-	});
+      if (checkData.completed) {
+        resolve(checkData);
+      } else {
+        // If not completed, wait for a second then try again
+        setTimeout(async () => {
+          const result = await waitForJobCompletion(UUID);
+          resolve(result);
+        }, 1000);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
 }`
 
 		// Combine and return
@@ -164,14 +174,14 @@ ${
 		: `
 URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
-	RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" $URL)
-	COMPLETED=$(echo $RESPONSE | jq .completed)
-	if [ "$COMPLETED" = "true" ]; then
-		echo $RESPONSE | jq .result
-		break
-	else
-		sleep 1
-	fi
+  RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" $URL)
+  COMPLETED=$(echo $RESPONSE | jq .completed)
+  if [ "$COMPLETED" = "true" ]; then
+    echo $RESPONSE | jq .result
+    break
+  else
+    sleep 1
+  fi
 done`
 }`
 	}
