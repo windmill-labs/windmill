@@ -29,6 +29,11 @@ export type InputConnection = {
 	path: string
 }
 
+export type InputConnectionEval = {
+	componentId: string
+	id: string
+}
+
 // Connected input, connected to an output of another component by the developer
 export type ConnectedInput = {
 	type: 'connected'
@@ -50,6 +55,12 @@ export type UploadInput = {
 export type EvalInput = {
 	type: 'eval'
 	expr: string
+}
+
+export type EvalInputV2 = {
+	type: 'evalv2'
+	expr: string
+	connections: InputConnectionEval[]
 }
 
 export type RowInput = {
@@ -104,6 +115,7 @@ export type AppInputSpec<T extends InputType, U, V extends InputType = never> = 
 	| UserInput<U>
 	| RowInput
 	| EvalInput
+	| EvalInputV2
 	| UploadInput
 	| ResultInput
 	| TemplateInput
@@ -171,6 +183,7 @@ export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
 export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
+export type EvalV2AppInput = Extract<AppInput, { type: 'evalv2' }>
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 
 export type RichAppInput =

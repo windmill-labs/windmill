@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { InputConnection } from '$lib/components/apps/inputType'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, itemsExists } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let triggerEvents: string[] = []
 	export let inlineScript: InlineScript | undefined = undefined
@@ -47,37 +48,14 @@
 
 		if (!inlineScript.refreshOn) {
 			inlineScript.refreshOn = [refresh]
-		} else {
-			inlineScript.refreshOn.push(refresh)
+		} else if (!itemsExists(inlineScript.refreshOn, refresh)) {
+			inlineScript.refreshOn = [...inlineScript.refreshOn, refresh]
 		}
-
-		inlineScript = JSON.parse(JSON.stringify(inlineScript))
+		inlineScript = inlineScript
 		$app = $app
 	}
 </script>
 
-{#if isFrontend && shoudlDisplayChangeEvents}
-	<div class="flex mb-4">
-		<Button
-			size="xs2"
-			color="dark"
-			on:click={() => {
-				$connectingInput = {
-					opened: true,
-					input: undefined,
-					hoveredComponent: undefined,
-					onConnect: applyConnection
-				}
-			}}
-		>
-			<div class="flex flex-row gap-1 items-center">
-				<Plus size={14} />
-
-				Add dependency
-			</div>
-		</Button>
-	</div>
-{/if}
 {#if hasNoTriggers}
 	<Alert type="warning" title="No triggers" size="xs">
 		This script has no triggers. It will never run.
@@ -112,7 +90,17 @@
 									inlineScript.refreshOn = inlineScript.refreshOn.filter(
 										(x) => `${x.id} - ${x.key}` !== changeEvent
 									)
-									inlineScript = JSON.parse(JSON.stringify(inlineScript))
+									const ch = changeEvent.split(' - ')
+									const suggestion = {
+										id: ch[0],
+										key: ch[1]
+									}
+									if (!itemsExists(inlineScript.suggestedRefreshOn, suggestion)) {
+										inlineScript.suggestedRefreshOn = [
+											...(inlineScript.suggestedRefreshOn ?? []),
+											suggestion
+										]
+									}
 								}
 							}}
 						>
@@ -120,6 +108,52 @@
 						</button>
 					{/if}
 				</span>
+			{/each}
+		</div>
+	{/if}
+{/if}
+{#if isFrontend && shoudlDisplayChangeEvents}
+	<div class="flex my-4">
+		<Button
+			size="xs2"
+			color="dark"
+			on:click={() => {
+				$connectingInput = {
+					opened: true,
+					input: undefined,
+					hoveredComponent: undefined,
+					onConnect: applyConnection
+				}
+			}}
+		>
+			<div class="flex flex-row gap-1 items-center">
+				<Plus size={14} />
+				Add dependency
+			</div>
+		</Button>
+	</div>
+	{#if (inlineScript?.suggestedRefreshOn ?? []).length > 0}
+		<div class="gap-1 flex flex-wrap mb-2"
+			><span class="text-secondary text-sm">Quick add:</span>
+			{#each inlineScript?.suggestedRefreshOn ?? [] as suggestion}
+				<button
+					class={classNames(
+						'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer !text-2xs text-secondary',
+						badgeClass
+					)}
+					on:click={() => {
+						if (inlineScript) {
+							if (!itemsExists(inlineScript.refreshOn, suggestion)) {
+								inlineScript.refreshOn = [...(inlineScript.refreshOn ?? []), suggestion]
+								inlineScript.suggestedRefreshOn = inlineScript.suggestedRefreshOn?.filter(
+									(x) => !deepEqual(x, suggestion)
+								)
+							}
+						}
+					}}
+				>
+					+{suggestion.key}-{suggestion.id}
+				</button>
 			{/each}
 		</div>
 	{/if}

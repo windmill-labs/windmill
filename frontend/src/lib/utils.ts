@@ -7,6 +7,7 @@
 // import { page } from '$app/stores'
 // import { get } from 'svelte/store'
 
+import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 export { sendUserToast }
@@ -170,6 +171,18 @@ export function encodeState(state: any): string {
 
 export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
+export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
+	if (!arr) {
+		return false
+	}
+	for (const i of arr) {
+		if (deepEqual(i, item)) {
+			return true
+		}
+	}
+	return false
 }
 
 export function decodeArgs(queryArgs: string | undefined): any {

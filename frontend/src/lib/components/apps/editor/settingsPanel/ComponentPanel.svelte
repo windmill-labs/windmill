@@ -178,7 +178,6 @@
 								subFieldType={componentInput?.subFieldType}
 								format={componentInput?.format}
 								bind:componentInput={componentSettings.item.data.componentInput}
-								noVariablePicker
 							/>
 						{:else if componentSettings.item.data.componentInput.type === 'template' && componentSettings.item.data.componentInput !== undefined}
 							<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
