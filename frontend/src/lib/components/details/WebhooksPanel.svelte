@@ -50,15 +50,9 @@
 		webhooks[webhookType][requestType] +
 		(tokenType === 'query'
 			? `?token=${token}${
-					requestType === 'get_path'
-						? `&payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
-						: ''
+					requestType === 'get_path' ? `&payload=\${encodeURIComponent(btoa(body))\}` : ''
 			  }`
-			: `${
-					requestType === 'get_path'
-						? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
-						: ''
-			  }`)
+			: `${requestType === 'get_path' ? `&payload=\${encodeURIComponent(btoa(body))\}` : ''}`)
 
 	function headers() {
 		const headers = {}
@@ -87,8 +81,9 @@ async function triggerJob() {
 
 	return await fetch(endpoint, {
 		method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
-		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')},
-		body
+		headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
+				requestType === 'get_path' ? '' : `,\n\t\tbody`
+			}
 	});
 }`
 		}
