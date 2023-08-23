@@ -120,7 +120,9 @@ async function triggerJob() {
 function waitForJobCompletion(UUID) {
 	return new Promise(async (resolve, reject) => {
 		try {
-			const endpoint = \`${$page.url.origin}/jobs_u/completed/get_result_maybe/\${UUID}\`;
+			const endpoint = \`${
+				$page.url.origin
+			}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\${UUID}\`;
 			const checkResponse = await fetch(endpoint, {
 				method: 'GET',
 				headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
