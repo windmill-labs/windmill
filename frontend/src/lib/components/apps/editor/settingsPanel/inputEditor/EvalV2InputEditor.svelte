@@ -18,10 +18,6 @@
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, false)
 			: undefined
 
-	if (componentInput && componentInput.connections == undefined) {
-		componentInput.connections = []
-	}
-
 	if (
 		componentInput &&
 		componentInput.expr &&
@@ -30,7 +26,9 @@
 	) {
 		inferDeps(componentInput.expr)
 	}
-
+	if (componentInput && componentInput.connections == undefined) {
+		componentInput.connections = []
+	}
 	async function inferDeps(code: string) {
 		const outputs = await parseOutputs(code, true)
 		if (outputs && componentInput) {
