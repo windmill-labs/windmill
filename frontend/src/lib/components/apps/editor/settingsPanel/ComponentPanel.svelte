@@ -29,7 +29,6 @@
 	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
-	import ScriptSettingsSection from './script/shared/ScriptSettingsSection.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
