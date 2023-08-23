@@ -90,7 +90,9 @@ export function buildObservableWorld() {
 		let obs = observables[`${componentId}.${idc}`]
 
 		if (!obs) {
-			console.warn('Observable at ' + componentId + '.' + idc + ' not found')
+			if (componentId != 'row' && componentId != 'iter') {
+				console.warn('Observable at ' + componentId + '.' + idc + ' not found')
+			}
 			return {
 				peak: () => undefined,
 				next: () => {}

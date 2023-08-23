@@ -21,6 +21,34 @@
 	if (componentInput && componentInput.connections == undefined) {
 		componentInput.connections = []
 	}
+
+	if (
+		componentInput &&
+		componentInput.expr &&
+		componentInput.expr != '' &&
+		componentInput.connections == undefined
+	) {
+		inferDeps(componentInput.expr)
+	}
+
+	async function inferDeps(code: string) {
+		const outputs = await parseOutputs(code, true)
+		if (outputs && componentInput) {
+			const noutputs = outputs
+				.filter(
+					([key, id]) =>
+						key == 'row' || key == 'iter' || id in ($worldStore?.outputsById[key] ?? {})
+				)
+				.map(([key, id]) => ({
+					componentId: key,
+					id: id
+				}))
+			if (!deepEqual(noutputs, componentInput.connections)) {
+				componentInput.connections = noutputs
+				$app = $app
+			}
+		}
+	}
 </script>
 
 {#if componentInput?.type === 'evalv2'}
@@ -35,20 +63,7 @@
 				if (onchange) {
 					onchange()
 				}
-				const outputs = await parseOutputs(e.detail.code, true)
-				console.log(outputs)
-				if (outputs && componentInput) {
-					const noutputs = outputs
-						.filter(([key, id]) => id in ($worldStore?.outputsById[key] ?? {}))
-						.map(([key, id]) => ({
-							componentId: key,
-							id: id
-						}))
-					if (!deepEqual(noutputs, componentInput.connections)) {
-						componentInput.connections = noutputs
-						$app = $app
-					}
-				}
+				inferDeps(e.detail.code)
 			}}
 		/>
 	</div>

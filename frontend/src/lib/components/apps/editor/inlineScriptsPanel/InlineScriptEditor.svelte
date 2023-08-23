@@ -75,6 +75,9 @@
 		if (inlineScript?.schema && inlineScript.language != 'frontend') {
 			loadSchemaAndInputsByName()
 		}
+		if (inlineScript?.language == 'frontend' && inlineScript.content) {
+			inferSuggestions(inlineScript.content)
+		}
 	})
 
 	const dispatch = createEventDispatcher()
@@ -126,6 +129,25 @@
 			: undefined
 
 	let drawerIsOpen: boolean | undefined = undefined
+
+	async function inferSuggestions(code: string) {
+		const outputs = await parseOutputs(code, true)
+		if (outputs) {
+			for (const [key, id] of outputs) {
+				if (
+					id in ($worldStore?.outputsById[key] ?? {}) &&
+					inlineScript &&
+					!itemsExists(inlineScript.refreshOn, { key, id }) &&
+					!itemsExists(inlineScript.suggestedRefreshOn, { key, id })
+				) {
+					inlineScript.suggestedRefreshOn = [
+						...(inlineScript?.suggestedRefreshOn ?? []),
+						{ key, id }
+					]
+				}
+			}
+		}
+	}
 </script>
 
 {#if inlineScript}
@@ -263,23 +285,7 @@
 							runLoading = false
 						}}
 						on:change={async (e) => {
-							const outputs = await parseOutputs(e.detail.code, true)
-							if (outputs) {
-								for (const [key, id] of outputs) {
-									if (
-										id in ($worldStore?.outputsById[key] ?? {}) &&
-										inlineScript &&
-										!itemsExists(inlineScript.refreshOn, { key, id }) &&
-										!itemsExists(inlineScript.suggestedRefreshOn, { key, id })
-									) {
-										inlineScript.suggestedRefreshOn = [
-											...(inlineScript?.suggestedRefreshOn ?? []),
-											{ key, id }
-										]
-									}
-								}
-							}
-							// inlineScript?.refreshOn =
+							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
 					/>

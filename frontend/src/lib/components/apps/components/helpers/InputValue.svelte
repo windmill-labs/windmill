@@ -14,7 +14,6 @@
 	export let value: T
 	export let id: string | undefined = undefined
 	export let error: string = ''
-	export let extraContext: Record<string, any> = {}
 	export let key: string = ''
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
@@ -27,10 +26,12 @@
 	let previousConnectedValues: Record<string, any> = {}
 
 	$: fullContext = {
-		...extraContext,
 		iter: iterContext ? $iterContext : undefined,
 		row: rowContext ? $rowContext : undefined
 	}
+
+	$: lastInput?.type == 'evalv2' && fullContext && debounceEval()
+
 	const dispatch = createEventDispatcher()
 
 	if (input == undefined) {
