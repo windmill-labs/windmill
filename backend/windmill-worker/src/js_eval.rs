@@ -6,14 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use deno_ast::{ParseParams, SourceTextInfo};
 use deno_core::{
     op, serde_v8,
     v8::IsolateHandle,
     v8::{self},
-    Extension, JsRuntime, OpState, RuntimeOptions, Snapshot,
+    Extension, JsRuntime, Op, OpState, RuntimeOptions, Snapshot,
 };
 use deno_fetch::FetchPermissions;
 use deno_web::{BlobStore, TimersPermission};
@@ -88,17 +88,17 @@ pub async fn eval_timeout(
                     // An op for summing an array of numbers
                     // The op-layer automatically deserializes inputs
                     // and serializes the returned Result & value
-                    op_variable::decl(),
-                    op_resource::decl(),
+                    op_variable::DECL,
+                    op_resource::DECL,
                 ])
             }
 
             if by_id.is_some() && authed_client.is_some() {
-                ops.push(op_get_result::decl());
-                ops.push(op_get_id::decl());
+                ops.push(op_get_result::DECL);
+                ops.push(op_get_id::DECL);
             }
 
-            let ext = Extension::builder("js_eval").ops(ops).build();
+            let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
             let exts = vec![ext];
             // Use our snapshot to provision our new runtime
             let options = RuntimeOptions {
@@ -444,15 +444,19 @@ pub async fn eval_fetch_timeout(
     timeout(
         std::time::Duration::from_millis(100000),
         tokio::task::spawn_blocking(move || {
-            let ops = vec![op_get_static_args::decl(), op_log::decl()];
-            let ext = Extension::builder("windmill").ops(ops).build();
+            let ops = vec![op_get_static_args::DECL, op_log::DECL];
+            let ext = Extension {
+                  name: "windmill",
+                  ops: ops.into(),
+                  ..Default::default()
+                };
 
             let exts: Vec<Extension> = vec![
                 deno_webidl::deno_webidl::init_ops(),
                 deno_url::deno_url::init_ops(),
                 deno_console::deno_console::init_ops(),
                 deno_web::deno_web::init_ops::<PermissionsContainer>(
-                    BlobStore::default(),
+                    Arc::new(BlobStore::default()),
                     None,
                 ),
                 deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(

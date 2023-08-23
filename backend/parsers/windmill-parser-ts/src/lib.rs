@@ -9,20 +9,77 @@ use regex::Regex;
  */
 // use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
+use std::collections::HashSet;
+use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
-    ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Str, TsArrayType,
-    TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
+    MemberExpr, MemberProp, ModuleDecl, ModuleItem, Number, ObjectLit, ObjectPat, Param, Pat, Str,
+    TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
     TsParenthesizedType, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement, TsTypeLit,
     TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
-use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
+use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsConfig};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+struct OutputFinder {
+    idents: HashSet<(String, String)>,
+}
+
+impl Visit for OutputFinder {
+    noop_visit_type!();
+
+    fn visit_member_expr(&mut self, m: &MemberExpr) {
+        m.obj.visit_with(self);
+        if let MemberProp::Computed(c) = &m.prop {
+            c.visit_with(self);
+        }
+        match m {
+            MemberExpr { obj, prop: MemberProp::Ident(Ident { sym, .. }), .. } => {
+                match *obj.to_owned() {
+                    Expr::Ident(Ident { sym: sym_i, .. }) => {
+                        self.idents.insert((sym_i.to_string(), sym.to_string()));
+                    }
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
+    let lexer = Lexer::new(
+        // We want to parse ecmascript
+        Syntax::Es(EsConfig { jsx: false, ..Default::default() }),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    let mut err_s = "".to_string();
+    for e in parser.take_errors() {
+        err_s += &e.into_kind().msg().to_string();
+    }
+
+    let expr = parser
+        .parse_module()
+        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+
+    let mut visitor = OutputFinder { idents: HashSet::new() };
+    swc_ecma_visit::visit_module(&mut visitor, &expr);
+
+    Ok(visitor.idents.into_iter().collect())
+}
 
 pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
@@ -308,8 +365,8 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
 extern "C" {
     pub fn eval(s: &str) -> JsValue;
     pub fn alert(s: &str);
-    // #[wasm_bindgen(js_namespace = console)]
-    // fn log(s: &str);
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
 
 }
 

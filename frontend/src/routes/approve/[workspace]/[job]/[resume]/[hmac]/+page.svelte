@@ -162,7 +162,7 @@
 	{/if}
 
 	{#if schema}
-		<SchemaForm bind:isValid={valid} {schema} bind:args={payload} noVariablePicker />
+		<SchemaForm bind:isValid={valid} {schema} bind:args={payload} />
 	{/if}
 
 	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">

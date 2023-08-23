@@ -4,11 +4,10 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import JsonEditor from './JsonEditor.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
 	import ColorInput from './ColorInput.svelte'
 	import TabSelectInput from './TabSelectInput.svelte'
-	import { DollarSign } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import autosize from 'svelte-autosize'
@@ -20,10 +19,8 @@
 	export let placeholder: string | undefined = undefined
 
 	export let format: string | undefined = undefined
-	export let noVariablePicker: boolean = false
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
-	const { pickVariableCallback } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: componentInput && onchange?.()
 </script>
@@ -126,22 +123,6 @@
 				bind:value={componentInput.value}
 				class="!pr-12"
 			/>
-			{#if !noVariablePicker}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<button
-					class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-					on:click={() => {
-						$pickVariableCallback = (variable) => {
-							if (componentInput) {
-								componentInput.value = `$var:${variable}`
-							}
-						}
-					}}
-					title="Use a Variable"
-				>
-					<DollarSign size={14} />
-				</button>
-			{/if}
 		</div>
 	{/if}
 {/if}

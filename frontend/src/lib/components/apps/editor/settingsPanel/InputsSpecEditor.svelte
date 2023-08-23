@@ -14,6 +14,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { FunctionSquare, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
+	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -22,7 +23,6 @@
 	export let shouldCapitalize: boolean = true
 	export let resourceOnly = false
 	export let tooltip: string | undefined = undefined
-	export let onlyStatic: boolean = false
 	export let fieldType: InputType
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
@@ -31,7 +31,6 @@
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
-	export let noVariablePicker: boolean | undefined = undefined
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -52,12 +51,7 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div
-		class={classNames(
-			'flex gap-1',
-			onlyStatic && fieldType != 'object' ? 'flex-row items-center justify-between' : 'flex-col'
-		)}
-	>
+	<div class={classNames('flex gap-1', 'flex-col')}>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<span class="text-xs font-semibold truncate text-primary">
@@ -82,7 +76,7 @@
 			</div>
 
 			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
-				{#if !onlyStatic && componentInput?.type}
+				{#if componentInput?.type}
 					<ToggleButtonGroup
 						class="h-7"
 						bind:selected={componentInput.type}
@@ -111,7 +105,10 @@
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
 						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
-						<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval" />
+						{#if componentInput?.type === 'eval'}
+							<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval Legacy" />
+						{/if}
+						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>
@@ -122,23 +119,20 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<div
-				class={onlyStatic && fieldType != 'object'
-					? 'w-2/3 flex justify-end'
-					: 'w-full flex flex-row-reverse'}
-			>
+			<div class={'w-full flex flex-row-reverse'}>
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}
 					{selectOptions}
 					{format}
 					{placeholder}
-					noVariablePicker={noVariablePicker ?? false}
 					bind:componentInput
 				/>
 			</div>
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {id} bind:componentInput />
+		{:else if componentInput?.type === 'evalv2'}
+			<EvalV2InputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}

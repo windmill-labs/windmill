@@ -47,12 +47,10 @@
 			format={field?.['format']}
 			selectOptions={field?.['selectOptions']}
 			tooltip={field?.['tooltip']}
-			onlyStatic={field?.['onlyStatic']}
 			fileUpload={field?.['fileUpload']}
 			placeholder={field?.['placeholder']}
 			customTitle={field?.['customTitle']}
 			displayType={false}
-			noVariablePicker={true}
 		/>
 	</div>
 {/if}
