@@ -145,7 +145,7 @@
 			const input = inputs[key]
 
 			if (
-				['static', 'eval', 'connected'].includes(input.type) &&
+				['static', 'eval', 'connected', 'evalv2'].includes(input.type) &&
 				schemaStripped !== undefined &&
 				schemaStripped.properties
 			) {
