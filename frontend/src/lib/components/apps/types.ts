@@ -106,6 +106,7 @@ export type InlineScript = {
 	path?: string
 	schema?: Schema
 	refreshOn?: { id: string; key: string }[]
+	suggestedRefreshOn?: { id: string; key: string }[]
 }
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']

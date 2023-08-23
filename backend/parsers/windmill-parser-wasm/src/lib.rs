@@ -17,7 +17,7 @@ pub fn parse_deno(code: &str) -> String {
 }
 
 #[wasm_bindgen]
-pub fn get_outputs(code: &str) -> String {
+pub fn parse_outputs(code: &str) -> String {
     let parsed = parse_expr_for_ids(code);
     let r = if let Ok(parsed) = parsed {
         json!({ "outputs": parsed })

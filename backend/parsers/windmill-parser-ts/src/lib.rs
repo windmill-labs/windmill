@@ -9,6 +9,7 @@ use regex::Regex;
  */
 // use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use serde_json::Value;
+use std::collections::HashSet;
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 
@@ -26,7 +27,7 @@ use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsCon
 use wasm_bindgen::prelude::*;
 
 struct OutputFinder {
-    idents: Vec<String>,
+    idents: HashSet<(String, String)>,
 }
 
 impl Visit for OutputFinder {
@@ -41,8 +42,7 @@ impl Visit for OutputFinder {
             MemberExpr { obj, prop: MemberProp::Ident(Ident { sym, .. }), .. } => {
                 match *obj.to_owned() {
                     Expr::Ident(Ident { sym: sym_i, .. }) => {
-                        self.idents
-                            .push(format!("{}.{}", sym_i.to_string(), sym.to_string()));
+                        self.idents.insert((sym_i.to_string(), sym.to_string()));
                     }
                     _ => (),
                 }
@@ -52,7 +52,7 @@ impl Visit for OutputFinder {
     }
 }
 
-pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<String>> {
+pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
@@ -75,10 +75,10 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<String>> {
         .parse_module()
         .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
 
-    let mut visitor = OutputFinder { idents: vec![] };
+    let mut visitor = OutputFinder { idents: HashSet::new() };
     swc_ecma_visit::visit_module(&mut visitor, &expr);
 
-    Ok(visitor.idents)
+    Ok(visitor.idents.into_iter().collect())
 }
 
 pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {

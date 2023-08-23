@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, emptySchema, getModifierKey } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, getModifierKey, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -263,8 +263,23 @@
 							runLoading = false
 						}}
 						on:change={async (e) => {
-							console.log($worldStore?.outputsById)
-							console.log(await parseOutputs(e.detail.code, true))
+							const outputs = await parseOutputs(e.detail.code, true)
+							if (outputs) {
+								for (const [key, id] of outputs) {
+									const output = $worldStore?.outputsById[key]?.[id]
+									if (
+										output &&
+										inlineScript &&
+										!itemsExists(inlineScript.refreshOn, { key, id }) &&
+										!itemsExists(inlineScript.suggestedRefreshOn, { key, id })
+									) {
+										inlineScript.suggestedRefreshOn = [
+											...(inlineScript?.suggestedRefreshOn ?? []),
+											{ key, id }
+										]
+									}
+								}
+							}
 							// inlineScript?.refreshOn =
 							$app = $app
 						}}

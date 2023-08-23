@@ -14,7 +14,7 @@ import init, {
 	parse_snowflake,
 	parse_graphql,
 	parse_powershell,
-	get_outputs
+	parse_outputs
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -273,7 +273,7 @@ export async function loadSchema(
 
 export async function parseOutputs(code: string, ignoreError): Promise<string[] | undefined> {
 	await init(wasmUrl)
-	const getOutputs = await get_outputs(code)
+	const getOutputs = await parse_outputs(code)
 	const outputs = JSON.parse(getOutputs)
 	if (outputs.error) {
 		if (ignoreError) {

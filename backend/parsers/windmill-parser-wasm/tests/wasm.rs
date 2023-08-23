@@ -267,7 +267,10 @@ fn test_parse_extract_ident() -> anyhow::Result<()> {
 ";
     assert_eq!(
         parse_expr_for_ids(code)?,
-        vec!["baroof.foob".to_string(), "barfoo.x".to_string()]
+        vec![
+            ("baroof".to_string(), "foob".to_string()),
+            ("barfoo".to_string(), "x".to_string())
+        ]
     );
 
     Ok(())

@@ -9,7 +9,7 @@ export function parse_deno(code: string): string;
 * @param {string} code
 * @returns {string}
 */
-export function get_outputs(code: string): string;
+export function parse_outputs(code: string): string;
 /**
 * @param {string} code
 * @returns {string}
@@ -61,7 +61,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly parse_deno: (a: number, b: number, c: number) => void;
-  readonly get_outputs: (a: number, b: number, c: number) => void;
+  readonly parse_outputs: (a: number, b: number, c: number) => void;
   readonly parse_bash: (a: number, b: number, c: number) => void;
   readonly parse_powershell: (a: number, b: number, c: number) => void;
   readonly parse_go: (a: number, b: number, c: number) => void;

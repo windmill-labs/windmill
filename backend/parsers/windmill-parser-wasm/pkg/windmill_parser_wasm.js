@@ -224,14 +224,14 @@ export function parse_deno(code) {
 * @param {string} code
 * @returns {string}
 */
-export function get_outputs(code) {
+export function parse_outputs(code) {
     let deferred2_0;
     let deferred2_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        wasm.get_outputs(retptr, ptr0, len0);
+        wasm.parse_outputs(retptr, ptr0, len0);
         var r0 = getInt32Memory0()[retptr / 4 + 0];
         var r1 = getInt32Memory0()[retptr / 4 + 1];
         deferred2_0 = r0;
@@ -492,7 +492,7 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbg_eval_37886b609febb61f = function(arg0, arg1) {
+    imports.wbg.__wbg_eval_bfffb337c5ad9d0f = function(arg0, arg1) {
         const ret = eval(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
     };
