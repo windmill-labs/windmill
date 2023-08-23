@@ -123,7 +123,7 @@
 	bind:result
 	bind:loading
 >
-	<div class="flex flex-col divide-y h-full">
+	<div class="flex flex-col divide-y h-full app-component-list-wrapper">
 		<div
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>

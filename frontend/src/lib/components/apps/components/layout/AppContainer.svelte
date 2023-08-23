@@ -5,6 +5,7 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -34,7 +35,7 @@
 		<SubGridEditor
 			visible={render}
 			{id}
-			class={css?.container?.class}
+			class={twMerge(css?.container?.class, 'app-component-container')}
 			style={css?.container?.style}
 			subGridId={`${id}-0`}
 			containerHeight={componentContainerHeight}

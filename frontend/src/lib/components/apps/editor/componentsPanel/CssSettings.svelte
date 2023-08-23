@@ -33,6 +33,8 @@
 
 		'app-component-button',
 		'app-component-button-wrapper',
+		'app-component-button-container',
+
 		'app-component-submit',
 		'app-component-modal-form',
 		'app-component-download-button',
@@ -93,6 +95,13 @@
 	let rawCss = `
 /* You can only define CSS rules for those classes. Any other classes will be ignored. */
 /* Containers */
+
+/* Applied to the root element of the app */
+.windmill-app-container {}\n
+/* Applied to the root element of the app when in grid mode */
+.windmill-app-grid {}\n
+.windmill-component-wrapper {}\n
+
 .app-component-container {}\n
 .app-component-list {}\n
 .app-component-divider-x {}\n
@@ -111,7 +120,8 @@
 
 /* Buttons */
 .app-component-button-wrapper {}\n
-.app-component-button-wrapper > .app-component-button {}\n
+.app-component-button-wrapper > .app-component-button-container {}\n
+.app-component-button-wrapper > .app-component-button-container > .app-component-button {}\n
 .app-component-submit {}\n
 .app-component-modal-form {}\n
 .app-component-download-button {}\n
@@ -180,30 +190,35 @@
 	}
 
 	function parseCss() {
-		const { css, removedClassNames } = sanitizeCss(rawCss, authorizedClassnames)
-
-		$app.cssString = css.replaceAll('}', '}\n')
-
+		cssError = ''
 		const errors: string[] = []
+
+		const { css, removedClassNames } = sanitizeCss(rawCss, authorizedClassnames)
+		errors.push(...validate(rawCss).map((e) => e.message))
+
+		const newCss = css.replaceAll('}', '}\n')
 
 		if (removedClassNames.length > 0) {
 			errors.push('Some css properties were removed because they are not allowed')
 			errors.push(...removedClassNames.map((r) => `  - ${r}`))
 		}
 
-		errors.push(...validate($app.cssString).map((e) => e.message))
-
 		if (errors.length > 0) {
 			cssError = errors.join('\n')
 		}
+
+		$app.cssString = newCss
 	}
 
 	function switchTab(asJson: boolean) {
 		if (asJson) {
 			rawCode = JSON.stringify($app.css, null, 2)
+			console.log($app.cssString, '#########')
+
 			rawCss = $app.cssString ?? ''
 		} else {
 			parseJson()
+			console.log($app.cssString, '#########')
 			rawCss = $app.cssString ?? ''
 		}
 	}

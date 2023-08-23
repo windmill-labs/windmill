@@ -139,7 +139,12 @@
 	{extraKey}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+	<AlignWrapper
+		{noWFull}
+		{horizontalAlignment}
+		{verticalAlignment}
+		class="app-component-button-wrapper"
+	>
 		{#if errorsMessage}
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
@@ -149,7 +154,7 @@
 			wrapperClasses={twMerge(
 				css?.container?.class,
 				resolvedConfig.fillContainer ? 'w-full h-full' : '',
-				'app-component-button-wrapper'
+				'app-component-button-container'
 			)}
 			wrapperStyle={css?.container?.style}
 			style={css?.button?.style}
