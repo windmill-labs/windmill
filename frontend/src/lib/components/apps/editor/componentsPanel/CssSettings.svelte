@@ -16,8 +16,11 @@
 	const TITLE_PREFIX = 'Css.' as const
 
 	const authorizedClassnames = [
-		'app-component-container',
+		'app-component-container', // Migrated
+		// List
+		'app-component-list-wrapper',
 		'app-component-list',
+
 		'app-component-divider-x',
 		'app-component-divider-y',
 		'app-component-drawer',
