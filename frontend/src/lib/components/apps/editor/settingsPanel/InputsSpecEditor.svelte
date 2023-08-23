@@ -31,7 +31,6 @@
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
-	export let noVariablePicker: boolean | undefined = undefined
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -127,7 +126,6 @@
 					{selectOptions}
 					{format}
 					{placeholder}
-					noVariablePicker={noVariablePicker ?? false}
 					bind:componentInput
 				/>
 			</div>

@@ -51,7 +51,6 @@
 			placeholder={field?.['placeholder']}
 			customTitle={field?.['customTitle']}
 			displayType={false}
-			noVariablePicker={true}
 		/>
 	</div>
 {/if}

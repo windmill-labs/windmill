@@ -78,7 +78,6 @@
 					selectOptions={config?.['selectOptions']}
 					placeholder={config?.['placeholder']}
 					customTitle={config?.['customTitle']}
-					noVariablePicker={config?.['noVariablePicker']}
 					tooltip={config?.['tooltip']}
 				/>
 			{/if}

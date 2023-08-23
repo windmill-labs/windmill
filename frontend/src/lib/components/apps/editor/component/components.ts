@@ -336,7 +336,6 @@ const onSuccessClick = {
 				type: 'static',
 				value: '',
 				placeholder: 'Hello there',
-				noVariablePicker: true
 			}
 		},
 		openModal: {
@@ -345,7 +344,6 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				noVariablePicker: true
 			}
 		},
 		closeModal: {
@@ -354,7 +352,6 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				noVariablePicker: true
 			}
 		}
 	}
