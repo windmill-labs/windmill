@@ -30,7 +30,10 @@
 		row: rowContext ? $rowContext : undefined
 	}
 
-	$: lastInput?.type == 'evalv2' && fullContext && debounceEval()
+	$: lastInput?.type == 'evalv2' &&
+		(fullContext.iter != undefined || fullContext.row != undefined) &&
+		lastInput.connections.some((x) => x.componentId == 'row' || x.componentId == 'iter') &&
+		debounceEval()
 
 	const dispatch = createEventDispatcher()
 
