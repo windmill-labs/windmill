@@ -15,6 +15,69 @@
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
 
+	const authorizedClassnames = [
+		'app-component-container',
+		'app-component-list',
+		'app-component-divider-x',
+		'app-component-divider-y',
+		'app-component-drawer',
+		'app-component-vertical-split-panes',
+		'app-component-horizontal-split-panes',
+		'app-component-modal',
+		'app-component-stepper',
+
+		'app-component-tabs',
+		'app-component-conditional-tabs',
+		'app-component-sidebar-tabs',
+		'app-component-invisible-tabs',
+
+		'app-component-button',
+		'app-component-button-wrapper',
+		'app-component-submit',
+		'app-component-modal-form',
+		'app-component-download-button',
+
+		'app-component-form',
+		'app-component-text-input',
+		'app-component-textarea',
+		'app-component-rich-text-editor',
+		'app-component-password',
+		'app-component-email-input',
+		'app-component-number',
+		'app-component-currency',
+		'app-component-slider',
+		'app-component-range',
+		'app-component-date',
+		'app-component-file-input',
+		'app-component-toggle',
+		'app-component-select',
+		'app-component-resource-select',
+		'app-component-multiselect',
+		'app-component-select-tab',
+		'app-component-select-step',
+
+		'app-component-table',
+		'app-component-aggrid-table',
+
+		'app-component-text',
+		'app-component-icon',
+		'app-component-image',
+		'app-component-map',
+		'app-component-html',
+		'app-component-pdf',
+		'app-component-rich-result',
+		'app-component-log',
+		'app-component-flow-status',
+
+		'app-component-bar-line-chart',
+		'app-component-pie-chart',
+		'app-component-vega-lite',
+		'app-component-plotly',
+		'app-component-scatter-chart',
+		'app-component-timeseries',
+		'app-component-chartjs'
+	]
+
 	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | keyof typeof components
 
 	interface CustomCSSEntry {
@@ -27,7 +90,76 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
-	let rawCss = ''
+	let rawCss = `
+/* You can only define CSS rules for those classes. Any other classes will be ignored. */
+/* Containers */
+.app-component-container {}\n
+.app-component-list {}\n
+.app-component-divider-x {}\n
+.app-component-divider-y {} 
+.app-component-drawer {}\n
+.app-component-vertical-split-panes {}\n
+.app-component-horizontal-split-panes {}\n
+.app-component-modal {}\n
+.app-component-stepper {}
+
+/* Tabs */
+.app-component-tabs {}\n
+.app-component-conditional-tabs {}\n
+.app-component-sidebar-tabs {}\n
+.app-component-invisible-tabs {}
+
+/* Buttons */
+.app-component-button-wrapper {}\n
+.app-component-button-wrapper > .app-component-button {}\n
+.app-component-submit {}\n
+.app-component-modal-form {}\n
+.app-component-download-button {}\n
+
+/* Inputs */
+.app-component-form {}\n
+.app-component-text-input {}\n
+.app-component-textarea {}\n
+.app-component-rich-text-editor {}\n
+.app-component-password {}\n
+.app-component-email-input {}\n
+.app-component-number {}\n
+.app-component-currency {}\n
+.app-component-slider {}\n
+.app-component-range {}\n
+.app-component-date {}\n
+.app-component-file-input {}\n
+.app-component-toggle {}\n
+.app-component-select {}\n
+.app-component-resource-select {}\n
+.app-component-multiselect {}\n
+.app-component-select-tab {}\n
+.app-component-select-step {}\n
+
+/* Tables */
+.app-component-table {}\n
+.app-component-aggrid-table {}\n
+
+/* Display */
+.app-component-text {}\n
+.app-component-icon {}\n
+.app-component-image {}\n
+.app-component-map {}\n
+.app-component-html {}\n
+.app-component-pdf {}\n
+.app-component-rich-result {}\n
+.app-component-log {}\n
+.app-component-flow-status {}\n
+
+/* Charts */
+.app-component-bar-line-chart {}\n
+.app-component-pie-chart {}\n
+.app-component-vega-lite {}\n
+.app-component-plotly {}\n
+.app-component-scatter-chart {}\n
+.app-component-timeseries {}\n
+.app-component-chartjs {}\n
+`
 
 	$: rawCode && parseJson()
 	$: rawCss && parseCss()
@@ -35,6 +167,8 @@
 	let jsonErrorHeight: number
 	let cssError = ''
 	let cssErrorHeight: number
+
+	let cssEditor: SimpleEditor | undefined = undefined
 
 	function parseJson() {
 		try {
@@ -46,9 +180,9 @@
 	}
 
 	function parseCss() {
-		const { css, removedClassNames } = sanitizeCss(rawCss, ['app-component-button-wrapper'])
+		const { css, removedClassNames } = sanitizeCss(rawCss, authorizedClassnames)
 
-		$app.cssString = css
+		$app.cssString = css.replaceAll('}', '}\n')
 
 		const errors: string[] = []
 
@@ -187,7 +321,15 @@
 				</div>
 			{/if}
 			<div style="height: calc(100% - {cssErrorHeight || 0}px);">
-				<SimpleEditor class="h-full" lang="css" bind:code={rawCss} fixedOverflowWidgets={false} />
+				<SimpleEditor
+					class="h-full"
+					lang="css"
+					bind:code={rawCss}
+					fixedOverflowWidgets={false}
+					small
+					automaticLayout
+					bind:editor={cssEditor}
+				/>
 			</div>
 		</TabContent>
 	</div>
