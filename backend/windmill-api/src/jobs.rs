@@ -664,8 +664,9 @@ async fn cancel_all(
     require_admin(authed.is_admin, &authed.username)?;
 
     let uuids = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id",
-        w_id
+        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE workspace_id = $1 AND schedule_path IS NULL RETURNING id",
+        w_id,
+        authed.username
     )
     .fetch_all(&db)
     .await?;
