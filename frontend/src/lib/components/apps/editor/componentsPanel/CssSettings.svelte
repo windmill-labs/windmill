@@ -9,6 +9,8 @@
 	import CssProperty from './CssProperty.svelte'
 	import { ccomponents, components } from '../component'
 	import { slide } from 'svelte/transition'
+	import { validate } from 'csstree-validator'
+	import { sanitizeCss } from './cssUtils'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
@@ -25,10 +27,14 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
+	let rawCss = ''
 
 	$: rawCode && parseJson()
+	$: rawCss && parseCss()
 	let jsonError = ''
 	let jsonErrorHeight: number
+	let cssError = ''
+	let cssErrorHeight: number
 
 	function parseJson() {
 		try {
@@ -39,11 +45,25 @@
 		}
 	}
 
+	function parseCss() {
+		$app.cssString = rawCss
+
+		const errors = validate($app.cssString)
+
+		if (errors.length > 0) {
+			cssError = errors.map((e) => e.message).join('\n')
+		}
+
+		console.log(sanitizeCss($app.cssString, ['app-component-button']))
+	}
+
 	function switchTab(asJson: boolean) {
 		if (asJson) {
 			rawCode = JSON.stringify($app.css, null, 2)
+			rawCss = $app.cssString ?? ''
 		} else {
 			parseJson()
+			rawCss = $app.cssString ?? ''
 		}
 	}
 
@@ -81,6 +101,12 @@
 		<div class="m-1 center-center">
 			<CurlyBraces size={16} />
 			<span class="pl-1">JSON</span>
+		</div>
+	</Tab>
+	<Tab value="css" size="xs" class="w-1/2">
+		<div class="m-1 center-center">
+			<CurlyBraces size={16} />
+			<span class="pl-1">CSS</span>
 		</div>
 	</Tab>
 	<div slot="content" class="h-[calc(100%-35px)] overflow-auto">
@@ -141,6 +167,20 @@
 			{/if}
 			<div style="height: calc(100% - {jsonErrorHeight || 0}px);">
 				<SimpleEditor class="h-full" lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
+			</div>
+		</TabContent>
+		<TabContent value="css" class="h-full">
+			{#if !emptyString(cssError)}
+				<div
+					transition:slide={{ duration: 200 }}
+					bind:clientHeight={cssErrorHeight}
+					class="text-red-500 text-xs p-1"
+				>
+					{cssError}
+				</div>
+			{/if}
+			<div style="height: calc(100% - {cssErrorHeight || 0}px);">
+				<SimpleEditor class="h-full" lang="css" bind:code={rawCss} fixedOverflowWidgets={false} />
 			</div>
 		</TabContent>
 	</div>

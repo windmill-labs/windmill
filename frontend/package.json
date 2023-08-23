@@ -85,6 +85,8 @@
 		"chart.js": "^4.3.0",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
+		"css-tree": "^2.3.1",
+		"csstree-validator": "^3.0.0",
 		"d3-zoom": "^3.0.0",
 		"date-fns": "^2.30.0",
 		"diff": "^5.1.0",

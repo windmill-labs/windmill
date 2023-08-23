@@ -136,6 +136,7 @@ export type App = {
 	//TODO: should be called hidden runnables but migration tbd
 	hiddenInlineScripts: Array<HiddenRunnable>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
+	cssString?: string
 	subgrids?: Record<string, GridItem[]>
 }
 
