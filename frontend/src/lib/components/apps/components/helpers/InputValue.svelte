@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
-	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
+	import type { AppInput, EvalAppInput, EvalV2AppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
@@ -22,6 +22,10 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 
+	let previousConnectedValue: any | undefined = undefined
+
+	let previousConnectedValues: Record<string, any> = {}
+
 	$: fullContext = {
 		...extraContext,
 		iter: iterContext ? $iterContext : undefined,
@@ -33,14 +37,15 @@
 		dispatch('done')
 	}
 
-	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
+	let lastInput: AppInput | undefined = input ? JSON.parse(JSON.stringify(input)) : undefined
 
 	onDestroy(() => (lastInput = undefined))
 
 	$: if (input && !deepEqualWithOrderedArray(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
 		// Needed because of file uploads
-		if (input?.['value'] instanceof ArrayBuffer) {
+		if (lastInput && input?.['value'] instanceof ArrayBuffer) {
+			// @ts-ignore
 			lastInput.value = input?.['value']
 		}
 	}
@@ -55,7 +60,7 @@
 	const debounce_ms = 50
 
 	export async function computeExpr() {
-		value = await evalExpr(lastInput)
+		value = await evalExpr(lastInput as EvalAppInput)
 		return value
 	}
 
@@ -86,7 +91,7 @@
 	$: lastInput && $worldStore && debounce(handleConnection)
 
 	const debounceTemplate = async () => {
-		let nvalue = await getValue(lastInput)
+		let nvalue = await getValue(lastInput as EvalAppInput)
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue
 		}
@@ -102,7 +107,7 @@
 	let lastExpr: any = undefined
 
 	const debounceEval = async () => {
-		let nvalue = await evalExpr(lastInput)
+		let nvalue = await evalExpr(lastInput as EvalAppInput)
 		if (!deepEqual(nvalue, value)) {
 			if (
 				typeof nvalue == 'string' ||
@@ -123,13 +128,39 @@
 
 	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
 
+	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval()
+
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
-			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`, value)
+			if (lastInput.connection) {
+				const { path, componentId } = lastInput.connection
+				const [p] = path ? path.split('.')[0].split('[') : [undefined]
+				if (p) {
+					$worldStore?.connect<any>(
+						{ componentId: componentId, id: p },
+						onValueChange,
+						`${id}-${key}`,
+						previousConnectedValue
+					)
+				} else {
+					console.debug('path was invalid for connection', lastInput.connection)
+				}
+			}
 		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
 			value = await getValue(lastInput)
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
+		} else if (lastInput?.type == 'evalv2') {
+			const input = lastInput as EvalV2AppInput
+			for (const c of input.connections ?? []) {
+				const previousValueKey = `${c.componentId}-${c.id}`
+				$worldStore?.connect<any>(
+					c,
+					onEvalChange(previousValueKey),
+					`${id}-${key}`,
+					previousConnectedValues[previousValueKey]
+				)
+			}
 		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
 		} else {
@@ -138,6 +169,13 @@
 
 		await tick()
 		dispatch('done')
+	}
+
+	function onEvalChange(previousValueKey: string) {
+		return (newValue) => {
+			previousConnectedValues[previousValueKey] = newValue
+			debounceEval()
+		}
 	}
 
 	async function evalExpr(input: EvalAppInput): Promise<any> {
@@ -200,6 +238,8 @@
 				// No connection
 				return
 			}
+
+			previousConnectedValue = newValue
 
 			let { path }: { path: string } = connection
 

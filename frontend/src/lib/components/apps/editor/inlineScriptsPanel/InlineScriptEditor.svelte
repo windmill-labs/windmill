@@ -266,9 +266,8 @@
 							const outputs = await parseOutputs(e.detail.code, true)
 							if (outputs) {
 								for (const [key, id] of outputs) {
-									const output = $worldStore?.outputsById[key]?.[id]
 									if (
-										output &&
+										id in ($worldStore?.outputsById[key] ?? {}) &&
 										inlineScript &&
 										!itemsExists(inlineScript.refreshOn, { key, id }) &&
 										!itemsExists(inlineScript.suggestedRefreshOn, { key, id })

@@ -14,6 +14,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { FunctionSquare, Pen, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
+	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -111,7 +112,10 @@
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
 						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
-						<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval" />
+						{#if componentInput?.type === 'eval'}
+							<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval Legacy" />
+						{/if}
+						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>
@@ -139,6 +143,8 @@
 			</div>
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {id} bind:componentInput />
+		{:else if componentInput?.type === 'evalv2'}
+			<EvalV2InputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}

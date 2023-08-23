@@ -271,7 +271,10 @@ export async function loadSchema(
 	}
 }
 
-export async function parseOutputs(code: string, ignoreError): Promise<string[] | undefined> {
+export async function parseOutputs(
+	code: string,
+	ignoreError
+): Promise<[string, string][] | undefined> {
 	await init(wasmUrl)
 	const getOutputs = await parse_outputs(code)
 	const outputs = JSON.parse(getOutputs)
@@ -281,5 +284,5 @@ export async function parseOutputs(code: string, ignoreError): Promise<string[] 
 		}
 		throw new Error(outputs.error)
 	}
-	return outputs.error ? [] : ([...new Set(outputs.outputs)] as string[])
+	return outputs.error ? [] : outputs.outputs
 }

@@ -14,6 +14,7 @@ import type {
 	ConnectedAppInput,
 	ConnectedInput,
 	EvalAppInput,
+	EvalV2AppInput,
 	InputConnection,
 	ResultAppInput,
 	RowAppInput,
@@ -55,6 +56,7 @@ export type Configuration =
 	| UserAppInput
 	| RowAppInput
 	| EvalAppInput
+	| EvalV2AppInput
 	| UploadAppInput
 	| ResultAppInput
 
