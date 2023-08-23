@@ -248,7 +248,7 @@
 								/>
 							{/key}
 						{:else if flowModule.value.type === 'script'}
-							<div class="border-t border-gray-200">
+							<div class="border-t">
 								{#key forceReload}
 									<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
 								{/key}
