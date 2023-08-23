@@ -5,7 +5,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
-	import { emptySchema, encodeState, getModifierKey, setQueryWithoutLoad } from '$lib/utils'
+	import { emptySchema, encodeState, getModifierKey } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
@@ -117,8 +117,9 @@
 				$page.url.searchParams.delete(x)
 			}
 		})
-		setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
 	}
+
+	$: window.history.replaceState(null, '', '#' + encodeState(script))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
