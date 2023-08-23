@@ -14,8 +14,9 @@
 
 	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
 		//@ts-ignore
-		componentInput.type = 'template'
+		componentInput.type = 'templatev2'
 		componentInput['eval'] = componentInput.value
+		componentInput['connections'] = [{ componentId: 'ctx', id: 'email' }]
 	}
 
 	let clientWidth: number
@@ -31,13 +32,23 @@
 				bind:selected={componentInput.type}
 			>
 				{#if componentInput.fieldType === 'template'}
-					<ToggleButton
-						tooltip={`Templated string (use \$\{<output>.x\} )`}
-						value="template"
-						disabled={disableStatic}
-						icon={CurlyBraces}
-						label="Template"
-					/>
+					{#if componentInput.type == 'template'}
+						<ToggleButton
+							tooltip={`Templated string (use \$\{<output>.x\} )`}
+							value="template"
+							disabled={disableStatic}
+							icon={CurlyBraces}
+							label="Template"
+						/>
+					{:else}
+						<ToggleButton
+							tooltip={`Templated string (use \$\{<output>.x\} )`}
+							value="templatev2"
+							disabled={disableStatic}
+							icon={CurlyBraces}
+							label="Template"
+						/>
+					{/if}
 				{:else}
 					<ToggleButton
 						label="Static"
