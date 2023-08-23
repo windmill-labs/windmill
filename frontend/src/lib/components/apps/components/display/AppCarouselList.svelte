@@ -137,7 +137,7 @@
 						{#each result ?? [] as value, index}
 							<div class="overflow-auto w-full">
 								<ListWrapper
-									on:inputsChange={() => {
+									onInputsChange={() => {
 										outputs?.inputs.set(inputs, true)
 									}}
 									bind:inputs
@@ -164,7 +164,7 @@
 					</Carousel>
 				{/key}
 			{:else}
-				<ListWrapper disabled value={undefined} index={0}>
+				<ListWrapper onInputsChange={() => {}} disabled value={undefined} index={0}>
 					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
 				</ListWrapper>
 				{#if !Array.isArray(result)}
