@@ -33,7 +33,10 @@
 
 	let result: string | undefined = undefined
 
-	if (componentInput?.type == 'template' && !isCodeInjection(componentInput.eval)) {
+	if (
+		componentInput?.type == 'template' ||
+		(componentInput?.type == 'templatev2' && !isCodeInjection(componentInput.eval))
+	) {
 		result = componentInput.eval
 		initializing = false
 	}
@@ -115,7 +118,10 @@
 
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
-	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
+	$: initialValue =
+		componentInput?.type == 'template' || componentInput?.type == 'templatev2'
+			? componentInput.eval
+			: ''
 	$: editableValue = initialValue ?? ''
 
 	let rows = 1
@@ -161,7 +167,7 @@
 		}}
 		on:keydown|stopPropagation
 	>
-		{#if $mode == 'dnd' && editorMode && componentInput?.type == 'template'}
+		{#if $mode == 'dnd' && editorMode && (componentInput?.type == 'template' || componentInput?.type == 'templatev2')}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				<textarea
 					class={twMerge(
@@ -197,7 +203,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="flex flex-wrap gap-2 pb-0.5 {$mode === 'dnd' &&
-						componentInput?.type == 'template'
+						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
 							: ''}"
 					>

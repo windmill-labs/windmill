@@ -79,6 +79,12 @@ export type TemplateInput = {
 	type: 'template'
 }
 
+export type TemplateV2Input = {
+	eval: string
+	type: 'templatev2'
+	connections: InputConnectionEval[]
+}
+
 export type RunnableByPath = {
 	name: string
 	path: string
@@ -119,6 +125,7 @@ export type AppInputSpec<T extends InputType, U, V extends InputType = never> = 
 	| UploadInput
 	| ResultInput
 	| TemplateInput
+	| TemplateV2Input
 ) &
 	InputConfiguration<T, V>
 

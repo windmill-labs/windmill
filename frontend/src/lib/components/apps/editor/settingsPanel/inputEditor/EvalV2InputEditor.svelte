@@ -58,7 +58,7 @@
 			}}
 		/>
 	</div>
-	{#if componentInput.connections.length > 0}
+	{#if componentInput.connections?.length > 0}
 		<div class="flex flex-wrap gap-2 items-center">
 			<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
 			<div class="flex flex-wrap gap-1">

@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
-	import type { AppInput, EvalAppInput, EvalV2AppInput, UploadAppInput } from '../../inputType'
+	import type {
+		AppInput,
+		EvalAppInput,
+		EvalV2AppInput,
+		TemplateV2Input,
+		UploadAppInput
+	} from '../../inputType'
 	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
@@ -34,6 +40,13 @@
 		(fullContext.iter != undefined || fullContext.row != undefined) &&
 		lastInput.connections.some((x) => x.componentId == 'row' || x.componentId == 'iter') &&
 		debounceEval()
+
+	$: lastInput &&
+		lastInput.type == 'templatev2' &&
+		isCodeInjection(lastInput.eval) &&
+		(fullContext.iter != undefined || fullContext.row != undefined) &&
+		lastInput.connections.some((x) => x.componentId == 'row' || x.componentId == 'iter') &&
+		debounceTemplate()
 
 	const dispatch = createEventDispatcher()
 
@@ -133,6 +146,7 @@
 	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
 
 	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval()
+	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
 
 	async function handleConnection() {
 		if (lastInput?.type === 'connected') {
@@ -165,6 +179,17 @@
 					previousConnectedValues[previousValueKey]
 				)
 			}
+		} else if (lastInput?.type == 'templatev2') {
+			const input = lastInput as TemplateV2Input
+			for (const c of input.connections ?? []) {
+				const previousValueKey = `${c.componentId}-${c.id}`
+				$worldStore?.connect<any>(
+					c,
+					onTemplateChange(previousValueKey),
+					`${id}-${key}`,
+					previousConnectedValues[previousValueKey]
+				)
+			}
 		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
 		} else {
@@ -179,6 +204,13 @@
 		return (newValue) => {
 			previousConnectedValues[previousValueKey] = newValue
 			debounceEval()
+		}
+	}
+
+	function onTemplateChange(previousValueKey: string) {
+		return (newValue) => {
+			previousConnectedValues[previousValueKey] = newValue
+			debounceTemplate()
 		}
 	}
 
@@ -208,7 +240,7 @@
 		if (iterContext && $iterContext.disabled) return
 
 		if (!input) return
-		if (input.type === 'template' && isCodeInjection(input.eval)) {
+		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
 					'`' + input.eval + '`',
@@ -228,7 +260,7 @@
 			}
 		} else if (input.type === 'static') {
 			return input.value
-		} else if (input.type === 'template') {
+		} else if (input.type === 'template' || input.type == 'templatev2') {
 			return input.eval
 		}
 	}

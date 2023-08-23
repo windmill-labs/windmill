@@ -29,6 +29,7 @@
 	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
+	import { inferDeps } from '../appUtilsInfer'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -94,7 +95,9 @@
 	let viewCssOptions = false
 
 	$: extraLib =
-		componentSettings?.item?.data?.componentInput?.type === 'template' && $worldStore
+		(componentSettings?.item?.data?.componentInput?.type === 'template' ||
+			componentSettings?.item?.data?.componentInput?.type === 'templatev2') &&
+		$worldStore
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
@@ -179,14 +182,39 @@
 								format={componentInput?.format}
 								bind:componentInput={componentSettings.item.data.componentInput}
 							/>
-						{:else if componentSettings.item.data.componentInput.type === 'template' && componentSettings.item.data.componentInput !== undefined}
+						{:else if componentSettings.item.data?.componentInput?.type === 'template' || componentSettings.item.data?.componentInput?.type === 'templatev2'}
 							<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
 								<TemplateEditor
 									fontSize={12}
 									bind:code={componentSettings.item.data.componentInput.eval}
 									{extraLib}
+									on:change={(e) => {
+										if (componentSettings?.item.data.componentInput?.type === 'templatev2') {
+											inferDeps(
+												'`' + e.detail.code + '`',
+												$worldStore.outputsById,
+												componentSettings?.item.data.componentInput,
+												app
+											)
+										}
+									}}
 								/>
 							</div>
+							{#if componentSettings.item.data?.componentInput?.type === 'templatev2'}
+								{#if componentSettings.item.data?.componentInput.connections?.length > 0}
+									<div class="flex flex-wrap gap-2 items-center">
+										<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
+										<div class="flex flex-wrap gap-1">
+											{#each componentSettings.item.data?.componentInput.connections as connection (connection.componentId + '-' + connection.id)}
+												<span
+													class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
+													>{connection.componentId + '.' + connection.id}</span
+												>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							{/if}
 						{:else if componentSettings.item.data.componentInput.type === 'connected' && component.componentInput !== undefined}
 							<ConnectedInputEditor
 								bind:componentInput={componentSettings.item.data.componentInput}

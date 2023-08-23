@@ -65,7 +65,7 @@
 		<div class="text-xs font-semibold text-secondary mb-1">Events</div>
 		<div class="flex flex-row gap-2 flex-wrap">
 			{#each triggerEvents as triggerEvent}
-				<span class={classNames(badgeClass, colors['green'])}>{triggerEvent}</span>
+				<span class={classNames(badgeClass)}>{triggerEvent}</span>
 			{/each}
 		</div>
 	{/if}
