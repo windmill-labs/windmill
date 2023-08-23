@@ -5,13 +5,17 @@
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
-	import { parseOutputs } from '$lib/infer'
-	import { deepEqual } from 'fast-equals'
+	import { inferDeps } from '../../appUtilsInfer'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	let editor: SimpleEditor
+	export function setCode(code: string) {
+		editor?.setCode(code)
+	}
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
@@ -24,27 +28,15 @@
 		componentInput.expr != '' &&
 		componentInput.connections == undefined
 	) {
-		inferDeps(componentInput.expr)
+		inferDepsFromCode(componentInput.expr)
 	}
 	if (componentInput && componentInput.connections == undefined) {
 		componentInput.connections = []
 	}
-	async function inferDeps(code: string) {
-		const outputs = await parseOutputs(code, true)
-		if (outputs && componentInput) {
-			const noutputs = outputs
-				.filter(
-					([key, id]) =>
-						key == 'row' || key == 'iter' || id in ($worldStore?.outputsById[key] ?? {})
-				)
-				.map(([key, id]) => ({
-					componentId: key,
-					id: id
-				}))
-			if (!deepEqual(noutputs, componentInput.connections)) {
-				componentInput.connections = noutputs
-				$app = $app
-			}
+
+	function inferDepsFromCode(code: string) {
+		if (componentInput) {
+			inferDeps(code, $worldStore.outputsById, componentInput, app)
 		}
 	}
 </script>
@@ -52,6 +44,7 @@
 {#if componentInput?.type === 'evalv2'}
 	<div class="border">
 		<SimpleEditor
+			bind:this={editor}
 			lang="javascript"
 			bind:code={componentInput.expr}
 			shouldBindKey={false}
@@ -61,7 +54,7 @@
 				if (onchange) {
 					onchange()
 				}
-				inferDeps(e.detail.code)
+				inferDepsFromCode(e.detail.code)
 			}}
 		/>
 	</div>

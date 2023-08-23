@@ -49,7 +49,7 @@
 	}
 </script>
 
-<div class={'border divide-y'}>
+<div>
 	<ScriptSettingHeader
 		name={runnable?.type === 'runnableByName'
 			? runnable.name
@@ -59,7 +59,7 @@
 		{actions}
 	/>
 	{#if !isTriggerable(appComponent.type)}
-		<div class="flex items-center justify-between w-full px-2">
+		<div class="flex items-center justify-between w-full">
 			<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
 
 			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />

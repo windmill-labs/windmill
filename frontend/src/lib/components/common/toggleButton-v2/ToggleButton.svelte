@@ -48,6 +48,6 @@
 	</Tab>
 
 	<svelte:fragment slot="text">
-		{tooltip}
+		{tooltip ?? label}
 	</svelte:fragment>
 </Popover>

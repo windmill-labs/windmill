@@ -12,9 +12,10 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
+	import { Button } from '$lib/components/common'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -34,11 +35,18 @@
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
+	let evalV2editor: EvalV2InputEditor
 	function applyConnection(connection: InputConnection) {
-		if (componentInput.type === 'connected') {
-			componentInput.connection = connection
-			$app = $app
+		const expr = `${connection.componentId}.${connection.path}`
+		//@ts-ignore
+		componentInput = {
+			...componentInput,
+			type: 'evalv2',
+			expr: expr,
+			connections: [{ componentId: connection.componentId, id: connection.path.split('.')[0] }]
 		}
+		evalV2editor.setCode(expr)
+		$app = $app
 	}
 
 	$: if (componentInput == undefined) {
@@ -75,7 +83,7 @@
 				{/if}
 			</div>
 
-			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
+			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type}
 					<ToggleButtonGroup
 						class="h-7"
@@ -104,12 +112,30 @@
 						{#if fileUpload}
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
-						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
+						{#if componentInput?.type === 'connected'}
+							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
+						{/if}
 						{#if componentInput?.type === 'eval'}
 							<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval Legacy" />
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
+					<Button
+						size="xs"
+						variant="border"
+						color="light"
+						title="Connect"
+						on:click={() => {
+							$connectingInput = {
+								opened: true,
+								input: undefined,
+								hoveredComponent: undefined,
+								onConnect: applyConnection
+							}
+						}}
+					>
+						<Plug size={12} />
+					</Button>
 				{/if}
 			</div>
 		</div>
@@ -132,7 +158,7 @@
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'evalv2'}
-			<EvalV2InputEditor {id} bind:componentInput />
+			<EvalV2InputEditor bind:this={evalV2editor} {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}

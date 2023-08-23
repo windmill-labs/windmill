@@ -20,11 +20,9 @@
 			Click on the output of the component you want to connect to on the left panel.
 			<div class="my-2">
 				<ol class="list-disc flex gap-2 flex-col">
-					<li>
-						You can also navigate your app in a viewer mode: You won't be able to fire any events.
-					</li>
+					<li> App is in a frozen state. </li>
 					<li> Clicking on a component will open the component's output on the left. </li>
-					<li> Hovering an other component will highlight its outputs in orange. </li>
+					<li> Hover on a component to see its output</li>
 				</ol>
 			</div>
 			<div>

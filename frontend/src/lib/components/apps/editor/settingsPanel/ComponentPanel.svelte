@@ -29,6 +29,7 @@
 	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
+	import ScriptSettingsSection from './script/shared/ScriptSettingsSection.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -171,7 +172,7 @@
 						bind:componentInput={componentSettings.item.data.componentInput}
 					/>
 
-					<div class="flex flex-col w-full gap-2 my-2">
+					<div class="flex flex-col w-full gap-2 mt-2">
 						{#if componentSettings.item.data.componentInput.type === 'static'}
 							<StaticInputEditor
 								fieldType={componentInput?.fieldType}
@@ -204,28 +205,24 @@
 				{#key $stateId}
 					{#if componentSettings.item.data.componentInput?.type === 'runnable'}
 						{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
-							<div class="border w-full">
-								<PanelSection
-									title={`Runnable Inputs (${
-										Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length
-									})`}
-								>
-									<svelte:fragment slot="action">
-										<Tooltip>
-											The runnable inputs are inferred from the inputs of the flow or script
-											parameters this component is attached to.
-										</Tooltip>
-									</svelte:fragment>
+							<div class="w-full">
+								<div class="flex flex-row items-center gap-2 text-sm font-semibold">
+									Runnable Inputs
 
-									<InputsSpecsEditor
-										id={component.id}
-										shouldCapitalize={false}
-										displayType
-										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
-										userInputEnabled={component.type === 'formcomponent' ||
-											component.type === 'formbuttoncomponent'}
-									/>
-								</PanelSection>
+									<Tooltip wrapperClass="flex">
+										The runnable inputs are inferred from the inputs of the flow or script
+										parameters this component is attached to.
+									</Tooltip>
+								</div>
+
+								<InputsSpecsEditor
+									id={component.id}
+									shouldCapitalize={false}
+									displayType
+									bind:inputSpecs={componentSettings.item.data.componentInput.fields}
+									userInputEnabled={component.type === 'formcomponent' ||
+										component.type === 'formbuttoncomponent'}
+								/>
 							</div>
 						{/if}
 					{/if}
