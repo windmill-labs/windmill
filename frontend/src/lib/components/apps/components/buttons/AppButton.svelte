@@ -145,10 +145,11 @@
 		{/if}
 		<Button
 			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={css?.button?.class}
+			btnClasses={twMerge(css?.button?.class, 'app-component-button')}
 			wrapperClasses={twMerge(
 				css?.container?.class,
-				resolvedConfig.fillContainer ? 'w-full h-full' : ''
+				resolvedConfig.fillContainer ? 'w-full h-full' : '',
+				'app-component-button-wrapper'
 			)}
 			wrapperStyle={css?.container?.style}
 			style={css?.button?.style}

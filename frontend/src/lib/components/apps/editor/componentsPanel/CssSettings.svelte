@@ -46,15 +46,22 @@
 	}
 
 	function parseCss() {
-		$app.cssString = rawCss
+		const { css, removedClassNames } = sanitizeCss(rawCss, ['app-component-button-wrapper'])
 
-		const errors = validate($app.cssString)
+		$app.cssString = css
 
-		if (errors.length > 0) {
-			cssError = errors.map((e) => e.message).join('\n')
+		const errors: string[] = []
+
+		if (removedClassNames.length > 0) {
+			errors.push('Some css properties were removed because they are not allowed')
+			errors.push(...removedClassNames.map((r) => `  - ${r}`))
 		}
 
-		console.log(sanitizeCss($app.cssString, ['app-component-button']))
+		errors.push(...validate($app.cssString).map((e) => e.message))
+
+		if (errors.length > 0) {
+			cssError = errors.join('\n')
+		}
 	}
 
 	function switchTab(asJson: boolean) {

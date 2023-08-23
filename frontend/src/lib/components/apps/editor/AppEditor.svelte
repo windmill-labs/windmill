@@ -209,6 +209,10 @@
 	}
 </script>
 
+<svelte:head>
+	{@html `<` + `style>${$appStore.cssString}</style>`}
+</svelte:head>
+
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} />

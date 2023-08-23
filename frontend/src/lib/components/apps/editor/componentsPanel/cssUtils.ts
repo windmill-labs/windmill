@@ -1,7 +1,8 @@
 import * as csstree from 'css-tree'
 
-export function sanitizeCss(css: string, authorizedClassNames: string[]): string {
+export function sanitizeCss(css: string, authorizedClassNames: string[]) {
 	const ast = csstree.parse(css)
+	const removedClassNames: string[] = []
 
 	csstree.walk(ast, (node: any, item, list) => {
 		if (node.type === 'Rule') {
@@ -11,6 +12,9 @@ export function sanitizeCss(css: string, authorizedClassNames: string[]): string
 				if (innerNode.type === 'ClassSelector' && authorizedClassNames.includes(innerNode.name)) {
 					shouldRemoveRule = false
 				}
+				if (shouldRemoveRule && innerNode.name) {
+					removedClassNames.push(innerNode.name)
+				}
 			})
 
 			if (shouldRemoveRule) {
@@ -19,5 +23,8 @@ export function sanitizeCss(css: string, authorizedClassNames: string[]): string
 		}
 	})
 
-	return csstree.generate(ast)
+	return {
+		css: csstree.generate(ast),
+		removedClassNames
+	}
 }
