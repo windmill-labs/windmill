@@ -27,7 +27,10 @@ pub struct Schedule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub on_failure: Option<String>,
+    pub on_failure_times: Option<i32>,
+    pub on_failure_exact: Option<bool>,
     pub on_recovery: Option<String>,
+    pub on_recovery_times: Option<i32>,
 }
 
 pub fn schedule_to_user(path: &str) -> String {

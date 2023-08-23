@@ -80,6 +80,21 @@
       },
       {
         "ordinal": 15,
+        "name": "on_failure_times",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
+        "name": "on_failure_exact",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "on_recovery_times",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 18,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -105,6 +120,9 @@
       false,
       true,
       false,
+      true,
+      true,
+      true,
       true,
       true,
       null

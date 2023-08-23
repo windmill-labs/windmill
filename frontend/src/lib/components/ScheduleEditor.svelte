@@ -25,6 +25,9 @@
 	let errorHandlerPath: string | undefined = undefined
 	let recoveryHandlerPath: string | undefined = undefined
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
+	let failedTimes = 1
+	let failedExact = false
+	let recoveredTimes = 1
 
 	let script_path = ''
 	let initialScriptPath = ''
@@ -107,6 +110,8 @@
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
+				failedTimes = s.on_failure_times ?? 1
+				failedExact = s.on_failure_exact ?? false
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
@@ -115,6 +120,7 @@
 				let splitted = s.on_recovery.split('/')
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
+				recoveredTimes = s.on_recovery_times ?? 1
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
@@ -136,9 +142,12 @@
 					timezone,
 					args,
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+					on_failure_times: failedTimes,
+					on_failure_exact: failedExact,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-						: undefined
+						: undefined,
+					on_recovery_times: recoveredTimes
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -291,6 +300,15 @@
 				bind:itemKind={errorHandleritemKind}
 				canRefresh
 			/>
+			<div class="flex flex-row items-center mt-5 font-bold gap-2">
+				<p>when failed</p>
+				<select class="!w-14" bind:value={failedExact}>
+					<option value={false}>&gt;=</option>
+					<option value={true}>==</option>
+				</select>
+				<input type="number" class="!w-14 text-center" bind:value={failedTimes} min="1" />
+				<p>time{failedTimes > 1 ? 's' : ''} in a row</p>
+			</div>
 			<div class="flex gap-20 items-start mt-3">
 				<div class="text-tertiary text-sm"
 					>The following args will be passed to the error handler:
@@ -318,6 +336,11 @@
 				bind:itemKind={recoveryHandlerItemKind}
 				canRefresh
 			/>
+			<div class="flex flex-row items-center mt-5 font-bold">
+				<p>when recovered</p>
+				<input type="number" class="!w-14 mx-2 text-center" bind:value={recoveredTimes} min="1" />
+				<p>time{recoveredTimes > 1 ? 's' : ''} in a row</p>
+			</div>
 			<div class="flex gap-20 items-start mt-3">
 				<div class="text-tertiary text-sm"
 					>The following args will be passed to the recovery handler:

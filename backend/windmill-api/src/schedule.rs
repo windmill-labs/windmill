@@ -56,7 +56,10 @@ pub struct NewSchedule {
     pub args: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub on_failure: Option<String>,
+    pub on_failure_times: Option<i32>,
+    pub on_failure_exact: Option<bool>,
     pub on_recovery: Option<String>,
+    pub on_recovery_times: Option<i32>,
 }
 
 async fn check_path_conflict<'c>(
@@ -106,7 +109,7 @@ async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-         is_flow, args, enabled, email, on_failure, on_recovery) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *",
+         is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_recovery, on_recovery_times) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -118,7 +121,10 @@ async fn create_schedule(
         ns.enabled.unwrap_or(false),
         &authed.email,
         ns.on_failure,
-        ns.on_recovery
+        ns.on_failure_times,
+        ns.on_failure_exact,
+        ns.on_recovery,
+        ns.on_recovery_times
     )
     .fetch_one(&mut tx)
     .await
@@ -180,13 +186,16 @@ async fn edit_schedule(
     clear_schedule(tx.transaction_mut(), path, is_flow, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_recovery = $5 WHERE path \
-         = $6 AND workspace_id = $7 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_recovery = $7, on_recovery_times = $8 WHERE path \
+         = $9 AND workspace_id = $10 RETURNING *",
         es.schedule,
         es.timezone,
         es.args,
         es.on_failure,
+        es.on_failure_times,
+        es.on_failure_exact,
         es.on_recovery,
+        es.on_recovery_times,
         path,
         w_id,
     )
@@ -271,7 +280,10 @@ pub struct ScheduleWJobs {
     pub email: String,
     pub error: Option<String>,
     pub on_failure: Option<String>,
+    pub on_failure_times: Option<i32>,
+    pub on_failure_exact: Option<bool>,
     pub on_recovery: Option<String>,
+    pub on_recovery_times: Option<i32>,
     pub jobs: Option<Vec<serde_json::Value>>,
 }
 
@@ -468,7 +480,10 @@ pub struct EditSchedule {
     pub timezone: String,
     pub args: Option<serde_json::Value>,
     pub on_failure: Option<String>,
+    pub on_failure_times: Option<i32>,
+    pub on_failure_exact: Option<bool>,
     pub on_recovery: Option<String>,
+    pub on_recovery_times: Option<i32>,
 }
 
 pub async fn clear_schedule<'c>(
