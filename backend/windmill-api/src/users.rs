@@ -10,8 +10,10 @@
 
 use std::{sync::Arc, time::Duration};
 
+use crate::db::ApiAuthed;
+
 use crate::{
-    db::{UserDB, DB},
+    db::DB,
     folders::get_folders_for_user,
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
@@ -40,6 +42,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
@@ -100,7 +103,7 @@ pub fn make_unauthed_service() -> Router {
 }
 
 pub struct AuthCache {
-    cache: Cache<(String, String), Authed>,
+    cache: Cache<(String, String), ApiAuthed>,
     db: DB,
     superadmin_secret: Option<String>,
 }
@@ -114,7 +117,7 @@ impl AuthCache {
         self.cache.remove(&(w_id.to_string(), token)).await;
     }
 
-    pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
+    pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -171,7 +174,7 @@ impl AuthCache {
                                                 .ok()
                                                 .unwrap_or_default();
 
-                                        Some(Authed {
+                                        Some(ApiAuthed {
                                             email: email,
                                             username: name.to_string(),
                                             is_admin,
@@ -191,7 +194,7 @@ impl AuthCache {
                                         .await
                                         .ok()
                                         .unwrap_or_default();
-                                        Some(Authed {
+                                        Some(ApiAuthed {
                                             email: email,
                                             username: format!("group-{name}"),
                                             is_admin: false,
@@ -204,7 +207,7 @@ impl AuthCache {
                                 } else {
                                     let groups = vec![];
                                     let folders = vec![];
-                                    Some(Authed {
+                                    Some(ApiAuthed {
                                         email: email,
                                         username: owner,
                                         is_admin: super_admin,
@@ -248,7 +251,7 @@ impl AuthCache {
                                             .await
                                             .ok()
                                             .unwrap_or_default();
-                                            Some(Authed {
+                                            Some(ApiAuthed {
                                                 email,
                                                 username,
                                                 is_admin: is_admin || super_admin,
@@ -258,7 +261,7 @@ impl AuthCache {
                                                 scopes,
                                             })
                                         }
-                                        None if super_admin => Some(Authed {
+                                        None if super_admin => Some(ApiAuthed {
                                             email: email.clone(),
                                             username: email,
                                             is_admin: super_admin,
@@ -270,7 +273,7 @@ impl AuthCache {
                                         None => None,
                                     }
                                 } else {
-                                    Some(Authed {
+                                    Some(ApiAuthed {
                                         email: email.to_string(),
                                         username: email,
                                         is_admin: super_admin,
@@ -296,7 +299,7 @@ impl AuthCache {
                     .map(|x| x == token)
                     .unwrap_or(false)
                 {
-                    Some(Authed {
+                    Some(ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
@@ -380,19 +383,12 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Authed {
-    pub email: String,
-    pub username: String,
-    pub is_admin: bool,
-    pub is_operator: bool,
-    pub groups: Vec<String>,
-    // (folder name, can write, is owner)
-    pub folders: Vec<(String, bool, bool)>,
-    pub scopes: Option<Vec<String>>,
-}
-
-pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
+pub async fn maybe_refresh_folders(
+    path: &str,
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+) -> ApiAuthed {
     if authed.is_admin {
         return authed;
     }
@@ -411,14 +407,14 @@ pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &
             .await
             .ok()
             .unwrap_or_default();
-        Authed { folders, ..authed }
+        ApiAuthed { folders, ..authed }
     } else {
         authed
     }
 }
 
 #[async_trait]
-impl<S> FromRequestParts<S> for Authed
+impl<S> FromRequestParts<S> for ApiAuthed
 where
     S: Send + Sync,
 {
@@ -429,7 +425,7 @@ where
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(Authed {
+            return Ok(ApiAuthed {
                 email: "".to_owned(),
                 username: "".to_owned(),
                 is_admin: false,
@@ -439,7 +435,7 @@ where
                 scopes: None,
             });
         };
-        let already_authed = parts.extensions.get::<Authed>();
+        let already_authed = parts.extensions.get::<ApiAuthed>();
         if let Some(authed) = already_authed {
             Ok(authed.clone())
         } else {
@@ -489,7 +485,7 @@ where
     }
 }
 
-pub fn check_scopes<F>(authed: &Authed, required: F) -> error::Result<()>
+pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
 {
@@ -503,7 +499,7 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub struct OptAuthed(pub Option<Authed>);
+pub struct OptAuthed(pub Option<ApiAuthed>);
 
 #[async_trait]
 impl<S> FromRequestParts<S> for OptAuthed
@@ -516,7 +512,7 @@ where
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        Authed::from_request_parts(parts, state)
+        ApiAuthed::from_request_parts(parts, state)
             .await
             .map(|authed| Self(Some(authed)))
             .or_else(|_| Ok(Self(None)))
@@ -687,7 +683,7 @@ struct WorkspaceUsername {
 }
 
 async fn exists_username(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(WorkspaceUsername { username }): Json<WorkspaceUsername>,
@@ -706,7 +702,7 @@ async fn exists_username(
 }
 
 async fn list_users(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<UserWithUsage>> {
@@ -738,12 +734,11 @@ async fn list_users(
 }
 
 async fn list_users_as_super_admin(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
-    let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &authed.email).await?;
+    require_super_admin(&db, &authed.email).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
@@ -754,14 +749,13 @@ async fn list_users_as_super_admin(
         per_page as i32,
         offset as i32
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&db)
     .await?;
-    tx.commit().await?;
     Ok(Json(rows))
 }
 
 // async fn list_invite_codes(
-//     authed: Authed,
+//     authed: ApiAuthed,
 //     Extension(db): Extension<DB>,
 //     Query(pagination): Query<Pagination>
 // ) -> JsonResult<Vec<InviteCode>> {
@@ -777,7 +771,7 @@ async fn list_users_as_super_admin(
 // }
 
 async fn list_usernames(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
@@ -796,7 +790,7 @@ async fn list_usernames(
 }
 
 async fn list_invites(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<WorkspaceInvite>> {
     let mut tx = db.begin().await?;
@@ -854,7 +848,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, is_admin, groups, folders, .. }: Authed,
+    ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -886,7 +880,7 @@ async fn whoami(
 
 async fn global_whoami(
     Extension(db): Extension<DB>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Tokened { token }: Tokened,
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
@@ -926,11 +920,14 @@ async fn exists_email(Extension(db): Extension<DB>, Path(email): Path<String>) -
     Ok(Json(exists))
 }
 
-async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
+async fn get_email(ApiAuthed { email, .. }: ApiAuthed) -> Result<String> {
     Ok(email)
 }
 
-async fn get_usage(Extension(db): Extension<DB>, Authed { email, .. }: Authed) -> Result<String> {
+async fn get_usage(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+) -> Result<String> {
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage 
@@ -1015,7 +1012,7 @@ pub async fn get_groups_for_user(
     Ok(groups)
 }
 pub async fn is_owner_of_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Path((_w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
@@ -1026,7 +1023,7 @@ pub async fn is_owner_of_path(
     }
 }
 
-pub fn require_owner_of_path(authed: &Authed, path: &str) -> Result<()> {
+pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
     if authed.is_admin {
         return Ok(());
     }
@@ -1056,7 +1053,10 @@ pub fn require_owner_of_path(authed: &Authed, path: &str) -> Result<()> {
     }
 }
 
-pub fn get_perm_in_extra_perms_for_authed(v: serde_json::Value, authed: &Authed) -> Option<bool> {
+pub fn get_perm_in_extra_perms_for_authed(
+    v: serde_json::Value,
+    authed: &ApiAuthed,
+) -> Option<bool> {
     match v {
         serde_json::Value::Object(obj) => {
             let mut keys = vec![format!("u/{}", authed.username)];
@@ -1081,7 +1081,7 @@ pub fn get_perm_in_extra_perms_for_authed(v: serde_json::Value, authed: &Authed)
 }
 
 pub async fn require_is_writer(
-    authed: &Authed,
+    authed: &ApiAuthed,
     path: &str,
     w_id: &str,
     db: DB,
@@ -1152,7 +1152,7 @@ async fn whois(
 }
 
 // async fn create_invite_code(
-//     Authed { email, .. }: Authed,
+//     ApiAuthed { email, .. }: ApiAuthed,
 //     Extension(db): Extension<DB>,
 //     Json(nu): Json<NewInviteCode>,
 // ) -> Result<(StatusCode, String)> {
@@ -1179,7 +1179,7 @@ async fn whois(
 // }
 
 async fn decline_invite(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(nu): Json<DeclineInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -1229,7 +1229,7 @@ lazy_static! {
 }
 
 async fn accept_invite(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
@@ -1374,7 +1374,7 @@ async fn add_user_to_workspace<'c>(
 }
 
 async fn update_workspace_user(
-    Authed { username, is_admin, .. }: Authed,
+    ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
@@ -1431,14 +1431,13 @@ async fn update_workspace_user(
 }
 
 async fn update_user(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(email_to_update): Path<String>,
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
+    require_super_admin(&db, &email).await?;
     let mut tx = db.begin().await?;
-
-    require_super_admin(&mut tx, &email).await?;
 
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
@@ -1465,13 +1464,12 @@ async fn update_user(
 }
 
 async fn delete_user(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
+    require_super_admin(&db, &email).await?;
     let mut tx = db.begin().await?;
-
-    require_super_admin(&mut tx, &email).await?;
 
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
@@ -1520,15 +1518,15 @@ lazy_static::lazy_static! {
 }
 
 async fn create_user(
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
+    require_super_admin(&db, &email).await?;
     let mut tx = db.begin().await?;
 
-    require_super_admin(&mut tx, &email).await?;
     nu.email = nu.email.to_lowercase();
 
     if nu.email == SUPERADMIN_SECRET_EMAIL {
@@ -1610,7 +1608,7 @@ pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &st
 }
 
 async fn delete_workspace_user(
-    Authed { username, is_admin, .. }: Authed,
+    ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
@@ -1661,7 +1659,7 @@ async fn delete_workspace_user(
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Authed { username, email, .. }: Authed,
+    ApiAuthed { username, email, .. }: ApiAuthed,
     Json(EditPassword { password }): Json<EditPassword>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1905,7 +1903,7 @@ async fn login(
 
 async fn refresh_token(
     Extension(db): Extension<DB>,
-    authed: Authed,
+    authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1960,7 +1958,7 @@ pub async fn create_session_token<'c>(
 
 async fn create_token(
     Extension(db): Extension<DB>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     let token = rd_string(30);
@@ -2002,12 +2000,11 @@ async fn create_token(
 
 async fn impersonate(
     Extension(db): Extension<DB>,
-    Authed { email, username, .. }: Authed,
+    ApiAuthed { email, username, .. }: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     let token = rd_string(30);
-    let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &email).await?;
+    require_super_admin(&db, &email).await?;
 
     if new_token.impersonate_email.is_none() {
         return Err(Error::BadRequest(
@@ -2021,9 +2018,11 @@ async fn impersonate(
         "SELECT super_admin FROM password WHERE email = $1",
         impersonated
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let mut tx = db.begin().await?;
+
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -2054,7 +2053,7 @@ async fn impersonate(
 
 async fn list_tokens(
     Extension(db): Extension<DB>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<TruncatedToken>> {
     let rows = sqlx::query_as!(
         TruncatedToken,
@@ -2070,7 +2069,7 @@ async fn list_tokens(
 
 async fn delete_token(
     Extension(db): Extension<DB>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -2109,7 +2108,7 @@ async fn delete_token(
 async fn leave_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, .. }: Authed,
+    ApiAuthed { username, .. }: ApiAuthed,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     sqlx::query!(
@@ -2150,7 +2149,7 @@ struct Runnable {
 
 async fn get_all_runnables(
     Extension(db): Extension<UserDB>,
-    authed: Authed,
+    authed: ApiAuthed,
     Tokened { token }: Tokened,
     Extension(cache): Extension<Arc<AuthCache>>,
 ) -> JsonResult<Vec<Runnable>> {

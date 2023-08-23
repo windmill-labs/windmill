@@ -101,7 +101,10 @@
 			{#if mod.value.type === 'forloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
-					label={mod.summary || 'For loop'}
+					label={mod.summary ||
+						`For loop ${mod.value.parallel ? '(parallel)' : ''} ${
+							mod.value.skip_failures ? '(skip failures)' : ''
+						}`}
 					id={mod.id}
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}

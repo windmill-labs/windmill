@@ -362,12 +362,13 @@
 										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<RowWrapper
-													on:inputsChange={() => {
-														outputs?.inputs.set(inputs, true)
-													}}
 													bind:inputs
 													value={row.original}
 													index={rowIndex}
+
+													onInputsChange={() => {
+														outputs?.inputs.set(inputs, true)
+													}}
 												>
 													<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 													<div

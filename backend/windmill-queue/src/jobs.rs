@@ -21,6 +21,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    db::{Authed, UserDB},
     error::{self, Error},
     flow_status::{
         FlowStatus, FlowStatusModule, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
@@ -33,7 +34,7 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
-    METRICS_ENABLED,
+    DB, METRICS_ENABLED,
 };
 
 use crate::{
@@ -139,7 +140,11 @@ pub async fn cancel_job<'c: 'async_recursion>(
         return Ok((tx, None));
     }
     let job_running = job_running.unwrap();
-    if job_running.running && !force_cancel {
+    if job_running.running
+        && job_running.job_kind != JobKind::Flow
+        && job_running.job_kind != JobKind::FlowPreview
+        && !force_cancel
+    {
         sqlx::query!(
         "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
          AND workspace_id = $4 ",
@@ -436,17 +441,17 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     let w_id = &queued_job.workspace_id;
     let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
-    let (job_payload, tag) =
-        script_path_to_payload(&error_handler_path, tx.transaction_mut(), script_w_id).await?;
+    let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
     let mut args = result.as_object().unwrap().clone();
     args.insert("workspace_id".to_string(), json!(w_id));
     args.insert("job_id".to_string(), json!(job_id));
     args.insert("path".to_string(), json!(queued_job.script_path));
     args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
     args.insert("email".to_string(), json!(queued_job.email));
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
+        &db,
         tx,
         script_w_id,
         job_payload,
@@ -556,6 +561,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
         if !success {
             if let Some(on_failure_path) = schedule.on_failure.clone() {
                 let on_failure_result = handle_on_failure(
+                    db,
                     tx,
                     schedule_path,
                     script_path,
@@ -593,6 +599,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
         }
 
         let res = push_scheduled_job(
+            db,
             tx,
             Schedule {
                 workspace_id: w_id.to_owned(),
@@ -635,7 +642,8 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
 }
 
 async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
-    mut tx: QueueTransaction<'c, R>,
+    db: &Pool<Postgres>,
+    tx: QueueTransaction<'c, R>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
@@ -645,8 +653,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     email: &str,
     permissioned_as: String,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    let (payload, tag) =
-        get_payload_tag_from_prefixed_path(on_failure_path, tx.transaction_mut(), w_id).await?;
+    let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
     let mut args = result
         .map(|x| x.clone())
@@ -656,7 +663,9 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         .clone();
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
+    let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
+        &db,
         tx,
         w_id,
         payload,
@@ -1002,9 +1011,40 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
+pub enum PushIsolationLevel<'c, R: rsmq_async::RsmqConnection + Send + 'c> {
+    IsolatedRoot(DB, Option<R>),
+    Isolated(UserDB, Authed, Option<R>),
+    Transaction(QueueTransaction<'c, R>),
+}
+
+#[macro_export]
+macro_rules! fetch_scalar_isolated {
+    ( $query:expr, $tx:expr) => {
+        match $tx {
+            PushIsolationLevel::IsolatedRoot(db, rmsq) => {
+                let r = $query.fetch_optional(&db).await;
+                $tx = PushIsolationLevel::IsolatedRoot(db, rmsq);
+                r
+            }
+            PushIsolationLevel::Isolated(db, user, rsmq) => {
+                let mut ntx = db.clone().begin(&user).await?;
+                let r = $query.fetch_optional(&mut *ntx).await;
+                $tx = PushIsolationLevel::Isolated(db, user, rsmq);
+                r
+            }
+            PushIsolationLevel::Transaction(mut tx) => {
+                let r = $query.fetch_optional(&mut tx).await;
+                $tx = PushIsolationLevel::Transaction(tx);
+                r
+            }
+        }
+    };
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
-    mut tx: QueueTransaction<'c, R>,
+    _db: &Pool<Postgres>,
+    mut tx: PushIsolationLevel<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
@@ -1025,30 +1065,12 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     flow_step_id: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
-    let job_id: Uuid = if let Some(job_id) = job_id {
-        let conflicting_id = sqlx::query_scalar!(
-            "SELECT 1 FROM queue WHERE id = $1 UNION ALL select 1 FROM completed_job WHERE id = $1",
-            job_id
-        )
-        .fetch_optional(&mut tx)
-        .await?;
-
-        if conflicting_id.is_some() {
-            return Err(Error::BadRequest(format!(
-                "Job with id {job_id} already exists"
-            )));
-        }
-
-        job_id
-    } else {
-        Ulid::new().into()
-    };
 
     #[cfg(feature = "enterprise")]
     {
         let premium_workspace = *CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
-                .fetch_one(&mut tx)
+                .fetch_one(_db)
                 .await
                 .map_err(|e| {
                     Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
@@ -1067,7 +1089,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     if premium_workspace { workspace_id } else { email },
                     premium_workspace
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(_db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
         } else if *CLOUD_HOSTED && !premium_workspace {
@@ -1079,7 +1101,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
      AND id = $1",
                 email
             )
-            .fetch_optional(&mut tx)
+            .fetch_optional(_db)
             .await?
             .flatten()
             .unwrap_or(0)
@@ -1090,7 +1112,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         if *CLOUD_HOSTED && !premium_workspace {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-                    .fetch_optional(&mut tx)
+                    .fetch_optional(_db)
                     .await?
                     .unwrap_or(false);
 
@@ -1105,7 +1127,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 }
                 let in_queue =
                     sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE email = $1", email)
-                        .fetch_one(&mut tx)
+                        .fetch_one(_db)
                         .await?
                         .unwrap_or(0);
 
@@ -1119,7 +1141,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
                     email
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(_db)
                 .await?
                 .unwrap_or(0);
 
@@ -1143,16 +1165,15 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         concurrency_time_window_s,
     ) = match job_payload {
         JobPayload::ScriptHash { hash, path, concurrent_limit, concurrency_time_window_s } => {
-            let language = sqlx::query_scalar!(
+            let language = fetch_scalar_isolated!(sqlx::query_scalar!(
                     "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
                     hash.0,
                     workspace_id
-                )
-                .fetch_one(&mut tx)
-                .await
-                .map_err(|e| {
+                ), tx)
+                .ok().flatten()
+                .ok_or_else(||{
                     Error::InternalErr(format!(
-                        "fetching language for hash {hash} in {workspace_id}: {e}"
+                        "fetching language for hash {hash} in {workspace_id}"
                     ))
                 })?;
             (
@@ -1207,13 +1228,14 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
         ),
         JobPayload::FlowDependencies { path } => {
-            let value_json = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                path,
-                workspace_id
-            )
-            .fetch_optional(&mut tx)
-            .await?
+            let value_json = fetch_scalar_isolated!(
+                sqlx::query_scalar!(
+                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    workspace_id
+                ),
+                tx
+            )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
             let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
                 Error::InternalErr(format!(
@@ -1242,13 +1264,14 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
         ),
         JobPayload::Flow(flow) => {
-            let value_json = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                flow,
-                workspace_id
-            )
-            .fetch_optional(&mut tx)
-            .await?
+            let value_json = fetch_scalar_isolated!(
+                sqlx::query_scalar!(
+                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                    flow,
+                    workspace_id
+                ),
+                tx
+            )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
             let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
                 Error::InternalErr(format!(
@@ -1345,6 +1368,33 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 .map(|x| x.as_str().replace("$workspace", workspace_id))
                 .unwrap_or_else(default)
         })
+    };
+
+    let mut tx = match tx {
+        PushIsolationLevel::Isolated(user_db, authed, rsmq) => {
+            (rsmq, user_db.begin(&authed).await?).into()
+        }
+        PushIsolationLevel::IsolatedRoot(db, rsmq) => (rsmq, db.begin().await?).into(),
+        PushIsolationLevel::Transaction(tx) => tx,
+    };
+
+    let job_id: Uuid = if let Some(job_id) = job_id {
+        let conflicting_id = sqlx::query_scalar!(
+            "SELECT 1 FROM queue WHERE id = $1 UNION ALL select 1 FROM completed_job WHERE id = $1",
+            job_id
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        if conflicting_id.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Job with id {job_id} already exists"
+            )));
+        }
+
+        job_id
+    } else {
+        Ulid::new().into()
     };
 
     let uuid = sqlx::query_scalar!(

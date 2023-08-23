@@ -14,14 +14,14 @@ use axum::{
 use hyper::{HeaderMap, StatusCode};
 use serde::Deserialize;
 use windmill_common::{
+    db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
 
 use crate::{
-    db::{UserDB, DB},
+    db::{ApiAuthed, DB},
     jobs::add_include_headers,
-    users::Authed,
 };
 
 const KEEP_LAST: i64 = 8;
@@ -37,7 +37,7 @@ pub fn global_service() -> Router {
 }
 
 pub async fn new_payload(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<StatusCode> {
@@ -120,7 +120,7 @@ pub async fn update_payload(
 }
 
 pub async fn get_payload(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<serde_json::Value> {

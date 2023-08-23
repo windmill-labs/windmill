@@ -14,6 +14,8 @@
 	import { cleanExpr } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
+
 	export let flow: {
 		summary: string
 		description?: string
@@ -125,9 +127,10 @@
 							{:else if stepDetail.value.type == 'identity'}
 								Identity
 							{:else if stepDetail.value.type == 'forloopflow'}
-								For loop
+								For loop {#if stepDetail.value.parallel}(parallel){/if}
+								{#if stepDetail.value.skip_failures}(skip failures){/if}
 							{:else if stepDetail.value.type == 'branchall'}
-								Run all branches
+								Run all branches {#if stepDetail.value.parallel}(parallel){/if}
 							{:else if stepDetail.value.type == 'branchone'}
 								Run one branch
 							{:else if stepDetail.value.type == 'flow'}
@@ -196,6 +199,8 @@
 								src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
 							/>
 						</div>
+					{:else}
+						<FlowModuleScript path={stepDetail.value.path} />
 					{/if}
 				{:else if stepDetail.value.type == 'forloopflow'}
 					<div>
