@@ -35,7 +35,6 @@ export type Aligned = {
 }
 
 export interface GeneralAppInput {
-	onlyStatic?: boolean
 	tooltip?: string
 	placeholder?: string
 	customTitle?: string

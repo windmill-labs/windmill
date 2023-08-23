@@ -23,7 +23,6 @@
 	export let shouldCapitalize: boolean = true
 	export let resourceOnly = false
 	export let tooltip: string | undefined = undefined
-	export let onlyStatic: boolean = false
 	export let fieldType: InputType
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
@@ -53,12 +52,7 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div
-		class={classNames(
-			'flex gap-1',
-			onlyStatic && fieldType != 'object' ? 'flex-row items-center justify-between' : 'flex-col'
-		)}
-	>
+	<div class={classNames('flex gap-1', 'flex-col')}>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<span class="text-xs font-semibold truncate text-primary">
@@ -83,7 +77,7 @@
 			</div>
 
 			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
-				{#if !onlyStatic && componentInput?.type}
+				{#if componentInput?.type}
 					<ToggleButtonGroup
 						class="h-7"
 						bind:selected={componentInput.type}
@@ -126,11 +120,7 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<div
-				class={onlyStatic && fieldType != 'object'
-					? 'w-2/3 flex justify-end'
-					: 'w-full flex flex-row-reverse'}
-			>
+			<div class={'w-full flex flex-row-reverse'}>
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}

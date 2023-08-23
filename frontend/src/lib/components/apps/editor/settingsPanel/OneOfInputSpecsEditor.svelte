@@ -77,7 +77,6 @@
 					format={config?.['format']}
 					selectOptions={config?.['selectOptions']}
 					placeholder={config?.['placeholder']}
-					onlyStatic={config?.['onlyStatic']}
 					customTitle={config?.['customTitle']}
 					noVariablePicker={config?.['noVariablePicker']}
 					tooltip={config?.['tooltip']}

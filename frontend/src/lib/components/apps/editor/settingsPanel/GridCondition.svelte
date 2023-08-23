@@ -162,7 +162,6 @@
 								format={condition?.['format']}
 								selectOptions={condition?.['selectOptions']}
 								tooltip={condition?.['tooltip']}
-								onlyStatic={condition?.['onlyStatic']}
 								fileUpload={condition?.['fileUpload']}
 								placeholder={condition?.['placeholder']}
 								customTitle={condition?.['customTitle']}

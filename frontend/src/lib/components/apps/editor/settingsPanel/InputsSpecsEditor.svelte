@@ -43,7 +43,6 @@
 					format={meta?.['format']}
 					selectOptions={meta?.['selectOptions']}
 					tooltip={meta?.['tooltip']}
-					onlyStatic={meta?.['onlyStatic']}
 					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
