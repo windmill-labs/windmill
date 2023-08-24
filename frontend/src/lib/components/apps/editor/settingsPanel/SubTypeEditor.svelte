@@ -15,8 +15,4 @@
 	$: fakeComponentInput && (value = fakeComponentInput.value)
 </script>
 
-<StaticInputEditor
-	noVariablePicker
-	fieldType={subFieldType}
-	bind:componentInput={fakeComponentInput}
-/>
+<StaticInputEditor fieldType={subFieldType} bind:componentInput={fakeComponentInput} />

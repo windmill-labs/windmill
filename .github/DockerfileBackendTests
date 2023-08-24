@@ -33,7 +33,7 @@ ENV SQLX_OFFLINE=true
 
 RUN mkdir -p /frontend/build
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata libpq5 \
+    && apt-get install -y ca-certificates tzdata libpq5 cmake\
     make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
     libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
     libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \

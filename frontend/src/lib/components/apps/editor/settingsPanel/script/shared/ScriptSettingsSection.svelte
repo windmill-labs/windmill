@@ -5,7 +5,7 @@
 	export let tooltip: string | undefined = undefined
 </script>
 
-<div class="p-2">
+<div class="py-2">
 	<div class="mb-2 text-sm font-semibold justify-between flex flex-row items-center">
 		{title}
 

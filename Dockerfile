@@ -73,7 +73,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev
+RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev cmake
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
@@ -96,8 +96,8 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.36.1/deno-linux-arm64.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.36.1/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.36.2/deno-linux-arm64.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.36.2/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
 
 RUN unzip deno.zip && rm deno.zip
 
@@ -149,13 +149,13 @@ RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
     'amd64') \
-    targz='go1.19.3.linux-amd64.tar.gz'; \
+    targz='go1.21.0.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.19.3.linux-arm64.tar.gz'; \
+    targz='go1.21.0.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.19.3.linux-armv6l.tar.gz'; \
+    targz='go1.21.0.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -177,7 +177,7 @@ RUN chmod 755 /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:0.7.3 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:0.8.0 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

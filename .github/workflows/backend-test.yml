@@ -18,7 +18,6 @@ jobs:
     runs-on: [self-hosted, new]
     container:
       image: ghcr.io/windmill-labs/backend-tests
-      options: --privileged
     services:
       postgres:
         image: postgres
@@ -27,9 +26,7 @@ jobs:
           POSTGRES_PASSWORD: changeme
 
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v3
@@ -41,4 +38,8 @@ jobs:
             backend -> target
       - name: cargo test
         timeout-minutes: 10
-        run: mkdir frontend/build && cd backend && touch windmill-api/openapi-deref.yaml && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test --all -- --nocapture
+        run:
+          mkdir frontend/build && cd backend && touch
+          windmill-api/openapi-deref.yaml &&
+          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo
+          test --all -- --nocapture

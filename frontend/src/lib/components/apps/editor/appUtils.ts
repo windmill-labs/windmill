@@ -254,7 +254,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 
 		return {
 			type,
-			//TODO remove tooltip and onlyStatic from there
+			//TODO remove tooltip from there
 			configuration: deepMergeWithPriority(configuration, overrideConfiguration ?? {}),
 			componentInput: init.componentInput,
 			panes: init.panes,

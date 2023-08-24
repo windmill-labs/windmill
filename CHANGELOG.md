@@ -1,6 +1,40 @@
 # Changelog
 
 
+## [1.155.0](https://github.com/windmill-labs/windmill/compare/v1.154.2...v1.155.0) (2023-08-24)
+
+
+### Features
+
+* add templatev2 using new eval ([13d870f](https://github.com/windmill-labs/windmill/commit/13d870f16370a74fe481a1701eda27109a776c75))
+* eval v2, blazing fast eval triggered only upon the right changes ([#2164](https://github.com/windmill-labs/windmill/issues/2164)) ([5207a7a](https://github.com/windmill-labs/windmill/commit/5207a7a6aa1520c987d26d5c1f99f653c1c81cf6))
+* remove connect in favor of eval ([e7aaa17](https://github.com/windmill-labs/windmill/commit/e7aaa177b72749ca9d0d78c452ec8e47d6514186))
+
+
+### Bug Fixes
+
+* bump bun to 0.8.0 ([4825519](https://github.com/windmill-labs/windmill/commit/4825519ac94a4992cf21fbf4a21fbea8038058d9))
+* fix tables not updating inputs on creation ([a419bc4](https://github.com/windmill-labs/windmill/commit/a419bc41bfadce1ac75383d1824ff9fef3404aad))
+* **frontend:** Fix code display + use async/await in fetch examples ([#2150](https://github.com/windmill-labs/windmill/issues/2150)) ([2f9177f](https://github.com/windmill-labs/windmill/commit/2f9177f6cec0a676c774ee426482f55227e6e388))
+* **frontend:** fix copyToClipboard on non-HTTPS site ([#2046](https://github.com/windmill-labs/windmill/issues/2046)) ([95ea0e8](https://github.com/windmill-labs/windmill/commit/95ea0e8f87195816dde3f9554b3cb92791b63a37))
+* update go to 1.12.0 and deno to 1.36.2 ([4317573](https://github.com/windmill-labs/windmill/commit/431757339bbfff6d67f484439d87255acc5c62ff))
+* update python client with by_path methods ([8a25a86](https://github.com/windmill-labs/windmill/commit/8a25a86e586485e7949bb208fa94db906e983b6c))
+
+## [1.154.2](https://github.com/windmill-labs/windmill/compare/v1.154.1...v1.154.2) (2023-08-22)
+
+
+### Bug Fixes
+
+* fix cancel job for flows in some edge cases ([58bb19a](https://github.com/windmill-labs/windmill/commit/58bb19a4471ce8cfced4b144fca40069b5ce0820))
+
+## [1.154.1](https://github.com/windmill-labs/windmill/compare/v1.154.0...v1.154.1) (2023-08-22)
+
+
+### Bug Fixes
+
+* **frontend:** Fix hub navigation ([#2151](https://github.com/windmill-labs/windmill/issues/2151)) ([d0ed8f0](https://github.com/windmill-labs/windmill/commit/d0ed8f0fefe3176b9bab621a6b3e9231254504e2))
+* show for-loop settings ([ab8a27f](https://github.com/windmill-labs/windmill/commit/ab8a27f123fbca187eee3b372d512797f8a03916))
+
 ## [1.154.0](https://github.com/windmill-labs/windmill/compare/v1.153.0...v1.154.0) (2023-08-21)
 
 

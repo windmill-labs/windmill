@@ -17,6 +17,7 @@
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	const dispatch = createEventDispatcher()
 
@@ -101,16 +102,20 @@
 				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
 				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 			) {
+				console.debug('updating', mod.job)
 				JobService.getJob({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: mod.job ?? ''
 				}).then((job) => {
-					localFlowModuleStates[mod.id ?? ''] = {
+					const newState = {
 						type: mod.type,
 						scheduled_for: job?.['scheduled_for'],
 						job_id: job?.id,
 						parent_module: mod['parent_module'],
 						args: job?.args
+					}
+					if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
+						localFlowModuleStates[mod.id ?? ''] = newState
 					}
 				})
 			}
@@ -492,7 +497,7 @@
 													target="_blank"
 													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 												>
-													{truncateRev(node.job_id ?? '', 1) ?? ''}
+													{truncateRev(node.job_id ?? '', 10) ?? ''}
 												</a>
 											</div>
 										</div>

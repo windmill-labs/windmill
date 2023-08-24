@@ -102,6 +102,7 @@
 	let graphqlService: MonacoGraphQLAPI | undefined = undefined
 	let dbSchema: DBSchema | undefined = undefined
 
+	let destroyed = false
 	const uri =
 		lang == 'typescript' && deno
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
@@ -328,6 +329,7 @@
 		hide: () => {},
 		dispose: () => {}
 	}
+
 	export async function reloadWebsocket() {
 		console.log('reloadWebsocket')
 		await closeWebsockets()
@@ -424,6 +426,16 @@
 					// if (middlewareOptions != undefined) {
 					// 	languageClient.registerNotUsedFeatures()
 					// }
+
+					const om = webSocket.onmessage
+					webSocket.onmessage = (e) => {
+						om && om.apply(webSocket, [e])
+						if (destroyed) {
+							webSocket.close()
+							console.log('Stopping client early because of mismatch')
+						}
+					}
+
 					languageClients.push(languageClient)
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
@@ -866,6 +878,8 @@
 	})
 
 	onDestroy(() => {
+		console.log('destroying editor')
+		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
