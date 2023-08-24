@@ -17,8 +17,8 @@
 	import { inferArgs } from '$lib/infer'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 
-	const slackErrorHandler = 'hub/2422/slack/schedule-error-handler-slack'
-	const slackRecoveryHandler = 'hub/2423/slack/schedule-recovery-handler-slack'
+	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
+	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
 
 	let initialPath = ''
 	let edit = true
