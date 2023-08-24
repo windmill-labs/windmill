@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.156.0](https://github.com/windmill-labs/windmill/compare/v1.155.0...v1.156.0) (2023-08-24)
+
+
+### Features
+
+* schedule recovery handler ([#2126](https://github.com/windmill-labs/windmill/issues/2126)) ([0dcb425](https://github.com/windmill-labs/windmill/commit/0dcb425e4a9cf241ed301f794680b36a7f17cc34))
+
 ## [1.155.0](https://github.com/windmill-labs/windmill/compare/v1.154.2...v1.155.0) (2023-08-24)
 
 
