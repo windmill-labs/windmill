@@ -90,8 +90,18 @@
       },
       {
         "ordinal": 17,
+        "name": "on_failure_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 18,
         "name": "on_recovery_times",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "on_recovery_extra_args",
+        "type_info": "Json"
       }
     ],
     "parameters": {
@@ -116,6 +126,8 @@
       false,
       true,
       false,
+      true,
+      true,
       true,
       true,
       true,

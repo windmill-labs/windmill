@@ -90,11 +90,21 @@
       },
       {
         "ordinal": 17,
+        "name": "on_failure_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 18,
         "name": "on_recovery_times",
         "type_info": "Int4"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
+        "name": "on_recovery_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 20,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -120,6 +130,8 @@
       false,
       true,
       false,
+      true,
+      true,
       true,
       true,
       true,

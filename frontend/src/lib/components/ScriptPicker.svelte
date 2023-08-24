@@ -28,7 +28,7 @@
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
 	export let kind: Script.kind = Script.kind.SCRIPT
 	export let disabled = false
-	export let canRefresh = false
+	export let allowRefresh = false
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -129,7 +129,7 @@
 		/>
 	{/if}
 
-	{#if canRefresh}
+	{#if allowRefresh}
 		<Button variant="border" color="light" wrapperClasses="self-stretch" on:click={loadItems}
 			><Icon scale={0.8} data={faRotateRight} /></Button
 		>

@@ -29,8 +29,10 @@ pub struct Schedule {
     pub on_failure: Option<String>,
     pub on_failure_times: Option<i32>,
     pub on_failure_exact: Option<bool>,
+    pub on_failure_extra_args: Option<serde_json::Value>,
     pub on_recovery: Option<String>,
     pub on_recovery_times: Option<i32>,
+    pub on_recovery_extra_args: Option<serde_json::Value>,
 }
 
 pub fn schedule_to_user(path: &str) -> String {

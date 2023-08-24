@@ -590,8 +590,10 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 on_failure: schedule.on_failure,
                 on_failure_times: schedule.on_failure_times,
                 on_failure_exact: schedule.on_failure_exact,
+                on_failure_extra_args: schedule.on_failure_extra_args,
                 on_recovery: schedule.on_recovery,
                 on_recovery_times: schedule.on_recovery_times,
+                on_recovery_extra_args: schedule.on_recovery_extra_args,
             },
         )
         .await;
@@ -636,7 +638,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
 
     if schedule.is_none() {
         tracing::error!(
-            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+            "Schedule {schedule_path} in {w_id} not found. Impossible to apply schedule handlers"
         );
         return Ok(tx);
     }
@@ -677,9 +679,13 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
                 tx,
                 schedule_path,
                 script_path,
+                schedule.is_flow,
                 w_id,
                 &on_failure_path,
                 result,
+                times,
+                started_at,
+                schedule.on_failure_extra_args,
                 &schedule.email,
                 &schedule_to_user(&schedule.path),
                 username_to_permissioned_as(&schedule.edited_by),
@@ -739,11 +745,14 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
                     tx,
                     schedule_path,
                     script_path,
+                    schedule.is_flow,
                     w_id,
                     &on_recovery_path,
                     failed_job,
                     result,
+                    times,
                     started_at,
+                    schedule.on_recovery_extra_args,
                     &schedule.email,
                     &schedule_to_user(&schedule.path),
                     username_to_permissioned_as(&schedule.edited_by),
@@ -783,9 +792,13 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     tx: QueueTransaction<'c, R>,
     schedule_path: &str,
     script_path: &str,
+    is_flow: bool,
     w_id: &str,
     on_failure_path: &str,
     result: &serde_json::Value,
+    failed_times: i32,
+    started_at: DateTime<Utc>,
+    extra_args: Option<serde_json::Value>,
     username: &str,
     email: &str,
     permissioned_as: String,
@@ -795,6 +808,20 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     let mut args = result.clone().as_object().unwrap().clone();
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
+    args.insert("is_flow".to_string(), json!(is_flow));
+    args.insert("started_at".to_string(), json!(started_at));
+    args.insert("failed_times".to_string(), json!(failed_times));
+
+    if let Some(args_v) = extra_args {
+        if let serde_json::Value::Object(args_m) = args_v {
+            args.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
@@ -832,11 +859,14 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     tx: QueueTransaction<'c, R>,
     schedule_path: &str,
     script_path: &str,
+    is_flow: bool,
     w_id: &str,
     on_recovery_path: &str,
     error_job: CompletedJobSubset,
     successful_job_result: &serde_json::Value,
+    successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
+    extra_args: Option<serde_json::Value>,
     username: &str,
     email: &str,
     permissioned_as: String,
@@ -852,11 +882,22 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     args.insert("error_started_at".to_string(), json!(error_job.started_at));
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
+    args.insert("is_flow".to_string(), json!(is_flow));
     args.insert("success_result".to_string(), successful_job_result.clone());
+    args.insert("success_times".to_string(), json!(successful_times));
     args.insert(
         "success_started_at".to_string(),
         json!(successful_job_started_at),
     );
+    if let Some(args_v) = extra_args {
+        if let serde_json::Value::Object(args_m) = args_v {
+            args.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,

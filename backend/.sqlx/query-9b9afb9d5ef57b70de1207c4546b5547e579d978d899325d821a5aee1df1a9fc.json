@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, on_failure_exact = $6, on_recovery = $7, on_recovery_times = $8 WHERE path = $9 AND workspace_id = $10 RETURNING *",
+  "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -90,22 +90,39 @@
       },
       {
         "ordinal": 17,
+        "name": "on_failure_extra_args",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 18,
         "name": "on_recovery_times",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "on_recovery_extra_args",
+        "type_info": "Json"
       }
     ],
     "parameters": {
       "Left": [
         "Varchar",
         "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
         "Jsonb",
+        "Bool",
+        "Varchar",
         "Varchar",
         "Int4",
         "Bool",
+        "Json",
         "Varchar",
         "Int4",
-        "Text",
-        "Text"
+        "Json"
       ]
     },
     "nullable": [
@@ -126,8 +143,10 @@
       true,
       true,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "3210f95e0c0ce218e3d1a0e43558f561da313966e34253a9e1fc92673f6b67b6"
+  "hash": "9b9afb9d5ef57b70de1207c4546b5547e579d978d899325d821a5aee1df1a9fc"
 }

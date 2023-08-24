@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -11,9 +11,14 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
+	import { inferArgs } from '$lib/infer'
+	import type { Schema, SupportedLanguage } from '$lib/common'
+
+	const slackErrorHandler = 'hub/2422/slack/schedule-error-handler-slack'
+	const slackRecoveryHandler = 'hub/2423/slack/schedule-recovery-handler-slack'
 
 	let initialPath = ''
 	let edit = true
@@ -24,7 +29,13 @@
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
 	let errorHandlerPath: string | undefined = undefined
 	let recoveryHandlerPath: string | undefined = undefined
+	let errorHandlerSelected: 'custom' | 'slack' = 'custom'
+	let errorHandlerSchema: Schema | undefined = undefined
+	let errorHandlerExtraArgs: Record<string, any> = {}
+	let recoveryHandlerSelected: 'custom' | 'slack' = 'custom'
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
+	let recoveryHandlerSchema: Schema | undefined = undefined
+	let recoveryHandlerExtraArgs: Record<string, any> = {}
 	let failedTimes = 1
 	let failedExact = false
 	let recoveredTimes = 1
@@ -112,6 +123,10 @@
 				errorHandlerPath = splitted.slice(1)?.join('/')
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
+				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
+				if (errorHandlerPath == slackErrorHandler) {
+					errorHandlerSelected = 'slack'
+				}
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
@@ -121,6 +136,10 @@
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
 				recoveredTimes = s.on_recovery_times ?? 1
+				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
+				if (recoveryHandlerPath == slackRecoveryHandler) {
+					recoveryHandlerSelected = 'slack'
+				}
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
@@ -144,10 +163,12 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
+					on_failure_extra_args: errorHandlerExtraArgs,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
-					on_recovery_times: recoveredTimes
+					on_recovery_times: recoveredTimes,
+					on_recovery_extra_args: recoveryHandlerExtraArgs
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -163,15 +184,50 @@
 					args,
 					enabled: true,
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+					on_failure_times: failedTimes,
+					on_failure_exact: failedExact,
+					on_failure_extra_args: errorHandlerExtraArgs,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-						: undefined
+						: undefined,
+					on_recovery_times: recoveredTimes,
+					on_recovery_extra_args: recoveryHandlerExtraArgs
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
 		}
 		dispatch('update')
 		drawer.closeDrawer()
+	}
+
+	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
+		try {
+			let schema: Schema | undefined = emptySchema()
+			if (p.startsWith('hub/')) {
+				const hubScript = await ScriptService.getHubScriptByPath({
+					path: p
+				})
+
+				if (hubScript.schema?.properties) {
+					schema = hubScript.schema
+				} else {
+					await inferArgs(hubScript.language as SupportedLanguage, hubScript.content ?? '', schema)
+				}
+			} else {
+				const script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+				schema = script.schema as Schema
+			}
+			if (schema && schema.properties) {
+				for (let key in schema.properties) {
+					if (defaultArgs.includes(key)) {
+						delete schema.properties[key]
+					}
+				}
+				return schema
+			}
+		} catch (err) {
+			sendUserToast(`Could not query handler schema: ${err}`, true)
+		}
 	}
 
 	$: {
@@ -181,6 +237,32 @@
 			}
 		}
 	}
+
+	$: errorHandlerPath &&
+		loadHandlerScriptArgs(errorHandlerPath, [
+			'path',
+			'is_flow',
+			'schedule_path',
+			'error',
+			'failed_times',
+			'started_at'
+		]).then((schema) => (errorHandlerSchema = schema))
+	$: recoveryHandlerPath &&
+		loadHandlerScriptArgs(recoveryHandlerPath, [
+			'path',
+			'is_flow',
+			'schedule_path',
+			'error',
+			'error_started_at',
+			'success_times',
+			'success_result',
+			'success_started_at'
+		]).then((schema) => (recoveryHandlerSchema = schema))
+
+	$: errorHandlerSelected === 'slack' && (errorHandlerPath = slackErrorHandler)
+	$: errorHandlerSelected === 'custom' && (errorHandlerPath = undefined)
+	$: recoveryHandlerSelected === 'slack' && (recoveryHandlerPath = slackRecoveryHandler)
+	$: recoveryHandlerSelected === 'custom' && (recoveryHandlerPath = undefined)
 
 	let drawer: Drawer
 </script>
@@ -242,7 +324,7 @@
 
 			<div class="flex flex-row items-center mb-2 gap-1">
 				<div class="text-xl font-extrabold">Schedule</div>
-				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+				<Tooltip light>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 			</div>
 
 			<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
@@ -289,76 +371,166 @@
 					</div>
 				{/if}
 			</div>
-			<h2 class="border-b pb-1 mt-8 mb-2">Error Handler</h2>
+			<h2 class="border-b pb-1 mt-8 mb-2"
+				>Error Handler <Tooltip light>
+					<div class="flex gap-20 items-start mt-3">
+						<div class="text-tertiary text-sm"
+							>The following args will be passed to the error handler:
+							<ul class="mt-1 ml-2">
+								<li><b>path</b>: The path of the script or flow that failed.</li>
+								<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+								<li><b>schedule_path</b>: The path of the schedule.</li>
+								<li><b>error</b>: The error details.</li>
+								<li
+									><b>failed_times</b>: Minimum number of times the schedule failed before calling
+									the error handler.</li
+								>
+								<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
+							</ul>
+						</div>
+					</div>
+				</Tooltip></h2
+			>
 
-			<ScriptPicker
-				disabled={!can_write}
-				initialPath={errorHandlerPath}
-				kind={Script.kind.SCRIPT}
-				allowFlow={true}
-				bind:scriptPath={errorHandlerPath}
-				bind:itemKind={errorHandleritemKind}
-				canRefresh
-			/>
-			<div class="flex flex-row items-center mt-5 font-bold gap-2">
-				<p>when failed</p>
-				<select class="!w-14" bind:value={failedExact}>
-					<option value={false}>&gt;=</option>
-					<option value={true}>==</option>
-				</select>
-				<input type="number" class="!w-14 text-center" bind:value={failedTimes} min="1" />
-				<p>time{failedTimes > 1 ? 's' : ''} in a row</p>
+			<div>
+				<Tabs bind:selected={errorHandlerSelected} class="mt-2 mb-4">
+					<Tab value="custom">Custom</Tab>
+					<Tab value="slack">Slack</Tab>
+				</Tabs>
 			</div>
-			<div class="flex gap-20 items-start mt-3">
-				<div class="text-tertiary text-sm"
-					>The following args will be passed to the error handler:
-					<ul class="mt-1 ml-2">
-						<li><b>path</b>: The path of the script or flow that errored.</li>
-						<li><b>schedule_path</b>: The path of the schedule.</li>
-						<li><b>error</b>: The error details.</li>
-					</ul>
+
+			{#if errorHandlerSelected === 'custom'}
+				<div class="flex flex-row mb-2">
+					<ScriptPicker
+						disabled={!can_write}
+						initialPath={errorHandlerPath}
+						kind={Script.kind.SCRIPT}
+						allowFlow={true}
+						bind:scriptPath={errorHandlerPath}
+						bind:itemKind={errorHandleritemKind}
+						allowRefresh
+					/>
+
+					{#if errorHandlerPath === undefined}
+						<Button
+							btnClasses="ml-4 mt-2"
+							color="dark"
+							size="xs"
+							href="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
+							target="_blank">Create from template</Button
+						>
+					{/if}
 				</div>
-				<Button
-					wrapperClasses="mt-6"
-					href="/scripts/add?hub=hub%2F1087%2Fwindmill%2Fschedule_error_handler_template"
-					target="_blank">Use template</Button
-				>
-			</div>
+			{:else if errorHandlerSelected === 'slack'}
+				<Alert type="info" title="Slack schedule error handler"
+					>You will receive a notification on the selected slack channel.
+				</Alert>
+			{/if}
 
-			<h2 class="border-b pb-1 mt-8 mb-2">Recovery Handler</h2>
-
-			<ScriptPicker
-				disabled={!can_write}
-				initialPath={recoveryHandlerPath}
-				kind={Script.kind.SCRIPT}
-				allowFlow={true}
-				bind:scriptPath={recoveryHandlerPath}
-				bind:itemKind={recoveryHandlerItemKind}
-				canRefresh
-			/>
-			<div class="flex flex-row items-center mt-5 font-bold">
-				<p>when recovered</p>
-				<input type="number" class="!w-14 mx-2 text-center" bind:value={recoveredTimes} min="1" />
-				<p>time{recoveredTimes > 1 ? 's' : ''} in a row</p>
-			</div>
-			<div class="flex gap-20 items-start mt-3">
-				<div class="text-tertiary text-sm"
-					>The following args will be passed to the recovery handler:
-					<ul class="mt-1 ml-2">
-						<li><b>path</b>: The path of the script or flow that errored.</li>
-						<li><b>schedule_path</b>: The path of the schedule.</li>
-						<li><b>error</b>: The error of the last job that errored</li>
-						<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
-						<li><b>success_result</b>: The result of the latest successful job</li>
-						<li><b>success_started_at</b>: The start datetime of the latest successful job</li>
-					</ul>
+			<div class="flex flex-row items-center justify-between">
+				<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
+					<p>Triggered when schedule failed</p>
+					<select class="!w-14" bind:value={failedExact}>
+						<option value={false}>&gt;=</option>
+						<option value={true}>==</option>
+					</select>
+					<input type="number" class="!w-14 text-center" bind:value={failedTimes} min="1" />
+					<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
 				</div>
-				<Button
-					wrapperClasses="mt-6"
-					href="/scripts/add?hub=hub%2F2418%2Fwindmill%2FSchedule_recovery_handler_template"
-					target="_blank">Use template</Button
-				>
 			</div>
+			{#if errorHandlerPath}
+				<p class="font-semibold text-sm mt-4 mb-2"
+					>{errorHandlerSelected !== 'custom' ? 'Configuration' : 'Extra arguments'}</p
+				>
+				<SchemaForm
+					disabled={!can_write}
+					schema={errorHandlerSchema}
+					bind:args={errorHandlerExtraArgs}
+					shouldHideNoInputs
+					class="text-xs"
+				/>
+				{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
+					<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+				{/if}
+			{/if}
+
+			<h2 class="border-b pb-1 mt-8 mb-2"
+				>Recovery Handler <Tooltip light
+					><div class="text-tertiary text-sm"
+						>The following args will be passed to the recovery handler:
+						<ul class="mt-1 ml-2">
+							<li><b>path</b>: The path of the script or flow that recovered.</li>
+							<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+							<li><b>schedule_path</b>: The path of the schedule.</li>
+							<li><b>error</b>: The error of the last job that errored</li>
+							<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
+							<li
+								><b>success_times</b>: The number of times the schedule succeeded before calling the
+								recovery handler.</li
+							>
+							<li><b>success_result</b>: The result of the latest successful job</li>
+							<li><b>success_started_at</b>: The start datetime of the latest successful job</li>
+						</ul>
+					</div></Tooltip
+				></h2
+			>
+
+			<Tabs bind:selected={recoveryHandlerSelected} class="mt-2 mb-4">
+				<Tab value="custom">Custom</Tab>
+				<Tab value="slack">Slack</Tab>
+			</Tabs>
+
+			{#if recoveryHandlerSelected === 'custom'}
+				<div class="flex flex-row mb-2">
+					<ScriptPicker
+						disabled={!can_write}
+						initialPath={recoveryHandlerPath}
+						kind={Script.kind.SCRIPT}
+						allowFlow={true}
+						bind:scriptPath={recoveryHandlerPath}
+						bind:itemKind={recoveryHandlerItemKind}
+						allowRefresh
+					/>
+
+					{#if recoveryHandlerPath === undefined}
+						<Button
+							btnClasses="ml-4 mt-2"
+							color="dark"
+							size="xs"
+							href="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
+							target="_blank">Create from template</Button
+						>
+					{/if}
+				</div>
+			{:else if recoveryHandlerSelected === 'slack'}
+				<Alert type="info" title="Slack schedule recovery handler"
+					>You will receive a notification on the selected slack channel.
+				</Alert>
+			{/if}
+
+			<div class="flex flex-row items-center justify-between">
+				<div class="flex flex-row items-center mt-5 font-semibold text-sm">
+					<p>Triggered when schedule recovered</p>
+					<input type="number" class="!w-14 mx-2 text-center" bind:value={recoveredTimes} min="1" />
+					<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+				</div>
+			</div>
+
+			{#if recoveryHandlerPath}
+				<p class="font-semibold text-sm mt-4 mb-2"
+					>{recoveryHandlerSelected === 'custom' ? 'Extra arguments' : 'Configuration'}</p
+				>
+				<SchemaForm
+					disabled={!can_write}
+					schema={recoveryHandlerSchema}
+					bind:args={recoveryHandlerExtraArgs}
+					shouldHideNoInputs
+					class="text-xs"
+				/>
+				{#if recoveryHandlerSchema && recoveryHandlerSchema.properties && Object.keys(recoveryHandlerSchema.properties).length === 0}
+					<div class="text-xs texg-gray-700">This recovery handler takes no extra arguments</div>
+				{/if}
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>

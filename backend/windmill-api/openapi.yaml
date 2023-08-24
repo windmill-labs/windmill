@@ -6815,10 +6815,14 @@ components:
           type: number
         on_failure_exact:
           type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
         on_recovery_times:
           type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - edited_by
@@ -6876,10 +6880,14 @@ components:
           type: number
         on_failure_exact:
           type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
         on_recovery_times:
           type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - schedule
@@ -6904,10 +6912,14 @@ components:
           type: number
         on_failure_exact:
           type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
         on_recovery:
           type: string
         on_recovery_times:
           type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - schedule
         - timezone

@@ -34,16 +34,8 @@ INSERT INTO public.script(workspace_id, created_by, content, schema, summary, de
 'test-workspace',
 'system',
 '
-export async function main(
-  path: string, // The path of the script or flow that errored
-  schedule_path: string, // The path of the schedule
-  error: object, // The error details
-) {
-  console.log(
-    `Schedule ${schedule_path} failed (script or flow: ${path})`,
-  );
-  console.log(error);
-  return error;
+export async function main() {
+  return "Error handler";
 }
 ',
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"path":{"default":null,"description":"","type":"string"},"schedule_path":{"default":null,"description":"","type":"string"},"error":{"default":null,"description":"","properties":{},"type":"object"}},"required":["path","schedule_path","error"],"type":"object"}',
@@ -55,20 +47,8 @@ INSERT INTO public.script(workspace_id, created_by, content, schema, summary, de
 'test-workspace',
 'system',
 '
-export async function main(
-  path: string, // The path of the script or flow that errored
-  schedule_path: string, // The path of the schedule
-  error: object, // The error of the last job that errored
-  error_started_at: string, // The start datetime of the last job that errored
-  success_result: object, // The result of the latest successful job
-  success_started_at: string, // The start datetime of the latest successful job
-) {
-  console.log(
-    `Schedule ${schedule_path} failed and then recovered (script or flow: ${path})`,
-  );
-  console.log("Error:", error);
-  console.log("Success result:", success_result)
-  return error;
+export async function main() {
+  return "Recovery handler";
 }
 ',
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"path":{"default":null,"description":"","type":"string"},"schedule_path":{"default":null,"description":"","type":"string"},"previous_job_error":{"default":null,"description":"","type":"string"},"result":{"default":null,"description":"","type":"string"}},"required":["path","schedule_path","previous_job_error","result"],"type":"object"}',
