@@ -169,24 +169,30 @@
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput?.type == 'evalv2') {
+			const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
+				iterContext ? $iterContext.index : 0
+			}`
 			const input = lastInput as EvalV2AppInput
 			for (const c of input.connections ?? []) {
 				const previousValueKey = `${c.componentId}-${c.id}`
 				$worldStore?.connect<any>(
 					c,
 					onEvalChange(previousValueKey),
-					`${id}-${key}`,
+					skey,
 					previousConnectedValues[previousValueKey]
 				)
 			}
 		} else if (lastInput?.type == 'templatev2') {
 			const input = lastInput as TemplateV2Input
+			const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
+				iterContext ? $iterContext.index : 0
+			}`
 			for (const c of input.connections ?? []) {
 				const previousValueKey = `${c.componentId}-${c.id}`
 				$worldStore?.connect<any>(
 					c,
 					onTemplateChange(previousValueKey),
-					`${id}-${key}`,
+					skey,
 					previousConnectedValues[previousValueKey]
 				)
 			}
