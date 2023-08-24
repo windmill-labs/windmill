@@ -89,15 +89,8 @@
 						class="h-7"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
-							if (e.detail == 'connected' && !componentInput['connection']) {
-								$connectingInput = {
-									opened: true,
-									input: undefined,
-									hoveredComponent: undefined,
-									onConnect: applyConnection
-								}
-							} else if (
-								e.detail == 'eval' &&
+							if (
+								e.detail == 'evalv2' &&
 								componentInput['value'] != undefined &&
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
