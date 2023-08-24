@@ -56,7 +56,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import * as wmill from "windmill-client@${__pkg__.version}"
+import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -118,7 +118,7 @@ export async function main(x: string) {
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client@${__pkg__.version}"
+export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
 
 export async function main(x: string) {
   return x
