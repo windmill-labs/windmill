@@ -196,10 +196,10 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.longitude} bind:value={longitude} />
-<InputValue {id} input={configuration.latitude} bind:value={latitude} />
-<InputValue {id} input={configuration.zoom} bind:value={zoom} />
-<InputValue {id} input={configuration.markers} bind:value={markers} />
+<InputValue key="longitude" {id} input={configuration.longitude} bind:value={longitude} />
+<InputValue key="latitude" {id} input={configuration.latitude} bind:value={latitude} />
+<InputValue key="zoom" {id} input={configuration.zoom} bind:value={zoom} />
+<InputValue key="markers" {id} input={configuration.markers} bind:value={markers} />
 
 <InitializeComponent {id} />
 

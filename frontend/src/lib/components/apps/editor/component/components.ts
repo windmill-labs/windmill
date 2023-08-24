@@ -335,7 +335,7 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there',
+				placeholder: 'Hello there'
 			}
 		},
 		openModal: {
@@ -343,7 +343,7 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to open',
 				fieldType: 'text',
 				type: 'static',
-				value: '',
+				value: ''
 			}
 		},
 		closeModal: {
@@ -351,7 +351,7 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to close',
 				fieldType: 'text',
 				type: 'static',
-				value: '',
+				value: ''
 			}
 		}
 	}
@@ -1896,7 +1896,9 @@ This is a paragraph.
 				outputFormat: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'text'
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
 				}
 			}
 		}

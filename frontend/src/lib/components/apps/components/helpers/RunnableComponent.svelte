@@ -462,7 +462,7 @@
 	{#if v.type != 'static' && v.type != 'user'}
 		<InputValue
 			bind:this={inputValues[key]}
-			key={key + extraKey + (iterContext ? $iterContext?.index : '')}
+			key={key + extraKey}
 			{id}
 			input={fields[key]}
 			bind:value={runnableInputValues[key]}
@@ -472,7 +472,7 @@
 
 {#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
-		{@const fkey = `${tid}-${key}${extraKey}${iterContext ? $iterContext?.index : ''}}`}
+		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
 			{id}
 			key={fkey}
