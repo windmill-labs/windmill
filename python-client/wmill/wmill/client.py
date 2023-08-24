@@ -47,7 +47,12 @@ def create_client(
     global _client
     if _client is None:
         _client = AuthenticatedClient(
-            base_url=base_url_, token=token_, timeout=30, verify_ssl=False
+            base_url=base_url_,
+            token=token_,
+            timeout=30,
+            verify_ssl=False,
+            follow_redirects=True,
+            raise_on_unexpected_status=False,
         )
     return _client
 
@@ -99,6 +104,47 @@ def run_script_sync(
     Run a script, wait for it to complete and return the result of the launched script
     """
     job_id = run_script_async(hash, args, None)
+    nb_iter = 0
+    while get_job_status(job_id) != JobStatus.COMPLETED:
+        if verbose:
+            print(f"Waiting for {job_id} to complete...")
+        if nb_iter < 10:
+            sleep(2.0)
+        else:
+            sleep(5.0)
+        nb_iter += 1
+    return get_result(job_id)
+
+
+def run_script_by_path_async(
+    path: str,
+    args: Dict[str, Any] = {},
+    scheduled_in_secs: Union[None, int] = None,
+) -> str:
+    """
+    Launch the run of a script and return immediately its job id
+    """
+    from windmill_api.api.job import run_script_by_path
+
+    from windmill_api.models.run_script_by_path_json_body import RunScriptByPathJsonBody
+
+    return run_script_by_path.sync_detailed(
+        client=create_client(),
+        workspace=get_workspace(),
+        path=path,
+        json_body=RunScriptByPathJsonBody.from_dict(args),
+        scheduled_in_secs=scheduled_in_secs,
+        parent_job=os.environ.get("DT_JOB_ID"),
+    ).content.decode("us-ascii")
+
+
+def run_script_by_path_sync(
+    path: str, args: Dict[str, Any] = {}, verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Run a script, wait for it to complete and return the result of the launched script
+    """
+    job_id = run_script_by_path_async(path, args, None)
     nb_iter = 0
     while get_job_status(job_id) != JobStatus.COMPLETED:
         if verbose:
