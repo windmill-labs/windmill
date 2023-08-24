@@ -25,25 +25,27 @@
 	$: runnable && ($app = $app)
 </script>
 
-<div class={'border-y border-gray-200 divide-y'}>
+<div class={'border-y divide-y '}>
 	<ScriptSettingHeader name={runnable.name} />
-	<ScriptTransformer bind:appInput={runnable} {id} />
-	{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
-		<ScriptRunConfiguration
-			bind:autoRefresh={runnable.autoRefresh}
-			bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
-			canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
-				runnable.inlineScript?.language !== 'frontend'}
-			on:updateAutoRefresh={updateAutoRefresh}
-		>
-			<BackgroundScriptTriggerBy
-				bind:script={runnable}
-				recomputeOnInputChanged={runnable.recomputeOnInputChanged}
-			/>
-		</ScriptRunConfiguration>
-	{:else}
-		<ScriptSettingsSection title="Language selection">
-			<div class="text-xs"> Please configure the language in the inline script panel </div>
-		</ScriptSettingsSection>
-	{/if}
+	<div class="p-2">
+		<ScriptTransformer bind:appInput={runnable} {id} />
+		{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
+			<ScriptRunConfiguration
+				bind:autoRefresh={runnable.autoRefresh}
+				bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
+				canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
+					runnable.inlineScript?.language !== 'frontend'}
+				on:updateAutoRefresh={updateAutoRefresh}
+			>
+				<BackgroundScriptTriggerBy
+					bind:script={runnable}
+					recomputeOnInputChanged={runnable.recomputeOnInputChanged}
+				/>
+			</ScriptRunConfiguration>
+		{:else}
+			<ScriptSettingsSection title="Language selection">
+				<div class="text-xs"> Please configure the language in the inline script panel </div>
+			</ScriptSettingsSection>
+		{/if}
+	</div>
 </div>
