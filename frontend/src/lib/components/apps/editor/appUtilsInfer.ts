@@ -13,9 +13,12 @@ export async function inferDeps(
 	const outputs = await parseOutputs(code, true)
 	if (outputs && componentInput) {
 		const noutputs = outputs
-			.filter(([key, id]) => key == 'row' || key == 'iter' || id in (worldOutputs[key] ?? {}))
-			.map(([key, id]) => ({
-				componentId: key,
+			.filter(
+				([componentId, id]) =>
+					componentId == 'row' || componentId == 'iter' || id in (worldOutputs[componentId] ?? {})
+			)
+			.map(([componentId, id]) => ({
+				componentId: componentId,
 				id: id
 			}))
 		if (!deepEqual(noutputs, componentInput.connections)) {
