@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput, selectId } from '../../editor/appUtils'
+	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
@@ -11,8 +11,9 @@
 	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -29,12 +30,15 @@
 	const { app, worldStore, selectedComponent, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	let resolvedConfig = initConfig(
+		components['textinputcomponent'].initialData.configuration,
+		configuration
+	)
+
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let placeholder: string | undefined = undefined
-	let defaultValue: string | undefined = undefined
-	let value: string | undefined = undefined
+	let value: string | undefined = resolvedConfig.defaultValue
 
 	let outputs = initOutput($worldStore, id, {
 		result: ''
@@ -46,7 +50,7 @@
 		}
 	}
 
-	$: handleDefault(defaultValue)
+	$: handleDefault(resolvedConfig.defaultValue)
 
 	$: {
 		let val = value ?? ''
@@ -63,9 +67,14 @@
 	$: css = concatCustomCss($app.css?.[appCssKey], customCss)
 </script>
 
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-
+{#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 <InitializeComponent {id} />
 {#if render}
 	{#if inputType === 'textarea'}
@@ -79,7 +88,7 @@
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			on:keydown|stopPropagation
 			bind:value
-			{placeholder}
+			placeholder={resolvedConfig.placeholder}
 		/>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
@@ -95,7 +104,7 @@
 					on:keydown|stopPropagation
 					type="password"
 					bind:value
-					{placeholder}
+					placeholder={resolvedConfig.placeholder}
 				/>
 			{:else if inputType === 'text'}
 				<input
@@ -109,7 +118,7 @@
 					on:keydown|stopPropagation
 					type="text"
 					bind:value
-					{placeholder}
+					placeholder={resolvedConfig.placeholder}
 				/>
 			{:else if inputType === 'email'}
 				<input
@@ -123,7 +132,7 @@
 					on:keydown|stopPropagation
 					type="email"
 					bind:value
-					{placeholder}
+					placeholder={resolvedConfig.placeholder}
 				/>
 			{/if}
 		</AlignWrapper>

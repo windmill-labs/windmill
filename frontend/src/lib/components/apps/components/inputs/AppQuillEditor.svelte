@@ -83,8 +83,8 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+<InputValue key="placeholder" {id} input={configuration.placeholder} bind:value={placeholder} />
+<InputValue key="value" {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
 <InitializeComponent {id} />
 {#if render}

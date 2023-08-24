@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
@@ -11,8 +11,9 @@
 	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { components } from '../../editor/component'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -25,25 +26,24 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let defaultValue: number | undefined = undefined
-	let placeholder: string | undefined = undefined
-	let value: number | undefined = undefined
+	let resolvedConfig = initConfig(
+		components['numberinputcomponent'].initialData.configuration,
+		configuration
+	)
+
+	let value: number | undefined = resolvedConfig.defaultValue
 
 	$componentControl[id] = {
-		setValue(nvalue: number) {
+		setValue(nvalue: number | undefined) {
 			value = nvalue
 		}
 	}
-
-	let min: number | undefined = undefined
-	let max: number | undefined = undefined
-	let step = 1
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as number | undefined
 	})
 
-	$: handleDefault(defaultValue)
+	$: handleDefault(resolvedConfig.defaultValue)
 
 	$: {
 		outputs?.result.set(value)
@@ -59,11 +59,14 @@
 	$: css = concatCustomCss($app.css?.numberinputcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.step} bind:value={step} />
-<InputValue {id} input={configuration.min} bind:value={min} />
-<InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+{#each Object.keys(components['numberinputcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
@@ -77,12 +80,12 @@
 		)}
 		style={css?.input?.style ?? ''}
 		bind:value
-		{min}
-		{max}
-		{step}
+		min={resolvedConfig.min}
+		max={resolvedConfig.max}
+		step={resolvedConfig.step}
 		type="number"
 		inputmode="numeric"
 		pattern="\d*"
-		{placeholder}
+		placeholder={resolvedConfig.placeholder}
 	/>
 </AlignWrapper>

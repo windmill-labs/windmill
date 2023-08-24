@@ -29,7 +29,7 @@
 <InitializeComponent {id} />
 
 {#if componentInput.type !== 'runnable'}
-	<InputValue {id} input={componentInput} bind:value={result} />
+	<InputValue key="nonrunnable" {id} input={componentInput} bind:value={result} />
 {/if}
 
 {#if render}

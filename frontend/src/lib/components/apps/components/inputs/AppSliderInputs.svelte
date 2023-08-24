@@ -9,11 +9,12 @@
 		RichConfigurations
 	} from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { concatCustomCss } from '../../utils'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -26,9 +27,19 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let min = 0
-	let max = 42
-	let step = 1
+
+	let resolvedConfig = initConfig(
+		components['slidercomponent'].initialData.configuration,
+		configuration
+	)
+
+	let values: [number] = [resolvedConfig.defaultValue ?? 0]
+
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
+
+	function handleDefault() {
+		values = [resolvedConfig?.defaultValue ?? 0]
+	}
 
 	let slider: HTMLElement
 
@@ -36,11 +47,9 @@
 		result: (0 as number) || null
 	})
 
-	let values: [number] = [outputs?.result.peak() ?? 0]
-
 	$componentControl[id] = {
 		setValue(nvalue: number) {
-			values[0] = nvalue
+			values = [nvalue]
 		}
 	}
 
@@ -74,7 +83,7 @@
 	const spanClass =
 		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
 	function computeWidth() {
-		let maxValue = max + step
+		let maxValue = resolvedConfig.max ?? 0 + (resolvedConfig.step ?? 0)
 
 		if (typeof document !== 'undefined') {
 			const span = document.createElement('span')
@@ -89,24 +98,28 @@
 		}
 	}
 
-	$: if (max && step && render) {
+	$: if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
 		computeWidth()
 	}
 
 	let vertical = false
 </script>
 
-<InputValue {id} input={configuration.step} bind:value={step} />
-<InputValue {id} input={configuration.min} bind:value={min} />
-<InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue {id} input={configuration.vertical} bind:value={vertical} />
-<InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
+{#each Object.keys(components['slidercomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div class="flex {vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1">
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{vertical ? +max : +min}
+			{vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
 		</span>
 		<div
 			class="grow"
@@ -114,10 +127,17 @@
 				''}"
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
-			<RangeSlider {vertical} bind:slider bind:values {step} min={+min} max={+max} />
+			<RangeSlider
+				{vertical}
+				bind:slider
+				bind:values
+				step={resolvedConfig.step}
+				min={+(resolvedConfig?.min ?? 0)}
+				max={+(resolvedConfig?.max ?? 0)}
+			/>
 		</div>
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{vertical ? +min : +max}
+			{vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
 		</span>
 		<span class="mx-2">
 			<span

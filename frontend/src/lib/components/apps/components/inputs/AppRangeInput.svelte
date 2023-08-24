@@ -32,9 +32,11 @@
 	)
 
 	let values: [number, number] = [0, 1]
-	$: (resolvedConfig.defaultLow || resolvedConfig.defaultHigh) && handleMin()
 
-	function handleMin() {
+	$: (resolvedConfig.defaultLow != undefined || resolvedConfig.defaultHigh != undefined) &&
+		handleDefault()
+
+	function handleDefault() {
 		values = [resolvedConfig?.defaultLow ?? 0, resolvedConfig?.defaultHigh ?? 1]
 	}
 
