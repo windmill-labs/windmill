@@ -40,6 +40,8 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let resolvedConfig = initConfig(
 		components['buttoncomponent'].initialData.configuration,
@@ -54,6 +56,17 @@
 		jobId: undefined
 	})
 
+	if (rowContext && rowInputs) {
+		const inputOutput = { result: outputs.result.peak(), loading: false }
+		rowInputs(id, inputOutput)
+	}
+
+	if (iterContext && listInputs) {
+		const inputOutput = { result: outputs.result.peak(), loading: false }
+		listInputs(id, inputOutput)
+	}
+
+	console.log('FOO')
 	if (controls) {
 		$componentControl[id] = controls
 	}
@@ -89,9 +102,12 @@
 		event?.preventDefault()
 
 		$selectedComponent = [id]
-
+		const inputOutput = { result: outputs.result.peak(), loading: true }
 		if (rowContext && rowInputs) {
-			rowInputs(id, { result: outputs.result.peak(), loading: true })
+			rowInputs(id, inputOutput)
+		}
+		if (iterContext && listInputs) {
+			listInputs(id, inputOutput)
 		}
 		if (preclickAction) {
 			await preclickAction()
