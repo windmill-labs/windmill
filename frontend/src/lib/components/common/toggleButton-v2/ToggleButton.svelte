@@ -46,8 +46,7 @@
 			{label}
 		{/if}
 	</Tab>
-
 	<svelte:fragment slot="text">
-		{tooltip ?? label}
+		{tooltip}
 	</svelte:fragment>
 </Popover>

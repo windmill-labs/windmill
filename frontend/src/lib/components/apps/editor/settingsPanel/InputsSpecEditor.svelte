@@ -45,7 +45,7 @@
 			expr: expr,
 			connections: [{ componentId: connection.componentId, id: connection.path.split('.')[0] }]
 		}
-		evalV2editor.setCode(expr)
+		evalV2editor?.setCode(expr)
 		$app = $app
 	}
 
@@ -113,22 +113,24 @@
 						{/if}
 						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
 					</ToggleButtonGroup>
-					<Button
-						size="xs"
-						variant="border"
-						color="light"
-						title="Connect"
-						on:click={() => {
-							$connectingInput = {
-								opened: true,
-								input: undefined,
-								hoveredComponent: undefined,
-								onConnect: applyConnection
-							}
-						}}
-					>
-						<Plug size={12} />
-					</Button>
+					<div>
+						<Button
+							size="xs"
+							variant="border"
+							color="light"
+							title="Connect"
+							on:click={() => {
+								$connectingInput = {
+									opened: true,
+									input: undefined,
+									hoveredComponent: undefined,
+									onConnect: applyConnection
+								}
+							}}
+						>
+							<Plug size={14} />
+						</Button>
+					</div>
 				{/if}
 			</div>
 		</div>
