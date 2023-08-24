@@ -282,7 +282,7 @@
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
-  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path} | jq -r"`)
+  "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path} | jq -r ."`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}

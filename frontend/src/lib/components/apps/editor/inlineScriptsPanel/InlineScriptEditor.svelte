@@ -132,11 +132,11 @@
 
 	async function inferSuggestions(code: string) {
 		const outputs = await parseOutputs(code, true)
-		if (outputs) {
-			for (const [key, id] of outputs) {
+		if (outputs && inlineScript) {
+			inlineScript.suggestedRefreshOn = []
+			for (const [id, key] of outputs) {
 				if (
-					id in ($worldStore?.outputsById[key] ?? {}) &&
-					inlineScript &&
+					key in ($worldStore?.outputsById[id] ?? {}) &&
 					!itemsExists(inlineScript.refreshOn, { key, id }) &&
 					!itemsExists(inlineScript.suggestedRefreshOn, { key, id })
 				) {
@@ -146,6 +146,7 @@
 					]
 				}
 			}
+			$stateId++
 		}
 	}
 </script>
@@ -169,6 +170,10 @@
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-xs"
+						on:keydown={() => {
+							$app = $app
+							$stateId++
+						}}
 					/>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>

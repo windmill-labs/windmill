@@ -17,7 +17,7 @@
 
 	$: changeEvents = isFrontend
 		? inlineScript?.refreshOn
-			? inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
+			? inlineScript.refreshOn.map((x) => `${x.id}.${x.key}`)
 			: []
 		: dependencies
 
@@ -30,7 +30,7 @@
 		indigo: 'text-indigo-800 border-indigo-600 bg-indigo-100',
 		blue: 'text-blue-800 border-blue-600 bg-blue-100'
 	}
-	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	function applyConnection(connection: InputConnection) {
 		const refresh = {
@@ -70,7 +70,7 @@
 		</div>
 	{/if}
 	{#if changeEvents.length > 0 && shoudlDisplayChangeEvents}
-		<div class="text-xs font-semibold text-secondary mb-1 mt-2">Change on value</div>
+		<div class="text-xs font-semibold text-secondary mb-1 mt-2">Values watched</div>
 		<div class="flex flex-row gap-2 flex-wrap">
 			{#each changeEvents as changeEvent}
 				<span class={classNames(badgeClass, colors['blue'])}>
@@ -88,9 +88,9 @@
 							on:click={() => {
 								if (inlineScript?.refreshOn) {
 									inlineScript.refreshOn = inlineScript.refreshOn.filter(
-										(x) => `${x.id} - ${x.key}` !== changeEvent
+										(x) => `${x.id}.${x.key}` !== changeEvent
 									)
-									const ch = changeEvent.split(' - ')
+									const ch = changeEvent.split('.')
 									const suggestion = {
 										id: ch[0],
 										key: ch[1]
@@ -135,26 +135,28 @@
 	{#if (inlineScript?.suggestedRefreshOn ?? []).length > 0}
 		<div class="gap-1 flex flex-wrap mb-2"
 			><span class="text-secondary text-sm">Quick add:</span>
-			{#each inlineScript?.suggestedRefreshOn ?? [] as suggestion}
-				<button
-					class={classNames(
-						'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer !text-2xs text-secondary',
-						badgeClass
-					)}
-					on:click={() => {
-						if (inlineScript) {
-							if (!itemsExists(inlineScript.refreshOn, suggestion)) {
-								inlineScript.refreshOn = [...(inlineScript.refreshOn ?? []), suggestion]
-								inlineScript.suggestedRefreshOn = inlineScript.suggestedRefreshOn?.filter(
-									(x) => !deepEqual(x, suggestion)
-								)
+			{#key $stateId}
+				{#each inlineScript?.suggestedRefreshOn ?? [] as suggestion}
+					<button
+						class={classNames(
+							'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer !text-2xs text-secondary',
+							badgeClass
+						)}
+						on:click={() => {
+							if (inlineScript) {
+								if (!itemsExists(inlineScript.refreshOn, suggestion)) {
+									inlineScript.refreshOn = [...(inlineScript.refreshOn ?? []), suggestion]
+									inlineScript.suggestedRefreshOn = inlineScript.suggestedRefreshOn?.filter(
+										(x) => !deepEqual(x, suggestion)
+									)
+								}
 							}
-						}
-					}}
-				>
-					+{suggestion.key}-{suggestion.id}
-				</button>
-			{/each}
+						}}
+					>
+						+{suggestion.id}.{suggestion.key}
+					</button>
+				{/each}
+			{/key}
 		</div>
 	{/if}
 {/if}

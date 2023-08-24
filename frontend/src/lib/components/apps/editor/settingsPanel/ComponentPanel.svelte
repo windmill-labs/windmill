@@ -30,6 +30,8 @@
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
+	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
+	import type { ResultAppInput } from '../../inputType'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -127,6 +129,35 @@
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
 		: false
+
+	let evalV2editor: EvalV2InputEditor | undefined = undefined
+
+	function transformToFrontend() {
+		if (componentSettings?.item.data.componentInput) {
+			const id = componentSettings?.item?.data?.id
+			let appInput: ResultAppInput = {
+				...componentSettings.item.data.componentInput,
+				type: 'runnable',
+				runnable: {
+					type: 'runnableByName',
+					name: `Eval of ${id}`,
+					inlineScript: {
+						path: `${id}_eval`,
+						content: `return ${componentSettings?.item.data.componentInput?.['expr']}`,
+						language: 'frontend',
+						refreshOn: componentSettings?.item.data.componentInput?.['connections']?.map((c) => {
+							return {
+								id: c.componentId,
+								key: c.id
+							}
+						})
+					}
+				},
+				fields: {}
+			}
+			componentSettings.item.data.componentInput = appInput
+		}
+	}
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -171,6 +202,7 @@
 
 				{#if componentSettings.item.data.componentInput}
 					<ComponentInputTypeEditor
+						{evalV2editor}
 						bind:componentInput={componentSettings.item.data.componentInput}
 					/>
 
@@ -219,6 +251,15 @@
 							<ConnectedInputEditor
 								bind:componentInput={componentSettings.item.data.componentInput}
 							/>
+						{:else if componentSettings.item.data.componentInput.type === 'evalv2' && component.componentInput !== undefined}
+							<EvalV2InputEditor
+								bind:this={evalV2editor}
+								id={component.id}
+								bind:componentInput={componentSettings.item.data.componentInput}
+							/>
+							<a class="text-2xs" on:click={transformToFrontend} href="#"
+								>transform to a frontend script</a
+							>
 						{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
 							<RunnableInputEditor
 								appComponent={component}
@@ -257,7 +298,7 @@
 			</PanelSection>
 		{/if}
 		{#if Object.values(initialConfiguration).length > 0}
-			<PanelSection title={`Configuration (${Object.values(initialConfiguration).length})`}>
+			<PanelSection title="Configuration">
 				<InputsSpecsEditor
 					id={component.id}
 					inputSpecsConfiguration={initialConfiguration}
