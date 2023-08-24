@@ -180,8 +180,7 @@ pub async fn handle_bun_job(
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
             return Err(error::Error::ExecutionErr(
-                "Invalid requirements, expectd to find //bun.lockb split pattern in reqs"
-                    .to_string(),
+                format!("Invalid requirements, expectd to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
