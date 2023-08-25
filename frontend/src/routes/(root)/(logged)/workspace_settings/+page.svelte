@@ -588,7 +588,7 @@
 		{:else if tab == 'error_handler'}
 			<PageHeader title="Script to run as error handler" primary={false} />
 			<ScriptPicker
-				kind={Script.kind.SCRIPT}
+				kind={undefined}
 				bind:itemKind={errorHandlerItemKind}
 				bind:scriptPath={errorHandlerScriptPath}
 				initialPath={errorHandlerInitialPath}
