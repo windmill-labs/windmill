@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, RichConfigurations } from '../../types'
 
@@ -42,11 +42,9 @@
 		}
 	}
 
-	let renderer: (props: CCProps<any, any>) => void
-
 	// $: renderer && divEl && renderer(ccProps)
-
-	o{
+	$: render && load()
+	async function load() {
 		// //@ts-ignore
 		// await import('http://localhost:3000/app.iife.js')
 		/* @vite-ignore */
@@ -60,13 +58,13 @@
 		await import('http://localhost:3000/cc.iife.js')
 
 		try {
-			renderer = globalThis.windmill['foo']
-			renderer(ccProps)
+			let renderer: ((props: CCProps<any, any>) => void) | undefined = globalThis.windmill['foo']
+			renderer?.(ccProps)
 		} catch (e) {
 			sendUserToast('Custom Component seem to be ill-defined', true)
 			console.error(e)
 		}
-	})
+	}
 </script>
 
 <InitializeComponent {id} />
