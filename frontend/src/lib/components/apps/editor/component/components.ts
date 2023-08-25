@@ -74,6 +74,7 @@ export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type CustomComponent = BaseComponent<'customcomponent'>
 export type MarkdownComponent = BaseComponent<'mardowncomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
@@ -158,6 +159,7 @@ export type TypedComponent =
 	| BarChartComponent
 	| TimeseriesComponent
 	| HtmlComponent
+	| CustomComponent
 	| MarkdownComponent
 	| TableComponent
 	| TextComponent
@@ -1031,6 +1033,23 @@ src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8
 <h1 class="absolute top-4 left-2 text-white">
 Hello \${ctx.username}
 </h1>`
+			},
+			configuration: {}
+		}
+	},
+	customcomponent: {
+		name: 'Custom',
+		icon: Code2,
+		documentationLink: `${documentationBaseUrl}#custom`,
+		dims: '1:2-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {}
 			},
 			configuration: {}
 		}
