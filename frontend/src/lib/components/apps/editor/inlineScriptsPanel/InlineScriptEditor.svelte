@@ -170,7 +170,7 @@
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-xs"
-						on:keydown={() => {
+						on:keyup={() => {
 							$app = $app
 							$stateId++
 						}}
