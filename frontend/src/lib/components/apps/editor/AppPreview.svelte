@@ -93,7 +93,8 @@
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath,
-		darkMode
+		darkMode,
+		cssEditorOpen: writable(false)
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -145,7 +146,11 @@
 
 		<div
 			style={app.css?.['app']?.['grid']?.style}
-			class={twMerge('px-4 pt-4 pb-2 overflow-visible', app.css?.['app']?.['grid']?.class ?? '')}
+			class={twMerge(
+				'px-4 pt-4 pb-2 overflow-visible',
+				app.css?.['app']?.['grid']?.class ?? '',
+				'wm-app-grid'
+			)}
 			bind:clientWidth={$parentWidth}
 		>
 			<div>

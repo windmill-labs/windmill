@@ -266,6 +266,7 @@
 			class={twMerge(
 				'border  shadow-sm divide-y h-full',
 				css?.container?.class ?? '',
+				'wm-table-container',
 				'flex flex-col'
 			)}
 			style={css?.container?.style ?? ''}
@@ -286,6 +287,7 @@
 						class={twMerge(
 							'bg-surface-secondary text-left',
 							css?.tableHeader?.class ?? '',
+							'wm-table-header',
 							'sticky top-0 z-40'
 						)}
 						style={css?.tableHeader?.style ?? ''}
@@ -316,20 +318,16 @@
 						{/each}
 					</thead>
 					<tbody
-						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '')}
+						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '', 'wm-table-body')}
 						style={css?.tableBody?.style ?? ''}
 					>
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
 							<tr
 								class={classNames(
-									'last-of-type:!border-b-0',
+									'last-of-type:!border-b-0 divide-x w-full',
 									selectedRowIndex === rowIndex
-										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover'
-										: 'hover:bg-blue-50 dark:hover:bg-surface-hover',
-									'divide-x w-full',
-									selectedRowIndex === rowIndex
-										? 'divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700'
-										: ''
+										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700 wm-table-row-selected'
+										: 'hover:bg-blue-50 dark:hover:bg-surface-hover wm-table-row'
 								)}
 							>
 								{#each safeVisibleCell(row) as cell, index (index)}
@@ -365,7 +363,6 @@
 													bind:inputs
 													value={row.original}
 													index={rowIndex}
-
 													onInputsChange={() => {
 														outputs?.inputs.set(inputs, true)
 													}}
@@ -537,7 +534,7 @@
 				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
 				result={filteredResult}
 				{table}
-				class={css?.tableFooter?.class}
+				class={twMerge(css?.tableFooter?.class, 'wm-table-footer')}
 				style={css?.tableFooter?.style}
 				{loading}
 			/>
@@ -546,9 +543,9 @@
 		<div class="flex flex-col h-full w-full overflow-auto">
 			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
 				The result should be an array of objects. Received:
-				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-					>{JSON.stringify(result, null, 4)}</pre
-				>
+				<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap">
+					{JSON.stringify(result, null, 4)}
+				</pre>
 			</Alert>
 		</div>
 	{/if}

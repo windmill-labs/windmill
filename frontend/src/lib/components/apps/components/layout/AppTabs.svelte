@@ -100,15 +100,15 @@
 		<div bind:clientHeight={tabHeight}>
 			<Tabs
 				bind:selected
-				class={twMerge(css?.tabRow?.class, 'app-component-tabs-tabRow')}
+				class={twMerge(css?.tabRow?.class, 'wm-tabs-tabRow')}
 				style={css?.tabRow?.style}
 			>
 				{#each tabs ?? [] as res, index}
 					<Tab
 						value={res}
-						class={twMerge(css?.allTabs?.class, 'app-component-tabs-alltabs')}
+						class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
 						style={css?.allTabs?.style}
-						selectedClass={twMerge(css?.selectedTab?.class, 'app-component-tabs-selectedTab')}
+						selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
 						selectedStyle={css?.selectedTab?.style}
 						disabled={resolvedDisabledTabs[index]}
 					>
@@ -141,7 +141,7 @@
 					{id}
 					visible={render && i === selectedIndex}
 					subGridId={`${id}-${i}`}
-					class={twMerge(css?.container?.class, 'app-component-tabs-container')}
+					class={twMerge(css?.container?.class, 'wm-tabs-container')}
 					style={css?.container?.style}
 					containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
 						? componentContainerHeight - tabHeight

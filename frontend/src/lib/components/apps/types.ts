@@ -225,6 +225,7 @@ export type AppViewerContext = {
 	hoverStore: Writable<string | undefined>
 	allIdsInPath: Writable<string[]>
 	darkMode: Writable<boolean>
+	cssEditorOpen: Writable<boolean>
 }
 
 export type AppEditorContext = {

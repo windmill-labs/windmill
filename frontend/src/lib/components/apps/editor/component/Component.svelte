@@ -134,6 +134,7 @@
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,
+			'wm-app-component',
 			ismoving ? 'animate-pulse' : ''
 		)}
 		style={$app.css?.['app']?.['component']?.style}

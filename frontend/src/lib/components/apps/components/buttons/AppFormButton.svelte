@@ -70,7 +70,6 @@
 		configuration={configuration[key]}
 	/>
 {/each}
-
 <AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
 	<div class="flex flex-col gap-2 px-4 w-full pt-2">
 		<RunnableWrapper

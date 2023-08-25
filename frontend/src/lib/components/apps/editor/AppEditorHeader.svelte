@@ -29,8 +29,10 @@
 		BellOff,
 		Bug,
 		Expand,
+		Hand,
 		Laptop2,
 		Loader2,
+		Paintbrush,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -91,7 +93,8 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		cssEditorOpen
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
@@ -785,6 +788,18 @@
 				/>
 			</ToggleButtonGroup>
 		{/if}
+		<ToggleButtonGroup class="h-[30px]" bind:selected={$cssEditorOpen}>
+			<ToggleButton
+				icon={Hand}
+				value={false}
+				tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+			/>
+			<ToggleButton
+				tooltip="The width is of the app if the full width of its container"
+				icon={Paintbrush}
+				value={true}
+			/>
+		</ToggleButtonGroup>
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}

@@ -3,98 +3,18 @@
 	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
-	import { ClearableInput, Tab, TabContent, Tabs } from '../../../common'
+	import { ClearableInput, Drawer, DrawerContent, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import CssProperty from './CssProperty.svelte'
 	import { ccomponents, components } from '../component'
 	import { slide } from 'svelte/transition'
-	import { validate } from 'csstree-validator'
-	import { sanitizeCss } from './cssUtils'
+	import Editor from '$lib/components/Editor.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import CssHelperPanel from './CssHelperPanel.svelte'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
-
-	const authorizedClassnames = [
-		'app-component-container', // Migrated
-		// List
-		'app-component-list', // Migrated
-		'app-component-list-pagination', // Migrated
-		'app-component-list-pagination-buttons', // Migrated
-
-		'app-component-divider-x',
-		'app-component-divider-y',
-
-		'app-component-drawer', // Migrated
-		'app-component-drawer-button', // Migrated
-		'app-component-drawer-button-container', // Migrated
-
-		'app-component-vertical-split-panes', // Migrated
-		'app-component-horizontal-split-panes', // Migrated
-
-		'app-component-modal', // Migrated
-		'app-component-modal-button', // Migrated
-		'app-component-modal-button-container', // Migrated
-
-		'app-component-stepper', // Migrated
-
-		'app-component-tabs-container', // Migrated
-		'app-component-tabs-tabRow', // Migrated
-		'app-component-tabs-alltabs', // Migrated
-		'app-component-tabs-selectedTab', // Migrated
-
-		'app-component-conditional-tabs', // Migrated
-		'app-component-sidebar-tabs',
-		'app-component-invisible-tabs',
-
-		'app-component-button',
-		'app-component-button-wrapper',
-		'app-component-button-container',
-
-		'app-component-submit',
-		'app-component-modal-form',
-		'app-component-download-button',
-
-		'app-component-form',
-		'app-component-text-input',
-		'app-component-textarea',
-		'app-component-rich-text-editor',
-		'app-component-password',
-		'app-component-email-input',
-		'app-component-number',
-		'app-component-currency',
-		'app-component-slider',
-		'app-component-range',
-		'app-component-date',
-		'app-component-file-input',
-		'app-component-toggle',
-		'app-component-select',
-		'app-component-resource-select',
-		'app-component-multiselect',
-		'app-component-select-tab',
-		'app-component-select-step',
-
-		'app-component-table',
-		'app-component-aggrid-table',
-
-		'app-component-text',
-		'app-component-icon',
-		'app-component-image',
-		'app-component-map',
-		'app-component-html',
-		'app-component-pdf',
-		'app-component-rich-result',
-		'app-component-log',
-		'app-component-flow-status',
-
-		'app-component-bar-line-chart',
-		'app-component-pie-chart',
-		'app-component-vega-lite',
-		'app-component-plotly',
-		'app-component-scatter-chart',
-		'app-component-timeseries',
-		'app-component-chartjs'
-	]
 
 	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | keyof typeof components
 
@@ -105,14 +25,10 @@
 		ids: { id: string; forceStyle: boolean; forceClass: boolean }[]
 	}
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
-	let rawCss = `
-/* You can only define CSS rules for those classes. Any other classes will be ignored. */
-${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
-
-`
+	let rawCss = ``
 
 	$: rawCode && parseJson()
 	$: rawCss && parseCss()
@@ -133,6 +49,7 @@ ${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 	}
 
 	function parseCss() {
+		/*
 		cssError = ''
 		const errors: string[] = []
 
@@ -149,8 +66,9 @@ ${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 		if (errors.length > 0) {
 			cssError = errors.join('\n')
 		}
+		*/
 
-		$app.cssString = newCss
+		$app.cssString = rawCss
 	}
 
 	function switchTab(asJson: boolean) {
@@ -186,7 +104,13 @@ ${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 	]
 	entries.sort((a, b) => a.name.localeCompare(b.name))
 	let search = ''
+
+	let cssViewer: Drawer
 </script>
+
+<Drawer bind:this={cssViewer} size="800px">
+	<DrawerContent title="CSS Details" on:close={cssViewer.closeDrawer} />
+</Drawer>
 
 <!-- <div class="w-full text-lg font-semibold text-center text-tertiary p-2">Global Styling</div> -->
 <Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="h-full">
@@ -202,10 +126,17 @@ ${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 			<span class="pl-1">JSON</span>
 		</div>
 	</Tab>
-	<Tab value="css" size="xs" class="w-1/2">
+	<Tab
+		value="css"
+		size="xs"
+		class="w-1/2"
+		on:pointerdown={() => {
+			$cssEditorOpen = true
+		}}
+	>
 		<div class="m-1 center-center">
 			<CurlyBraces size={16} />
-			<span class="pl-1">CSS</span>
+			<span class="pl-1">Global CSS</span>
 		</div>
 	</Tab>
 	<div slot="content" class="h-[calc(100%-35px)] overflow-auto">
@@ -278,17 +209,25 @@ ${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 					{cssError}
 				</div>
 			{/if}
-			<div style="height: calc(100% - {cssErrorHeight || 0}px);">
-				<SimpleEditor
-					class="h-full"
-					lang="css"
-					bind:code={rawCss}
-					fixedOverflowWidgets={false}
-					small
-					automaticLayout
-					bind:editor={cssEditor}
-				/>
-			</div>
+			<Splitpanes horizontal>
+				<Pane size={60}>
+					<div style="height: calc(100% - {cssErrorHeight || 0}px);">
+						<Editor
+							class="h-full"
+							lang="css"
+							bind:code={rawCss}
+							fixedOverflowWidgets={false}
+							small
+							automaticLayout
+							bind:editor={cssEditor}
+							deno={false}
+						/>
+					</div>
+				</Pane>
+				<Pane size={40}>
+					<CssHelperPanel />
+				</Pane>
+			</Splitpanes>
 		</TabContent>
 	</div>
 </Tabs>

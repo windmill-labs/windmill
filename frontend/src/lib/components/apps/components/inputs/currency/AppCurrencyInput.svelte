@@ -81,9 +81,13 @@
 				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}>
 					<CurrencyInput
 						inputClasses={{
-							formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
+							formatted: twMerge(
+								'px-2 w-full py-1.5 windmillapp',
+								css?.input?.class,
+								'wm-currency'
+							),
 							wrapper: 'w-full windmillapp',
-							formattedZero: twMerge('text-black windmillapp ', css?.input?.class)
+							formattedZero: twMerge('text-black windmillapp ', css?.input?.class, 'wm-currency')
 						}}
 						style={css?.input?.style}
 						bind:value

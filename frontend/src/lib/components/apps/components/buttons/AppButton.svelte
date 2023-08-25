@@ -155,22 +155,17 @@
 	{extraKey}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
-	<AlignWrapper
-		{noWFull}
-		{horizontalAlignment}
-		{verticalAlignment}
-		class="app-component-button-wrapper"
-	>
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
 		{#if errorsMessage}
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
 			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={twMerge(css?.button?.class, 'app-component-button')}
+			btnClasses={twMerge(css?.button?.class, 'wm-button')}
 			wrapperClasses={twMerge(
 				css?.container?.class,
 				resolvedConfig.fillContainer ? 'w-full h-full' : '',
-				'app-component-button-container'
+				'wm-button-container'
 			)}
 			wrapperStyle={css?.container?.style}
 			style={css?.button?.style}

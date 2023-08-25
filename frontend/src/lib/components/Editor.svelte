@@ -24,6 +24,8 @@
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
+
 	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
@@ -45,11 +47,20 @@
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
+	import { authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell' | 'sql' | 'graphql' | 'powershell'
+	export let lang:
+		| 'typescript'
+		| 'python'
+		| 'go'
+		| 'shell'
+		| 'sql'
+		| 'graphql'
+		| 'powershell'
+		| 'css'
 	export let deno: boolean
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -208,6 +219,10 @@
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
 
+	let cssCompletor: Disposable | undefined = undefined
+	$: lang == 'css' && addCSSClassCompletions()
+	$: lang !== 'css' && cssCompletor && cssCompletor.dispose()
+
 	function addDBSchemaCompletions() {
 		const { lang: schemaLang, schema } = dbSchema || {}
 		if (!schemaLang || !schema) {
@@ -313,6 +328,41 @@
 				}
 			})
 		}
+	}
+
+	function addCSSClassCompletions() {
+		const cssClasses = authorizedClassnames.map((className) => '.' + className)
+
+		// Registering the completion provider for CSS language
+		cssCompletor = languages.registerCompletionItemProvider('css', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = cssClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
+
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
 	}
 
 	const outputChannel = {
@@ -883,6 +933,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+		cssCompletor && cssCompletor.dispose()
 	})
 </script>
 

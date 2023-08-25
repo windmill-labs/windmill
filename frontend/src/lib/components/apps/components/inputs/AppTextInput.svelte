@@ -81,7 +81,8 @@
 		<textarea
 			class={twMerge(
 				'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? ''
+				css?.input?.class ?? '',
+				'wm-text-input'
 			)}
 			style="resize:none; {css?.input?.style ?? ''}"
 			on:pointerdown|stopPropagation={(e) =>
@@ -96,7 +97,8 @@
 				<input
 					class={twMerge(
 						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
+						css?.input?.class ?? '',
+						'wm-text-input'
 					)}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
@@ -110,7 +112,8 @@
 				<input
 					class={twMerge(
 						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
+						css?.input?.class ?? '',
+						'wm-text-input'
 					)}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>
@@ -124,7 +127,8 @@
 				<input
 					class={twMerge(
 						'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-						css?.input?.class ?? ''
+						css?.input?.class ?? '',
+						'wm-text-input'
 					)}
 					style={css?.input?.style ?? ''}
 					on:pointerdown|stopPropagation={(e) =>

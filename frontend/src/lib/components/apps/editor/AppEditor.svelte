@@ -66,6 +66,9 @@
 		input: undefined,
 		hoveredComponent: undefined
 	})
+
+	const cssEditorOpen = writable<boolean>(false)
+
 	const history = initHistory(app)
 
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
@@ -109,7 +112,8 @@
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath: writable([]),
-		darkMode
+		darkMode,
+		cssEditorOpen
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -207,6 +211,98 @@
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
+
+	let runnablePanelSize = 30
+	let gridPanelSize = 70
+
+	let leftPanelSize = 22
+	let centerPanelSize = 63
+	let rightPanelSize = 22
+
+	let tmpRunnablePanelSize = -1
+	let tmpGridPanelSize = -1
+
+	let tmpLeftPanelSize = -1
+	let tmpCenterPanelSize = -1
+	let tmpRightPanelSize = -1
+
+	let toggled = false
+	let cssToggled = false
+
+	$: if ($connectingInput.opened && !toggled) {
+		tmpRunnablePanelSize = runnablePanelSize
+		tmpGridPanelSize = gridPanelSize
+
+		animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, 100, (newValue) => (gridPanelSize = newValue))
+
+		toggled = true
+	} else if (!$connectingInput.opened && toggled) {
+		animateTo(runnablePanelSize, tmpRunnablePanelSize, (newValue) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, tmpGridPanelSize, (newValue) => (gridPanelSize = newValue))
+
+		tmpRunnablePanelSize = -1
+		tmpGridPanelSize = -1
+
+		toggled = false
+	}
+
+	// Animation logic for cssInput
+	$: if ($cssEditorOpen && !cssToggled) {
+		tmpLeftPanelSize = leftPanelSize
+		tmpCenterPanelSize = centerPanelSize
+		tmpRightPanelSize = rightPanelSize
+
+		animateTo(leftPanelSize, 0, (newValue) => (leftPanelSize = newValue))
+		animateTo(centerPanelSize, 60, (newValue) => (centerPanelSize = newValue))
+		animateTo(rightPanelSize, 40, (newValue) => (rightPanelSize = newValue))
+
+		tmpRunnablePanelSize = runnablePanelSize
+		tmpGridPanelSize = gridPanelSize
+
+		animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, 100, (newValue) => (gridPanelSize = newValue))
+
+		cssToggled = true
+	} else if (!$cssEditorOpen && cssToggled) {
+		animateTo(leftPanelSize, tmpLeftPanelSize, (newValue) => (leftPanelSize = newValue))
+		animateTo(centerPanelSize, tmpCenterPanelSize, (newValue) => (centerPanelSize = newValue))
+		animateTo(rightPanelSize, tmpRightPanelSize, (newValue) => (rightPanelSize = newValue))
+
+		tmpLeftPanelSize = -1
+		tmpCenterPanelSize = -1
+		tmpRightPanelSize = -1
+
+		animateTo(runnablePanelSize, tmpRunnablePanelSize, (newValue) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, tmpGridPanelSize, (newValue) => (gridPanelSize = newValue))
+
+		tmpRunnablePanelSize = -1
+		tmpGridPanelSize = -1
+
+		cssToggled = false
+	}
+
+	function animateTo(start, end, onUpdate) {
+		const duration = 400
+		const startTime = performance.now()
+
+		function animate(time) {
+			const elapsed = time - startTime
+			const progress = Math.min(elapsed / duration, 1)
+			const currentValue = start + (end - start) * cubicOut(progress)
+			onUpdate(currentValue)
+			if (progress < 1) {
+				requestAnimationFrame(animate)
+			}
+		}
+
+		requestAnimationFrame(animate)
+	}
+
+	function cubicOut(t) {
+		const f = t - 1.0
+		return f * f * f + 1.0
+	}
 </script>
 
 <svelte:head>
@@ -224,7 +320,11 @@
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
-					class={twMerge('h-full w-full relative', $appStore.css?.['app']?.['viewer']?.class)}
+					class={twMerge(
+						'h-full w-full relative',
+						$appStore.css?.['app']?.['viewer']?.class,
+						'wm-app-viewer'
+					)}
 					style={$appStore.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
@@ -243,13 +343,13 @@
 		{:else}
 			<SplitPanesWrapper>
 				<Splitpanes class="max-w-full overflow-hidden">
-					<Pane size={15} minSize={5} maxSize={33}>
+					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<ContextPanel />
 					</Pane>
-					<Pane size={63}>
+					<Pane bind:size={centerPanelSize}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
-								<Pane size={$connectingInput?.opened ? 100 : 70}>
+								<Pane bind:size={gridPanelSize}>
 									<div
 										on:pointerdown={(e) => {
 											$selectedComponent = undefined
@@ -257,7 +357,8 @@
 										}}
 										class={twMerge(
 											'bg-surface h-full w-full relative',
-											$appStore.css?.['app']?.['viewer']?.class
+											$appStore.css?.['app']?.['viewer']?.class,
+											'wm-app-viewer'
 										)}
 										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
@@ -279,7 +380,7 @@
 									</div>
 								</Pane>
 								{#if $connectingInput?.opened == false}
-									<Pane size={$connectingInput?.opened ? 0 : 30}>
+									<Pane bind:size={runnablePanelSize}>
 										<div class="relative h-full w-full">
 											<InlineScriptsPanel />
 										</div>
@@ -288,7 +389,7 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
-					<Pane size={22} minSize={15} maxSize={33}>
+					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">

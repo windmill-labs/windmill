@@ -57,7 +57,11 @@
 {:else if app}
 	{#key app}
 		<div
-			class={twMerge('min-h-screen h-full w-full', app?.value.css?.['app']?.['viewer']?.class)}
+			class={twMerge(
+				'min-h-screen h-full w-full',
+				app?.value.css?.['app']?.['viewer']?.class,
+				'wm-app-viewer'
+			)}
 			style={app?.value.css?.['app']?.['viewer']?.style}
 		>
 			<AppPreview
