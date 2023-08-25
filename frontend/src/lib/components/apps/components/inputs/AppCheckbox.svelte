@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
@@ -12,7 +12,8 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { InputValue } from '../helpers'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -34,11 +35,12 @@
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
-	let value: boolean = false
+	let resolvedConfig = initConfig(
+		components['checkboxcomponent'].initialData.configuration,
+		configuration
+	)
 
-	let defaultValue: boolean | undefined = undefined
-	let label: string = ''
-	let disabled: boolean = false
+	let value: boolean = resolvedConfig.defaultValue ?? false
 
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
@@ -71,33 +73,39 @@
 	}
 
 	function handleDefault() {
-		value = defaultValue ?? false
+		value = resolvedConfig.defaultValue ?? false
 		handleInput()
 	}
 
 	$: value != undefined && handleInput()
 
-	$: defaultValue != undefined && handleDefault()
+	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
 	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
 </script>
 
-<InputValue {id} key={extraKey} input={configuration.label} bind:value={label} />
-<InputValue {id} key={extraKey} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputValue {id} key={extraKey} input={configuration.disabled} bind:value={disabled} />
+{#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		{extraKey}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		size="sm"
 		bind:checked={value}
-		options={{ right: label }}
+		options={{ right: resolvedConfig.label }}
 		textClass={css?.text?.class ?? ''}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()
 			value = e.detail
 		}}
-		{disabled}
+		disabled={resolvedConfig.disabled}
 	/>
 </AlignWrapper>

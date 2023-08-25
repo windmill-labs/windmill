@@ -81,8 +81,8 @@
 	$: css = concatCustomCss($app.css?.scatterchartcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
-<InputValue {id} input={configuration.pannable} bind:value={pannable} />
+<InputValue key="zoomable" {id} input={configuration.zoomable} bind:value={zoomable} />
+<InputValue key="pannable" {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>

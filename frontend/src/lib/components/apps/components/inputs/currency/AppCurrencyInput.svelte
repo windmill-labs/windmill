@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { initOutput } from '$lib/components/apps/editor/appUtils'
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type {
@@ -11,9 +11,10 @@
 	} from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
-	import InputValue from '../../helpers/InputValue.svelte'
 	import CurrencyInput from './CurrencyInput.svelte'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
+	import { components } from '$lib/components/apps/editor/component'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -30,12 +31,12 @@
 		result: null as number | null
 	})
 
-	let defaultValue: number | undefined = undefined
+	let resolvedConfig = initConfig(
+		components['currencycomponent'].initialData.configuration,
+		configuration
+	)
 
-	let isNegativeAllowed: boolean | undefined = undefined
-	let currency: string | undefined = undefined
-	let locale: string | undefined = undefined
-	let value: number | undefined = undefined
+	let value: number | undefined = resolvedConfig.defaultValue
 
 	$componentControl[id] = {
 		setValue(nvalue: number) {
@@ -50,29 +51,33 @@
 		}
 	}
 
-	function handleDefault() {
-		value = defaultValue
+	function handleDefault(dflt: number | undefined) {
+		value = dflt
 		handleInput()
 	}
 
 	$: value != undefined && handleInput()
 
-	$: defaultValue != undefined && handleDefault()
+	$: handleDefault(resolvedConfig.defaultValue)
 
 	$: css = concatCustomCss($app.css?.currencycomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputValue {id} input={configuration.isNegativeAllowed} bind:value={isNegativeAllowed} />
-<InputValue {id} input={configuration.currency} bind:value={currency} />
-<InputValue {id} input={configuration.locale} bind:value={locale} />
+{#each Object.keys(components['currencycomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
-	{#key isNegativeAllowed}
-		{#key locale}
-			{#key currency}
+	{#key resolvedConfig.isNegativeAllowed}
+		{#key resolvedConfig.locale}
+			{#key resolvedConfig.currency}
 				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}>
 					<CurrencyInput
 						inputClasses={{
@@ -82,9 +87,9 @@
 						}}
 						style={css?.input?.style}
 						bind:value
-						{currency}
-						{locale}
-						{isNegativeAllowed}
+						currency={resolvedConfig.currency}
+						locale={resolvedConfig.locale}
+						isNegativeAllowed={resolvedConfig.isNegativeAllowed}
 					/>
 				</div>
 			{/key}

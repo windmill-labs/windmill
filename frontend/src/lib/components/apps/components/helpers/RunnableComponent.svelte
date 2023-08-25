@@ -145,7 +145,7 @@
 			const input = inputs[key]
 
 			if (
-				['static', 'eval', 'connected'].includes(input.type) &&
+				['static', 'eval', 'connected', 'evalv2'].includes(input.type) &&
 				schemaStripped !== undefined &&
 				schemaStripped.properties
 			) {
@@ -224,7 +224,7 @@
 						staticRunnableInputs[k] = field.value
 					} else if (field?.type == 'user') {
 						nonStaticRunnableInputs[k] = args?.[k]
-					} else if (field?.type == 'eval' && inputValues[k]) {
+					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
 						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 					} else {
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
@@ -462,7 +462,7 @@
 	{#if v.type != 'static' && v.type != 'user'}
 		<InputValue
 			bind:this={inputValues[key]}
-			key={key + extraKey + (iterContext ? $iterContext?.index : '')}
+			key={key + extraKey}
 			{id}
 			input={fields[key]}
 			bind:value={runnableInputValues[key]}
@@ -472,7 +472,7 @@
 
 {#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
-		{@const fkey = `${tid}-${key}${extraKey}${iterContext ? $iterContext?.index : ''}}`}
+		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
 			{id}
 			key={fkey}

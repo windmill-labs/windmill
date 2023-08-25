@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { parseISO, format as formatDateFns } from 'date-fns'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -18,11 +19,11 @@
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let labelValue: string = 'Title'
-	let minValue: string = ''
-	let maxValue: string = ''
-	let defaultValue: string | undefined = undefined
-	let format: string | undefined = undefined
+
+	let resolvedConfig = initConfig(
+		components['dateinputcomponent'].initialData.configuration,
+		configuration
+	)
 
 	let value: string | undefined = undefined
 
@@ -36,7 +37,7 @@
 		result: undefined as string | undefined
 	})
 
-	$: handleDefault(defaultValue)
+	$: handleDefault(resolvedConfig.defaultValue)
 
 	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
 		if (formatString === '') {
@@ -51,7 +52,7 @@
 		}
 	}
 
-	$: value && outputs?.result.set(formatDate(value, format))
+	$: value && outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
 
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
@@ -59,11 +60,14 @@
 	$: css = concatCustomCss($app.css?.dateinputcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.minDate} bind:value={minValue} />
-<InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
-<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputValue {id} input={configuration.outputFormat} bind:value={format} />
+{#each Object.keys(components['dateinputcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
@@ -74,8 +78,8 @@
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
-			min={minValue}
-			max={maxValue}
+			min={resolvedConfig.minDate}
+			max={resolvedConfig.maxDate}
 			placeholder="Type..."
 			class={twMerge(css?.input?.class ?? '')}
 			style={css?.input?.style ?? ''}

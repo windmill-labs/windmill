@@ -87,12 +87,12 @@
 	let resolvedDisabledTabs: boolean[] = []
 </script>
 
-<InputValue {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
+<InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
 
 <InitializeComponent {id} />
 
 {#each disabledTabs ?? [] as disableTab, index}
-	<InputValue {id} input={disableTab} bind:value={resolvedDisabledTabs[index]} />
+	<InputValue key="disable" {id} input={disableTab} bind:value={resolvedDisabledTabs[index]} />
 {/each}
 
 <div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>

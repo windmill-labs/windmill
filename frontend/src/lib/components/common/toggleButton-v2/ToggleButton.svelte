@@ -46,7 +46,6 @@
 			{label}
 		{/if}
 	</Tab>
-
 	<svelte:fragment slot="text">
 		{tooltip}
 	</svelte:fragment>

@@ -39,10 +39,15 @@
 	$: css = concatCustomCss($app.css?.fileinputcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.acceptedFileTypes} bind:value={acceptedFileTypes} />
-<InputValue {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
-<InputValue {id} input={configuration.text} bind:value={text} />
-<InputValue {id} input={configuration.includeMimeType} bind:value={includeMimeType} />
+<InputValue
+	key="accepted"
+	{id}
+	input={configuration.acceptedFileTypes}
+	bind:value={acceptedFileTypes}
+/>
+<InputValue key="multiple" {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
+<InputValue key="text" {id} input={configuration.text} bind:value={text} />
+<InputValue key="mime" {id} input={configuration.includeMimeType} bind:value={includeMimeType} />
 
 <InitializeComponent {id} />
 

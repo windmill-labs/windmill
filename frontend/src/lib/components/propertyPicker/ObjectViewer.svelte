@@ -135,8 +135,10 @@
 	{/if}
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
+{:else if json == undefined}
+	<span class="text-tertiary text-2xs ml-2">undefined</span>
 {:else}
-	<span class="text-tertiary text-xs ml-2">No items ([])</span>
+	<span class="text-tertiary text-2xs ml-2">No items ([])</span>
 {/if}
 
 <style lang="postcss">

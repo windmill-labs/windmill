@@ -593,7 +593,7 @@
 				bind:scriptPath={errorHandlerScriptPath}
 				initialPath={errorHandlerInitialPath}
 				on:select={editErrorHandler}
-				canRefresh
+				allowRefresh
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">
