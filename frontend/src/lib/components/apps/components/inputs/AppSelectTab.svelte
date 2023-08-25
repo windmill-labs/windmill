@@ -9,6 +9,7 @@
 	import { Tab, Tabs } from '$lib/components/common'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -68,13 +69,17 @@
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<div class="w-full">
-		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
+		<Tabs
+			bind:selected
+			class={twMerge(css?.tabRow?.class, 'wm-select-tab-row')}
+			style={css?.tabRow?.style}
+		>
 			{#each resolvedConfig?.items ?? [] as item}
 				<Tab
 					value={item.value}
-					class={css?.allTabs?.class}
+					class={twMerge(css?.allTabs?.class, 'wm-select-tab')}
 					style={css?.allTabs?.style}
-					selectedClass={css?.selectedTab?.class}
+					selectedClass={twMerge(css?.selectedTab?.class, 'wm-select-tab-selected')}
 					selectedStyle={css?.selectedTab?.style}
 					size={resolvedConfig?.tabSize}
 				>

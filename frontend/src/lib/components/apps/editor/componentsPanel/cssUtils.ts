@@ -68,12 +68,6 @@ export const authorizedClassnames = [
 	'wm-toggle', // Migrated DOC
 	'wm-image', // Migrated DOC
 	'wm-pdf', // Migrated DOC
-
-	'ql-toolbar', // Migrated
-	'ql-stroke', // Migrated
-	'ql-fill', // Migrated
-	'ql-container', // Migrated
-
 	'wm-horizontal-divider', // Migrated DOC
 	'wm-vertical-divider', // Migrated DOC
 	'wm-horizontal-divider-container', // Migrated DOC
@@ -83,7 +77,16 @@ export const authorizedClassnames = [
 	'wm-map', // Migrated DOC
 	'wm-icon', // Migrated DOC
 	'wm-icon-container', // Migrated DOC
+	'wm-flow-status-header', // Migrated DOC
+	'wm-flow-status-container', // Migrated DOC
+	'wm-select-tab-row', // Migrated DOC
+	'wm-select-tab', // Migrated DOC
+	'wm-select-tab-selected', // Migrated DOC
 
+	'ql-toolbar', // Migrated
+	'ql-stroke', // Migrated
+	'ql-fill', // Migrated
+	'ql-container', // Migrated
 	/**
 	 *
 	 *
@@ -97,25 +100,16 @@ export const authorizedClassnames = [
 	'wm-conditional-tabs', // Migrated
 	'wm-sidebar-tabs',
 	'wm-invisible-tabs',
-
 	'wm-modal-form',
 	'wm-download-button',
-
 	'wm-form',
-
 	'wm-select',
 	'wm-resource-select',
 	'wm-multiselect',
-	'wm-select-tab',
 	'wm-select-step',
-
 	'wm-aggrid-table',
-
 	'wm-text',
-
 	'wm-rich-result',
-	'wm-flow-status',
-
 	'wm-bar-line-chart',
 	'wm-pie-chart',
 	'wm-vega-lite',
@@ -406,6 +400,23 @@ export const customisationByComponent: Customisation[] = [
 		selectors: [
 			{ selector: '.wm-icon', comment: 'Icon component' },
 			{ selector: '.wm-icon-container', comment: 'Icon container' }
+		],
+		variables: []
+	},
+	{
+		components: ['flowstatuscomponent'],
+		selectors: [
+			{ selector: '.wm-flow-status-header', comment: 'Flow status header' },
+			{ selector: '.wm-flow-status-container', comment: 'Flow status container' }
+		],
+		variables: []
+	},
+	{
+		components: ['selecttabcomponent'],
+		selectors: [
+			{ selector: '.wm-select-tab-row', comment: 'Select tab row' },
+			{ selector: '.wm-select-tab', comment: 'Select tab' },
+			{ selector: '.wm-select-tab-selected', comment: 'Select tab selected' }
 		],
 		variables: []
 	}
