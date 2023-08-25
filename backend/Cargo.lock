@@ -7399,6 +7399,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "urlencoding",
  "uuid 1.4.1",
  "windmill-api-client",
  "windmill-audit",
