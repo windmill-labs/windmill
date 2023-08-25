@@ -64,18 +64,35 @@ export const authorizedClassnames = [
 	'wm-table-row-selected', // Migrated DOC
 	'wm-table-row', // Migrated DOC
 	'wm-stepper', // Migrated DOC
-	// Quill
+	'wm-file-input', // Migrated DOC
+	'wm-toggle', // Migrated DOC
+	'wm-image', // Migrated DOC
+	'wm-pdf', // Migrated DOC
+
 	'ql-toolbar', // Migrated
 	'ql-stroke', // Migrated
 	'ql-fill', // Migrated
 	'ql-container', // Migrated
 
-	//
+	'wm-horizontal-divider', // Migrated DOC
+	'wm-vertical-divider', // Migrated DOC
+	'wm-horizontal-divider-container', // Migrated DOC
+	'wm-vertical-divider-container', // Migrated DOC
+	'wm-log-header', // Migrated DOC
+	'wm-log-container', // Migrated DOC
+	'wm-map', // Migrated DOC
+	'wm-icon', // Migrated DOC
+	'wm-icon-container', // Migrated DOC
 
-	//
-
-	'wm-divider-x',
-	'wm-divider-y',
+	/**
+	 *
+	 *
+	 *
+	 *
+	 *
+	 *
+	 *
+	 */
 
 	'wm-conditional-tabs', // Migrated
 	'wm-sidebar-tabs',
@@ -86,8 +103,6 @@ export const authorizedClassnames = [
 
 	'wm-form',
 
-	'wm-file-input',
-	'wm-toggle',
 	'wm-select',
 	'wm-resource-select',
 	'wm-multiselect',
@@ -97,12 +112,8 @@ export const authorizedClassnames = [
 	'wm-aggrid-table',
 
 	'wm-text',
-	'wm-icon',
-	'wm-image',
-	'wm-map',
-	'wm-pdf', // Migrated
+
 	'wm-rich-result',
-	'wm-log',
 	'wm-flow-status',
 
 	'wm-bar-line-chart',
@@ -344,6 +355,58 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['steppercomponent'],
 		selectors: [{ selector: 'wm-stepper', comment: 'Stepper component' }],
+		variables: []
+	},
+	{
+		components: ['fileinputcomponent'],
+		selectors: [{ selector: 'wm-file-input', comment: 'File input component' }],
+		variables: []
+	},
+	{
+		components: ['checkboxcomponent'],
+		selectors: [{ selector: 'wm-toggle', comment: 'Checkbox component' }],
+		variables: []
+	},
+	{
+		components: ['imagecomponent'],
+		selectors: [{ selector: '.wm-image', comment: 'Image component' }],
+		variables: []
+	},
+	{
+		components: ['pdfcomponent'],
+		selectors: [{ selector: '.wm-pdf', comment: 'PDF component' }],
+		variables: []
+	},
+	{
+		components: ['dividercomponent'],
+		selectors: [
+			{ selector: '.wm-horizontal-divider', comment: 'Horizontal divider component' },
+			{ selector: '.wm-vertical-divider', comment: 'Vertical divider component' },
+			{ selector: '.wm-horizontal-divider-container', comment: 'Horizontal divider container' },
+			{ selector: '.wm-vertical-divider-container', comment: 'Vertical divider container' }
+		],
+		variables: []
+	},
+	// log
+	{
+		components: ['logcomponent'],
+		selectors: [
+			{ selector: '.wm-log-header', comment: 'Log header' },
+			{ selector: '.wm-log-container', comment: 'Log container' }
+		],
+		variables: []
+	},
+	{
+		components: ['mapcomponent'],
+		selectors: [{ selector: '.wm-map', comment: 'Map component' }],
+		variables: []
+	},
+	{
+		components: ['iconcomponent'],
+		selectors: [
+			{ selector: '.wm-icon', comment: 'Icon component' },
+			{ selector: '.wm-icon-container', comment: 'Icon container' }
+		],
 		variables: []
 	}
 ]

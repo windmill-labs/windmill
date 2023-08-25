@@ -8,6 +8,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
@@ -50,7 +51,7 @@
 	{render}
 	{horizontalAlignment}
 	{verticalAlignment}
-	class={css?.container?.class ?? ''}
+	class={twMerge(css?.container?.class, 'wm-icon-container')}
 	style={css?.container?.style ?? ''}
 >
 	{#if resolvedConfig.icon && iconComponent}
@@ -59,7 +60,7 @@
 			size={resolvedConfig.size || 24}
 			color={resolvedConfig.color || 'currentColor'}
 			strokeWidth={resolvedConfig.strokeWidth || 2}
-			class={css?.icon?.class ?? ''}
+			class={twMerge(css?.icon?.class, 'wm-icon')}
 			style={css?.icon?.style ?? ''}
 		/>
 	{/if}

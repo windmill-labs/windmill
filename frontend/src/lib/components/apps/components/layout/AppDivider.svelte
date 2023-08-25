@@ -53,14 +53,19 @@
 <AlignWrapper
 	{horizontalAlignment}
 	{verticalAlignment}
-	class={twMerge(css?.container?.class, 'h-full')}
+	class={twMerge(
+		css?.container?.class,
+		position === 'horizontal' ? 'wm-horizontal-divider-container' : 'wm-vertical-divider-container',
+		'h-full'
+	)}
 	style={css?.container?.style}
 	{render}
 >
 	<div
 		class={twMerge(
 			`rounded-full ${position === 'horizontal' ? 'w-full' : 'h-full'}`,
-			css?.divider?.class ?? ''
+			css?.divider?.class,
+			position === 'horizontal' ? 'wm-horizontal-divider' : 'wm-vertical-divider'
 		)}
 		style="
 			{getSize()}

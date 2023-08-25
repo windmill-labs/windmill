@@ -14,6 +14,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -100,7 +101,7 @@
 		size="sm"
 		bind:checked={value}
 		options={{ right: resolvedConfig.label }}
-		textClass={css?.text?.class ?? ''}
+		textClass={twMerge(css?.text?.class, 'wm-toggle')}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()

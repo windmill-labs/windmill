@@ -61,7 +61,7 @@
 			on:change={({ detail }) => {
 				handleChange(detail)
 			}}
-			class={twMerge('w-full h-full', css?.container?.class)}
+			class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 			style={css?.container?.style}
 		>
 			{text}

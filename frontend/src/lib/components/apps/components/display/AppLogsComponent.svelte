@@ -47,7 +47,8 @@
 		<div
 			class={twMerge(
 				'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
-				css?.header?.class
+				css?.header?.class,
+				'wm-log-header'
 			)}
 			style={css?.header?.style}
 		>
@@ -58,7 +59,8 @@
 			class={twMerge(
 				'p-2 grow overflow-auto',
 				$app.css?.['logcomponent']?.['container']?.class,
-				customCss?.container?.class
+				customCss?.container?.class,
+				'wm-log-container'
 			)}
 		>
 			<LogViewer

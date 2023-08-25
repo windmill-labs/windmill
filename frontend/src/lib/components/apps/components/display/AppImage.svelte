@@ -52,7 +52,8 @@
 			style={css?.image?.style ?? ''}
 			class={twMerge(
 				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
-				css?.image?.class ?? ''
+				css?.image?.class,
+				'wm-image'
 			)}
 		/>
 	</Loader>

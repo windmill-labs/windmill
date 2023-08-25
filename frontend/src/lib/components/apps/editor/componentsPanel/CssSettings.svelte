@@ -49,25 +49,6 @@
 	}
 
 	function parseCss() {
-		/*
-		cssError = ''
-		const errors: string[] = []
-
-		const { css, removedClassNames } = sanitizeCss(rawCss, authorizedClassnames)
-		errors.push(...validate(rawCss).map((e) => e.message))
-
-		const newCss = css.replaceAll('}', '}\n')
-
-		if (removedClassNames.length > 0) {
-			errors.push('Some css properties were removed because they are not allowed')
-			errors.push(...removedClassNames.map((r) => `  - ${r}`))
-		}
-
-		if (errors.length > 0) {
-			cssError = errors.join('\n')
-		}
-		*/
-
 		$app.cssString = rawCss
 	}
 
