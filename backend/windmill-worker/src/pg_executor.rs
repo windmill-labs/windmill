@@ -19,6 +19,7 @@ use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::transform_json_value;
 use crate::{AuthedClient, JobCompleted};
+use urlencoding::encode;
 
 #[derive(Deserialize)]
 struct PgDatabase {
@@ -49,9 +50,9 @@ pub async fn do_postgresql(
     let sslmode = database.sslmode.unwrap_or("prefer".to_string());
     let database = format!(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = database.user.unwrap_or("postgres".to_string()),
-        password = database.password.unwrap_or("".to_string()),
-        host = database.host,
+        user = encode(&database.user.unwrap_or("postgres".to_string())),
+        password = encode(&database.password.unwrap_or("".to_string())),
+        host = encode(&database.host),
         port = database.port.unwrap_or(5432),
         dbname = database.dbname,
         sslmode = sslmode

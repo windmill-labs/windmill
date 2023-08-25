@@ -162,7 +162,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
         let add_job = add_completed_job_error(
             &db,
             &job_running,
-            format!("canceled by {username}: (force cancel: {force_cancel}"),
+            format!("canceled by {username}: (force cancel: {force_cancel})"),
             serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username}),
             None,
             rsmq.clone(),

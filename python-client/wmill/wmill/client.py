@@ -47,12 +47,7 @@ def create_client(
     global _client
     if _client is None:
         _client = AuthenticatedClient(
-            base_url=base_url_,
-            token=token_,
-            timeout=30,
-            verify_ssl=False,
-            follow_redirects=True,
-            raise_on_unexpected_status=False,
+            base_url=base_url_, token=token_, timeout=30, verify_ssl=False
         )
     return _client
 

@@ -1368,6 +1368,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d7439c3735f405729d52c3fbbe4de140eaf938a1fe47d227c27f8254d4302a5"
 
 [[package]]
+name = "data-url"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b319d1b62ffbd002e057f36bebd1f42b9f97927c9577461d855f3513c4289f"
+
+[[package]]
 name = "debug-helper"
 version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1484,7 +1490,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4f1b9a643427c7f732a4540e250560e1801970f033bae0d5e4abc7b83e36160"
 dependencies = [
  "bytes",
- "data-url",
+ "data-url 0.2.0",
  "deno_core",
  "deno_tls",
  "dyn-clone",
@@ -1497,11 +1503,11 @@ dependencies = [
 
 [[package]]
 name = "deno_media_type"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "001d69b833ed4d244b608bab9c07069bfb570f631b763b58e73f82a020bf84ef"
+checksum = "a798670c20308e5770cc0775de821424ff9e85665b602928509c8c70430b3ee0"
 dependencies = [
- "data-url",
+ "data-url 0.3.0",
  "serde",
  "url",
 ]
@@ -7062,7 +7068,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7097,7 +7103,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7156,7 +7162,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -7173,7 +7179,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "chrono",
  "serde",
@@ -7186,7 +7192,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7211,7 +7217,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -7219,7 +7225,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7230,7 +7236,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -7240,7 +7246,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7251,7 +7257,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "itertools 0.11.0",
@@ -7262,7 +7268,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7279,7 +7285,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -7290,7 +7296,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -7307,7 +7313,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.10",
@@ -7325,7 +7331,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7354,7 +7360,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.156.0"
+version = "1.156.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -7393,6 +7399,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "urlencoding",
  "uuid 1.4.1",
  "windmill-api-client",
  "windmill-audit",
