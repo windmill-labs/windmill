@@ -57,7 +57,6 @@ pub async fn do_postgresql(
         dbname = database.dbname,
         sslmode = sslmode
     );
-    tracing::error!("database: {}", database);
     let (client, handle) = if sslmode == "require" {
         let (client, connection) = tokio_postgres::connect(
             &database,
