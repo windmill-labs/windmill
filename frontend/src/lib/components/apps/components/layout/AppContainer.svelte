@@ -35,7 +35,7 @@
 		<SubGridEditor
 			visible={render}
 			{id}
-			class={twMerge(css?.container?.class, 'app-component-container')}
+			class={twMerge(css?.container?.class, 'wm-container')}
 			style={css?.container?.style}
 			subGridId={`${id}-0`}
 			containerHeight={componentContainerHeight}

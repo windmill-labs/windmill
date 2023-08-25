@@ -152,7 +152,7 @@
 						{id}
 						visible={render && i === selectedIndex}
 						subGridId={`${id}-${i}`}
-						class={twMerge(css?.container?.class, 'app-component-stepper')}
+						class={twMerge(css?.container?.class, 'wm-stepper')}
 						style={css?.container?.style}
 						containerHeight={componentContainerHeight - tabHeight - footerHeight}
 						on:focus={() => {

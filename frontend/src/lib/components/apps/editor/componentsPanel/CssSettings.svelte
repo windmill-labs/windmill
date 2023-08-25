@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
+	import { LayoutDashboardIcon, MousePointer2, CurlyBraces, Code } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
 	import { ClearableInput, Drawer, DrawerContent, Tab, TabContent, Tabs } from '../../../common'
@@ -37,7 +37,7 @@
 	let cssError = ''
 	let cssErrorHeight: number
 
-	let cssEditor: SimpleEditor | undefined = undefined
+	let cssEditor: Editor | undefined = undefined
 
 	function parseJson() {
 		try {
@@ -135,7 +135,7 @@
 		}}
 	>
 		<div class="m-1 center-center">
-			<CurlyBraces size={16} />
+			<Code size={16} />
 			<span class="pl-1">Global CSS</span>
 		</div>
 	</Tab>
@@ -219,13 +219,25 @@
 							fixedOverflowWidgets={false}
 							small
 							automaticLayout
-							bind:editor={cssEditor}
+							bind:this={cssEditor}
 							deno={false}
 						/>
 					</div>
 				</Pane>
 				<Pane size={40}>
-					<CssHelperPanel />
+					<CssHelperPanel
+						on:insertSelector={(e) => {
+							if (!cssEditor) {
+								console.log('cssEditor', cssEditor)
+							}
+
+							// append in Editor$
+							const code = cssEditor?.getCode()
+
+							cssEditor?.setCode(code + '\n' + e.detail)
+							$app = $app
+						}}
+					/>
 				</Pane>
 			</Splitpanes>
 		</TabContent>

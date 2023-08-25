@@ -11,11 +11,14 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
 
 	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | keyof typeof components
+
+	const dispatch = createEventDispatcher()
 
 	interface CustomCSSEntry {
 		type: CustomCSSType
@@ -75,16 +78,18 @@
 				</div>
 				<div class="py-2">
 					{#each customisationByComponent.filter( (c) => c.components.includes(type) ) as customisation (customisation.components.join('-'))}
-						<a
-							href={customisation.link}
-							target="_blank"
-							class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-						>
-							<div class="flex flex-row gap-2">
-								See documentation
-								<ExternalLink size="16" />
-							</div>
-						</a>
+						{#if customisation.link}
+							<a
+								href={customisation.link}
+								target="_blank"
+								class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
+							>
+								<div class="flex flex-row gap-2">
+									See documentation
+									<ExternalLink size="16" />
+								</div>
+							</a>
+						{/if}
 
 						<Tabs selected="selectors">
 							{#if customisation.selectors.length > 0}
@@ -121,7 +126,13 @@
 													{/if}
 												</Cell>
 												<Cell>
-													<Button size="xs2" color="light">
+													<Button
+														size="xs2"
+														color="light"
+														on:click={() => {
+															dispatch('insertSelector', `${selector} {}`)
+														}}
+													>
 														<ArrowUpSquare size={16} />
 													</Button>
 												</Cell>

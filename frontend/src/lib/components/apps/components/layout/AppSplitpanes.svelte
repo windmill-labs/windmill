@@ -90,9 +90,7 @@
 							shouldHighlight={$focusedGrid?.subGridIndex === index}
 							class={twMerge(
 								css?.container?.class,
-								horizontal
-									? 'app-component-horizontal-split-panes'
-									: 'app-component-vertical-split-panes'
+								horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
 							)}
 							style={css?.container?.style}
 							subGridId={`${id}-${index}`}

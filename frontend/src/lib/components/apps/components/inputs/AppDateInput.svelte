@@ -81,7 +81,7 @@
 			min={resolvedConfig.minDate}
 			max={resolvedConfig.maxDate}
 			placeholder="Type..."
-			class={twMerge(css?.input?.class ?? '')}
+			class={twMerge(css?.input?.class, 'wm-date-input')}
 			style={css?.input?.style ?? ''}
 		/>
 	{/if}

@@ -5,6 +5,7 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -47,7 +48,7 @@
 			<iframe
 				frameborder="0"
 				style="height: {h}px; width: {w}px; {css?.container?.style ?? ''}"
-				class="p-0 {css?.container?.class ?? ''}"
+				class={twMerge('p-0', css?.container?.class, 'wm-html')}
 				title="sandbox"
 				srcdoc={result
 					? '<base target="_parent" /><scr' +

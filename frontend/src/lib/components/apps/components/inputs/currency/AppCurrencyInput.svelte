@@ -84,7 +84,7 @@
 							formatted: twMerge(
 								'px-2 w-full py-1.5 windmillapp',
 								css?.input?.class,
-								'wm-currency'
+								'wm-currency-input'
 							),
 							wrapper: 'w-full windmillapp',
 							formattedZero: twMerge('text-black windmillapp ', css?.input?.class, 'wm-currency')

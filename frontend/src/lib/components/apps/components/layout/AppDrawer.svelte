@@ -48,10 +48,10 @@
 <div class="h-full w-full">
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
-			btnClasses={twMerge(css?.button?.class, 'app-component-drawer-button')}
+			btnClasses={twMerge(css?.button?.class, 'wm-drawer-button')}
 			wrapperClasses={twMerge(
 				css?.container?.class,
-				'app-component-drawer-button-container',
+				'wm-drawer-button-container',
 				resolvedConfig?.fillContainer ? 'w-full h-full' : ''
 			)}
 			wrapperStyle={css?.container?.style}
@@ -94,7 +94,7 @@
 			fullScreen={$mode !== 'dnd'}
 		>
 			<div
-				class={twMerge('h-full', 'app-component-drawer')}
+				class={twMerge('h-full', 'wm-drawer')}
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {

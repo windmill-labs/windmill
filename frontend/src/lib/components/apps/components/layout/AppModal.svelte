@@ -83,11 +83,11 @@
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 			<Button
-				btnClasses={twMerge(css?.button?.class, 'app-component-modal-button')}
+				btnClasses={twMerge(css?.button?.class, 'wm-modal-button')}
 				wrapperClasses={twMerge(
 					resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
 					css?.buttonContainer?.class,
-					'app-component-modal-button-container'
+					'wm-modal-button-container'
 				)}
 				wrapperStyle={css?.buttonContainer?.style}
 				disabled={resolvedConfig.buttonDisabled}
@@ -147,7 +147,7 @@
 				</div>
 			</div>
 			<div
-				class="app-component-modal"
+				class="wm-modal"
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {

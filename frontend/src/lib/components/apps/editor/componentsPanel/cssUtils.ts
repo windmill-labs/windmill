@@ -30,59 +30,62 @@ export function sanitizeCss(css: string, authorizedClassNames: string[]) {
 }
 
 export const authorizedClassnames = [
-	'wm-container', // Migrated
-	// List
-	'wm-list', // Migrated
-	'wm-list-pagination', // Migrated
-	'wm-list-pagination-buttons', // Migrated
-
-	'wm-divider-x',
-	'wm-divider-y',
-
-	'wm-drawer', // Migrated
-	'wm-drawer-button', // Migrated
-	'wm-drawer-button-container', // Migrated
-
-	'wm-vertical-split-panes', // Migrated
-	'wm-horizontal-split-panes', // Migrated
-
-	'wm-modal', // Migrated
-	'wm-modal-button', // Migrated
-	'wm-modal-button-container', // Migrated
-
-	'wm-stepper', // Migrated
-
-	'wm-tabs-container', // Migrated
-	'wm-tabs-tabRow', // Migrated
-	'wm-tabs-alltabs', // Migrated
-	'wm-tabs-selectedTab', // Migrated
-
-	'wm-conditional-tabs', // Migrated
-	'wm-sidebar-tabs',
-	'wm-invisible-tabs',
-
-	'wm-button', // Migrated
-	'wm-button-wrapper', // Migrated
-	'wm-button-container', // Migrated
-
-	'wm-submit', // Migrated
-	'wm-submit-button', // Migrated
-
-	'wm-modal-form',
-	'wm-download-button',
-
-	'wm-form',
-	'wm-text-input', // Migrated
-
+	'wm-container', // Migrated DOC
+	'wm-list', // Migrated DOC
+	'wm-list-pagination', // Migrated DOC
+	'wm-list-pagination-buttons', // Migrated DOC
+	'wm-drawer', // Migrated DOC
+	'wm-drawer-button', // Migrated DOC
+	'wm-drawer-button-container', // Migrated DOC
+	'wm-button', // Migrated DOC
+	'wm-button-wrapper', // Migrated DOC
+	'wm-button-container', // Migrated DOC
+	'wm-vertical-split-panes', // Migrated DOC
+	'wm-horizontal-split-panes', // Migrated DOC
+	'wm-modal', // Migrated DOC
+	'wm-modal-button', // Migrated DOC
+	'wm-modal-button-container', // Migrated DOC
+	'wm-tabs-container', // Migrated DOC
+	'wm-tabs-tabRow', // Migrated DOC
+	'wm-tabs-alltabs', // Migrated DOC
+	'wm-tabs-selectedTab', // Migrated DOC
+	'wm-carousel', // Migrated DOC
+	'wm-submit', // Migrated DOC
+	'wm-submit-button', // Migrated DOC
+	'wm-number-input', // Migrated DOC
+	'wm-currency-input', // Migrated DOC
+	'wm-date-input', // Migrated DOC
+	'wm-text-input', // Migrated DOC
+	'wm-html', // Migrated DOC
+	'wm-table-container', // Migrated DOC
+	'wm-table-header', // Migrated DOC
+	'wm-table-body', // Migrated DOC
+	'wm-table-footer', // Migrated DOC
+	'wm-table-row-selected', // Migrated DOC
+	'wm-table-row', // Migrated DOC
+	'wm-stepper', // Migrated DOC
 	// Quill
 	'ql-toolbar', // Migrated
 	'ql-stroke', // Migrated
 	'ql-fill', // Migrated
 	'ql-container', // Migrated
 
-	'wm-number', // Migrated
-	'wm-currency', // Migrated
-	'wm-date',
+	//
+
+	//
+
+	'wm-divider-x',
+	'wm-divider-y',
+
+	'wm-conditional-tabs', // Migrated
+	'wm-sidebar-tabs',
+	'wm-invisible-tabs',
+
+	'wm-modal-form',
+	'wm-download-button',
+
+	'wm-form',
+
 	'wm-file-input',
 	'wm-toggle',
 	'wm-select',
@@ -91,21 +94,13 @@ export const authorizedClassnames = [
 	'wm-select-tab',
 	'wm-select-step',
 
-	'wm-table-container', // Migrated
-	'wm-table-header', // Migrated
-	'wm-table-body', // Migrated
-	'wm-table-footer', // Migrated
-	'wm-table-row-selected', // Migrated
-	'wm-table-row', // Migrated
-
 	'wm-aggrid-table',
 
 	'wm-text',
 	'wm-icon',
 	'wm-image',
 	'wm-map',
-	'wm-html',
-	'wm-pdf',
+	'wm-pdf', // Migrated
 	'wm-rich-result',
 	'wm-log',
 	'wm-flow-status',
@@ -134,7 +129,7 @@ interface Customisation {
 	components: string[]
 	selectors: Selector[]
 	variables: Variable[]
-	link: string
+	link?: string | undefined
 	variablesTooltip?: string
 }
 
@@ -147,11 +142,31 @@ export const customisationByComponent: Customisation[] = [
 			{ selector: '.wm-app-grid', comment: 'main app grid element' },
 			{ selector: '.wm-app-component', comment: 'main app component element' }
 		],
-		variables: [],
-		link: ''
+		variables: []
 	},
-
-	// Drawer
+	{
+		components: ['buttoncomponent'],
+		selectors: [
+			{ selector: '.wm-button', comment: 'main button element' },
+			{ selector: '.wm-button-wrapper', comment: 'wrapper for button' },
+			{ selector: '.wm-button-container', comment: 'container for button' }
+		],
+		variables: []
+	},
+	{
+		components: ['containercomponent'],
+		selectors: [{ selector: '.wm-container', comment: 'Container component' }],
+		variables: []
+	},
+	{
+		components: ['listcomponent'],
+		selectors: [
+			{ selector: '.wm-list', comment: 'List component' },
+			{ selector: '.wm-list-pagination', comment: 'Pagination component' },
+			{ selector: '.wm-list-pagination-buttons', comment: 'Pagination buttons component' }
+		],
+		variables: []
+	},
 	{
 		components: ['drawercomponent'],
 		selectors: [
@@ -159,11 +174,31 @@ export const customisationByComponent: Customisation[] = [
 			{ selector: '.wm-drawer-button', comment: 'button to open drawer' },
 			{ selector: '.wm-drawer-button-container', comment: 'container for button to open drawer' }
 		],
-		variables: [],
-		link: ''
+		variables: []
 	},
-
-	// Ranges and Sliders
+	{
+		components: ['verticalsplitpanescomponent'],
+		selectors: [
+			{ selector: '.wm-vertical-split-panes', comment: 'Vertical split panes component' }
+		],
+		variables: []
+	},
+	{
+		components: ['horizontalsplitpanescomponent'],
+		selectors: [
+			{ selector: '.wm-horizontal-split-panes', comment: 'Horizontal split panes component' }
+		],
+		variables: []
+	},
+	{
+		components: ['modalcomponent'],
+		selectors: [
+			{ selector: '.wm-modal', comment: 'main modal element' },
+			{ selector: '.wm-modal-button', comment: 'button to open modal' },
+			{ selector: '.wm-modal-button-container', comment: 'container for button to open modal' }
+		],
+		variables: []
+	},
 	{
 		components: ['rangecomponent', 'slidercomponent'],
 		selectors: [
@@ -245,5 +280,70 @@ export const customisationByComponent: Customisation[] = [
 			{ variable: '--range-float-text', value: 'white', comment: 'text color on floating label' }
 		],
 		link: 'https://simeydotme.github.io/svelte-range-slider-pips/#styling'
+	},
+	{
+		components: ['tabscomponent'],
+		selectors: [
+			{ selector: '.wm-tabs-container', comment: 'Tabs container' },
+			{ selector: '.wm-tabs-tabRow', comment: 'Tabs row' },
+			{ selector: '.wm-tabs-alltabs', comment: 'All tabs' },
+			{ selector: '.wm-tabs-selectedTab', comment: 'Selected tab' }
+		],
+		variables: []
+	},
+	{
+		components: ['carousellistcomponent'],
+		selectors: [{ selector: '.wm-carousel', comment: 'Carousel component' }],
+		variables: []
+	},
+	{
+		components: ['submitcomponent'],
+		selectors: [
+			{ selector: '.wm-submit', comment: 'Submit component' },
+			{ selector: '.wm-submit-button', comment: 'Submit button' }
+		],
+		variables: []
+	},
+	{
+		components: ['numbercomponent'],
+		selectors: [{ selector: '.wm-number-input', comment: 'Number component' }],
+		variables: []
+	},
+	{
+		components: ['currencycomponent'],
+		selectors: [{ selector: '.wm-currency-input', comment: 'Currency component' }],
+		variables: []
+	},
+	{
+		components: ['datecomponent'],
+		selectors: [{ selector: '.wm-date-input', comment: 'Date component' }],
+		variables: []
+	},
+	{
+		components: ['textcomponent'],
+		selectors: [{ selector: '.wm-text-input', comment: 'Text component' }],
+		variables: []
+	},
+	{
+		components: ['htmlcomponent'],
+		selectors: [{ selector: '.wm-html', comment: 'HTML component' }],
+		variables: []
+	},
+	{
+		components: ['tablecomponent'],
+		selectors: [
+			{ selector: '.wm-table-container', comment: 'Table component' },
+			{ selector: '.wm-table-header', comment: 'Table header' },
+			{ selector: '.wm-table-body', comment: 'Table body' },
+			{ selector: '.wm-table-footer', comment: 'Table footer' },
+			{ selector: '.wm-table-row-selected', comment: 'Selected row' },
+			{ selector: '.wm-table-row', comment: 'Table row' }
+		],
+		variables: []
+	},
+	{
+		components: ['steppercomponent'],
+		selectors: [{ selector: 'wm-stepper', comment: 'Stepper component' }],
+		variables: []
 	}
 ]

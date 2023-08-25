@@ -123,7 +123,7 @@
 	bind:result
 	bind:loading
 >
-	<div class="flex flex-col divide-y h-full app-component-list">
+	<div class="flex flex-col divide-y h-full wm-list">
 		<div
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>
@@ -174,14 +174,12 @@
 			{/if}
 		</div>
 		{#if pagination.shouldDisplayPagination}
-			<div
-				class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center app-component-list-pagination"
-			>
+			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination">
 				<Button
 					size="xs2"
 					variant="border"
 					color="light"
-					btnClasses="flex flex-row gap-1 items-center app-component-list-pagination-buttons"
+					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 					on:click={() => {
 						isPreviousLoading = true
 						page = page - 1
@@ -200,7 +198,7 @@
 					size="xs2"
 					variant="border"
 					color="light"
-					btnClasses="flex flex-row gap-1 items-center app-component-list-pagination-buttons"
+					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 					on:click={() => {
 						isNextLoading = true
 						page = page + 1

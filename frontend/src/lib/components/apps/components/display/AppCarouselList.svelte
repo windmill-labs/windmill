@@ -13,6 +13,7 @@
 	import Carousel from 'svelte-carousel'
 	import { ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -147,7 +148,7 @@
 									<SubGridEditor
 										{id}
 										visible={render}
-										class={css?.container?.class}
+										class={twMerge(css?.container?.class, 'wm-carousel')}
 										style={css?.container?.style}
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight - 40}

@@ -78,7 +78,7 @@
 			<SubGridEditor
 				visible={render && i == selectedConditionIndex}
 				{id}
-				class={twMerge(css?.container?.class, 'app-component-conditional-tabs')}
+				class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
 				style={css?.container?.style}
 				subGridId={`${id}-${i}`}
 				containerHeight={componentContainerHeight}

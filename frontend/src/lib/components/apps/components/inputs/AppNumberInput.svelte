@@ -77,7 +77,7 @@
 		class={twMerge(
 			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2',
 			css?.input?.class ?? '',
-			'wm-number'
+			'wm-number-input'
 		)}
 		style={css?.input?.style ?? ''}
 		bind:value

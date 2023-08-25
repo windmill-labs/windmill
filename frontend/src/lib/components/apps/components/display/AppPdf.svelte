@@ -306,7 +306,12 @@
 			<div
 				bind:this={wrapper}
 				on:scroll={throttledScroll}
-				class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
+				class={twMerge(
+					'w-full h-full overflow-auto',
+					css?.container?.class ?? '',
+					'bg-gray-100',
+					'wm-pdf'
+				)}
 				style={css?.container?.style ?? ''}
 			/>
 		{/if}
