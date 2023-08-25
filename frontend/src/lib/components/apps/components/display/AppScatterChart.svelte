@@ -21,6 +21,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initOutput } from '../../editor/appUtils'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -85,7 +86,10 @@
 <InputValue key="pannable" {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-scatter-chart')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			<Scatter {data} {options} />
 		{/if}

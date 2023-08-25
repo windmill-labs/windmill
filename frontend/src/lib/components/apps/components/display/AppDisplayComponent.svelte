@@ -41,7 +41,8 @@
 		<div
 			class={twMerge(
 				'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
-				css?.header?.class
+				css?.header?.class,
+				'wm-rich-result-header'
 			)}
 			style={css?.header?.style}
 		>
@@ -50,7 +51,8 @@
 		<div
 			style={twMerge(
 				$app.css?.['displaycomponent']?.['container']?.style,
-				customCss?.container?.style
+				customCss?.container?.style,
+				'wm-rich-result-container'
 			)}
 			class={twMerge(
 				'p-2 grow overflow-auto',

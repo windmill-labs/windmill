@@ -18,6 +18,7 @@
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -79,7 +80,10 @@
 <InputValue key="doughnut" {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-pie-chart')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			{#if doughnut}
 				<Doughnut {data} {options} />

@@ -9,6 +9,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -52,7 +53,10 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-chartjs')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result && resolvedConfig.type}
 			{#key resolvedConfig.type}
 				<Chart type={resolvedConfig.type} data={result} {options} />

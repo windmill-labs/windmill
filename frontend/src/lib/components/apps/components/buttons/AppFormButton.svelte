@@ -14,6 +14,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import AlwaysMountedModal from '$lib/components/common/modal/AlwaysMountedModal.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -133,7 +134,7 @@
 		disabled={resolvedConfig.disabled ?? false}
 		size={resolvedConfig.size ?? 'md'}
 		color={resolvedConfig.color}
-		btnClasses={css?.button?.class ?? ''}
+		btnClasses={twMerge(css?.button?.class, 'wm-modal-form-button')}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
 			modal?.open()

@@ -20,6 +20,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -118,7 +119,10 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-bar-chart')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			{#if resolvedConfig.line}
 				<Line {data} options={lineOptions} />

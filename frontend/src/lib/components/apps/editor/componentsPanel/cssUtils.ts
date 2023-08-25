@@ -30,93 +30,81 @@ export function sanitizeCss(css: string, authorizedClassNames: string[]) {
 }
 
 export const authorizedClassnames = [
-	'wm-container', // Migrated DOC
-	'wm-list', // Migrated DOC
-	'wm-list-pagination', // Migrated DOC
-	'wm-list-pagination-buttons', // Migrated DOC
-	'wm-drawer', // Migrated DOC
-	'wm-drawer-button', // Migrated DOC
-	'wm-drawer-button-container', // Migrated DOC
-	'wm-button', // Migrated DOC
-	'wm-button-wrapper', // Migrated DOC
-	'wm-button-container', // Migrated DOC
-	'wm-vertical-split-panes', // Migrated DOC
-	'wm-horizontal-split-panes', // Migrated DOC
-	'wm-modal', // Migrated DOC
-	'wm-modal-button', // Migrated DOC
-	'wm-modal-button-container', // Migrated DOC
-	'wm-tabs-container', // Migrated DOC
-	'wm-tabs-tabRow', // Migrated DOC
-	'wm-tabs-alltabs', // Migrated DOC
-	'wm-tabs-selectedTab', // Migrated DOC
-	'wm-carousel', // Migrated DOC
-	'wm-submit', // Migrated DOC
-	'wm-submit-button', // Migrated DOC
-	'wm-number-input', // Migrated DOC
-	'wm-currency-input', // Migrated DOC
-	'wm-date-input', // Migrated DOC
-	'wm-text-input', // Migrated DOC
-	'wm-html', // Migrated DOC
-	'wm-table-container', // Migrated DOC
-	'wm-table-header', // Migrated DOC
-	'wm-table-body', // Migrated DOC
-	'wm-table-footer', // Migrated DOC
-	'wm-table-row-selected', // Migrated DOC
-	'wm-table-row', // Migrated DOC
-	'wm-stepper', // Migrated DOC
-	'wm-file-input', // Migrated DOC
-	'wm-toggle', // Migrated DOC
-	'wm-image', // Migrated DOC
-	'wm-pdf', // Migrated DOC
-	'wm-horizontal-divider', // Migrated DOC
-	'wm-vertical-divider', // Migrated DOC
-	'wm-horizontal-divider-container', // Migrated DOC
-	'wm-vertical-divider-container', // Migrated DOC
-	'wm-log-header', // Migrated DOC
-	'wm-log-container', // Migrated DOC
-	'wm-map', // Migrated DOC
-	'wm-icon', // Migrated DOC
-	'wm-icon-container', // Migrated DOC
-	'wm-flow-status-header', // Migrated DOC
-	'wm-flow-status-container', // Migrated DOC
-	'wm-select-tab-row', // Migrated DOC
-	'wm-select-tab', // Migrated DOC
-	'wm-select-tab-selected', // Migrated DOC
+	'wm-container',
+	'wm-list',
+	'wm-list-pagination',
+	'wm-list-pagination-buttons',
+	'wm-drawer',
+	'wm-drawer-button',
+	'wm-drawer-button-container',
+	'wm-button',
+	'wm-button-wrapper',
+	'wm-button-container',
+	'wm-vertical-split-panes',
+	'wm-horizontal-split-panes',
+	'wm-modal',
+	'wm-modal-button',
+	'wm-modal-button-container',
+	'wm-tabs-container',
+	'wm-tabs-tabRow',
+	'wm-tabs-alltabs',
+	'wm-tabs-selectedTab',
+	'wm-carousel',
+	'wm-submit',
+	'wm-submit-button',
+	'wm-number-input',
+	'wm-currency-input',
+	'wm-date-input',
+	'wm-text-input',
+	'wm-html',
+	'wm-table-container',
+	'wm-table-header',
+	'wm-table-body',
+	'wm-table-footer',
+	'wm-table-row-selected',
+	'wm-table-row',
+	'wm-stepper',
+	'wm-file-input',
+	'wm-toggle',
+	'wm-image',
+	'wm-pdf',
+	'wm-horizontal-divider',
+	'wm-vertical-divider',
+	'wm-horizontal-divider-container',
+	'wm-vertical-divider-container',
+	'wm-log-header',
+	'wm-log-container',
+	'wm-map',
+	'wm-icon',
+	'wm-icon-container',
+	'wm-flow-status-header',
+	'wm-flow-status-container',
+	'wm-select-tab-row',
+	'wm-select-tab',
+	'wm-select-tab-selected',
 
-	'ql-toolbar', // Migrated
-	'ql-stroke', // Migrated
-	'ql-fill', // Migrated
-	'ql-container', // Migrated
-	/**
-	 *
-	 *
-	 *
-	 *
-	 *
-	 *
-	 *
-	 */
+	'ql-toolbar',
+	'ql-stroke',
+	'ql-fill',
+	'ql-container',
 
-	'wm-conditional-tabs', // Migrated
-	'wm-sidebar-tabs',
-	'wm-invisible-tabs',
-	'wm-modal-form',
-	'wm-download-button',
-	'wm-form',
-	'wm-select',
-	'wm-resource-select',
-	'wm-multiselect',
-	'wm-select-step',
-	'wm-aggrid-table',
-	'wm-text',
-	'wm-rich-result',
-	'wm-bar-line-chart',
 	'wm-pie-chart',
-	'wm-vega-lite',
-	'wm-plotly',
+
+	'wm-modal-form-popup',
+	'wm-modal-form-button',
+
+	'wm-download-button',
+	'wm-download-button-container',
+
+	'wm-bar-chart',
 	'wm-scatter-chart',
+	'wm-chartjs',
 	'wm-timeseries',
-	'wm-chartjs'
+	'wm-conditional-tabs',
+
+	'wm-rich-result-header',
+	'wm-rich-result-container'
+	// TODO: Select and mutltiselect
 ]
 
 interface Selector {
@@ -417,6 +405,71 @@ export const customisationByComponent: Customisation[] = [
 			{ selector: '.wm-select-tab-row', comment: 'Select tab row' },
 			{ selector: '.wm-select-tab', comment: 'Select tab' },
 			{ selector: '.wm-select-tab-selected', comment: 'Select tab selected' }
+		],
+		variables: []
+	},
+	{
+		components: ['piechartcomponent'],
+		selectors: [{ selector: '.wm-pie-chart', comment: 'Pie chart' }],
+		variables: []
+	},
+	{
+		components: ['quillcomponent'],
+		selectors: [
+			{ selector: '.ql-toolbar', comment: 'Quill toolbar' },
+			{ selector: '.ql-stroke', comment: 'Quill stroke' },
+			{ selector: '.ql-fill', comment: 'Quill fill' },
+			{ selector: '.ql-container', comment: 'Quill container' }
+		],
+		variables: []
+	},
+	// add doc for migrated without DOC
+	{
+		components: ['modalformcomponent'],
+		selectors: [
+			{ selector: '.wm-modal-form-popup', comment: 'Modal form popup' },
+			{ selector: '.wm-modal-form-button', comment: 'Modal form button' }
+		],
+		variables: []
+	},
+	{
+		components: ['downloadcomponent'],
+		selectors: [
+			{ selector: '.wm-download-button', comment: 'Download button' },
+			{ selector: '.wm-download-button-container', comment: 'Download button container' }
+		],
+		variables: []
+	},
+	{
+		components: ['barchartcomponent'],
+		selectors: [{ selector: '.wm-bar-chart', comment: 'Bar chart' }],
+		variables: []
+	},
+	{
+		components: ['scatterchartcomponent'],
+		selectors: [{ selector: '.wm-scatter-chart', comment: 'Scatter chart' }],
+		variables: []
+	},
+	{
+		components: ['chartjscomponent'],
+		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS' }],
+		variables: []
+	},
+	{
+		components: ['timeseriescomponent'],
+		selectors: [{ selector: '.wm-timeseries', comment: 'Time series' }],
+		variables: []
+	},
+	{
+		components: ['conditionaltabscomponent'],
+		selectors: [{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs' }],
+		variables: []
+	},
+	{
+		components: ['richresultcomponent'],
+		selectors: [
+			{ selector: '.wm-rich-result-header', comment: 'Rich result header' },
+			{ selector: '.wm-rich-result-container', comment: 'Rich result container' }
 		],
 		variables: []
 	}
