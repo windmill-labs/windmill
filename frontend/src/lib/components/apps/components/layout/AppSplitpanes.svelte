@@ -7,6 +7,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -87,7 +88,12 @@
 							visible={render}
 							{id}
 							shouldHighlight={$focusedGrid?.subGridIndex === index}
-							class={css?.container?.class}
+							class={twMerge(
+								css?.container?.class,
+								horizontal
+									? 'app-component-horizontal-split-panes'
+									: 'app-component-vertical-split-panes'
+							)}
 							style={css?.container?.style}
 							subGridId={`${id}-${index}`}
 							containerHeight={horizontal ? undefined : componentContainerHeight - 8}

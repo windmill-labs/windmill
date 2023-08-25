@@ -13,6 +13,7 @@
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -97,13 +98,17 @@
 <div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
 	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 		<div bind:clientHeight={tabHeight}>
-			<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
+			<Tabs
+				bind:selected
+				class={twMerge(css?.tabRow?.class, 'app-component-tabs-tabRow')}
+				style={css?.tabRow?.style}
+			>
 				{#each tabs ?? [] as res, index}
 					<Tab
 						value={res}
-						class={css?.allTabs?.class}
+						class={twMerge(css?.allTabs?.class, 'app-component-tabs-alltabs')}
 						style={css?.allTabs?.style}
-						selectedClass={css?.selectedTab?.class}
+						selectedClass={twMerge(css?.selectedTab?.class, 'app-component-tabs-selectedTab')}
 						selectedStyle={css?.selectedTab?.style}
 						disabled={resolvedDisabledTabs[index]}
 					>
@@ -136,7 +141,7 @@
 					{id}
 					visible={render && i === selectedIndex}
 					subGridId={`${id}-${i}`}
-					class={css?.container?.class}
+					class={twMerge(css?.container?.class, 'app-component-tabs-container')}
 					style={css?.container?.style}
 					containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
 						? componentContainerHeight - tabHeight

@@ -123,7 +123,7 @@
 	bind:result
 	bind:loading
 >
-	<div class="flex flex-col divide-y h-full app-component-list-wrapper">
+	<div class="flex flex-col divide-y h-full app-component-list">
 		<div
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>
@@ -174,11 +174,14 @@
 			{/if}
 		</div>
 		{#if pagination.shouldDisplayPagination}
-			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center">
+			<div
+				class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center app-component-list-pagination"
+			>
 				<Button
 					size="xs2"
 					variant="border"
 					color="light"
+					btnClasses="flex flex-row gap-1 items-center app-component-list-pagination-buttons"
 					on:click={() => {
 						isPreviousLoading = true
 						page = page - 1
@@ -186,19 +189,18 @@
 					}}
 					disabled={page === 0}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						{#if isPreviousLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronLeft size={14} />
-						{/if}
-						Previous
-					</div>
+					{#if isPreviousLoading && loading}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						<ChevronLeft size={14} />
+					{/if}
+					Previous
 				</Button>
 				<Button
 					size="xs2"
 					variant="border"
 					color="light"
+					btnClasses="flex flex-row gap-1 items-center app-component-list-pagination-buttons"
 					on:click={() => {
 						isNextLoading = true
 						page = page + 1
@@ -206,15 +208,13 @@
 					}}
 					disabled={pagination.disableNext}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						Next
+					Next
 
-						{#if isNextLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronRight size={14} />
-						{/if}
-					</div>
+					{#if isNextLoading && loading}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						<ChevronRight size={14} />
+					{/if}
 				</Button>
 				<div class="text-xs">{page + 1} of {pagination.total}</div>
 			</div>

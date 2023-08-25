@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { InputValue } from '../helpers'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -77,7 +78,7 @@
 			<SubGridEditor
 				visible={render && i == selectedConditionIndex}
 				{id}
-				class={css?.container?.class}
+				class={twMerge(css?.container?.class, 'app-component-conditional-tabs')}
 				style={css?.container?.style}
 				subGridId={`${id}-${i}`}
 				containerHeight={componentContainerHeight}

@@ -10,6 +10,7 @@
 	import type { AppInput } from '../../inputType'
 	import { ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -151,7 +152,7 @@
 						{id}
 						visible={render && i === selectedIndex}
 						subGridId={`${id}-${i}`}
-						class={css?.container?.class}
+						class={twMerge(css?.container?.class, 'app-component-stepper')}
 						style={css?.container?.style}
 						containerHeight={componentContainerHeight - tabHeight - footerHeight}
 						on:focus={() => {

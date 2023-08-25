@@ -56,12 +56,15 @@
 
 	let search = ''
 
-	// Filter COMPONENT_SETS by search
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
 		components: set.components.filter((component) => {
 			const name = componentsRecord[component].name.toLowerCase()
 			return name.includes(search.toLowerCase())
+		}),
+		presets: set.presets?.filter((preset) => {
+			const presetName = presetsRecord[preset].name.toLowerCase()
+			return presetName.includes(search.toLowerCase())
 		})
 	}))
 </script>
@@ -71,7 +74,7 @@
 </section>
 
 <div class="relative">
-	{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
+	{#if componentsFiltered.reduce((acc, { components, presets }) => acc + components.length + (presets?.length ?? 0), 0) === 0}
 		<div
 			in:fade|local={{ duration: 50, delay: 50 }}
 			out:fade|local={{ duration: 50 }}
@@ -82,7 +85,7 @@
 	{:else}
 		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
 			{#each componentsFiltered as { title, components, presets }, index (index)}
-				{#if components.length}
+				{#if components.length > 0 || (presets?.length ?? 0) > 0}
 					<div transition:slide|local={{ duration: 100 }}>
 						<ListItem title={`${title} (${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">

@@ -50,7 +50,7 @@
 	btnClasses="ml-3 mt-2"
 	on:click={applyToAllInstances}
 >
-	Copy style to global CSS &nbsp;<Copy size={18} />
+	Copy css to global CSS &nbsp;<Copy size={18} />
 </Button>
 
 {#if component && component.customCss !== undefined}

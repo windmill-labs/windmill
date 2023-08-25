@@ -18,19 +18,32 @@
 	const authorizedClassnames = [
 		'app-component-container', // Migrated
 		// List
-		'app-component-list-wrapper',
-		'app-component-list',
+		'app-component-list', // Migrated
+		'app-component-list-pagination', // Migrated
+		'app-component-list-pagination-buttons', // Migrated
 
 		'app-component-divider-x',
 		'app-component-divider-y',
-		'app-component-drawer',
-		'app-component-vertical-split-panes',
-		'app-component-horizontal-split-panes',
-		'app-component-modal',
-		'app-component-stepper',
 
-		'app-component-tabs',
-		'app-component-conditional-tabs',
+		'app-component-drawer', // Migrated
+		'app-component-drawer-button', // Migrated
+		'app-component-drawer-button-container', // Migrated
+
+		'app-component-vertical-split-panes', // Migrated
+		'app-component-horizontal-split-panes', // Migrated
+
+		'app-component-modal', // Migrated
+		'app-component-modal-button', // Migrated
+		'app-component-modal-button-container', // Migrated
+
+		'app-component-stepper', // Migrated
+
+		'app-component-tabs-container', // Migrated
+		'app-component-tabs-tabRow', // Migrated
+		'app-component-tabs-alltabs', // Migrated
+		'app-component-tabs-selectedTab', // Migrated
+
+		'app-component-conditional-tabs', // Migrated
 		'app-component-sidebar-tabs',
 		'app-component-invisible-tabs',
 
@@ -97,81 +110,8 @@
 	let rawCode = ''
 	let rawCss = `
 /* You can only define CSS rules for those classes. Any other classes will be ignored. */
-/* Containers */
+${authorizedClassnames.map((c) => `.${c} {}\n`).join('')}
 
-/* Applied to the root element of the app */
-.windmill-app-container {}\n
-/* Applied to the root element of the app when in grid mode */
-.windmill-app-grid {}\n
-.windmill-component-wrapper {}\n
-
-.app-component-container {}\n
-.app-component-list {}\n
-.app-component-divider-x {}\n
-.app-component-divider-y {} 
-.app-component-drawer {}\n
-.app-component-vertical-split-panes {}\n
-.app-component-horizontal-split-panes {}\n
-.app-component-modal {}\n
-.app-component-stepper {}
-
-/* Tabs */
-.app-component-tabs {}\n
-.app-component-conditional-tabs {}\n
-.app-component-sidebar-tabs {}\n
-.app-component-invisible-tabs {}
-
-/* Buttons */
-.app-component-button-wrapper {}\n
-.app-component-button-wrapper > .app-component-button-container {}\n
-.app-component-button-wrapper > .app-component-button-container > .app-component-button {}\n
-.app-component-submit {}\n
-.app-component-modal-form {}\n
-.app-component-download-button {}\n
-
-/* Inputs */
-.app-component-form {}\n
-.app-component-text-input {}\n
-.app-component-textarea {}\n
-.app-component-rich-text-editor {}\n
-.app-component-password {}\n
-.app-component-email-input {}\n
-.app-component-number {}\n
-.app-component-currency {}\n
-.app-component-slider {}\n
-.app-component-range {}\n
-.app-component-date {}\n
-.app-component-file-input {}\n
-.app-component-toggle {}\n
-.app-component-select {}\n
-.app-component-resource-select {}\n
-.app-component-multiselect {}\n
-.app-component-select-tab {}\n
-.app-component-select-step {}\n
-
-/* Tables */
-.app-component-table {}\n
-.app-component-aggrid-table {}\n
-
-/* Display */
-.app-component-text {}\n
-.app-component-icon {}\n
-.app-component-image {}\n
-.app-component-map {}\n
-.app-component-html {}\n
-.app-component-pdf {}\n
-.app-component-rich-result {}\n
-.app-component-log {}\n
-.app-component-flow-status {}\n
-
-/* Charts */
-.app-component-bar-line-chart {}\n
-.app-component-pie-chart {}\n
-.app-component-vega-lite {}\n
-.app-component-plotly {}\n
-.app-component-scatter-chart {}\n
-.app-component-timeseries {}\n
-.app-component-chartjs {}\n
 `
 
 	$: rawCode && parseJson()
