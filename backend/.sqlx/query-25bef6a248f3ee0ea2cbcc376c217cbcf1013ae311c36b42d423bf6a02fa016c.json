@@ -44,7 +44,8 @@
                 "http",
                 "graphql",
                 "postgresql",
-                "noop"
+                "noop",
+                "appdependencies"
               ]
             }
           }
@@ -66,6 +67,7 @@
                 "bash",
                 "postgresql",
                 "nativets",
+                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",

@@ -23,6 +23,7 @@ pub enum JobKind {
     FlowPreview,
     Identity,
     FlowDependencies,
+    AppDependencies,
     Noop,
 }
 
@@ -179,6 +180,10 @@ pub enum JobPayload {
     },
     FlowDependencies {
         path: String,
+    },
+    AppDependencies {
+        path: String,
+        version: i64,
     },
     Flow(String),
     RawFlow {

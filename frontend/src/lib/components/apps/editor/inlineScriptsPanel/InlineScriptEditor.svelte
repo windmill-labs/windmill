@@ -262,6 +262,9 @@
 						}}
 						on:change={async (e) => {
 							if (inlineScript && inlineScript.language != 'frontend') {
+								if (inlineScript.lock) {
+									inlineScript.lock = undefined
+								}
 								const oldSchema = JSON.stringify(inlineScript.schema)
 								if (inlineScript.schema == undefined) {
 									inlineScript.schema = emptySchema()

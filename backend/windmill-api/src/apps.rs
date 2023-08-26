@@ -38,7 +38,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::push;
+use windmill_queue::{push, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -372,14 +372,16 @@ async fn get_secret_id(
 async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-    app.policy.on_behalf_of_email = Some(authed.email);
+    app.policy.on_behalf_of_email = Some(authed.email.clone());
 
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
@@ -390,7 +392,7 @@ async fn create_app(
         &app.path,
         w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?
     .unwrap_or(false);
 
@@ -406,7 +408,7 @@ async fn create_app(
         &app.path,
         &w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     let id = sqlx::query_scalar!(
@@ -419,7 +421,7 @@ async fn create_app(
         json!(app.policy),
         app.draft_only,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
 
     let v_id = sqlx::query_scalar!(
@@ -431,7 +433,7 @@ async fn create_app(
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut tx)
     .await?;
 
     sqlx::query!(
@@ -439,11 +441,11 @@ async fn create_app(
         v_id,
         id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     audit_log(
-        &mut *tx,
+        &mut tx,
         &authed.username,
         "apps.create",
         ActionKind::Create,
@@ -453,6 +455,31 @@ async fn create_app(
     )
     .await?;
 
+    let tx = PushIsolationLevel::Transaction(tx);
+    let (dependency_job_uuid, tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
+        serde_json::Map::new(),
+        &authed.username,
+        &authed.email,
+        windmill_common::users::username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
     tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
@@ -541,8 +568,10 @@ async fn delete_app(
 
 async fn update_app(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -550,7 +579,7 @@ async fn update_app(
 
     let path = path.to_path();
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
     let npath = if ns.policy.is_some() || ns.path.is_some() || ns.summary.is_some() {
         let mut sqlb = SqlBuilder::update_table("app");
@@ -567,7 +596,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut tx)
                 .await?
                 .unwrap_or(false);
 
@@ -587,7 +616,7 @@ async fn update_app(
 
         if let Some(mut npolicy) = ns.policy {
             npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-            npolicy.on_behalf_of_email = Some(authed.email);
+            npolicy.on_behalf_of_email = Some(authed.email.clone());
             sqlb.set(
                 "policy",
                 &format!(
@@ -602,18 +631,18 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
         "".to_string()
     };
-    if let Some(nvalue) = &ns.value {
+    let v_id = if let Some(nvalue) = &ns.value {
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             npath,
             w_id
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
 
         let v_id = sqlx::query_scalar!(
@@ -625,7 +654,7 @@ async fn update_app(
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut tx)
         .await?;
 
         sqlx::query!(
@@ -634,20 +663,23 @@ async fn update_app(
             npath,
             w_id
         )
-        .execute(&mut *tx)
+        .execute(&mut tx)
         .await?;
-    }
+        Some(v_id)
+    } else {
+        None
+    };
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         path,
         &w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut tx)
     .await?;
 
     audit_log(
-        &mut *tx,
+        &mut tx,
         &authed.username,
         "apps.update",
         ActionKind::Update,
@@ -656,7 +688,39 @@ async fn update_app(
         None,
     )
     .await?;
-    tx.commit().await?;
+
+    if let Some(v_id) = v_id {
+        let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
+            PushIsolationLevel::Transaction(tx);
+
+        let (dependency_job_uuid, tx) = push(
+            &db,
+            tx,
+            &w_id,
+            JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            windmill_common::users::username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
+        tx.commit().await?;
+    } else {
+        tx.commit().await?;
+    }
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateApp {

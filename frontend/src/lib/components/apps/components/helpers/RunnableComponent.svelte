@@ -246,7 +246,8 @@
 						requestBody['raw_code'] = {
 							content: inlineScript.content,
 							language: inlineScript.language,
-							path: inlineScript.path
+							path: inlineScript.path,
+							lock: inlineScript.lock
 						}
 					}
 				} else if (runnable?.type === 'runnableByPath') {
