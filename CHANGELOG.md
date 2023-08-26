@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.158.0](https://github.com/windmill-labs/windmill/compare/v1.157.0...v1.158.0) (2023-08-26)
+
+
+### Features
+
+* add lockfile for deno + use npm module for deno for windmill-client ([9547a06](https://github.com/windmill-labs/windmill/commit/9547a061da0b80a4bc278ee09a0004d410ec7410))
+
 ## [1.157.0](https://github.com/windmill-labs/windmill/compare/v1.156.1...v1.157.0) (2023-08-26)
 
 
