@@ -1,6 +1,5 @@
-import { ResourceService, VariableService } from "./index";
+import { ResourceService, VariableService, JobService } from "./index";
 import { OpenAPI } from "./index";
-import { JobService } from "./src";
 
 export {
   AdminService,
