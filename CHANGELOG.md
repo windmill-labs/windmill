@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.157.0](https://github.com/windmill-labs/windmill/compare/v1.156.1...v1.157.0) (2023-08-26)
+
+
+### Features
+
+* lock inline scripts for apps on deploy ([f5121e9](https://github.com/windmill-labs/windmill/commit/f5121e9066e1a93ad6f928daad891a08ae840d81))
+
+
+### Bug Fixes
+
+* make workspace error handler picker accept any script ([53976da](https://github.com/windmill-labs/windmill/commit/53976da8ae70de3f8e251564220312541604d77b))
+
 ## [1.156.1](https://github.com/windmill-labs/windmill/compare/v1.156.0...v1.156.1) (2023-08-25)
 
 
