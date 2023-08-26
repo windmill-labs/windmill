@@ -106,6 +106,7 @@ export type InlineScript = {
 	language: Preview.language | 'frontend'
 	path?: string
 	schema?: Schema
+	lock?: String
 	refreshOn?: { id: string; key: string }[]
 	suggestedRefreshOn?: { id: string; key: string }[]
 }

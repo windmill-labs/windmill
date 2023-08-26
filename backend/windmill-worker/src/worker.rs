@@ -1079,6 +1079,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
                             .await
                             .map(|()| Value::Null)
+                    },
+                    JobKind::AppDependencies => {
+                        handle_app_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
+                            .await
+                            .map(|()| Value::Null)
                     }
                     JobKind::Identity => match job.args.clone() {
                         Some(Value::Object(args))
@@ -1540,7 +1545,6 @@ async fn handle_dependency_job(
     }
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_flow_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
@@ -1563,7 +1567,7 @@ async fn handle_flow_dependency_job(
     })?;
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
 
-    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
+    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
     let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
@@ -1599,7 +1603,7 @@ async fn lock_modules(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
-    job_path: String,
+    job_path: &str,
     base_internal_url: &str,
     token: &str) -> Result<Vec<FlowModule>> {
     let mut new_flow_modules = Vec::new();
@@ -1635,7 +1639,7 @@ async fn lock_modules(
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.clone()), &db).await?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.to_string()), &db).await?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
@@ -1694,6 +1698,142 @@ async fn lock_modules(
     }
     Ok(new_flow_modules)
 }
+
+#[async_recursion]
+async fn lock_modules_app(
+    value: Value,     
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    job_path: &str,
+    base_internal_url: &str,
+    token: &str) -> Result<Value> {
+    match value {
+        Value::Object(mut m) => {
+            if m.contains_key("inlineScript") {
+                let v = m.get_mut("inlineScript").unwrap();
+                    if let Some(v) = v.as_object_mut() {
+                    if v.contains_key("content") && v.contains_key("language") {
+                            if let Ok(language)  = serde_json::from_value::<ScriptLang>(v.get("language").unwrap().clone()) {
+                                let content = v.get("content").unwrap().as_str().unwrap_or_default().to_string();
+                                let dependencies = match language {
+                                    ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, job_path, &db).await?.join("\n"),
+                                    _ => content.clone(),
+                                };
+                                logs.push_str("Found lockable inline script. Generating lock...\n");
+                                let new_lock = capture_dependency_job(
+                                    &job.id,
+                                    &language,
+                                    &dependencies,
+                                    logs,
+                                    job_dir,
+                                    db,
+                                    worker_name,
+                                    &job.workspace_id,
+                                    worker_dir,
+                                    base_internal_url,
+                                    token,
+                                    job.script_path()
+                                )
+                                .await;
+                                match new_lock {
+                                    Ok(new_lock) => {
+                                        v.insert("lock".to_string(), serde_json::Value::String(new_lock));
+                                        return Ok(Value::Object(m.clone()))
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            language = ?language,
+                                            error = ?e,
+                                            logs = ?logs,
+                                            "Failed to generate flow lock for inline script"
+                                        );
+                                        ()
+                                    }
+                                }
+                        }
+                    }
+                }
+            } 
+            for (a, b) in m.clone().into_iter() {
+                m.insert(
+                    a.clone(),
+                    lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?,
+                );
+            }
+            Ok(Value::Object(m))
+        },
+        Value::Array(a) => {
+            let mut nv = vec![];
+            for b in a.clone().into_iter() {
+                nv.push(lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?);
+            }
+            Ok(Value::Array(nv))
+        }, 
+        a @ _ => Ok(a),
+    }
+}
+
+
+async fn handle_app_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
+) -> error::Result<()> {
+
+    let job_path = job.script_path.clone().ok_or_else(|| {
+        error::Error::InternalErr(
+            "Cannot resolve flow dependencies for flow without path".to_string(),
+        )
+    })?;
+
+    let id = job.script_hash.clone().ok_or_else(|| {
+        Error::InternalErr(
+            "Flow Dependency requires script hash".to_owned(),
+    )})?.0;
+    let value =  sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(value) = value {
+        let value = lock_modules_app(value, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
+    
+
+        // Re-check cancelation to ensure we don't accidentially override a flow.
+        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .map(|v| Some(true) == v)
+            .unwrap_or_else(|err| {
+                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+                false
+            })
+        {
+            return Ok(());
+        }
+
+        sqlx::query!(
+            "UPDATE app_version SET value = $1 WHERE id = $2",
+            value,
+            id,
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    } else {
+        Ok(())
+    }
+    }
+
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
