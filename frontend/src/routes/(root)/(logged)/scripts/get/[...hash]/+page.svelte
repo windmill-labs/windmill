@@ -319,7 +319,7 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.language == 'deno' ? '' : script.lock ?? ''
+							script.lock ?? ''
 						).toString(),
 						'_blank'
 					)
