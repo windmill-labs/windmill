@@ -251,13 +251,13 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@1"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   return wmill.getResumeUrls(approver)
 }`
 
-export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@1"
+export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
   return wmill.getResumeUrls(approver)
