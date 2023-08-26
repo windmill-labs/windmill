@@ -56,7 +56,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 use crate::{
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::handle_deno_job, 
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::{handle_deno_job, generate_deno_lock}, 
 };
 
 #[cfg(feature = "enterprise")]
@@ -1393,6 +1393,7 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
+                requirements_o,
                 logs,
                 job,
                 db,
@@ -1831,7 +1832,9 @@ async fn handle_app_dependency_job(
     } else {
         Ok(())
     }
-    }
+}
+
+
 
 
 async fn capture_dependency_job(
@@ -1891,8 +1894,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
-            Ok(String::new())
-            // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name).await
         },
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;

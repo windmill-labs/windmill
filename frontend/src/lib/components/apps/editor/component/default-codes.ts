@@ -38,7 +38,7 @@ export const DEFAULT_CODES: Partial<
 			"age": 84
 		}
 	]`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -75,7 +75,7 @@ export async function main(db: Postgresql) {
 			"age": 84
 		}
 	]`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -132,7 +132,7 @@ export async function main(db: Postgresql) {
 			"<3"
 		]
 	}`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -206,7 +206,7 @@ export async function main(db: Postgresql) {
 			"y": { "field": "b", "type": "quantitative" },
 		},
 	}`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -253,7 +253,7 @@ export async function main(Postgresqlstgresql) {
 			}
 		}
 	}`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -300,7 +300,7 @@ export async function main(Postgresqlstgresql) {
 			"<3"
 		]
 	}`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -356,7 +356,7 @@ export async function main(db: Postgresql) {
 			"backgroundColor": "orange"
 		}
 	]`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+		pgsql: `import { pgSql } from "npm:windmill-client@1";
 
 type Postgresql = object
 
@@ -466,37 +466,7 @@ export async function main(db: Postgresql) {
 			],
 			"backgroundColor": "orange"
 		}
-	]`,
-		pgsql: `import { pgSql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
-
-type Postgresql = object
-
-export async function main(db: Postgresql) {
-  try {
-    const query = await pgSql(db)\`SELECT * FROM demo;\`;
-    const rows = query.rows.map((row, i) => ({
-      x: new Date(Date.now() - (i * 1000 * 60 * 60 * 24)).toISOString(),
-      y: row['0']
-    }))
-    return [
-      {
-        label: "foo",
-        data: rows,
-        backgroundColor: "rgb(255, 12, 137)"
-      },
-      {
-        label: "bar",
-        data: rows.map(({x, y}) => ({
-          x,
-          y: y * 2
-        })),
-        backgroundColor: "orange"
-      }
-    ];
-  } catch(e) {
-    return [];
-  }
-}`
+	]`
 	},
 	iconcomponent: {
 		deno: `export async function main() {

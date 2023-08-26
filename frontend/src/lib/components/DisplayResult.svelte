@@ -134,7 +134,7 @@
 			</div>
 		{/if}
 		{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 w-full text-sm relative"
+				class="mb-2 w-full min-w-[400px] text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
 					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">

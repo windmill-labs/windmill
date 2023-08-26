@@ -113,8 +113,6 @@
 		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
 
-	let version = __pkg__.version
-
 	const dispatch = createEventDispatcher()
 
 	function compile(schema: Schema) {
@@ -257,19 +255,15 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
-				)
+				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes(`import { getVariable } from "windmill-client@${__pkg__.version}`)) {
-				editor.insertAtBeginning(
-					`import { getVariable } from "windmill-client@${__pkg__.version}"\n`
-				)
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
 			}
-			editor.insertAtCursor(`(await getVariable('${path}'))`)
+			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
@@ -314,19 +308,15 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
-				)
+				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang === 'bun') {
 			const code = editor.getCode()
-			if (!code.includes(`import { getResource } from "windmill-client@${__pkg__.version}`)) {
-				editor.insertAtBeginning(
-					`import { getResource } from "windmill-client@${__pkg__.version}"\n`
-				)
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
 			}
-			editor.insertAtCursor(`(await getResource('${path}'))`)
+			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
