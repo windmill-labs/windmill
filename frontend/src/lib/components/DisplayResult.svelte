@@ -132,8 +132,7 @@
 				>
 				<slot name="copilot-fix" />
 			</div>
-		{/if}
-		{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+		{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full min-w-[400px] text-sm relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 				{#if !disableExpand}
