@@ -10,6 +10,13 @@ use ::tracing::{field, Span};
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
 
+lazy_static::lazy_static! {
+    static ref LOG_REQUESTS: bool = std::env::var("LOG_REQUESTS")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(true);
+}
+
 #[derive(Clone)]
 pub struct MyOnResponse {}
 
@@ -20,11 +27,13 @@ impl<B> OnResponse<B> for MyOnResponse {
         latency: std::time::Duration,
         _span: &tracing::Span,
     ) {
-        tracing::info!(
-            latency = latency.as_millis(),
-            status = response.status().as_u16(),
-            "response"
-        )
+        if *LOG_REQUESTS {
+            tracing::info!(
+                latency = latency.as_millis(),
+                status = response.status().as_u16(),
+                "response"
+            )
+        }
     }
 }
 
