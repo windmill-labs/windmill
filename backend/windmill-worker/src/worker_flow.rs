@@ -115,7 +115,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     flow: uuid::Uuid,
     job_id_for_status: &Uuid,
     w_id: &str,
-    success: bool,
+    mut success: bool,
     result: serde_json::Value,
     metrics: Option<Metrics>,
     unrecoverable: bool,
@@ -293,6 +293,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen: None,
                         }
                     };
+                    success = false;
                     (true, Some(new_status))
                 } else {
                     tx.commit().await?;
@@ -501,6 +502,9 @@ pub async fn update_flow_status_after_job_completion_internal<
             }
         };
 
+        // tracing::error!(
+        //     "UPDATE FLOW STATUS 3: {module:#?} {skip_failure} {is_last_step} {success}"
+        // );
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.canceled => false,
