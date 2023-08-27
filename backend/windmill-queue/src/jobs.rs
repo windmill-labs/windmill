@@ -141,7 +141,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
     }
     let job_running = job_running.unwrap();
 
-    if ((!job_running.running && job_running.root_job.is_none())
+    if ((job_running.running || job_running.root_job.is_some())
         || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
         && !force_cancel
     {
