@@ -275,6 +275,8 @@ components:
             - forloopflow
         parallel:
           type: boolean
+        parallelism:
+          type: integer
       required:
         - modules
         - iterator

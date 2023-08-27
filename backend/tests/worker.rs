@@ -1055,6 +1055,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
                         parallel: false,
+                        parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
                             value: FlowModuleValue::RawScript {
@@ -1198,6 +1199,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
+                        parallelism: None,
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),

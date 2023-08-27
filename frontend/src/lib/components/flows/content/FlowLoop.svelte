@@ -71,6 +71,14 @@
 								}}
 							/>
 						</div>
+						<div>
+							<div class="mb-2 text-sm font-bold">Parallelism</div>
+							<input
+								type="number"
+								disabled={!mod.value.parallel}
+								bind:value={mod.value.parallelism}
+							/>
+						</div>
 					</div>
 					<div class="my-2 text-sm font-bold">
 						Iterator expression
