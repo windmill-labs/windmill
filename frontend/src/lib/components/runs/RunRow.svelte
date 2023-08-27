@@ -158,7 +158,18 @@
 				</Button>
 			</div>
 		{:else}
-			{job.created_by}
+			<div class="flex flex-row gap-1 items-center">
+				{job.created_by}
+				<Button
+					size="xs2"
+					color="light"
+					on:click={() => {
+						dispatch('filterByUser', job.created_by)
+					}}
+				>
+					<ListFilter size={10} />
+				</Button>
+			</div>
 		{/if}
 	</Cell>
 </Row>

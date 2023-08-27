@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
+	import { JobService, Job, CompletedJob, ScriptService, FlowService, UserService } from '$lib/gen'
 	import { setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
@@ -63,7 +63,7 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds && selectedUser)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -75,6 +75,7 @@
 			createdOrStartedAfter: startedAfter,
 			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
+			createdBy: selectedUser === '' ? undefined : selectedUser,
 			jobKinds,
 			success,
 			isSkipped,
@@ -150,6 +151,7 @@
 	onMount(() => {
 		mounted = true
 		loadPaths()
+		loadUsernames()
 		intervalId = setInterval(syncer, 5000)
 
 		document.addEventListener('visibilitychange', () => {
@@ -178,6 +180,12 @@
 
 	let paths: string[] = []
 
+	let usernames: string[] = []
+
+	async function loadUsernames(): Promise<void> {
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+	}
+
 	async function loadPaths() {
 		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
@@ -201,9 +209,22 @@
 	}
 
 	let searchPath = ''
+	let selectedUser = $page.url.searchParams.get('user') ?? ''
+
 	$: searchPath = path
 
 	$: searchPath && onSearchPathChange()
+
+	$: selectedUser && onUserChange()
+
+	function onUserChange() {
+		setQueryWithoutLoad($page.url, [
+			{
+				key: 'user',
+				value: selectedUser
+			}
+		])
+	}
 
 	function onSearchPathChange() {
 		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
@@ -303,8 +324,8 @@
 />
 <div class="w-full h-screen">
 	<div class="px-2">
-		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+		<div class="flex items-center space-x-2 flex-row justify-between xl:flex-col xl:items-start">
+			<div class="flex flex-row py-2 my-4 px-4 gap-1">
 				<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
 
 				<Tooltip
@@ -320,6 +341,8 @@
 			<div class="hidden xl:block">
 				<RunsFilter
 					bind:isSkipped
+					{usernames}
+					bind:selectedUser
 					{paths}
 					{jobKindsCat}
 					bind:selectedPath={searchPath}
@@ -344,7 +367,9 @@
 							bind:isSkipped
 							{paths}
 							{jobKindsCat}
+							{usernames}
 							bind:selectedPath={searchPath}
+							bind:selectedUser
 							bind:success
 							bind:argFilter
 							bind:resultFilter
@@ -485,6 +510,9 @@
 						bind:nbOfJobs
 						on:filterByPath={(e) => {
 							searchPath = e.detail
+						}}
+						on:filterByUser={(e) => {
+							selectedUser = e.detail
 						}}
 					/>
 				{:else}

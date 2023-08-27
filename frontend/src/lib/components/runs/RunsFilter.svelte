@@ -19,9 +19,41 @@
 	export let resultFilter: string
 	export let resultError: string
 	export let jobKindsCat: string
+
+	export let usernames: string[] = []
+	export let selectedUser: string | undefined = undefined
 </script>
 
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
+	{#key selectedUser}
+		<div class="relative">
+			{#if selectedUser}
+				<button
+					class="absolute top-2 right-4 z-50"
+					on:click={() => {
+						selectedUser = undefined
+						goto('/runs')
+					}}
+				>
+					<X size={14} />
+				</button>
+			{:else}
+				<ChevronDown class="absolute top-2 right-4" size={14} />
+			{/if}
+
+			<span class="text-xs absolute -top-4">User</span>
+
+			<AutoComplete
+				items={usernames}
+				value={selectedUser}
+				bind:selectedItem={selectedUser}
+				inputClassName="!h-[30px] py-1 !text-xs !w-48"
+				hideArrow
+				className={selectedUser ? '!font-bold' : ''}
+				dropdownClassName="!font-normal !w-48 !max-w-48"
+			/>
+		</div>
+	{/key}
 	{#key selectedPath}
 		<div class="relative">
 			{#if selectedPath}
