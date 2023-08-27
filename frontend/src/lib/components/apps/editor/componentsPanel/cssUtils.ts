@@ -130,19 +130,24 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['app'],
 		selectors: [
-			{ selector: '.wm-app', comment: 'main app element' },
-			{ selector: '.wm-app-viewer', comment: 'main app viewer element' },
-			{ selector: '.wm-app-grid', comment: 'main app grid element' },
-			{ selector: '.wm-app-component', comment: 'main app component element' }
+			{ selector: '.wm-app-viewer', comment: 'Applied to the div under all components' },
+			{
+				selector: '.wm-app-grid',
+				comment: 'Applied to the div that contains the grid of components'
+			},
+			{
+				selector: '.wm-app-component',
+				comment: 'Applied to the div that is around every components'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['buttoncomponent'],
 		selectors: [
-			{ selector: '.wm-button', comment: 'main button element' },
-			{ selector: '.wm-button-wrapper', comment: 'wrapper for button' },
-			{ selector: '.wm-button-container', comment: 'container for button' }
+			{ selector: '.wm-button', comment: 'Applied to the button' },
+			{ selector: '.wm-button-wrapper', comment: 'Applied to the div around the button	' },
+			{ selector: '.wm-button-container', comment: 'Applied to the button container' }
 		],
 		variables: []
 	},
