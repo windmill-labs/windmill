@@ -82,7 +82,7 @@
 
 <InitializeComponent {id} />
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} {horizontalAlignment} {verticalAlignment} class="wm-select-step">
 	<div class="w-full" on:pointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => item.label)}

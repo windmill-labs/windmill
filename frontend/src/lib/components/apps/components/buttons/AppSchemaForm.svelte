@@ -86,7 +86,7 @@
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	{#if result && Object.keys(result?.properties ?? {}).length > 0}
 		<div
-			class={twMerge('p-2 overflow-auto h-full', css?.container?.class)}
+			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}

@@ -29,10 +29,9 @@
 		BellOff,
 		Bug,
 		Expand,
-		Hand,
 		Laptop2,
 		Loader2,
-		Paintbrush,
+		PanelLeftOpen,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -788,18 +787,15 @@
 				/>
 			</ToggleButtonGroup>
 		{/if}
-		<ToggleButtonGroup class="h-[30px]" bind:selected={$cssEditorOpen}>
-			<ToggleButton
-				icon={Hand}
-				value={false}
-				tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-			/>
-			<ToggleButton
-				tooltip="The width is of the app if the full width of its container"
-				icon={Paintbrush}
-				value={true}
-			/>
-		</ToggleButtonGroup>
+
+		{#if $cssEditorOpen}
+			<Button on:click={() => ($cssEditorOpen = false)} size="xs" color="dark">
+				<div class="flex flex-row gap-2">
+					<PanelLeftOpen size={16} />
+					<div>Close Global CSS Mode</div>
+				</div>
+			</Button>
+		{/if}
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}

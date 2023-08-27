@@ -477,7 +477,7 @@ export const components = {
 		}
 	},
 	jobidlogcomponent: {
-		name: 'Log',
+		name: 'Log by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}#log-display`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -535,7 +535,7 @@ export const components = {
 		}
 	},
 	jobidflowstatuscomponent: {
-		name: 'Flow Status',
+		name: 'Flow Status by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}#flow-status`,
 		dims: '2:8-6:8' as AppComponentDimensions,

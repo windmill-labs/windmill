@@ -58,7 +58,8 @@
 	class={classNames(
 		'h-full w-full overflow-y-auto prose',
 		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
-		css?.container?.class
+		css?.container?.class,
+		'wm-markdown'
 	)}
 >
 	<RunnableWrapper

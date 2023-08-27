@@ -298,7 +298,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['numbercomponent'],
+		components: ['numberinputcomponent'],
 		selectors: [{ selector: '.wm-number-input', comment: 'Number component' }],
 		variables: []
 	},
@@ -308,12 +308,17 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['datecomponent'],
+		components: ['dateinputcomponent'],
 		selectors: [{ selector: '.wm-date-input', comment: 'Date component' }],
 		variables: []
 	},
 	{
-		components: ['textcomponent'],
+		components: [
+			'emailinputcomponent',
+			'textinputcomponent',
+			'textareainputcomponent',
+			'passwordinputcomponent'
+		],
 		selectors: [{ selector: '.wm-text-input', comment: 'Text component' }],
 		variables: []
 	},
@@ -360,18 +365,23 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['dividercomponent'],
+		components: ['horizontaldividercomponent'],
 		selectors: [
 			{ selector: '.wm-horizontal-divider', comment: 'Horizontal divider component' },
+			{ selector: '.wm-horizontal-divider-container', comment: 'Horizontal divider container' }
+		],
+		variables: []
+	},
+	{
+		components: ['verticaldividercomponent'],
+		selectors: [
 			{ selector: '.wm-vertical-divider', comment: 'Vertical divider component' },
-			{ selector: '.wm-horizontal-divider-container', comment: 'Horizontal divider container' },
 			{ selector: '.wm-vertical-divider-container', comment: 'Vertical divider container' }
 		],
 		variables: []
 	},
-	// log
 	{
-		components: ['logcomponent'],
+		components: ['logcomponent', 'jobidlogcomponent'],
 		selectors: [
 			{ selector: '.wm-log-header', comment: 'Log header' },
 			{ selector: '.wm-log-container', comment: 'Log container' }
@@ -392,7 +402,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['flowstatuscomponent'],
+		components: ['flowstatuscomponent', 'jobidflowstatuscomponent'],
 		selectors: [
 			{ selector: '.wm-flow-status-header', comment: 'Flow status header' },
 			{ selector: '.wm-flow-status-container', comment: 'Flow status container' }
@@ -423,9 +433,8 @@ export const customisationByComponent: Customisation[] = [
 		],
 		variables: []
 	},
-	// add doc for migrated without DOC
 	{
-		components: ['modalformcomponent'],
+		components: ['formbuttoncomponent'],
 		selectors: [
 			{ selector: '.wm-modal-form-popup', comment: 'Modal form popup' },
 			{ selector: '.wm-modal-form-button', comment: 'Modal form button' }
@@ -461,16 +470,229 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['conditionaltabscomponent'],
+		components: ['conditionalwrapper'],
 		selectors: [{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs' }],
 		variables: []
 	},
 	{
-		components: ['richresultcomponent'],
+		components: ['displaycomponent'],
 		selectors: [
 			{ selector: '.wm-rich-result-header', comment: 'Rich result header' },
 			{ selector: '.wm-rich-result-container', comment: 'Rich result container' }
 		],
 		variables: []
+	},
+	{
+		components: ['mardowncomponent'],
+		selectors: [{ selector: '.wm-markdown', comment: 'Markdown component' }],
+		variables: []
+	},
+	{
+		components: ['schemaformcomponent'],
+		selectors: [{ selector: '.wm-schema-form', comment: 'Schema form component' }],
+		variables: []
+	},
+	{
+		components: ['formcomponent'],
+		selectors: [
+			{ selector: '.wm-form-submit', comment: 'Form submit' },
+			{ selector: '.wm-form-submit-button', comment: 'Form submit button' }
+		],
+		variables: []
+	},
+	{
+		components: ['selectstepcomponent'],
+		selectors: [{ selector: '.wm-select-step', comment: 'Select step' }],
+		variables: []
+	},
+	{
+		components: ['selectcomponent'],
+		selectors: [{ selector: '.svelte-select', comment: 'Svelte select' }],
+		variables: []
+	},
+
+	{
+		components: ['multiselectcomponent'],
+		selectors: [
+			{
+				selector: 'multiselect',
+				comment: 'top-level wrapper div'
+			},
+			{
+				selector: 'multiselect.open',
+				comment: 'top-level wrapper div when dropdown open'
+			},
+			{
+				selector: 'multiselect.disabled',
+				comment: 'top-level wrapper div when in disabled state'
+			},
+			{
+				selector: 'multiselect > ul.selected',
+				comment: 'selected list'
+			},
+			{
+				selector: 'multiselect > ul.selected > li',
+				comment: 'selected list items'
+			},
+			{
+				selector: 'multiselect button',
+				comment: 'target all buttons in this component'
+			},
+			{
+				selector: 'multiselect > ul.selected > li button, button.remove-all',
+				comment: 'buttons to remove a single or all selected options at once'
+			},
+			{
+				selector: 'multiselect > input[autocomplete]',
+				comment: 'input inside the top-level wrapper div'
+			},
+			{
+				selector: 'multiselect > ul.options',
+				comment: 'dropdown options'
+			},
+			{
+				selector: 'multiselect > ul.options > li',
+				comment: 'dropdown list items'
+			},
+			{
+				selector: 'multiselect > ul.options > li.selected',
+				comment: 'selected options in the dropdown list'
+			},
+			{
+				selector: 'multiselect > ul.options > li:not(.selected):hover',
+				comment: 'unselected but hovered options in the dropdown list'
+			},
+			{
+				selector: 'multiselect > ul.options > li.active',
+				comment:
+					'active item, navigated to with up/down arrow keys and ready to be selected by pressing enter'
+			},
+			{
+				selector: 'multiselect > ul.options > li.disabled',
+				comment: 'options with disabled key set to true'
+			}
+		],
+		variables: [
+			{
+				variable: '--sms-border',
+				value: '1pt solid lightgray',
+				comment:
+					'Change this to e.g. to 1px solid red to indicate this form field is in an invalid state.'
+			},
+			{ variable: '--sms-border-radius', value: '3pt' },
+			{ variable: '--sms-padding', value: '0 3pt' },
+			{ variable: '--sms-bg', value: '' },
+			{ variable: '--sms-text-color', value: '' },
+			{ variable: '--sms-min-height', value: '22pt' },
+			{ variable: '--sms-width', value: '' },
+			{ variable: '--sms-max-width', value: '' },
+			{ variable: '--sms-margin', value: '' },
+			{ variable: '--sms-font-size', value: 'inherit' },
+			{
+				variable: '--sms-open-z-index',
+				value: '4',
+				comment:
+					'Increase this if needed to ensure the dropdown list is displayed atop all other page elements.'
+			},
+			{
+				variable: '--sms-focus-border',
+				value: '1pt solid var(--sms-active-color, cornflowerblue)',
+				comment:
+					'Border when component has focus. Defaults to --sms-active-color which in turn defaults to cornflowerblue.'
+			},
+			{
+				variable: '--sms-disabled-bg',
+				value: 'lightgray',
+				comment: 'Background when in disabled state.'
+			},
+			{ variable: '--sms-placeholder-color', value: '' },
+			{ variable: '--sms-placeholder-opacity', value: '' },
+			{
+				variable: '--sms-selected-bg',
+				value: 'rgba(0, 0, 0, 0.15)',
+				comment: 'Background of selected options.'
+			},
+			{
+				variable: '--sms-selected-li-padding',
+				value: '1pt 5pt',
+				comment: 'Height of selected options.'
+			},
+			{
+				variable: '--sms-selected-text-color',
+				value: 'var(--sms-text-color)',
+				comment: 'Text color for selected options.'
+			},
+			{
+				variable: '--sms-remove-btn-hover-color',
+				value: 'lightskyblue',
+				comment:
+					'Color of the remove-icon buttons for removing all or individual selected options when in :focus or :hover state.'
+			},
+			{
+				variable: '--sms-remove-btn-hover-bg',
+				value: 'rgba(0, 0, 0, 0.2)',
+				comment: 'Background for hovered remove buttons.'
+			},
+			{ variable: '--sms-options-bg', value: 'white', comment: 'Background of dropdown list.' },
+			{
+				variable: '--sms-options-max-height',
+				value: '50vh',
+				comment: 'Maximum height of options dropdown.'
+			},
+			{
+				variable: '--sms-options-overscroll',
+				value: 'none',
+				comment:
+					'Whether scroll events bubble to parent elements when reaching the top/bottom of the options dropdown. See MDN.'
+			},
+			{
+				variable: '--sms-options-shadow',
+				value: '0 0 14pt -8pt black',
+				comment: 'Box shadow of dropdown list.'
+			},
+			{ variable: '--sms-options-border', value: '' },
+			{ variable: '--sms-options-border-width', value: '' },
+			{ variable: '--sms-options-border-radius', value: '1ex' },
+			{ variable: '--sms-options-padding', value: '' },
+			{ variable: '--sms-options-margin', value: 'inherit' },
+			{
+				variable: '--sms-options-scroll-margin',
+				value: '100px',
+				comment:
+					'Top/bottom margin to keep between dropdown list items and top/bottom screen edge when auto-scrolling list to keep items in view.'
+			},
+			{
+				variable: '--sms-li-selected-bg',
+				comment: 'Background of selected list items in options pane.',
+				value: ''
+			},
+			{
+				variable: '--sms-li-selected-color',
+				comment: 'Text color of selected list items in options pane.',
+				value: ''
+			},
+			{
+				variable: '--sms-li-active-bg',
+				value: 'var(--sms-active-color, rgba(0, 0, 0, 0.15))',
+				comment:
+					'Background of active options. Options in the dropdown list become active either by mouseover or by navigating to them with arrow keys. Selected options become active when selectedOptionsDraggable=true and an option is being dragged to a new position. Note the active option in that case is not the dragged option but the option under it whose place it will take on drag end.'
+			},
+			{
+				variable: '--sms-li-disabled-bg',
+				value: '#f5f5f6',
+				comment: 'Background of disabled options in the dropdown list.'
+			},
+			{
+				variable: '--sms-li-disabled-text',
+				value: '#b8b8b8',
+				comment: 'Text color of disabled option in the dropdown list.'
+			}
+		]
 	}
 ]
+
+/**
+ * Select
+ * Multi Select
+ * resource select
+ */

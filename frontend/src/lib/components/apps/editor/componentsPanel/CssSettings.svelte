@@ -3,7 +3,7 @@
 	import { LayoutDashboardIcon, MousePointer2, CurlyBraces, Code } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
-	import { ClearableInput, Drawer, DrawerContent, Tab, TabContent, Tabs } from '../../../common'
+	import { ClearableInput, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import CssProperty from './CssProperty.svelte'
@@ -28,10 +28,8 @@
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
-	let rawCss = ``
 
 	$: rawCode && parseJson()
-	$: rawCss && parseCss()
 	let jsonError = ''
 	let jsonErrorHeight: number
 	let cssError = ''
@@ -48,20 +46,13 @@
 		}
 	}
 
-	function parseCss() {
-		$app.cssString = rawCss
-	}
-
 	function switchTab(asJson: boolean) {
 		if (asJson) {
 			rawCode = JSON.stringify($app.css, null, 2)
 			console.log($app.cssString, '#########')
-
-			rawCss = $app.cssString ?? ''
 		} else {
 			parseJson()
 			console.log($app.cssString, '#########')
-			rawCss = $app.cssString ?? ''
 		}
 	}
 
@@ -86,15 +77,15 @@
 	entries.sort((a, b) => a.name.localeCompare(b.name))
 	let search = ''
 
-	let cssViewer: Drawer
+	let selectedTab: 'ui' | 'json' | 'css' = 'ui'
 </script>
 
-<Drawer bind:this={cssViewer} size="800px">
-	<DrawerContent title="CSS Details" on:close={cssViewer.closeDrawer} />
-</Drawer>
-
 <!-- <div class="w-full text-lg font-semibold text-center text-tertiary p-2">Global Styling</div> -->
-<Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="h-full">
+<Tabs
+	bind:selected={selectedTab}
+	on:selected={(e) => switchTab(e.detail === 'json')}
+	class="h-full"
+>
 	<Tab value="ui" size="xs" class="w-1/2">
 		<div class="m-1 center-center">
 			<MousePointer2 size={16} />
@@ -128,7 +119,7 @@
 			<div class="h-[calc(100%-50px)] overflow-auto relative">
 				{#each search != '' ? entries.filter((x) => x.name
 								.toLowerCase()
-								.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name + type)}
+								.includes(search?.toLowerCase())) : entries as { type, name, icon, ids } (name + type)}
 					{#if ids.length > 0}
 						<ListItem
 							title={name}
@@ -196,7 +187,7 @@
 						<Editor
 							class="h-full"
 							lang="css"
-							bind:code={rawCss}
+							bind:code={$app.cssString}
 							fixedOverflowWidgets={false}
 							small
 							automaticLayout
