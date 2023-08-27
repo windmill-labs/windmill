@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.154.2
+  version: 1.158.2
   title: Windmill API
 
   contact:
@@ -6035,6 +6035,7 @@ components:
               "preview",
               "dependencies",
               "flowdependencies",
+              "appdependencies",
               "flow",
               "flowpreview",
               "script_hub",
@@ -6140,6 +6141,7 @@ components:
               "dependencies",
               "flow",
               "flowdependencies",
+              "appdependencies",
               "flowpreview",
               "script_hub",
               "identity",
@@ -6830,6 +6832,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - edited_by
@@ -6883,6 +6897,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - schedule
@@ -6903,6 +6929,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - schedule
         - timezone

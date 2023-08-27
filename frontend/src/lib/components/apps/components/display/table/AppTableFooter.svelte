@@ -102,7 +102,8 @@
 						{/if}
 					</div>
 				</Button>
-				{$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
+				{$table.getState().pagination.pageIndex + 1}
+				{$table.getPageCount() > 0 ? ` of ${$table.getPageCount()}` : ''}
 			</div>
 		{:else}
 			<div />

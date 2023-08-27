@@ -335,8 +335,7 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there',
-				noVariablePicker: true
+				placeholder: 'Hello there'
 			}
 		},
 		openModal: {
@@ -344,8 +343,7 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to open',
 				fieldType: 'text',
 				type: 'static',
-				value: '',
-				noVariablePicker: true
+				value: ''
 			}
 		},
 		closeModal: {
@@ -353,8 +351,7 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to close',
 				fieldType: 'text',
 				type: 'static',
-				value: '',
-				noVariablePicker: true
+				value: ''
 			}
 		}
 	}
@@ -442,7 +439,7 @@ const paginationOneOf = {
 				type: 'static',
 				fieldType: 'number',
 				value: 20,
-				onlyStatic: true,
+
 				tooltip: 'Number of rows per page'
 			}
 		},
@@ -666,21 +663,20 @@ export const components = {
 				style: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.textStyleOptions,
 					value: 'Body' as 'Title' | 'Subtitle' | 'Body' | 'Label' | 'Caption'
 				},
 				copyButton: {
 					type: 'static',
 					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
+					fieldType: 'boolean'
 				},
 				tooltip: {
 					type: 'static',
 					value: '',
 					fieldType: 'text',
-					onlyStatic: true,
+
 					tooltip: 'Tooltip text if not empty'
 				}
 			}
@@ -720,14 +716,14 @@ export const components = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
-					onlyStatic: true,
+
 					value: false,
 					tooltip:
 						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
@@ -740,20 +736,17 @@ export const components = {
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
+					fieldType: 'icon-select'
 				},
 				afterIcon: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
+					fieldType: 'icon-select'
 				},
 				triggerOnAppLoad: {
 					type: 'static',
 					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
+					fieldType: 'boolean'
 				},
 				onSuccess: onSuccessClick,
 				onError: onErrorClick
@@ -800,27 +793,25 @@ export const components = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
-					onlyStatic: true,
+
 					value: false
 				},
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
+					fieldType: 'icon-select'
 				},
 				afterIcon: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
+					fieldType: 'icon-select'
 				}
 			}
 		}
@@ -859,7 +850,7 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
@@ -890,8 +881,7 @@ export const components = {
 				modalTitle: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Modal title',
-					onlyStatic: true
+					value: 'Modal title'
 				},
 				label: {
 					type: 'static',
@@ -909,7 +899,7 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
@@ -934,14 +924,14 @@ export const components = {
 			configuration: {
 				theme: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'select',
 					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				doughnutStyle: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				}
@@ -965,7 +955,7 @@ export const components = {
 			configuration: {
 				type: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'select',
 					selectOptions: selectOptions.chartTypeOptions,
 					value: 'pie'
@@ -1004,14 +994,14 @@ export const components = {
 			configuration: {
 				theme: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'select',
 					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				line: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				}
@@ -1070,7 +1060,7 @@ This is a paragraph.
 					type: 'static',
 					selectOptions: selectOptions.prose,
 					value: 'Default',
-					onlyStatic: true,
+
 					tooltip: 'See Tailwind documentation: https://tailwindcss.com/docs/typography-plugin'
 				}
 			}
@@ -1105,7 +1095,7 @@ This is a paragraph.
 			configuration: {
 				canvas: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false,
 					tooltip: 'Use the canvas renderer instead of the svg one for more interactive plots'
@@ -1141,8 +1131,7 @@ This is a paragraph.
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information',
-					onlyStatic: false
+						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information'
 				}
 			}
 		}
@@ -1159,19 +1148,19 @@ This is a paragraph.
 			configuration: {
 				logarithmicScale: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				},
 				zoomable: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				},
 				pannable: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				}
@@ -1233,13 +1222,13 @@ This is a paragraph.
 			configuration: {
 				zoomable: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				},
 				pannable: {
 					type: 'static',
-					onlyStatic: true,
+
 					fieldType: 'boolean',
 					value: false
 				}
@@ -1287,7 +1276,7 @@ This is a paragraph.
 				search: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.tableSearchOptions,
 					value: 'Disabled' as string,
 					tooltip:
@@ -1298,7 +1287,7 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip: 'display a button to download the table as a csv file'
 				},
 				initialState: {
@@ -1306,8 +1295,7 @@ This is a paragraph.
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)',
-					onlyStatic: true
+						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)'
 				}
 			},
 			componentInput: {
@@ -1348,42 +1336,40 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip: 'default col flex is 1 (see ag-grid docs)'
 				},
 				allEditable: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'Configure all columns as Editable by users'
 				},
 				multipleSelectable: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'Make multiple rows selectable at once'
 				},
 				rowMultiselectWithClick: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip: 'If multiple selectable, allow multiselect with click'
 				},
 				pagination: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
+					value: false
 				},
 				extraConfig: {
 					type: 'static',
 					fieldType: 'object',
 					value: {},
-					tooltip: 'any configuration that can be passed to ag-grid top level',
-					onlyStatic: true
+					tooltip: 'any configuration that can be passed to ag-grid top level'
 				}
 			},
 			componentInput: {
@@ -1451,8 +1437,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Type...',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				defaultValue: {
 					type: 'static',
@@ -1476,8 +1461,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Type...',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				defaultValue: {
 					type: 'static',
@@ -1501,8 +1485,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Type...',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				defaultValue: {
 					type: 'static',
@@ -1541,15 +1524,14 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'Allows user to manually add new value',
 					customTitle: 'User creatable'
 				},
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Select an item',
-					onlyStatic: true
+					value: 'Select an item'
 				},
 				disabled: {
 					fieldType: 'boolean',
@@ -1565,14 +1547,14 @@ This is a paragraph.
 					type: 'static',
 					value: true,
 					fieldType: 'boolean',
-					onlyStatic: true,
+
 					tooltip: 'Preselect first item in the options if no default value is set'
 				},
 				fullWidth: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
@@ -1608,14 +1590,13 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Select items',
-					onlyStatic: true
+					value: 'Select items'
 				},
 				create: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'Allows user to manually add new value',
 					customTitle: 'User creatable'
 				},
@@ -1623,7 +1604,7 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip:
 						'If too many items, the box overflow its container instead of having an internal scroll'
 				}
@@ -1651,14 +1632,13 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Select an item',
-					onlyStatic: true
+					value: 'Select an item'
 				},
 				fullWidth: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: true,
-					onlyStatic: true,
+
 					tooltip: 'Set the width of the options popup to 100% of the select width'
 				}
 			}
@@ -1679,8 +1659,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Type...',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				defaultValue: {
 					type: 'static',
@@ -1726,21 +1705,20 @@ This is a paragraph.
 				isNegativeAllowed: {
 					type: 'static',
 					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
+					fieldType: 'boolean'
 				},
 				currency: {
 					type: 'static',
 					value: 'USD',
 					fieldType: 'select',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.currencyOptions
 				},
 				locale: {
 					type: 'static',
 					value: 'en-US',
 					fieldType: 'select',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.localeOptions,
 					tooltip: 'Currency format'
 				}
@@ -1786,8 +1764,7 @@ This is a paragraph.
 				vertical: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
+					value: false
 				}
 			}
 		}
@@ -1837,7 +1814,7 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					onlyStatic: true,
+
 					tooltip:
 						'Determine if the slider is disabled, or enabled (only disables interactions, and events)'
 				}
@@ -1859,8 +1836,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Password',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				}
 			}
 		}
@@ -1880,8 +1856,7 @@ This is a paragraph.
 				placeholder: {
 					type: 'static',
 					value: 'Email',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				defaultValue: {
 					type: 'static',
@@ -1921,7 +1896,9 @@ This is a paragraph.
 				outputFormat: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'text'
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
 				}
 			}
 		}
@@ -1942,7 +1919,7 @@ This is a paragraph.
 				tabsKind: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.tabsKindOptions,
 					value: 'tabs' as string,
 					tooltip: `Tabs can be configured to be either horizontal (tabs), vertical (sidebar), or invisible.`
@@ -1986,7 +1963,7 @@ This is a paragraph.
 				timingFunction: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
 					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
@@ -2031,14 +2008,12 @@ This is a paragraph.
 				size: {
 					type: 'static',
 					value: 24,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				strokeWidth: {
 					type: 'static',
 					value: 2,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				}
 			}
 		}
@@ -2064,7 +2039,7 @@ This is a paragraph.
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true,
+
 					tooltip:
 						'The height of the divider in pixels can be overridden by the `height` property in the styling menu'
 				},
@@ -2072,7 +2047,7 @@ This is a paragraph.
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true,
+
 					tooltip:
 						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
@@ -2096,7 +2071,7 @@ This is a paragraph.
 					type: 'static',
 					value: 2,
 					fieldType: 'number',
-					onlyStatic: true,
+
 					tooltip:
 						'The width of the divider in pixels can be overridden by the `width` property in the styling menu'
 				},
@@ -2104,7 +2079,7 @@ This is a paragraph.
 					type: 'static',
 					value: '#00000060',
 					fieldType: 'color',
-					onlyStatic: true,
+
 					tooltip:
 						'The color of the divider can be overridden by the `background-color` property in the styling menu'
 				}
@@ -2125,28 +2100,24 @@ This is a paragraph.
 				acceptedFileTypes: {
 					type: 'static',
 					value: ['image/*', 'application/pdf'] as string[],
-					fieldType: 'array',
-					onlyStatic: true
+					fieldType: 'array'
 				},
 				allowMultiple: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					tooltip: 'If allowed, the user will be able to select more than one file',
-					onlyStatic: true
+					tooltip: 'If allowed, the user will be able to select more than one file'
 				},
 				text: {
 					type: 'static',
 					value: 'Drag and drop files or click to select them',
-					fieldType: 'text',
-					onlyStatic: true
+					fieldType: 'text'
 				},
 				includeMimeType: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					tooltip: 'If enabled, the mime type of the file will be included.',
-					onlyStatic: true
+					tooltip: 'If enabled, the mime type of the file will be included.'
 				}
 			}
 		}
@@ -2174,7 +2145,7 @@ This is a paragraph.
 				imageFit: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.objectFitOptions,
 					value: 'contain',
 					tooltip:
@@ -2184,7 +2155,7 @@ This is a paragraph.
 					type: 'static',
 					value: '',
 					fieldType: 'text',
-					onlyStatic: true,
+
 					tooltip: "This text will appear if the image can't be loaded for any reason"
 				}
 			}
@@ -2206,8 +2177,7 @@ This is a paragraph.
 				drawerTitle: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Drawer title',
-					onlyStatic: false
+					value: 'Drawer title'
 				},
 				label: {
 					type: 'static',
@@ -2225,14 +2195,14 @@ This is a paragraph.
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
-					onlyStatic: true,
+
 					value: false,
 					tooltip:
 						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
@@ -2377,8 +2347,7 @@ This is a paragraph.
 				modalTitle: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Modal title',
-					onlyStatic: true
+					value: 'Modal title'
 				},
 				buttonLabel: {
 					type: 'static',
@@ -2388,7 +2357,7 @@ This is a paragraph.
 				buttonColor: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: buttonColorOptions,
 					value: 'blue',
 					tooltip: 'Theses presets can be overwritten with custom styles.'
@@ -2396,14 +2365,14 @@ This is a paragraph.
 				buttonSize: {
 					fieldType: 'select',
 					type: 'static',
-					onlyStatic: true,
+
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				buttonFillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
-					onlyStatic: true,
+
 					value: false,
 					tooltip:
 						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
@@ -2448,14 +2417,14 @@ This is a paragraph.
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'This will diplay the type and/or the format on the field next to the label.'
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-					onlyStatic: true,
+
 					tooltip: 'This will add a large gap between the form elements.'
 				}
 			}

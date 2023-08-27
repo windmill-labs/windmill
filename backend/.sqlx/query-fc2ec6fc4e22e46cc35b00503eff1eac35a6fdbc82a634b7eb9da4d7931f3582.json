@@ -38,7 +38,8 @@
                 "http",
                 "graphql",
                 "postgresql",
-                "noop"
+                "noop",
+                "appdependencies"
               ]
             }
           }
@@ -59,7 +60,8 @@
                 "http",
                 "graphql",
                 "postgresql",
-                "noop"
+                "noop",
+                "appdependencies"
               ]
             }
           }

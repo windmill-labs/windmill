@@ -347,7 +347,8 @@ async fn create_script(
 
     let lock = if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
-        || ns.language == ScriptLang::Bun)
+        || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Deno)
     {
         Some(String::new())
     } else {

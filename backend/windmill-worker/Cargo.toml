@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-deno-lock = []
 enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2"]
 
 [dependencies]
@@ -69,6 +68,7 @@ rust_decimal.workspace = true
 jsonwebtoken = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 pem = { workspace = true, optional = true }
+urlencoding.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

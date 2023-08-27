@@ -75,8 +75,8 @@
 	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
+<InputValue key="theme" {id} input={configuration.theme} bind:value={theme} />
+<InputValue key="doughnut" {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>

@@ -190,8 +190,8 @@
 	$: css = concatCustomCss($app.css?.pdfcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.source} bind:value={source} />
-<InputValue {id} input={configuration.zoom} bind:value={zoom} />
+<InputValue key="source" {id} input={configuration.source} bind:value={source} />
+<InputValue key="zoom" {id} input={configuration.zoom} bind:value={zoom} />
 
 <InitializeComponent {id} />
 

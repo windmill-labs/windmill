@@ -7,6 +7,7 @@
 // import { page } from '$app/stores'
 // import { get } from 'svelte/store'
 
+import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 export { sendUserToast }
@@ -170,6 +171,18 @@ export function encodeState(state: any): string {
 
 export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
+export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
+	if (!arr) {
+		return false
+	}
+	for (const i of arr) {
+		if (deepEqual(i, item)) {
+			return true
+		}
+	}
+	return false
 }
 
 export function decodeArgs(queryArgs: string | undefined): any {
@@ -341,12 +354,30 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 	}
 
 	let success = false
-	if (navigator?.clipboard) {
+	if (navigator?.clipboard && window.isSecureContext) {
 		success = await navigator.clipboard
 			.writeText(value)
 			.then(() => true)
 			.catch(() => false)
+	} else {
+		const textArea = document.createElement("textarea");
+		textArea.value = value;
+		textArea.style.position = "fixed";
+		textArea.style.left = "-999999px";
+
+		document.body.appendChild(textArea);
+		textArea.select();
+
+		try {
+			document.execCommand('copy');
+			success = true;
+		} catch (error) {
+			// ignore (success = false)
+		} finally {
+			textArea.remove();
+		}
 	}
+
 	sendToast &&
 		sendUserToast(success ? 'Copied to clipboard!' : "Couldn't copy to clipboard", !success)
 	return success

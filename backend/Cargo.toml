@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.154.2"
+version = "1.158.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.154.2"
+version = "1.158.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -131,17 +131,18 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.133.0"
-deno_console = "0.109.0"
-deno_url = "0.109.0"
-deno_webidl = "0.109.0"
-deno_web = "0.140.0"
-deno_core = "0.191.0"
-deno_ast = { version = "0.27.2", features = ["transpiling"] }
+deno_fetch = "0.139.0"
+deno_console = "0.115.0"
+deno_url = "0.115.0"
+deno_webidl = "0.115.0"
+deno_web = "0.146.0"
+deno_core = "0.200.0"
+deno_ast = { version = "0.28.0", features = ["transpiling"] }
 async-recursion = "^1"
-swc_common = "0.31.12"
-swc_ecma_parser = "0.136.2"
-swc_ecma_ast = "0.106.2"
+swc_common = "0.31.21"
+swc_ecma_parser = "0.137.15"
+swc_ecma_ast = "0.107.7"
+swc_ecma_visit = "0.93.7"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"

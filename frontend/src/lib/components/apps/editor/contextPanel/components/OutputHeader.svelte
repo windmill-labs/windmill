@@ -209,11 +209,13 @@
 				{/if}
 			</button>
 			{#if selectable && renamable && ($selectedComponent?.includes(id) || $hoverStore === id)}
-				<IdEditor
-					{id}
-					on:selected={() => ($selectedComponent = [id])}
-					on:change={({ detail }) => renameId(detail)}
-				/>
+				<div class="h-3">
+					<IdEditor
+						{id}
+						on:selected={() => ($selectedComponent = [id])}
+						on:change={({ detail }) => renameId(detail)}
+					/></div
+				>
 			{/if}
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">

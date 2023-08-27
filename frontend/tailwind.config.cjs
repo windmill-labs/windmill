@@ -9,7 +9,7 @@ const lightTheme = {
 
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
-	textTertiary: '#718096',
+	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
 	border: '#ccc',
@@ -27,7 +27,7 @@ const darkTheme = {
 
 	textPrimary: '#f3f6f8',
 	textSecondary: '#e0e7ed',
-	textTertiary: '#d8dee9',
+	textTertiary: '#c7ccd6',
 	textDisabled: '#a0aec0',
 
 	border: '#3e4c60',
@@ -478,7 +478,7 @@ const config = {
 
 					'--color-text-primary': lightThemeRgb.textPrimary,
 					'--color-text-secondary': lightThemeRgb.textSecondary,
-					'--color-text-tetiary': lightThemeRgb.textTertiary,
+					'--color-text-tertiary': lightThemeRgb.textTertiary,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
@@ -516,7 +516,7 @@ const config = {
 
 						'--color-text-primary': darkThemeRgb.textPrimary,
 						'--color-text-secondary': darkThemeRgb.textSecondary,
-						'--color-text-tetiary': darkThemeRgb.textTertiary,
+						'--color-text-tertiary': darkThemeRgb.textTertiary,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
 
 						'--color-surface-inverse': lightThemeRgb.surface,

@@ -13,12 +13,13 @@
 	} from 'chart.js'
 	import { getContext } from 'svelte'
 	import { Bar, Line } from 'svelte-chartjs'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
-	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -27,6 +28,11 @@
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	let resolvedConfig = initConfig(
+		components['barchartcomponent'].initialData.configuration,
+		configuration
+	)
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -45,8 +51,6 @@
 	)
 
 	let result: { data: number[]; labels?: string[] } | undefined = undefined
-	let theme: string = 'theme1'
-	let lineChart = false
 
 	$: backgroundColor = {
 		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
@@ -54,7 +58,7 @@
 		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
 		// red theme
 		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[theme]
+	}[resolvedConfig.theme ?? 'theme1']
 
 	const lineOptions: ChartOptions<'line'> = {
 		responsive: true,
@@ -104,13 +108,19 @@
 	$: css = concatCustomCss($app.css?.barchartcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.line} bind:value={lineChart} />
+{#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
-			{#if lineChart}
+			{#if resolvedConfig.line}
 				<Line {data} options={lineOptions} />
 			{:else}
 				<Bar {data} options={barOptions} />

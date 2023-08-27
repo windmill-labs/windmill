@@ -177,6 +177,7 @@
 		JOBS_RUN_IDENTITY: 'jobs.run.identity',
 		JOBS_RUN_NOOP: 'jobs.run.noop',
 		JOBS_FLOW_DEPENDENCIES: 'jobs.flow_dependencies',
+		JOBS_APP_DEPENDENCIES: 'jobs.app_dependencies',
 		JOBS: 'jobs',
 		JOBS_CANCEL: 'jobs.cancel',
 		JOBS_FORCE_CANCEL: 'jobs.force_cancel',

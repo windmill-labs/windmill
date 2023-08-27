@@ -18,7 +18,7 @@
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { Code, Plug } from 'lucide-svelte'
+	import { FunctionSquare, Plug } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 
 	export let schema: Schema
@@ -221,7 +221,7 @@
 							light
 							tooltip="Javascript expression ('flow_input' or 'results')."
 							value="javascript"
-							icon={Code}
+							icon={FunctionSquare}
 						/>
 					</ToggleButtonGroup>
 				</div>

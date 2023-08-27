@@ -46,8 +46,8 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue {id} input={configuration.color} bind:value={color} />
+<InputValue key="size" {id} input={configuration.size} bind:value={size} />
+<InputValue key="color" {id} input={configuration.color} bind:value={color} />
 <InitializeComponent {id} />
 
 <AlignWrapper

@@ -6,4 +6,4 @@ npx --yes openapi-typescript-codegen --input ../backend/windmill-api/openapi.yam
  && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/core/request.ts 
 
 cp client.ts src/
-echo 'export { setClient, getVariable, setVariable, getResource, setResource } from "./client";' >> src/index.ts
+echo 'export { setClient, getVariable, setVariable, getResource, setResource, getResumeUrls } from "./client";' >> src/index.ts
