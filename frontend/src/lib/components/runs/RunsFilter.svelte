@@ -9,6 +9,7 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { ChevronDown, Filter, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import Toggle from '../Toggle.svelte'
 
 	export let paths: string[] = []
 	export let selectedPath: string | undefined = undefined
@@ -22,7 +23,21 @@
 
 	export let usernames: string[] = []
 	export let selectedUser: string | undefined = undefined
-	let filterBy: 'path' | 'user' = 'path'
+
+	export let folders: string[] = []
+	export let selectedFolder: string | undefined = undefined
+
+	const hasFolder = $page.url.searchParams.get('folder')
+	const hasUser = $page.url.searchParams.get('user')
+	const hasPath = $page.url.searchParams.get('path')
+
+	let filterBy: 'path' | 'user' | 'folder' = hasFolder
+		? 'folder'
+		: hasUser
+		? 'user'
+		: hasPath
+		? 'path'
+		: 'path'
 </script>
 
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
@@ -32,6 +47,7 @@
 			<ToggleButtonGroup bind:selected={filterBy}>
 				<ToggleButton value="path" label="Path" />
 				<ToggleButton value="user" label="User" />
+				<ToggleButton value="folder" label="Folder" />
 			</ToggleButtonGroup>
 		</div>
 	</div>
@@ -62,6 +78,37 @@
 					inputClassName="!h-[30px] py-1 !text-xs !w-64"
 					hideArrow
 					className={selectedUser ? '!font-bold' : ''}
+					dropdownClassName="!font-normal !w-64 !max-w-64"
+				/>
+			</div>
+		{/key}
+	{/if}
+	{#if filterBy == 'folder'}
+		{#key selectedFolder}
+			<div class="relative">
+				{#if selectedFolder}
+					<button
+						class="absolute top-2 right-2 z-50"
+						on:click={() => {
+							selectedFolder = undefined
+							goto('/runs')
+						}}
+					>
+						<X size={14} />
+					</button>
+				{:else}
+					<ChevronDown class="absolute top-2 right-2" size={14} />
+				{/if}
+
+				<span class="text-xs absolute -top-4">Folder</span>
+
+				<AutoComplete
+					items={folders}
+					value={selectedFolder}
+					bind:selectedItem={selectedFolder}
+					inputClassName="!h-[30px] py-1 !text-xs !w-64"
+					hideArrow
+					className={selectedFolder ? '!font-bold' : ''}
 					dropdownClassName="!font-normal !w-64 !max-w-64"
 				/>
 			</div>
@@ -128,25 +175,22 @@
 				<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
 			</ToggleButtonGroup>
 		</div>
-		<div class="relative">
-			<span class="text-xs absolute -top-4">
-				Flow
-				<Tooltip light>Skipped flows are flows that did an early break</Tooltip></span
-			>
+		<div class="relative w-32">
+			<span class="text-xs absolute -top-4"> Show Skipped Flows </span>
 
-			<ToggleButtonGroup
-				bind:selected={isSkipped}
-				on:selected={async () =>
-					await setQuery(
-						$page.url,
-						'is_skipped',
-						isSkipped === undefined ? isSkipped : String(isSkipped)
-					)}
-			>
-				<ToggleButton value={undefined} label="All" class="whitespace-nowrap" />
-				<ToggleButton value={false} label="Not skipped" class="whitespace-nowrap" />
-				<ToggleButton value={true} label="Skipped" class="whitespace-nowrap" />
-			</ToggleButtonGroup>
+			<div class="flex flex-row gap-1 items-center">
+				<Toggle
+					size="xs"
+					bind:checked={isSkipped}
+					on:change={async () =>
+						await setQuery(
+							$page.url,
+							'is_skipped',
+							isSkipped === undefined ? isSkipped : String(isSkipped)
+						)}
+				/>
+				<Tooltip light>Skipped flows are flows that did an early break</Tooltip>
+			</div>
 		</div>
 	</div>
 

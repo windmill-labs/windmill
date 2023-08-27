@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, Job, CompletedJob, ScriptService, FlowService, UserService } from '$lib/gen'
+	import {
+		JobService,
+		Job,
+		CompletedJob,
+		ScriptService,
+		FlowService,
+		UserService,
+		FolderService
+	} from '$lib/gen'
 	import { setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
@@ -63,12 +71,14 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds && selectedUser)
+	$: ($workspaceStore && loadJobs()) ||
+		(path && success && isSkipped && jobKinds && selectedUser && selectedFolder)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
 		startedAfter: string | undefined
 	): Promise<Job[]> {
+		console.log(selectedFolder)
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
@@ -76,6 +86,7 @@
 			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
 			createdBy: selectedUser === '' ? undefined : selectedUser,
+			scriptPathStart: selectedFolder === '' ? undefined : `f/${selectedFolder}/`,
 			jobKinds,
 			success,
 			isSkipped,
@@ -152,6 +163,7 @@
 		mounted = true
 		loadPaths()
 		loadUsernames()
+		loadFolders()
 		intervalId = setInterval(syncer, 5000)
 
 		document.addEventListener('visibilitychange', () => {
@@ -186,6 +198,14 @@
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
+	let folders: string[] = []
+
+	async function loadFolders(): Promise<void> {
+		folders = await FolderService.listFolders({
+			workspace: $workspaceStore!
+		}).then((x) => x.map((y) => y.name))
+	}
+
 	async function loadPaths() {
 		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
@@ -210,18 +230,29 @@
 
 	let searchPath = ''
 	let selectedUser = $page.url.searchParams.get('user') ?? ''
+	let selectedFolder = $page.url.searchParams.get('folder') ?? ''
 
 	$: searchPath = path
 
 	$: searchPath && onSearchPathChange()
 
 	$: selectedUser && onUserChange()
+	$: selectedFolder && onFolderChange()
 
 	function onUserChange() {
 		setQueryWithoutLoad($page.url, [
 			{
 				key: 'user',
 				value: selectedUser
+			}
+		])
+	}
+
+	function onFolderChange() {
+		setQueryWithoutLoad($page.url, [
+			{
+				key: 'folder',
+				value: selectedFolder
 			}
 		])
 	}
@@ -343,6 +374,8 @@
 					bind:isSkipped
 					{usernames}
 					bind:selectedUser
+					{folders}
+					bind:selectedFolder
 					{paths}
 					{jobKindsCat}
 					bind:selectedPath={searchPath}
@@ -368,6 +401,8 @@
 							{paths}
 							{jobKindsCat}
 							{usernames}
+							{folders}
+							bind:selectedFolder
 							bind:selectedPath={searchPath}
 							bind:selectedUser
 							bind:success
