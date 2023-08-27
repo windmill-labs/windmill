@@ -324,8 +324,8 @@
 />
 <div class="w-full h-screen">
 	<div class="px-2">
-		<div class="flex items-center space-x-2 flex-row justify-between xl:flex-col xl:items-start">
-			<div class="flex flex-row py-2 my-4 px-4 gap-1">
+		<div class="flex items-center space-x-2 flex-row justify-between">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
 				<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
 
 				<Tooltip

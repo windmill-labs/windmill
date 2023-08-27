@@ -22,67 +22,82 @@
 
 	export let usernames: string[] = []
 	export let selectedUser: string | undefined = undefined
+	let filterBy: 'path' | 'user' = 'path'
 </script>
 
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">
-	{#key selectedUser}
+	<div class="flex flex-col xl:flex-row gap-6 xl:gap-2 w-full">
 		<div class="relative">
-			{#if selectedUser}
-				<button
-					class="absolute top-2 right-4 z-50"
-					on:click={() => {
-						selectedUser = undefined
-						goto('/runs')
-					}}
-				>
-					<X size={14} />
-				</button>
-			{:else}
-				<ChevronDown class="absolute top-2 right-4" size={14} />
-			{/if}
-
-			<span class="text-xs absolute -top-4">User</span>
-
-			<AutoComplete
-				items={usernames}
-				value={selectedUser}
-				bind:selectedItem={selectedUser}
-				inputClassName="!h-[30px] py-1 !text-xs !w-48"
-				hideArrow
-				className={selectedUser ? '!font-bold' : ''}
-				dropdownClassName="!font-normal !w-48 !max-w-48"
-			/>
+			<span class="text-xs absolute -top-4">Filter by</span>
+			<ToggleButtonGroup bind:selected={filterBy}>
+				<ToggleButton value="path" label="Path" />
+				<ToggleButton value="user" label="User" />
+			</ToggleButtonGroup>
 		</div>
-	{/key}
-	{#key selectedPath}
-		<div class="relative">
-			{#if selectedPath}
-				<button
-					class="absolute top-2 right-2 z-50"
-					on:click={() => {
-						selectedPath = undefined
-						goto('/runs')
-					}}
-				>
-					<X size={14} />
-				</button>
-			{:else}
-				<ChevronDown class="absolute top-2 right-2" size={14} />
-			{/if}
+	</div>
 
-			<span class="text-xs absolute -top-4">Path</span>
+	{#if filterBy == 'user'}
+		{#key selectedUser}
+			<div class="relative">
+				{#if selectedUser}
+					<button
+						class="absolute top-2 right-2 z-50"
+						on:click={() => {
+							selectedUser = undefined
+							goto('/runs')
+						}}
+					>
+						<X size={14} />
+					</button>
+				{:else}
+					<ChevronDown class="absolute top-2 right-2" size={14} />
+				{/if}
 
-			<AutoComplete
-				items={paths}
-				value={selectedPath}
-				bind:selectedItem={selectedPath}
-				inputClassName="!h-[30px] py-1 !text-xs !w-64"
-				hideArrow
-				className={selectedPath ? '!font-bold' : ''}
-				dropdownClassName="!font-normal !w-64 !max-w-64"
-			/>
-		</div>
-	{/key}
+				<span class="text-xs absolute -top-4">User</span>
+
+				<AutoComplete
+					items={usernames}
+					value={selectedUser}
+					bind:selectedItem={selectedUser}
+					inputClassName="!h-[30px] py-1 !text-xs !w-64"
+					hideArrow
+					className={selectedUser ? '!font-bold' : ''}
+					dropdownClassName="!font-normal !w-64 !max-w-64"
+				/>
+			</div>
+		{/key}
+	{/if}
+	{#if filterBy === 'path'}
+		{#key selectedPath}
+			<div class="relative">
+				{#if selectedPath}
+					<button
+						class="absolute top-2 right-2 z-50"
+						on:click={() => {
+							selectedPath = undefined
+							goto('/runs')
+						}}
+					>
+						<X size={14} />
+					</button>
+				{:else}
+					<ChevronDown class="absolute top-2 right-2" size={14} />
+				{/if}
+
+				<span class="text-xs absolute -top-4">Path</span>
+
+				<AutoComplete
+					items={paths}
+					value={selectedPath}
+					bind:selectedItem={selectedPath}
+					inputClassName="!h-[30px] py-1 !text-xs !w-64"
+					hideArrow
+					className={selectedPath ? '!font-bold' : ''}
+					dropdownClassName="!font-normal !w-64 !max-w-64"
+				/>
+			</div>
+		{/key}
+	{/if}
 	<div class="flex flex-col xl:flex-row gap-6 xl:gap-2 w-full">
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Kind</span>
@@ -98,7 +113,7 @@
 				<ToggleButton value="all" label="All" />
 				<ToggleButton value="runs" label="Runs" />
 				<ToggleButton value="previews" label="Previews" />
-				<ToggleButton value="dependencies" label="Dependencies" />
+				<ToggleButton value="dependencies" label="Deps" />
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative">
