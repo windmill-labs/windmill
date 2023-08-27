@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.159.0](https://github.com/windmill-labs/windmill/compare/v1.158.2...v1.159.0) (2023-08-27)
+
+
+### Features
+
+* add support for root certificate in postgresql ([b492fd9](https://github.com/windmill-labs/windmill/commit/b492fd98846ff4b4e073bb41de91dd84f0bd7031))
+* support to set linked secret variable to any field of a newly created resource ([fe1e419](https://github.com/windmill-labs/windmill/commit/fe1e419fa83db6a9db59aac23490e52cd3649f51))
+
+
+### Bug Fixes
+
+* canceling jobs ([0dfdf8f](https://github.com/windmill-labs/windmill/commit/0dfdf8fa1be88d601f7dbf7b348aaf8a3ae8e2fd))
+* fix app table footer label when -1 ([24ac1e2](https://github.com/windmill-labs/windmill/commit/24ac1e25ff87eef591e9f766bd0e7991b3668723))
+* operation are redacted instead of username which fix audit logs for non admin users ([487d56c](https://github.com/windmill-labs/windmill/commit/487d56cb0fedde47c77cdb7a4b5424b51c4a2e10))
+
 ## [1.158.2](https://github.com/windmill-labs/windmill/compare/v1.158.1...v1.158.2) (2023-08-26)
 
 

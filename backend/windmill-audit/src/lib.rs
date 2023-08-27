@@ -60,7 +60,7 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     let _resource: Option<&str> = Some("EE only");
 
     #[cfg(not(feature = "enterprise"))]
-    let username: &str = "redacted";
+    let operation: &str = "redacted";
 
     tracing::info!(
         operation = operation,

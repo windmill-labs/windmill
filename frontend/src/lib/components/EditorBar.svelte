@@ -402,21 +402,20 @@
 				<Button
 					title="Add context variable"
 					color="light"
-					btnClasses="!font-medium text-scondary"
 					on:click={contextualVariablePicker.openDrawer}
 					size="xs"
+					btnClasses="!font-medium text-tertiary"
 					spacingSize="md"
 					startIcon={{ icon: faDollarSign }}
 					{iconOnly}
-				>
-					+Context Var
+					>+Context Var
 				</Button>
 			{/if}
 			{#if showVarPicker}
 				<Button
 					title="Add variable"
 					color="light"
-					btnClasses="!font-medium text-scondary"
+					btnClasses="!font-medium text-tertiary"
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -430,7 +429,7 @@
 			{#if showResourcePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-scondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -445,7 +444,7 @@
 			{#if showResourceTypePicker}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-scondary"
+					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -453,13 +452,13 @@
 					{iconOnly}
 					startIcon={{ icon: faCube }}
 				>
-					+Resource Type
+					+Type
 				</Button>
 			{/if}
 
 			<Button
 				title="Reset Content"
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -471,7 +470,7 @@
 			</Button>
 
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -563,7 +562,7 @@
 	<div class="flex flex-row items-center gap-2">
 		{#if scriptPath}
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -577,7 +576,7 @@
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 			<Button
-				btnClasses="!font-medium text-scondary"
+				btnClasses="!font-medium text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
