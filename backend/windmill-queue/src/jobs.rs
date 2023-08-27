@@ -140,9 +140,9 @@ pub async fn cancel_job<'c: 'async_recursion>(
         return Ok((tx, None));
     }
     let job_running = job_running.unwrap();
-    if job_running.running
-        && job_running.job_kind != JobKind::Flow
-        && job_running.job_kind != JobKind::FlowPreview
+
+    if ((!job_running.running && job_running.root_job.is_none())
+        || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
         && !force_cancel
     {
         sqlx::query!(
@@ -362,6 +362,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
 
+    // tracing::error!("Added completed job {:#?}", queued_job);
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
         && queued_job.schedule_path.is_some()
