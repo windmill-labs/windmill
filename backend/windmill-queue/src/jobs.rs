@@ -1359,6 +1359,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 if usage > MAX_FREE_EXECS
                     && !matches!(job_payload, JobPayload::Dependencies { .. })
                     && !matches!(job_payload, JobPayload::FlowDependencies { .. })
+                    && !matches!(job_payload, JobPayload::AppDependencies { .. })
                 {
                     return Err(error::Error::BadRequest(format!(
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
@@ -1492,6 +1493,16 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 None,
             )
         }
+        JobPayload::AppDependencies { path, version } => (
+            Some(version),
+            Some(path),
+            None,
+            JobKind::AppDependencies,
+            None,
+            None,
+            None,
+            None,
+        ),
         JobPayload::RawFlow { value, path } => (
             None,
             path,
@@ -1700,6 +1711,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Identity => "jobs.run.identity",
             JobKind::Noop => "jobs.run.noop",
             JobKind::FlowDependencies => "jobs.run.flow_dependencies",
+            JobKind::AppDependencies => "jobs.run.app_dependencies",
         };
 
         audit_log(

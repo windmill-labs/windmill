@@ -161,7 +161,7 @@
 
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
-				<div class="text-xs text-tertiary font-semibold truncate">
+				<div class="text-xs text-secondary font-semibold truncate">
 					Background runnables
 					<Tooltip
 						class="mb-0.5"

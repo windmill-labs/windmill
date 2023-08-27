@@ -18,20 +18,8 @@
 		}
 	} = {
 		postgresql: {
-			code: `import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
-export async function main(database: any) {
-  const u = new URL("postgres://")
-	u.hash = ''
-	u.search = '?sslmode=' + database.sslmode
-	u.pathname = database.dbname
-	u.host = database.host
-	u.port = database.port
-	u.password = database.password
-	u.username = database.user
-	const client = new Client(u.toString())
-	await client.connect()
-}`,
-			lang: 'deno',
+			code: `SELECT 1`,
+			lang: 'postgresql',
 			argName: 'database'
 		},
 		mysql: {

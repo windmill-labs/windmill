@@ -297,21 +297,6 @@
 				{/key}
 			</PanelSection>
 		{/if}
-		{#if Object.values(initialConfiguration).length > 0}
-			<PanelSection title="Configuration">
-				<InputsSpecsEditor
-					id={component.id}
-					inputSpecsConfiguration={initialConfiguration}
-					bind:inputSpecs={componentSettings.item.data.configuration}
-					userInputEnabled={false}
-				/>
-			</PanelSection>
-		{:else}
-			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2"
-				>{ccomponents[component.type].name} has no configuration</div
-			>
-		{/if}
-
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
@@ -337,6 +322,21 @@
 			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
+		{/if}
+
+		{#if Object.values(initialConfiguration).length > 0}
+			<PanelSection title="Configuration">
+				<InputsSpecsEditor
+					id={component.id}
+					inputSpecsConfiguration={initialConfiguration}
+					bind:inputSpecs={componentSettings.item.data.configuration}
+					userInputEnabled={false}
+				/>
+			</PanelSection>
+		{:else}
+			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2"
+				>{ccomponents[component.type].name} has no configuration</div
+			>
 		{/if}
 
 		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}

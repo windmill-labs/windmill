@@ -10,8 +10,9 @@
 
 	export let resource_type: string
 	export let args: Record<string, any> | any = {}
-	export let password: string
+	export let linkedSecret: string | undefined = undefined
 	export let isValid = true
+	export let linkedSecretCandidates: string[] | undefined = undefined
 
 	let schema = emptySchema()
 	let notFound = false
@@ -100,5 +101,5 @@
 		>{:else}<div class="py-2" />{/if}
 	<SimpleEditor autoHeight lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
 {:else}
-	<SchemaForm noDelete {password} isValid {schema} bind:args />
+	<SchemaForm noDelete {linkedSecretCandidates} bind:linkedSecret isValid {schema} bind:args />
 {/if}

@@ -23,7 +23,7 @@
 		</Cell>
 	{/each}
 {:else}
-	<div class="flex flex-col text-xs text-tertiary">
+	<div class="flex flex-col text-xs text-secondary">
 		{#each Object.entries(usage) as [k, v]}
 			<div>
 				{k}: {v}

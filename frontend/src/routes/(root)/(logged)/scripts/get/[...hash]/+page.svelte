@@ -319,7 +319,7 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.language == 'deno' ? '' : script.lock ?? ''
+							script.lock ?? ''
 						).toString(),
 						'_blank'
 					)
@@ -532,7 +532,7 @@
 
 				<Tabs selected="code">
 					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Lock file</Tab>
+					<Tab value="dependencies" size="xs">Lockfile</Tab>
 					<Tab value="arguments" size="xs">
 						<span class="inline-flex items-center gap-1">
 							Inputs
@@ -548,7 +548,7 @@
 					</Tab>
 					<svelte:fragment slot="content">
 						<TabContent value="code">
-							<div class="p-2">
+							<div class="p-2 w-full overflow-auto">
 								<HighlightCode
 									language={script.language}
 									code={script.content}
@@ -559,7 +559,9 @@
 						<TabContent value="dependencies">
 							<div class="">
 								{#if script?.lock}
-									<pre class="bg-surface-secondary text-sm p-2 h-full">{script.lock}</pre>
+									<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+										>{script.lock}</pre
+									>
 								{:else}
 									<p class="bg-surface-secondary text-sm p-2">
 										There is no lock file for this script

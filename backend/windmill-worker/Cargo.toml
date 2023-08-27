@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-deno-lock = []
 enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2"]
 
 [dependencies]

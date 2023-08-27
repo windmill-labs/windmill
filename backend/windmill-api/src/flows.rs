@@ -244,11 +244,6 @@ async fn create_flow(
     )
     .await?;
 
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
-    );
-
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut tx) = push(
         &db,
@@ -283,6 +278,11 @@ async fn create_flow(
     .execute(&mut tx)
     .await?;
     tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
+    );
 
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
