@@ -8,6 +8,8 @@
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let schema: Schema | any
 	export let args: Record<string, any> = {}
@@ -20,7 +22,8 @@
 
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
-	export let password: string | undefined = undefined
+	export let linkedSecret: string | undefined = undefined
+	export let linkedSecretCandidates: string[] | undefined = undefined
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
@@ -99,7 +102,6 @@
 								disabled={disabledArgs.includes(argName) || disabled}
 								{editableSchema}
 								{compact}
-								password={argName == password}
 								{variableEditor}
 								{itemPicker}
 								bind:pickForField
@@ -125,14 +127,43 @@
 								properties={schema.properties[argName].properties}
 								itemsType={schema.properties[argName].items}
 								disabled={disabledArgs.includes(argName) || disabled}
-								{editableSchema}
 								{compact}
-								password={argName == password}
 								{variableEditor}
 								{itemPicker}
 								bind:pickForField
+								password={linkedSecret == argName}
 								extra={schema.properties[argName]}
-							/>
+							>
+								<svelte:fragment slot="actions">
+									{#if linkedSecretCandidates?.includes(argName)}
+										<div>
+											<ToggleButtonGroup
+												selected={linkedSecret == argName}
+												on:selected={(e) => {
+													if (e.detail) {
+														linkedSecret = argName
+													} else if (linkedSecret == argName) {
+														linkedSecret = undefined
+													}
+												}}
+											>
+												<ToggleButton
+													value={false}
+													size="sm"
+													label="Inlined"
+													tooltip="The value is inlined in the resource and thus has no special treatment."
+												/>
+												<ToggleButton
+													position="right"
+													value={true}
+													size="sm"
+													label="Secret"
+													tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+												/>
+											</ToggleButtonGroup>
+										</div>{/if}</svelte:fragment
+								>
+							</ArgInput>
 						{/if}
 					{/if}
 				</div>
