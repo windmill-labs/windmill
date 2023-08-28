@@ -145,16 +145,18 @@ pub async fn cancel_job<'c: 'async_recursion>(
         || (job_running.job_kind == JobKind::Flow || job_running.job_kind == JobKind::FlowPreview))
         && !force_cancel
     {
-        sqlx::query!(
-        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
-         AND workspace_id = $4 ",
+        let id = sqlx::query_scalar!(
+        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
         username,
         reason,
         id,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+        if let Some(id) = id {
+            tracing::info!("Soft cancelling job {}", id);
+        }
     } else {
         let reason = reason
             .clone()
@@ -953,7 +955,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job.unwrap();
-        if pulled_job.script_path.is_none() || pulled_job.concurrent_limit.is_none() {
+        if pulled_job.script_path.is_none()
+            || pulled_job.concurrent_limit.is_none()
+            || pulled_job.canceled
+        {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
@@ -979,12 +984,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             FROM
                 (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count
                 FROM completed_job
-                WHERE script_path = $1 AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2) AND workspace_id = $3
+                WHERE script_path = $1 AND job_kind != 'dependencies' AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2) AND workspace_id = $3 AND canceled = false
                 GROUP BY script_path) as j
             FULL OUTER JOIN
                 (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as running_count
                 FROM queue
-                WHERE script_path = $1 AND running = true AND workspace_id = $3
+                WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $3 AND canceled = false
                 GROUP BY script_path) as q
             ON q.script_path = j.script_path",
             job_script_path,
@@ -1509,10 +1514,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             path,
             None,
             JobKind::FlowPreview,
-            Some(value),
+            Some(value.clone()),
             None,
-            None,
-            None,
+            value.concurrent_limit.clone(),
+            value.concurrency_time_window_s,
         ),
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
@@ -1534,10 +1539,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 Some(flow),
                 None,
                 JobKind::Flow,
-                Some(value),
+                Some(value.clone()),
                 None,
-                None,
-                None,
+                value.concurrent_limit.clone(),
+                value.concurrency_time_window_s,
             )
         }
         JobPayload::Identity => (None, None, None, JobKind::Identity, None, None, None, None),
