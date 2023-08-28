@@ -67,6 +67,7 @@
 	export let extraKey: string | undefined = undefined
 	export let refreshOnStart: boolean = false
 	export let errorHandledByComponent: boolean = false
+	export let hasChildrens: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -180,6 +181,7 @@
 	<RunnableComponent
 		{refreshOnStart}
 		{extraKey}
+		{hasChildrens}
 		bind:loading
 		bind:this={runnableComponent}
 		fields={componentInput.fields}
@@ -207,7 +209,7 @@
 		<slot />
 	</RunnableComponent>
 {:else}
-	<NonRunnableComponent {render} bind:result {id} {componentInput}>
+	<NonRunnableComponent {hasChildrens} {render} bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>
 {/if}

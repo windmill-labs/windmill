@@ -42,6 +42,7 @@
 	export let recomputableByRefreshButton: boolean
 	export let errorHandledByComponent: boolean = false
 	export let hideRefreshButton: boolean = false
+	export let hasChildrens: boolean
 
 	const {
 		worldStore,
@@ -502,9 +503,14 @@
 	bind:this={resultJobLoader}
 />
 
-{#if render}
-	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
+{#if render || hasChildrens}
+	<div
+		class="h-full flex relative flex-row flex-wrap {wrapperClass} {render
+			? 'visible'
+			: 'invisible h-0 overflow-hidden'}"
+		style={wrapperStyle}
+	>
+		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
@@ -558,7 +564,7 @@
 				<slot />
 			</div>
 		{/if}
-		{#if !initializing && autoRefresh === true && !hideRefreshButton}
+		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50">
 				<RefreshButton {loading} componentId={id} />
 			</div>
