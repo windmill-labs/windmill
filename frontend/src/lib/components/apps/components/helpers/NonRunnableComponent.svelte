@@ -10,6 +10,7 @@
 	export let id: string
 	export let result: any
 	export let render: boolean
+	export let hasChildrens: boolean
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -34,6 +35,10 @@
 
 {#if render}
 	<slot />
+{:else if hasChildrens}
+	<div class="invisible h-0 overflow-hidden'}">
+		<slot />
+	</div>
 {:else}
 	<div class="w-full h-full" />
 {/if}
