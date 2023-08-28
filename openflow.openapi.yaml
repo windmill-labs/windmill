@@ -50,6 +50,8 @@ components:
           type: number
         concurrency_time_window_s:
           type: number
+        skip_expr:
+          type: string
       required:
         - modules
 
