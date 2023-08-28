@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.161.0](https://github.com/windmill-labs/windmill/compare/v1.160.0...v1.161.0) (2023-08-28)
+
+
+### Features
+
+* concurrency limits for flows ([d0d041f](https://github.com/windmill-labs/windmill/commit/d0d041fde37ceda5e3a04e5da9c87d6b7e5691b3))
+* early stop for flows ([6354c95](https://github.com/windmill-labs/windmill/commit/6354c95bb74c5d1af838234c0146176a0d3e408e))
+* **frontend:** rework premium plans ([#2155](https://github.com/windmill-labs/windmill/issues/2155)) ([272ff63](https://github.com/windmill-labs/windmill/commit/272ff63e4072b4c25a46c133b518649f88b7598e))
+
+
+### Bug Fixes
+
+* allow deno to --write lock when using lockfiles ([770a3e8](https://github.com/windmill-labs/windmill/commit/770a3e8835637af1b1e017ecc1675e526ca40345))
+* fix refresh init in presence of app stepper ([840fbbc](https://github.com/windmill-labs/windmill/commit/840fbbcbb1f969ef3b000f9e50d5c5dde8371995))
+
 ## [1.160.0](https://github.com/windmill-labs/windmill/compare/v1.159.0...v1.160.0) (2023-08-27)
 
 
