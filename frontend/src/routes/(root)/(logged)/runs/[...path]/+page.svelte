@@ -557,6 +557,9 @@
 						on:filterByUser={(e) => {
 							selectedUser = e.detail
 						}}
+						on:filterByFolder={(e) => {
+							selectedFolder = e.detail
+						}}
 					/>
 				{:else}
 					<div class="gap-1 flex flex-col">
@@ -586,6 +589,15 @@
 				bind:nbOfJobs
 				on:select={() => {
 					runDrawer.openDrawer()
+				}}
+				on:filterByPath={(e) => {
+					searchPath = e.detail
+				}}
+				on:filterByUser={(e) => {
+					selectedUser = e.detail
+				}}
+				on:filterByFolder={(e) => {
+					selectedFolder = e.detail
 				}}
 			/>
 		{/if}
