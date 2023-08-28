@@ -963,6 +963,37 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .await;
     }
 
+    if let Some(skip_expr) = &flow.skip_expr {
+        let skip = compute_bool_from_expr(
+            skip_expr.to_string(),
+            &flow_job.args,
+            last_result.clone(),
+            None,
+            Some(client),
+            None,
+        )
+        .await?;
+        if skip {
+            return update_flow_status_after_job_completion(
+                db,
+                client,
+                flow_job.id,
+                &Uuid::nil(),
+                flow_job.workspace_id.as_str(),
+                true,
+                json!([]),
+                None,
+                true,
+                same_worker_tx,
+                worker_dir,
+                Some(true),
+                base_internal_url,
+                rsmq,
+            )
+            .await;
+        }
+    }
+
     let mut module: &FlowModule = flow
         .modules
         .get(i)
@@ -1378,6 +1409,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                             same_worker: flow.same_worker,
                             concurrent_limit: None,
                             concurrency_time_window_s: None,
+                            skip_expr: None,
                         },
                         path: Some(format!("{}/forloop", flow_job.script_path())),
                     },
@@ -1895,6 +1927,7 @@ async fn compute_next_flow_transform(
                                     same_worker: flow.same_worker,
                                     concurrent_limit: None,
                                     concurrency_time_window_s: None,
+                                    skip_expr: None,
                                 },
                                 path: Some(format!("{}/loop-{}", flow_job.script_path(), ns.index)),
                             },
@@ -1968,6 +2001,7 @@ async fn compute_next_flow_transform(
                             same_worker: flow.same_worker,
                             concurrent_limit: None,
                             concurrency_time_window_s: None,
+                            skip_expr: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2010,6 +2044,7 @@ async fn compute_next_flow_transform(
                                                     same_worker: flow.same_worker,
                                                     concurrent_limit: None,
                                                     concurrency_time_window_s: None,
+                                                    skip_expr: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2083,6 +2118,7 @@ async fn compute_next_flow_transform(
                             same_worker: flow.same_worker,
                             concurrent_limit: None,
                             concurrency_time_window_s: None,
+                            skip_expr: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",

@@ -21,8 +21,12 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { WorkerService } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { schemaToObject } from '$lib/schema'
+	import type { Schema } from '$lib/common'
 
-	const { selectedId, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore, initialPath, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
@@ -38,7 +42,11 @@
 		$workerTags = undefined
 		loadWorkerGroups()
 	}
+	$: isStopAfterIfEnabled = Boolean($flowStore.value.skip_expr)
 
+	function asSchema(x: any) {
+		return x as Schema
+	}
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 </script>
@@ -50,6 +58,7 @@
 				<Tab value="settings-metadata">Metadata</Tab>
 				<Tab value="settings-schedule">Schedule</Tab>
 				<Tab value="settings-same-worker">Shared Directory</Tab>
+				<Tab value="settings-early-stop">Early Stop</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
 				<Tab value="settings-concurrency">Concurrency</Tab>
 
@@ -271,6 +280,50 @@
 							<Loader2 class="animate-spin" />
 						{/if}
 					</TabContent>
+					<TabContent value="settings-early-stop" class="p-4">
+						<h2 class="pb-4">
+							Early Stop
+							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
+								If defined, at the beginning of the step the predicate expression will be evaluated
+								to decide if the flow should stop early.
+							</Tooltip>
+						</h2>
+						<Toggle
+							checked={isStopAfterIfEnabled}
+							on:change={() => {
+								if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
+									$flowStore.value.skip_expr = undefined
+								} else {
+									$flowStore.value.skip_expr = 'flow_input.foo == undefined'
+								}
+							}}
+							options={{
+								right: 'Early stop if condition met'
+							}}
+						/>
+
+						<div
+							class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
+								? ''
+								: 'bg-surface-secondary'}"
+						>
+							{#if $flowStore.value.skip_expr}
+								<div class="border w-full">
+									<SimpleEditor
+										lang="javascript"
+										bind:code={$flowStore.value.skip_expr}
+										class="small-editor"
+										extraLib={`declare const flow_input = ${JSON.stringify(
+											schemaToObject(asSchema($flowStore.schema), $previewArgs)
+										)};`}
+									/>
+								</div>
+							{:else}
+								<textarea disabled rows="3" class="min-h-[80px]" />
+							{/if}
+						</div>
+					</TabContent>
+
 					<TabContent value="settings-concurrency" class="p-4 flex flex-col">
 						<div>
 							<h2 class="pb-4">

@@ -751,6 +751,7 @@ mod tests {
             same_worker: false,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            skip_expr: None,
         };
         let expect = serde_json::json!({
           "modules": [
