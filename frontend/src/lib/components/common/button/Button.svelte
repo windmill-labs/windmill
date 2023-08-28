@@ -174,7 +174,9 @@
 			on:blur
 			class={twMerge(
 				buttonClass,
-				disabled ? '!bg-surface-disabled !text-disabled !cursor-not-allowed' : ''
+				disabled
+					? '!bg-surface-disabled !text-tertiary border border-disabled !cursor-not-allowed'
+					: ''
 			)}
 			{id}
 			tabindex={disabled ? -1 : 0}

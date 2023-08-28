@@ -673,26 +673,6 @@ async fn cancel_all(
     Ok(Json(uuids))
 }
 
-// #[derive(Serialize, Debug, FromRow)]
-// struct QueueStats {
-//     database_length: i64,
-// }
-
-// async fn count_waiting_for_executors(
-//     Extension(db): Extension<DB>,
-//     Path(w_id): Path<String>,
-// ) -> error::JsonResult<QueueStats> {
-//     Ok(Json(
-//         sqlx::query_as!(
-//             QueueStats,
-//             "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1",
-//             w_id
-//         )
-//         .fetch_one(&db)
-//         .await?,
-//     ))
-// }
-
 #[derive(Serialize, Debug, FromRow)]
 struct QueueStats {
     database_length: i64,
@@ -705,7 +685,7 @@ async fn count_queue_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1",
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1 AND scheduled_for <= now() AND running = false",
             w_id
         )
         .fetch_one(&db)
@@ -2492,7 +2472,7 @@ fn list_completed_jobs_query(
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("script_path", "?".bind(ps));
+        sqlb.and_where_like_left("script_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
         sqlb.and_where_eq("script_path", "?".bind(p));
