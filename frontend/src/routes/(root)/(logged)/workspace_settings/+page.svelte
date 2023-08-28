@@ -28,6 +28,8 @@
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import { Slack } from 'lucide-svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 
 	let users: User[] | undefined = undefined
 	let initialPath: string
@@ -282,14 +284,12 @@
 					</div>
 				{/if}
 
-				<div class="text-xs my-4 max-w-3xl">
+				<div class="text-xs my-4">
 					{#if premium_info?.premium}
 						<div class="flex flex-col gap-0.5">
 							{#if plan}
-								<div class="mb-2">
-									<div class=" inline text-lg font-bold float-right">
-										Current plan: {capitalize(plan ?? 'free')} plan
-									</div>
+								<div class="text-base inline font-bold leading-8 mb-2">
+									Current plan: {capitalize(plan ?? 'free')} plan
 								</div>
 							{:else}
 								<div class="inline text-lg font-bold">Current plan: Free plan</div>
@@ -302,50 +302,74 @@
 								{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
 								{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
 
-								<div>
-									Authors:
-									<div class="inline text-2xl font-bold float-right">{user_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-								<div>
-									Operators:
-									<div class="inline text-2xl font-bold float-right">{operator_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of operators in a given
-										billing period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-
-								<div>
-									Seats from authors + operators:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({user_nb} + {operator_nb}/2) = {seats_from_users}</div
-									>
-								</div>
-								<div>
-									Computations executed this month:
-									<div class=" inline text-2xl font-bold float-right"
-										>{premium_info?.usage ?? 0}
-									</div>
-								</div>
-								<div>
-									Seats from computations:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}</div
-									>
-								</div>
-
-								<div>
-									Total seats:
-									<div class=" inline text-2xl font-bold float-right">
-										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
-											seats_from_comps,
-											seats_from_users
-										) * team_factor}/mo
-									</div>
+								<div class="w-full">
+									<DataTable>
+										<tbody class="divide-y">
+											<tr>
+												<Cell first>
+													Authors
+													<Tooltip light>
+														Actual pricing is calculated on the MAXIMUM number of users in a given
+														billing period, see the customer portal for more info.
+													</Tooltip>
+												</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{user_nb}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>
+													Operators
+													<Tooltip light>
+														Actual pricing is calculated on the MAXIMUM number of operators in a
+														given billing period, see the customer portal for more info.
+													</Tooltip>
+												</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{operator_nb}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Seats from authors + operators</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														ceil({user_nb} + {operator_nb}/2) = {seats_from_users}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Computations executed this month</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{premium_info?.usage ?? 0}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Seats from computations</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Total seats</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
+															seats_from_comps,
+															seats_from_users
+														) * team_factor}/mo
+													</div>
+												</Cell>
+											</tr>
+										</tbody>
+									</DataTable>
 								</div>
 							{/if}
 						</div>
@@ -355,6 +379,8 @@
 						executions in this workspace.
 					{/if}
 				</div>
+
+				<div class="text-base font-bold leading-8 mb-2 pt-8"> All plans </div>
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
@@ -379,13 +405,13 @@
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">Workspace is on the team plan</div>
+									<div class="mx-auto text-md font-semibold">Workspace is on the team plan</div>
 								{/if}
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
 									<div class="mt-4 mx-auto">
 										<Button
-											size="lg"
+											size="xs"
 											color="dark"
 											href="https://www.windmill.dev/pricing"
 											target="_blank"
