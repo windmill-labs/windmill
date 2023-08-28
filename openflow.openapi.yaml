@@ -46,7 +46,10 @@ components:
           $ref: "#/components/schemas/FlowModule"
         same_worker:
           type: boolean
-
+        concurrent_limit:
+          type: number
+        concurrency_time_window_s:
+          type: number
       required:
         - modules
 
