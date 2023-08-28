@@ -9,7 +9,6 @@
 	import CssProperty from './CssProperty.svelte'
 	import { ccomponents, components } from '../component'
 	import { slide } from 'svelte/transition'
-	import Editor from '$lib/components/Editor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import CssHelperPanel from './CssHelperPanel.svelte'
 
@@ -35,7 +34,7 @@
 	let cssError = ''
 	let cssErrorHeight: number
 
-	let cssEditor: Editor | undefined = undefined
+	let cssEditor: SimpleEditor | undefined = undefined
 
 	function parseJson() {
 		try {
@@ -184,7 +183,7 @@
 			<Splitpanes horizontal>
 				<Pane size={60}>
 					<div style="height: calc(100% - {cssErrorHeight || 0}px);">
-						<Editor
+						<SimpleEditor
 							class="h-full"
 							lang="css"
 							bind:code={$app.cssString}
