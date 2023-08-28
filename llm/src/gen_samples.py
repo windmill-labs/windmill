@@ -178,7 +178,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prompts_path",
         type=str,
-        default="../frontend/src/lib/components/codeGen/prompts",
+        default="../frontend/src/lib/components/copilot/prompts",
     )
     args = parser.parse_args()
     gen_samples(args.queries_path, args.answers_path, args.prompts_path)
