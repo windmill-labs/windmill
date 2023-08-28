@@ -200,8 +200,21 @@ pub async fn require_is_owner(
     }
 }
 
+async fn _check_nb_of_groups(db: &DB) -> Result<()> {
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
+        .fetch_one(db)
+        .await?;
+    if nb_groups.unwrap_or(0) >= 5 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of groups without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
 async fn create_group(
     authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
@@ -211,17 +224,7 @@ async fn create_group(
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
 
     #[cfg(not(feature = "enterprise"))]
-    {
-        let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
-            .fetch_one(&mut *tx)
-            .await?;
-        if nb_groups.unwrap_or(0) >= 5 {
-            return Err(Error::BadRequest(
-                "You have reached the maximum number of groups without an enterprise license"
-                    .to_string(),
-            ));
-        }
-    }
+    _check_nb_of_groups(&_db).await?;
 
     sqlx::query!(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4)",
