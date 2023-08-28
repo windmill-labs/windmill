@@ -84,8 +84,9 @@
 			createdOrStartedAfter: startedAfter,
 			schedulePath,
 			scriptPathExact: path === '' ? undefined : path,
-			createdBy: selectedUser === '' ? undefined : selectedUser,
-			scriptPathStart: selectedFolder === '' ? undefined : `f/${selectedFolder}/`,
+			createdBy: selectedUser === undefined || selectedUser === '' ? undefined : selectedUser,
+			scriptPathStart:
+				selectedFolder === undefined || selectedFolder === '' ? undefined : `f/${selectedFolder}/`,
 			jobKinds,
 			success,
 			isSkipped,
@@ -233,10 +234,18 @@
 
 	$: searchPath = path
 
-	$: searchPath && onSearchPathChange()
+	$: searchPath ? onSearchPathChange() : resetSearchPath()
 
-	$: selectedUser && onUserChange()
-	$: selectedFolder && onFolderChange()
+	function resetSearchPath() {
+		goto('/runs')
+	}
+
+	function removeQueryParam(param: string) {
+		setQueryWithoutLoad($page.url, [{ key: param, value: undefined }])
+	}
+
+	$: selectedUser ? onUserChange() : removeQueryParam('user')
+	$: selectedFolder ? onFolderChange() : removeQueryParam('folder')
 
 	function onUserChange() {
 		setQueryWithoutLoad($page.url, [

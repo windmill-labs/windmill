@@ -40,18 +40,14 @@
 		: 'path'
 
 	$: if (filterBy === 'path') {
-		selectedUser = undefined
 		selectedFolder = undefined
-	}
-
-	$: if (filterBy === 'user') {
-		selectedPath = undefined
-		selectedFolder = undefined
-	}
-
-	$: if (filterBy === 'folder') {
-		selectedPath = undefined
 		selectedUser = undefined
+	} else if (filterBy === 'user') {
+		selectedFolder = undefined
+		selectedPath = undefined
+	} else if (filterBy === 'folder') {
+		selectedUser = undefined
+		selectedPath = undefined
 	}
 </script>
 
