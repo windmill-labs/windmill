@@ -200,8 +200,20 @@ pub async fn require_is_owner(
     }
 }
 
+fn check_nb_of_groups(db: &DB) -> Result<()> {
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
+        .fetch_one(&db)
+        .await?;
+    if nb_groups.unwrap_or(0) >= 5 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of groups without an enterprise license"
+                .to_string(),
+        ));
+    }
+}
 async fn create_group(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
@@ -212,15 +224,7 @@ async fn create_group(
 
     #[cfg(not(feature = "enterprise"))]
     {
-        let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
-            .fetch_one(&mut *tx)
-            .await?;
-        if nb_groups.unwrap_or(0) >= 5 {
-            return Err(Error::BadRequest(
-                "You have reached the maximum number of groups without an enterprise license"
-                    .to_string(),
-            ));
-        }
+        check_nb_of_groups(&db).await?;
     }
 
     sqlx::query!(
