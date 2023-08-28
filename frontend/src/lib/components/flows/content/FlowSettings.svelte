@@ -9,7 +9,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Alert } from '$lib/components/common'
+	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
@@ -51,6 +51,7 @@
 				<Tab value="settings-schedule">Schedule</Tab>
 				<Tab value="settings-same-worker">Shared Directory</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
+				<Tab value="settings-concurrency">Concurrency</Tab>
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
@@ -269,6 +270,32 @@
 						{:else}
 							<Loader2 class="animate-spin" />
 						{/if}
+					</TabContent>
+					<TabContent value="settings-concurrency" class="p-4 flex flex-col">
+						<div>
+							<h2 class="pb-4">
+								Concurrency Limits
+								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
+							</h2>
+						</div>
+						<div>
+							<div class="text-xs font-bold !mt-2"
+								>Max number of executions within the time window</div
+							>
+							<div class="flex flex-row gap-2 max-w-sm"
+								><input bind:value={$flowStore.value.concurrent_limit} type="number" />
+								<Button
+									size="sm"
+									color="light"
+									on:click={() => {
+										$flowStore.value.concurrent_limit = undefined
+									}}
+									variant="border">Remove Limits</Button
+								></div
+							>
+							<div class="text-xs font-bold !mt-2">Time window in seconds</div>
+							<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
+						</div>
 					</TabContent>
 				</svelte:fragment>
 			</Tabs>

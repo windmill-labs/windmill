@@ -53,7 +53,7 @@
 	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>
-		<Badge>
+		<Badge color="blue">
 			<Icon data={faCalendar} scale={SMALL_ICON_SCALE} class="mr-2" />
 			Scheduled for {displayDate(job.scheduled_for)}
 		</Badge>

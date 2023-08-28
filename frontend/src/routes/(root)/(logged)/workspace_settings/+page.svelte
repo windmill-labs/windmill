@@ -9,7 +9,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import Slider from '$lib/components/Slider.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
@@ -29,6 +28,8 @@
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import { Slack } from 'lucide-svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 
 	let users: User[] | undefined = undefined
 	let initialPath: string
@@ -267,7 +268,10 @@
 			{/if}
 		{:else if tab == 'premium'}
 			{#if isCloudHosted()}
-				<div class="mt-4" />
+				<div class="my-8" />
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-md font-semibold"> Plans </div>
+				</div>
 				{#if customer_id}
 					<div class="mt-2 mb-2">
 						<Button
@@ -275,22 +279,20 @@
 							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 						>
 						<p class="text-xs text-tertiary mt-1">
-							See invoices, change billing information or subscription details</p
-						>
+							See invoices, change billing information or subscription details
+						</p>
 					</div>
 				{/if}
 
-				<div class="text-xs mb-4 box p-2 max-w-3xl">
+				<div class="text-xs my-4">
 					{#if premium_info?.premium}
 						<div class="flex flex-col gap-0.5">
 							{#if plan}
-								<div class="mb-2"
-									><div class=" inline text-2xl font-bold float-right"
-										>{capitalize(plan ?? 'free')} plan</div
-									></div
-								>
+								<div class="text-base inline font-bold leading-8 mb-2">
+									Current plan: {capitalize(plan ?? 'free')} plan
+								</div>
 							{:else}
-								<div class="inline text-2xl font-bold">Free plan</div>
+								<div class="inline text-lg font-bold">Current plan: Free plan</div>
 							{/if}
 
 							{#if plan}
@@ -300,50 +302,74 @@
 								{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
 								{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
 
-								<div>
-									Authors:
-									<div class="inline text-2xl font-bold float-right">{user_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-								<div>
-									Operators:
-									<div class="inline text-2xl font-bold float-right">{operator_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of operators in a given
-										billing period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-
-								<div>
-									Seats from authors + operators:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({user_nb} + {operator_nb}/2) = {seats_from_users}</div
-									>
-								</div>
-								<div>
-									Computations executed this month:
-									<div class=" inline text-2xl font-bold float-right"
-										>{premium_info?.usage ?? 0}
-									</div>
-								</div>
-								<div>
-									Seats from computations:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}</div
-									>
-								</div>
-
-								<div>
-									Total seats:
-									<div class=" inline text-2xl font-bold float-right">
-										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
-											seats_from_comps,
-											seats_from_users
-										) * team_factor}/mo
-									</div>
+								<div class="w-full">
+									<DataTable>
+										<tbody class="divide-y">
+											<tr>
+												<Cell first>
+													Authors
+													<Tooltip light>
+														Actual pricing is calculated on the MAXIMUM number of users in a given
+														billing period, see the customer portal for more info.
+													</Tooltip>
+												</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{user_nb}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>
+													Operators
+													<Tooltip light>
+														Actual pricing is calculated on the MAXIMUM number of operators in a
+														given billing period, see the customer portal for more info.
+													</Tooltip>
+												</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{operator_nb}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Seats from authors + operators</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														ceil({user_nb} + {operator_nb}/2) = {seats_from_users}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Computations executed this month</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														{premium_info?.usage ?? 0}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Seats from computations</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}
+													</div>
+												</Cell>
+											</tr>
+											<tr>
+												<Cell first>Total seats</Cell>
+												<Cell last numeric>
+													<div class="text-base font-bold">
+														max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
+															seats_from_comps,
+															seats_from_users
+														) * team_factor}/mo
+													</div>
+												</Cell>
+											</tr>
+										</tbody>
+									</DataTable>
 								</div>
 							{/if}
 						</div>
@@ -354,29 +380,13 @@
 					{/if}
 				</div>
 
-				<div class="flex flex-col gap-1 mb-4">
-					<Slider text="What is an execution?">
-						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called an "execution". An execution corresponds to a single
-							job whose duration is less than 1s. For any additional seconds of computation, an
-							additional execution is accounted for. Jobs are executed on one powerful virtual CPU
-							with 2Gb of memory. Most jobs will take less than 200ms to execute.
-						</Alert>
-					</Slider>
-
-					<Slider text="Operator vs Author">
-						<Alert type="info" title="Operator vs Author"
-							>An author can write scripts/flows/apps/variables/resources. An operator can only
-							run/view them.</Alert
-						>
-					</Slider>
-				</div>
+				<div class="text-base font-bold leading-8 mb-2 pt-8"> All plans </div>
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-xs flex flex-col h-full overflow-hidden">
+						<div class="box p-4 text-xs flex flex-col h-full overflow-hidden prose-sm rounded-md">
 							<h2 class="mb-4">{planTitle}</h2>
-							<ul class="list-disc text-lg p-4">
+							<ul class="list-disc text-sm p-4">
 								{#each planDesc as item}
 									<li class="mt-2">{@html item}</li>
 								{/each}
@@ -386,34 +396,68 @@
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
 									<div class="mt-4 mx-auto">
-										<Button size="lg" href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
-											>Upgrade to the Team plan</Button
+										<Button
+											size="lg"
+											color="dark"
+											href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+										>
+											Upgrade to the Team plan</Button
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">Workspace is on the team plan</div>
+									<div class="mx-auto text-md font-semibold">Workspace is on the team plan</div>
 								{/if}
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
 									<div class="mt-4 mx-auto">
-										<Button size="lg" href="https://www.windmill.dev/pricing" target="_blank"
-											>See more</Button
+										<Button
+											size="xs"
+											color="dark"
+											href="https://www.windmill.dev/pricing"
+											target="_blank"
 										>
+											See more
+										</Button>
 									</div>
 								{:else}
 									<div class="mx-auto text-lg font-semibold">Workspace is on enterprise plan</div>
 								{/if}
 							{:else if !plan}
-								<div class="mx-auto text-lg font-semibold">Workspace is on the free plan</div>
+								<Badge class="mx-auto text-lg font-semibold">Workspace is on the free plan</Badge>
 							{:else}
 								<div class="mt-4 w-full">
-									<Button href="/api/w/{$workspaceStore}/workspaces/checkout"
-										>Upgrade to the {planTitle} plan</Button
-									>
+									<Button href="/api/w/{$workspaceStore}/workspaces/checkout" color="dark"
+										>Upgrade to the {planTitle} plan
+									</Button>
 								</div>
 							{/if}
 						</div>
 					{/each}
+				</div>
+				<div class="flex flex-col gap-1 my-8 w-full items-center">
+					<div class="text-primary text-md font-semibold"> Frequently asked questions </div>
+
+					<div class="flex flex-col gap-4">
+						<div>
+							<div class="text-sm mb-1 text-secondary"> What is an execution? </div>
+							<div class="text-xs max-w-xl border-b pb-4 text-tertiary">
+								The single credit-unit is called an "execution". An execution corresponds to a
+								single job whose duration is less than 1s. For any additional seconds of
+								computation, an additional execution is accounted for. Jobs are executed on one
+								powerful virtual CPU with 2Gb of memory. Most jobs will take less than 200ms to
+								execute.
+							</div>
+						</div>
+						<div>
+							<div class="text-sm mb-1 text-secondary">
+								What is the difference between an author and an operator?
+							</div>
+							<div class="text-xs max-w-xl text-tertiary">
+								An author can write scripts/flows/apps/variables/resources. An operator can only
+								run/view them.
+							</div>
+						</div>
+					</div>
 				</div>
 			{/if}
 		{:else if tab == 'slack'}
