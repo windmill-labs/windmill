@@ -83,6 +83,8 @@ pub struct FlowValue {
     pub concurrency_time_window_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_expr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
