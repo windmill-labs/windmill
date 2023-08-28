@@ -120,10 +120,7 @@
 	>
 		<div
 			style={css?.popup?.style}
-			class={twMerge(
-				'm-24 max-h-[80%] bg-surface overflow-y-auto rounded-lg relative',
-				css?.popup?.class
-			)}
+			class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
 			use:clickOutside={false}
 			on:click_outside={() => {
 				if ($mode !== 'dnd') {
@@ -146,7 +143,7 @@
 				</div>
 			</div>
 			<div
-				class=""
+				class="overflow-y-auto h-96"
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {
