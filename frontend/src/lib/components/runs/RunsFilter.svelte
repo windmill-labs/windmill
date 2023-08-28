@@ -38,6 +38,21 @@
 		: hasPath
 		? 'path'
 		: 'path'
+
+	$: if (filterBy === 'path') {
+		selectedUser = undefined
+		selectedFolder = undefined
+	}
+
+	$: if (filterBy === 'user') {
+		selectedPath = undefined
+		selectedFolder = undefined
+	}
+
+	$: if (filterBy === 'folder') {
+		selectedPath = undefined
+		selectedUser = undefined
+	}
 </script>
 
 <div class="flex flex-col items-start gap-6 xl:gap-2 xl:flex-row mt-4 xl:mt-0">

@@ -78,7 +78,6 @@
 		startedBefore: string | undefined,
 		startedAfter: string | undefined
 	): Promise<Job[]> {
-		console.log(selectedFolder)
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,

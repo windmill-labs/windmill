@@ -360,21 +360,21 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 			.then(() => true)
 			.catch(() => false)
 	} else {
-		const textArea = document.createElement("textarea");
-		textArea.value = value;
-		textArea.style.position = "fixed";
-		textArea.style.left = "-999999px";
+		const textArea = document.createElement('textarea')
+		textArea.value = value
+		textArea.style.position = 'fixed'
+		textArea.style.left = '-999999px'
 
-		document.body.appendChild(textArea);
-		textArea.select();
+		document.body.appendChild(textArea)
+		textArea.select()
 
 		try {
-			document.execCommand('copy');
-			success = true;
+			document.execCommand('copy')
+			success = true
 		} catch (error) {
 			// ignore (success = false)
 		} finally {
-			textArea.remove();
+			textArea.remove()
 		}
 	}
 
