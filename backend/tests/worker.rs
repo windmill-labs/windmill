@@ -1055,6 +1055,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
                         parallel: false,
+                        parallelism: None,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
                             value: FlowModuleValue::RawScript {
@@ -1198,6 +1199,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
                         parallel: false,
+                        parallelism: None,
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),
@@ -2549,14 +2551,14 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
             assert!(matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::RawScript(RawScript {
-                    language: windmill_api_client::types::RawScriptLanguage::Deno | windmill_api_client::types::RawScriptLanguage::Bash,
+                    language: windmill_api_client::types::RawScriptLanguage::Bash,
                     lock: Some(ref lock),
                     ..
                 }) if lock == "")
                 || matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::RawScript(RawScript{
-                    language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3,
+                    language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
                 }) if lock.len() > 0)

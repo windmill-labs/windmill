@@ -132,16 +132,18 @@ async fn get_variable(
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
 
     let r = if variable.is_secret {
-        audit_log(
-            &mut *tx,
-            &authed.username,
-            "variables.decrypt_secret",
-            ActionKind::Execute,
-            &w_id,
-            Some(&variable.path),
-            None,
-        )
-        .await?;
+        if decrypt_secret {
+            audit_log(
+                &mut *tx,
+                &authed.username,
+                "variables.decrypt_secret",
+                ActionKind::Execute,
+                &w_id,
+                Some(&variable.path),
+                None,
+            )
+            .await?;
+        }
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {

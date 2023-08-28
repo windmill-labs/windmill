@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.158.2
+  version: 1.160.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -275,6 +275,8 @@ components:
             - forloopflow
         parallel:
           type: boolean
+        parallelism:
+          type: integer
       required:
         - modules
         - iterator
