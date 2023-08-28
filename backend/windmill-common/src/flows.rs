@@ -256,6 +256,8 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(default = "default_false")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parallelism: Option<u16>,
     },
     BranchOne {
         branches: Vec<BranchOneModules>,

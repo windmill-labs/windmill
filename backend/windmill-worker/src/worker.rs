@@ -1611,8 +1611,8 @@ async fn lock_modules(
     for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             match e.value {
-                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel } => {
-                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel }
+                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel, parallelism } => {
+                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel, parallelism }
                 },
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];

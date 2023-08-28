@@ -57,7 +57,6 @@ pub async fn update_flow_status_after_job_completion<
     rsmq: Option<R>,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
-    let mut depth = 0;
     let mut rec = update_flow_status_after_job_completion_internal(
         db,
         client,
@@ -72,12 +71,10 @@ pub async fn update_flow_status_after_job_completion<
         worker_dir,
         stop_early_override,
         base_internal_url,
-        depth,
         rsmq.clone(),
     )
     .await?;
     while let Some(nrec) = rec {
-        depth += 1;
         rec = update_flow_status_after_job_completion_internal(
             db,
             client,
@@ -92,7 +89,6 @@ pub async fn update_flow_status_after_job_completion<
             worker_dir,
             nrec.stop_early_override,
             base_internal_url,
-            depth,
             rsmq.clone(),
         )
         .await?;
@@ -123,11 +119,10 @@ pub async fn update_flow_status_after_job_completion_internal<
     worker_dir: &str,
     stop_early_override: Option<bool>,
     base_internal_url: &str,
-    depth: u8,
     rsmq: Option<R>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
-        tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
+        // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
         let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
@@ -157,19 +152,23 @@ pub async fn update_flow_status_after_job_completion_internal<
             .and_then(|i| old_status.modules.get(i))
             .unwrap_or(&old_status.failure_module.module_status);
 
-        tracing::debug!(
-            "UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} "
-        );
+        // tracing::debug!(
+        //     "UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} "
+        // );
 
-        let skip_loop_failures = if matches!(
+        let (skip_loop_failures, parallelism) = if matches!(
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
-            compute_skip_loop_failures(flow, old_status.step, tx.transaction_mut())
-                .await?
-                .unwrap_or(false)
+            let (loop_failures, parallelism) = compute_skip_loop_failures_and_parallelism(
+                flow,
+                old_status.step,
+                tx.transaction_mut(),
+            )
+            .await?;
+            (loop_failures.unwrap_or(false), parallelism)
         } else {
-            false
+            (false, None)
         };
 
         let is_failure_step = old_status.step >= old_status.modules.len() as i32;
@@ -286,6 +285,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                             approvers: vec![],
                         }
                     } else {
+                        success = false;
+
                         FlowStatusModule::Failure {
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
@@ -293,9 +294,16 @@ pub async fn update_flow_status_after_job_completion_internal<
                             branch_chosen: None,
                         }
                     };
-                    success = false;
                     (true, Some(new_status))
                 } else {
+                    if parallelism.is_some() {
+                        sqlx::query!(
+                            "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1",
+                            flow
+                        )
+                        .execute(&mut tx)
+                        .await?;
+                    }
                     tx.commit().await?;
                     return Ok(None);
                 }
@@ -540,6 +548,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             )
             .await?;
         }
+
         tx.commit().await?;
         (
             should_continue_flow,
@@ -636,14 +645,14 @@ pub async fn update_flow_status_after_job_completion_internal<
     }
 }
 
-async fn compute_skip_loop_failures<'c>(
+async fn compute_skip_loop_failures_and_parallelism<'c>(
     flow: Uuid,
     step: i32,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> Result<Option<bool>, Error> {
+) -> Result<(Option<bool>, Option<i32>), Error> {
     sqlx::query_as(
         "
-    SELECT (raw_flow->'modules'->$1->'value'->>'skip_failures')::bool
+    SELECT (raw_flow->'modules'->$1->'value'->>'skip_failures')::bool, (raw_flow->'modules'->$1->'value'->>'parallelism')::int
       FROM queue
      WHERE id = $2
         ",
@@ -652,7 +661,7 @@ async fn compute_skip_loop_failures<'c>(
     .bind(flow)
     .fetch_one(&mut **tx)
     .await
-    .map(|(v,)| v)
+    .map(|(v, n)| (v,n))
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
 }
 
@@ -1415,7 +1424,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         };
 
         let tx2 = PushIsolationLevel::Transaction(tx);
-        let (uuid, inner_tx) = push(
+        let (uuid, mut inner_tx) = push(
             &db,
             tx2,
             &flow_job.workspace_id,
@@ -1442,6 +1451,22 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Some(module.id.clone()),
         )
         .await?;
+
+        if let FlowModuleValue::ForloopFlow { parallelism: Some(p), .. } = &module.value {
+            if i as u16 >= *p {
+                sqlx::query!(
+                    "
+                UPDATE queue
+                   SET suspend = $1, suspend_until = now() + interval '14 day', running = true
+                 WHERE id = $2
+                ",
+                    (i as u16 - p + 1) as i32,
+                    uuid,
+                )
+                .execute(&mut inner_tx)
+                .await?;
+            }
+        }
         tx = inner_tx;
         uuids.push(uuid);
     }
@@ -1874,7 +1899,7 @@ async fn compute_next_flow_transform(
                         NextStatus::NextLoopIteration(ns),
                     ))
                 }
-                LoopStatus::ParallelIteration { itered } => Ok(NextFlowTransform::Continue(
+                LoopStatus::ParallelIteration { itered, .. } => Ok(NextFlowTransform::Continue(
                     ContinuePayload::ForloopJobs { n: itered.len(), modules: (*modules).clone() },
                     NextStatus::AllFlowJobs {
                         branchall: None,
