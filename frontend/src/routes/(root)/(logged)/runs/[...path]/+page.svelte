@@ -50,13 +50,25 @@
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-
-	let nbOfJobs = 30
-
-	let queue_count: Tweened<number> | undefined = undefined
-
 	$: path = $page.params.path
 	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+	async function syncTsWithURL(minTs?: string, maxTs?: string) {
+		setQueryWithoutLoad($page.url, [
+			{ key: 'min_ts', value: minTs },
+			{ key: 'max_ts', value: maxTs }
+		])
+	}
+
+	$: syncTsWithURL(minTs, maxTs)
+
+	let searchPath: string | undefined = path
+	let selectedUser: string | undefined = $page.url.searchParams.get('user') ?? ''
+	let selectedFolder: string | undefined = $page.url.searchParams.get('folder') ?? ''
+
+	let nbOfJobs = 30
+	let queue_count: Tweened<number> | undefined = undefined
+
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -191,14 +203,12 @@
 	}
 
 	let paths: string[] = []
-
 	let usernames: string[] = []
+	let folders: string[] = []
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
-
-	let folders: string[] = []
 
 	async function loadFolders(): Promise<void> {
 		folders = await FolderService.listFolders({
@@ -212,61 +222,11 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	async function syncTsWithURL(minTs?: string, maxTs?: string) {
-		setQueryWithoutLoad($page.url, [
-			{ key: 'min_ts', value: minTs },
-			{ key: 'max_ts', value: maxTs }
-		])
-	}
-
-	$: syncTsWithURL(minTs, maxTs)
-
 	let completedJobs: CompletedJob[] | undefined = undefined
 
 	function computeCompletedJobs() {
 		completedJobs =
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
-	}
-
-	let searchPath = ''
-	let selectedUser = $page.url.searchParams.get('user') ?? ''
-	let selectedFolder = $page.url.searchParams.get('folder') ?? ''
-
-	$: searchPath = path
-
-	$: searchPath ? onSearchPathChange() : resetSearchPath()
-
-	function resetSearchPath() {
-		goto('/runs')
-	}
-
-	function removeQueryParam(param: string) {
-		setQueryWithoutLoad($page.url, [{ key: param, value: undefined }])
-	}
-
-	$: selectedUser ? onUserChange() : removeQueryParam('user')
-	$: selectedFolder ? onFolderChange() : removeQueryParam('folder')
-
-	function onUserChange() {
-		setQueryWithoutLoad($page.url, [
-			{
-				key: 'user',
-				value: selectedUser
-			}
-		])
-	}
-
-	function onFolderChange() {
-		setQueryWithoutLoad($page.url, [
-			{
-				key: 'folder',
-				value: selectedFolder
-			}
-		])
-	}
-
-	function onSearchPathChange() {
-		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
 	}
 
 	let argError = ''
@@ -345,6 +305,53 @@
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
 	let cancelAllJobs = false
+
+	$: searchPath && setExclusiveParam({ path: searchPath })
+	$: selectedUser && setExclusiveParam({ user: selectedUser })
+	$: selectedFolder && setExclusiveParam({ folder: selectedFolder })
+
+	async function setExclusiveParam({
+		path,
+		user,
+		folder
+	}: {
+		path?: string
+		user?: string
+		folder?: string
+	}) {
+		if (!path && !user && !folder) {
+			await goto('/runs')
+			setQueryWithoutLoad($page.url, [
+				{ key: 'folder', value: null },
+				{ key: 'user', value: null }
+			])
+			searchPath = undefined
+			selectedUser = undefined
+			selectedFolder = undefined
+			return
+		}
+		selectedUser = user ? user : undefined
+		selectedFolder = folder ? folder : undefined
+		searchPath = path ? path : undefined
+
+		// If path is set, navigate to it and clear user and folder query parameters
+		if (path) {
+			console.log('goto path', path)
+			await goto(`/runs/${path}`)
+			setQueryWithoutLoad($page.url, [
+				{ key: 'user', value: null },
+				{ key: 'folder', value: null }
+			])
+		} else {
+			console.log('goto runs')
+
+			await goto('/runs')
+			setQueryWithoutLoad($page.url, [
+				{ key: 'user', value: user },
+				{ key: 'folder', value: folder }
+			])
+		}
+	}
 </script>
 
 <ConfirmationModal
@@ -393,11 +400,6 @@
 					bind:argError
 					bind:resultError
 					on:change={reloadLogsWithoutFilterError}
-					on:clearFilters={() => {
-						minTs = undefined
-						maxTs = undefined
-						autoRefresh = true
-					}}
 				/>
 			</div>
 			<div class="xl:hidden">
@@ -419,11 +421,6 @@
 							bind:argError
 							bind:resultError
 							on:change={reloadLogsWithoutFilterError}
-							on:clearFilters={() => {
-								minTs = undefined
-								maxTs = undefined
-								autoRefresh = true
-							}}
 						/>
 					</svelte:fragment>
 				</MobileFilters>

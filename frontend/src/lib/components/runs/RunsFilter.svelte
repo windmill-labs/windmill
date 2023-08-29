@@ -27,27 +27,25 @@
 	export let folders: string[] = []
 	export let selectedFolder: string | undefined = undefined
 
-	const hasFolder = $page.url.searchParams.get('folder')
-	const hasUser = $page.url.searchParams.get('user')
-	const hasPath = $page.url.searchParams.get('path')
+	let filterBy: 'path' | 'user' | 'folder' = 'path'
+	let manualToggle = false
 
-	let filterBy: 'path' | 'user' | 'folder' = hasFolder
-		? 'folder'
-		: hasUser
-		? 'user'
-		: hasPath
-		? 'path'
-		: 'path'
+	function toggleFilter(newFilter) {
+		manualToggle = true
 
-	$: if (filterBy === 'path') {
-		selectedFolder = undefined
-		selectedUser = undefined
-	} else if (filterBy === 'user') {
-		selectedFolder = undefined
-		selectedPath = undefined
-	} else if (filterBy === 'folder') {
-		selectedUser = undefined
-		selectedPath = undefined
+		filterBy = newFilter
+	}
+
+	$: {
+		const hasFolder = selectedFolder !== undefined && selectedFolder !== ''
+		const hasUser = selectedUser !== undefined && selectedUser !== ''
+		const hasPath = selectedPath !== undefined && selectedPath !== ''
+
+		if (!manualToggle) {
+			filterBy = hasFolder ? 'folder' : hasUser ? 'user' : hasPath ? 'path' : 'path'
+		}
+
+		manualToggle = false
 	}
 </script>
 
@@ -55,7 +53,12 @@
 	<div class="flex flex-col xl:flex-row gap-6 xl:gap-2 w-full">
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Filter by</span>
-			<ToggleButtonGroup bind:selected={filterBy}>
+			<ToggleButtonGroup
+				on:selected={(e) => {
+					toggleFilter(e.detail)
+				}}
+				selected={filterBy}
+			>
 				<ToggleButton value="path" label="Path" />
 				<ToggleButton value="user" label="User" />
 				<ToggleButton value="folder" label="Folder" />
@@ -71,7 +74,6 @@
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
 							selectedUser = undefined
-							goto('/runs')
 						}}
 					>
 						<X size={14} />
@@ -81,7 +83,6 @@
 				{/if}
 
 				<span class="text-xs absolute -top-4">User</span>
-
 				<AutoComplete
 					items={usernames}
 					value={selectedUser}
@@ -102,7 +103,6 @@
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
 							selectedFolder = undefined
-							goto('/runs')
 						}}
 					>
 						<X size={14} />
@@ -133,7 +133,6 @@
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
 							selectedPath = undefined
-							goto('/runs')
 						}}
 					>
 						<X size={14} />
