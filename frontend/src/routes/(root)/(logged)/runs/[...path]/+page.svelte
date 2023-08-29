@@ -50,8 +50,13 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
-	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let argFilter: any = $page.url.searchParams.get('arg')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		: undefined
+	let resultFilter: any = $page.url.searchParams.get('result')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		: undefined
+
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
@@ -66,15 +71,17 @@
 		user && searchParams.set('user', user)
 		folder && searchParams.set('folder', folder)
 
-		if (success) {
+		if (success !== undefined) {
 			searchParams.set('success', success.toString())
 		}
 
 		if (isSkipped) {
 			searchParams.set('is_skipped', isSkipped.toString())
 		}
-		argFilter && searchParams.set('arg', argFilter)
-		resultFilter && searchParams.set('result', resultFilter)
+
+		// ArgFilter is an object. Encode it to a string
+		argFilter && searchParams.set('arg', encodeURIComponent(JSON.stringify(argFilter)))
+		resultFilter && searchParams.set('result', encodeURIComponent(JSON.stringify(resultFilter)))
 		schedulePath && searchParams.set('schedule_path', schedulePath)
 
 		jobKindsCat != 'runs' && searchParams.set('job_kinds', jobKindsCat)

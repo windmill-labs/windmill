@@ -25,6 +25,9 @@
 	export let usernames: string[] = []
 	export let folders: string[] = []
 
+	let copyArgFilter = argFilter
+	let copyResultFilter = resultFilter
+
 	export let filterBy: 'path' | 'user' | 'folder' = 'path'
 
 	let manuallySet = false
@@ -212,14 +215,26 @@
 			</Button>
 		</svelte:fragment>
 		<div class="flex flex-col w-72 p-2 gap-2">
-			<span class="text-sm eading-6 font-semibold">Filters</span>
+			<div class="flex flex-row w-full items-center justify-between">
+				<span class="text-sm eading-6 font-semibold">Filters</span>
+				<Button
+					size="xs"
+					color="light"
+					on:click={() => {
+						close(null)
+					}}
+				>
+					Close
+				</Button>
+			</div>
+
 			<span class="text-xs leading-6">
 				{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 			</span>
 			<span class="text-xs eading-6 font-semibold">Filter by args</span>
-			<JsonEditor on:change bind:error={argError} bind:code={argFilter} />
+			<JsonEditor on:change bind:error={argError} bind:code={copyArgFilter} />
 			<span class="text-xs eading-6 font-semibold">Filter by result</span>
-			<JsonEditor on:change bind:error={resultError} bind:code={resultFilter} />
+			<JsonEditor on:change bind:error={resultError} bind:code={copyResultFilter} />
 
 			<div class="flex flex-row gap-2 justify-between">
 				<Button
@@ -228,18 +243,22 @@
 					on:click={() => {
 						argFilter = ''
 						resultFilter = ''
+						close(null)
 					}}
 				>
 					Clear
 				</Button>
+
 				<Button
 					size="xs"
 					color="dark"
 					on:click={() => {
+						argFilter = copyArgFilter
+						resultFilter = copyResultFilter
 						close(null)
 					}}
 				>
-					Close
+					Set
 				</Button>
 			</div>
 		</div>
