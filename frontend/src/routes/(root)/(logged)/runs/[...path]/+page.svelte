@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQueryWithoutLoad } from '$lib/utils'
+	import {
+		JobService,
+		Job,
+		CompletedJob,
+		ScriptService,
+		FlowService,
+		UserService,
+		FolderService
+	} from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
-	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobPreview from '$lib/components/runs/JobPreview.svelte'
@@ -23,11 +29,18 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { tweened, type Tweened } from 'svelte/motion'
+	import { goto } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
 	let selectedId: string | undefined = undefined
 
+	// All Filters
+	// Filter by
+	let path: string | null = $page.params.path
+	let user: string | null = $page.url.searchParams.get('user')
+	let folder: string | null = $page.url.searchParams.get('folder')
+	// Rest of filters handled by RunsFilter
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
 			? $page.url.searchParams.get('success') == 'true'
@@ -37,18 +50,54 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
-	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let argFilter: any = $page.url.searchParams.get('arg')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		: undefined
+	let resultFilter: any = $page.url.searchParams.get('result')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		: undefined
+
+	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+	// Handled on the main page
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+
+	// This reactive statement is used to sync the url with the current state of the filters
+	$: {
+		let searchParams = new URLSearchParams()
+
+		user && searchParams.set('user', user)
+		folder && searchParams.set('folder', folder)
+
+		if (success !== undefined) {
+			searchParams.set('success', success.toString())
+		}
+
+		if (isSkipped) {
+			searchParams.set('is_skipped', isSkipped.toString())
+		}
+
+		// ArgFilter is an object. Encode it to a string
+		argFilter && searchParams.set('arg', encodeURIComponent(JSON.stringify(argFilter)))
+		resultFilter && searchParams.set('result', encodeURIComponent(JSON.stringify(resultFilter)))
+		schedulePath && searchParams.set('schedule_path', schedulePath)
+
+		jobKindsCat != 'runs' && searchParams.set('job_kinds', jobKindsCat)
+
+		minTs && searchParams.set('min_ts', minTs)
+		maxTs && searchParams.set('max_ts', maxTs)
+
+		let newPath = path ? `/${path}` : '/'
+		let newUrl = `/runs${newPath}?${searchParams.toString()}`
+
+		goto(newUrl, { replaceState: true })
+	}
 
 	let nbOfJobs = 30
-
 	let queue_count: Tweened<number> | undefined = undefined
 
-	$: path = $page.params.path
-	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -63,7 +112,8 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs()) ||
+		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -74,7 +124,9 @@
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
 			schedulePath,
-			scriptPathExact: path === '' ? undefined : path,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
 			success,
 			isSkipped,
@@ -110,6 +162,7 @@
 			queue_count = tweened(qc, { duration: 1000 })
 		}
 	}
+
 	async function syncer() {
 		getCount()
 		if (sync && jobs && maxTs == undefined) {
@@ -150,6 +203,8 @@
 	onMount(() => {
 		mounted = true
 		loadPaths()
+		loadUsernames()
+		loadFolders()
 		intervalId = setInterval(syncer, 5000)
 
 		document.addEventListener('visibilitychange', () => {
@@ -177,6 +232,18 @@
 	}
 
 	let paths: string[] = []
+	let usernames: string[] = []
+	let folders: string[] = []
+
+	async function loadUsernames(): Promise<void> {
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+	}
+
+	async function loadFolders(): Promise<void> {
+		folders = await FolderService.listFolders({
+			workspace: $workspaceStore!
+		}).then((x) => x.map((y) => y.name))
+	}
 
 	async function loadPaths() {
 		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
@@ -184,29 +251,11 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	async function syncTsWithURL(minTs?: string, maxTs?: string) {
-		setQueryWithoutLoad($page.url, [
-			{ key: 'min_ts', value: minTs },
-			{ key: 'max_ts', value: maxTs }
-		])
-	}
-
-	$: syncTsWithURL(minTs, maxTs)
-
 	let completedJobs: CompletedJob[] | undefined = undefined
 
 	function computeCompletedJobs() {
 		completedJobs =
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
-	}
-
-	let searchPath = ''
-	$: searchPath = path
-
-	$: searchPath && onSearchPathChange()
-
-	function onSearchPathChange() {
-		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
 	}
 
 	let argError = ''
@@ -320,20 +369,19 @@
 			<div class="hidden xl:block">
 				<RunsFilter
 					bind:isSkipped
-					{paths}
-					{jobKindsCat}
-					bind:selectedPath={searchPath}
+					bind:user
+					bind:folder
+					bind:path
 					bind:success
 					bind:argFilter
 					bind:resultFilter
 					bind:argError
 					bind:resultError
+					bind:jobKindsCat
 					on:change={reloadLogsWithoutFilterError}
-					on:clearFilters={() => {
-						minTs = undefined
-						maxTs = undefined
-						autoRefresh = true
-					}}
+					{usernames}
+					{folders}
+					{paths}
 				/>
 			</div>
 			<div class="xl:hidden">
@@ -343,19 +391,18 @@
 						<RunsFilter
 							bind:isSkipped
 							{paths}
-							{jobKindsCat}
-							bind:selectedPath={searchPath}
+							{usernames}
+							{folders}
+							bind:jobKindsCat
+							bind:folder
+							bind:path
+							bind:user
 							bind:success
 							bind:argFilter
 							bind:resultFilter
 							bind:argError
 							bind:resultError
 							on:change={reloadLogsWithoutFilterError}
-							on:clearFilters={() => {
-								minTs = undefined
-								maxTs = undefined
-								autoRefresh = true
-							}}
 						/>
 					</svelte:fragment>
 				</MobileFilters>
@@ -370,7 +417,6 @@
 			on:zoom={async (e) => {
 				minTs = e.detail.min.toISOString()
 				maxTs = e.detail.max.toISOString()
-				loadJobs()
 			}}
 		/>
 	</div>
@@ -403,7 +449,6 @@
 						label="Min datetimes"
 						on:change={async ({ detail }) => {
 							minTs = new Date(detail).toISOString()
-							loadJobs()
 						}}
 					/>
 				</div>
@@ -417,7 +462,6 @@
 						label="Max datetimes"
 						on:change={async ({ detail }) => {
 							maxTs = new Date(detail).toISOString()
-							loadJobs()
 						}}
 					/>
 				</div>
@@ -431,6 +475,7 @@
 				on:click={() => {
 					minTs = undefined
 					maxTs = undefined
+
 					autoRefresh = true
 					jobs = undefined
 					completedJobs = undefined
@@ -484,7 +529,19 @@
 						bind:selectedId
 						bind:nbOfJobs
 						on:filterByPath={(e) => {
-							searchPath = e.detail
+							user = null
+							folder = null
+							path = e.detail
+						}}
+						on:filterByUser={(e) => {
+							path = null
+							folder = null
+							user = e.detail
+						}}
+						on:filterByFolder={(e) => {
+							path = null
+							user = null
+							folder = e.detail
 						}}
 					/>
 				{:else}
@@ -515,6 +572,21 @@
 				bind:nbOfJobs
 				on:select={() => {
 					runDrawer.openDrawer()
+				}}
+				on:filterByPath={(e) => {
+					user = null
+					folder = null
+					path = e.detail
+				}}
+				on:filterByUser={(e) => {
+					path = null
+					folder = null
+					user = e.detail
+				}}
+				on:filterByFolder={(e) => {
+					path = null
+					user = null
+					folder = e.detail
 				}}
 			/>
 		{/if}
