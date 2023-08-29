@@ -115,6 +115,7 @@
 
 <InitializeComponent {id} />
 <RunnableWrapper
+	hasChildrens
 	{recomputeIds}
 	{render}
 	bind:runnableComponent

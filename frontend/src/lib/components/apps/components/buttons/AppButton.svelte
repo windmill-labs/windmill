@@ -66,7 +66,6 @@
 		listInputs(id, inputOutput)
 	}
 
-	console.log('FOO')
 	if (controls) {
 		$componentControl[id] = controls
 	}

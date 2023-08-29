@@ -377,7 +377,7 @@
 	<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 		<div class="flex gap-2 grow mb-2">
 			<div class="flex gap-1 relative max-w-36 min-w-[50px]">
-				<div class="text-xs absolute -top-4 truncate">Jobs Running or Queued</div>
+				<div class="text-xs absolute -top-4 truncate">Jobs waiting for a worker</div>
 				<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
 			</div>
 			<div class="flex"

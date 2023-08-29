@@ -213,7 +213,7 @@
 		{/if}
 		{#if isListJob}
 			{#if render}
-				<div class="w-full h-full border border-gray-600 bg-surface p-1">
+				<div class="w-full h-full border border-gray-600 bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}

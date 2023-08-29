@@ -799,7 +799,7 @@ async fn slack_command(
                 (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
+                let (script_hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
                     windmill_common::get_latest_deployed_hash_for_path(
                         &db,
                         &settings.workspace_id,
@@ -812,6 +812,7 @@ async fn slack_command(
                         path: path.to_owned(),
                         concurrent_limit,
                         concurrency_time_window_s,
+                        cache_ttl,
                     },
                     tag,
                 )

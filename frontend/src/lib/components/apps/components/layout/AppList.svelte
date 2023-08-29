@@ -114,7 +114,8 @@
 <InitializeComponent {id} />
 
 <RunnableWrapper
-	render={true}
+	hasChildrens
+	{render}
 	{outputs}
 	autoRefresh
 	{componentInput}

@@ -163,9 +163,15 @@ pub async fn get_latest_deployed_hash_for_path(
     db: &DB,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -181,6 +187,7 @@ pub async fn get_latest_deployed_hash_for_path(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }
 
@@ -188,9 +195,15 @@ pub async fn get_latest_hash_for_path<'c>(
     db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -206,5 +219,6 @@ pub async fn get_latest_hash_for_path<'c>(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }

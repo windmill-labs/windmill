@@ -260,6 +260,7 @@ run().catch(async (e) => {{
             if !reqs.is_empty() {
                 let _ = write_file(job_dir, "lock.json", &reqs).await?;
                 args.push("--lock=lock.json");
+                args.push("--lock-write");
             }
         }
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
