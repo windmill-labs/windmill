@@ -1,18 +1,15 @@
 <script lang="ts">
 	import { Button, Popup } from '../common'
-	import { page } from '$app/stores'
-	import { setQuery } from '$lib/navigation'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { goto } from '$app/navigation'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { ChevronDown, Filter, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 
-	export let paths: string[] = []
-	export let selectedPath: string | undefined = undefined
+	// Filters
+	export let path: string | null = null
 	export let success: boolean | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
@@ -20,32 +17,29 @@
 	export let resultFilter: string
 	export let resultError: string
 	export let jobKindsCat: string
+	export let user: string | null = null
+	export let folder: string | null = null
 
+	// Autocomplete data
+	export let paths: string[] = []
 	export let usernames: string[] = []
-	export let selectedUser: string | undefined = undefined
-
 	export let folders: string[] = []
-	export let selectedFolder: string | undefined = undefined
 
-	let filterBy: 'path' | 'user' | 'folder' = 'path'
-	let manualToggle = false
+	export let filterBy: 'path' | 'user' | 'folder' = 'path'
 
-	function toggleFilter(newFilter) {
-		manualToggle = true
-
-		filterBy = newFilter
-	}
+	let manuallySet = false
 
 	$: {
-		const hasFolder = selectedFolder !== undefined && selectedFolder !== ''
-		const hasUser = selectedUser !== undefined && selectedUser !== ''
-		const hasPath = selectedPath !== undefined && selectedPath !== ''
-
-		if (!manualToggle) {
-			filterBy = hasFolder ? 'folder' : hasUser ? 'user' : hasPath ? 'path' : 'path'
+		if (path !== null) {
+			manuallySet = true
+			filterBy = 'path'
+		} else if (user !== null) {
+			manuallySet = true
+			filterBy = 'user'
+		} else if (folder !== null) {
+			manuallySet = true
+			filterBy = 'folder'
 		}
-
-		manualToggle = false
 	}
 </script>
 
@@ -54,10 +48,16 @@
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Filter by</span>
 			<ToggleButtonGroup
-				on:selected={(e) => {
-					toggleFilter(e.detail)
+				bind:selected={filterBy}
+				on:selected={() => {
+					if (!manuallySet) {
+						path = null
+						user = null
+						folder = null
+					} else {
+						manuallySet = false
+					}
 				}}
-				selected={filterBy}
 			>
 				<ToggleButton value="path" label="Path" />
 				<ToggleButton value="user" label="User" />
@@ -67,14 +67,13 @@
 	</div>
 
 	{#if filterBy == 'user'}
-		{#key selectedUser}
+		{#key user}
 			<div class="relative">
-				{#if selectedUser}
+				{#if user}
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
-							manualToggle = true
-							selectedUser = undefined
+							user = null
 						}}
 					>
 						<X size={14} />
@@ -86,26 +85,24 @@
 				<span class="text-xs absolute -top-4">User</span>
 				<AutoComplete
 					items={usernames}
-					value={selectedUser}
-					bind:selectedItem={selectedUser}
+					value={user}
+					bind:selectedItem={user}
 					inputClassName="!h-[30px] py-1 !text-xs !w-64"
 					hideArrow
-					className={selectedUser ? '!font-bold' : ''}
+					className={user ? '!font-bold' : ''}
 					dropdownClassName="!font-normal !w-64 !max-w-64"
 				/>
 			</div>
 		{/key}
 	{/if}
 	{#if filterBy == 'folder'}
-		{#key selectedFolder}
+		{#key folder}
 			<div class="relative">
-				{#if selectedFolder}
+				{#if folder}
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
-							manualToggle = true
-
-							selectedFolder = undefined
+							folder = null
 						}}
 					>
 						<X size={14} />
@@ -118,26 +115,24 @@
 
 				<AutoComplete
 					items={folders}
-					value={selectedFolder}
-					bind:selectedItem={selectedFolder}
+					value={folder}
+					bind:selectedItem={folder}
 					inputClassName="!h-[30px] py-1 !text-xs !w-64"
 					hideArrow
-					className={selectedFolder ? '!font-bold' : ''}
+					className={folder ? '!font-bold' : ''}
 					dropdownClassName="!font-normal !w-64 !max-w-64"
 				/>
 			</div>
 		{/key}
 	{/if}
 	{#if filterBy === 'path'}
-		{#key selectedPath}
+		{#key path}
 			<div class="relative">
-				{#if selectedPath}
+				{#if path}
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
-							manualToggle = true
-
-							selectedPath = undefined
+							path = null
 						}}
 					>
 						<X size={14} />
@@ -150,11 +145,11 @@
 
 				<AutoComplete
 					items={paths}
-					value={selectedPath}
-					bind:selectedItem={selectedPath}
+					value={path}
+					bind:selectedItem={path}
 					inputClassName="!h-[30px] py-1 !text-xs !w-64"
 					hideArrow
-					className={selectedPath ? '!font-bold' : ''}
+					className={path ? '!font-bold' : ''}
 					dropdownClassName="!font-normal !w-64 !max-w-64"
 				/>
 			</div>
@@ -163,15 +158,7 @@
 	<div class="flex flex-col xl:flex-row gap-6 xl:gap-2 w-full">
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Kind</span>
-			<ToggleButtonGroup
-				bind:selected={jobKindsCat}
-				on:selected={(e) => {
-					const url = new URL($page.url)
-
-					url.searchParams.set('job_kinds', e.detail)
-					goto(url)
-				}}
-			>
+			<ToggleButtonGroup bind:selected={jobKindsCat}>
 				<ToggleButton value="all" label="All" />
 				<ToggleButton value="runs" label="Runs" />
 				<ToggleButton value="previews" label="Previews" />
@@ -180,11 +167,7 @@
 		</div>
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Status</span>
-			<ToggleButtonGroup
-				bind:selected={success}
-				on:selected={async () =>
-					await setQuery($page.url, 'success', success === undefined ? success : String(success))}
-			>
+			<ToggleButtonGroup bind:selected={success}>
 				<ToggleButton value={undefined} label="All" />
 				<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
 				<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
@@ -194,16 +177,7 @@
 			<span class="text-xs absolute -top-4"> Show Skipped Flows </span>
 
 			<div class="flex flex-row gap-1 items-center">
-				<Toggle
-					size="xs"
-					bind:checked={isSkipped}
-					on:change={async () =>
-						await setQuery(
-							$page.url,
-							'is_skipped',
-							isSkipped === undefined ? isSkipped : String(isSkipped)
-						)}
-				/>
+				<Toggle size="xs" bind:checked={isSkipped} />
 				<Tooltip light>Skipped flows are flows that did an early break</Tooltip>
 			</div>
 		</div>

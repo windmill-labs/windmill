@@ -9,13 +9,11 @@
 		UserService,
 		FolderService
 	} from '$lib/gen'
-	import { setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
-	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobPreview from '$lib/components/runs/JobPreview.svelte'
@@ -31,11 +29,18 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { tweened, type Tweened } from 'svelte/motion'
+	import { goto } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
 	let selectedId: string | undefined = undefined
 
+	// All Filters
+	// Filter by
+	let path: string | null = $page.params.path
+	let user: string | null = $page.url.searchParams.get('user')
+	let folder: string | null = $page.url.searchParams.get('folder')
+	// Rest of filters handled by RunsFilter
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
 			? $page.url.searchParams.get('success') == 'true'
@@ -47,24 +52,45 @@
 
 	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
 	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+	// Handled on the main page
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-	$: path = $page.params.path
-	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
-	async function syncTsWithURL(minTs?: string, maxTs?: string) {
-		setQueryWithoutLoad($page.url, [
-			{ key: 'min_ts', value: minTs },
-			{ key: 'max_ts', value: maxTs }
-		])
+	let shouldSyncTimestampUrl = false
+
+	// This reactive statement is used to sync the url with the current state of the filters
+	$: {
+		let searchParams = new URLSearchParams()
+
+		user && searchParams.set('user', user)
+		folder && searchParams.set('folder', folder)
+
+		if (success) {
+			searchParams.set('success', success.toString())
+		}
+
+		if (isSkipped) {
+			searchParams.set('is_skipped', isSkipped.toString())
+		}
+		argFilter && searchParams.set('arg', argFilter)
+		resultFilter && searchParams.set('result', resultFilter)
+		schedulePath && searchParams.set('schedule_path', schedulePath)
+
+		jobKindsCat != 'runs' && searchParams.set('job_kinds', jobKindsCat)
+
+		if (shouldSyncTimestampUrl) {
+			minTs && searchParams.set('min_ts', minTs)
+			maxTs && searchParams.set('max_ts', maxTs)
+		}
+
+		let newPath = path ? `/${path}` : '/'
+		let newUrl = `/runs${newPath}?${searchParams.toString()}`
+
+		goto(newUrl, { replaceState: true })
 	}
-
-	$: syncTsWithURL(minTs, maxTs)
-
-	let searchPath: string | undefined = path
-	let selectedUser: string | undefined = $page.url.searchParams.get('user') ?? ''
-	let selectedFolder: string | undefined = $page.url.searchParams.get('folder') ?? ''
 
 	let nbOfJobs = 30
 	let queue_count: Tweened<number> | undefined = undefined
@@ -84,7 +110,7 @@
 	}
 
 	$: ($workspaceStore && loadJobs()) ||
-		(path && success && isSkipped && jobKinds && selectedUser && selectedFolder)
+		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -95,10 +121,9 @@
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
 			schedulePath,
-			scriptPathExact: path === '' ? undefined : path,
-			createdBy: selectedUser === undefined || selectedUser === '' ? undefined : selectedUser,
-			scriptPathStart:
-				selectedFolder === undefined || selectedFolder === '' ? undefined : `f/${selectedFolder}/`,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
 			success,
 			isSkipped,
@@ -134,6 +159,7 @@
 			queue_count = tweened(qc, { duration: 1000 })
 		}
 	}
+
 	async function syncer() {
 		getCount()
 		if (sync && jobs && maxTs == undefined) {
@@ -305,53 +331,6 @@
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
 	let cancelAllJobs = false
-
-	function removeQueryParams(param: string) {
-		setQueryWithoutLoad($page.url, [{ key: param, value: null }])
-	}
-
-	$: searchPath ? setExclusiveParam({ path: searchPath }) : removeQueryParams('path')
-	$: selectedUser ? setExclusiveParam({ user: selectedUser }) : removeQueryParams('user')
-	$: selectedFolder ? setExclusiveParam({ folder: selectedFolder }) : removeQueryParams('folder')
-
-	async function setExclusiveParam({
-		path,
-		user,
-		folder
-	}: {
-		path?: string
-		user?: string
-		folder?: string
-	}) {
-		if (!path && !user && !folder) {
-			await goto('/runs')
-			setQueryWithoutLoad($page.url, [
-				{ key: 'folder', value: null },
-				{ key: 'user', value: null }
-			])
-			searchPath = undefined
-			selectedUser = undefined
-			selectedFolder = undefined
-			return
-		}
-		selectedUser = user ? user : undefined
-		selectedFolder = folder ? folder : undefined
-		searchPath = path ? path : undefined
-
-		if (path) {
-			await goto(`/runs/${path}`)
-			setQueryWithoutLoad($page.url, [
-				{ key: 'user', value: null },
-				{ key: 'folder', value: null }
-			])
-		} else {
-			await goto('/runs')
-			setQueryWithoutLoad($page.url, [
-				{ key: 'user', value: user },
-				{ key: 'folder', value: folder }
-			])
-		}
-	}
 </script>
 
 <ConfirmationModal
@@ -387,19 +366,19 @@
 			<div class="hidden xl:block">
 				<RunsFilter
 					bind:isSkipped
-					{usernames}
-					bind:selectedUser
-					{folders}
-					bind:selectedFolder
-					{paths}
-					{jobKindsCat}
-					bind:selectedPath={searchPath}
+					bind:user
+					bind:folder
+					bind:path
 					bind:success
 					bind:argFilter
 					bind:resultFilter
 					bind:argError
 					bind:resultError
+					bind:jobKindsCat
 					on:change={reloadLogsWithoutFilterError}
+					{usernames}
+					{folders}
+					{paths}
 				/>
 			</div>
 			<div class="xl:hidden">
@@ -409,12 +388,12 @@
 						<RunsFilter
 							bind:isSkipped
 							{paths}
-							{jobKindsCat}
 							{usernames}
 							{folders}
-							bind:selectedFolder
-							bind:selectedPath={searchPath}
-							bind:selectedUser
+							bind:jobKindsCat
+							bind:folder
+							bind:path
+							bind:user
 							bind:success
 							bind:argFilter
 							bind:resultFilter
@@ -435,7 +414,7 @@
 			on:zoom={async (e) => {
 				minTs = e.detail.min.toISOString()
 				maxTs = e.detail.max.toISOString()
-				loadJobs()
+				shouldSyncTimestampUrl = true
 			}}
 		/>
 	</div>
@@ -468,7 +447,7 @@
 						label="Min datetimes"
 						on:change={async ({ detail }) => {
 							minTs = new Date(detail).toISOString()
-							loadJobs()
+							shouldSyncTimestampUrl = true
 						}}
 					/>
 				</div>
@@ -482,7 +461,7 @@
 						label="Max datetimes"
 						on:change={async ({ detail }) => {
 							maxTs = new Date(detail).toISOString()
-							loadJobs()
+							shouldSyncTimestampUrl = true
 						}}
 					/>
 				</div>
@@ -496,6 +475,9 @@
 				on:click={() => {
 					minTs = undefined
 					maxTs = undefined
+
+					shouldSyncTimestampUrl = false
+
 					autoRefresh = true
 					jobs = undefined
 					completedJobs = undefined
@@ -549,13 +531,19 @@
 						bind:selectedId
 						bind:nbOfJobs
 						on:filterByPath={(e) => {
-							searchPath = e.detail
+							user = null
+							folder = null
+							path = e.detail
 						}}
 						on:filterByUser={(e) => {
-							selectedUser = e.detail
+							path = null
+							folder = null
+							user = e.detail
 						}}
 						on:filterByFolder={(e) => {
-							selectedFolder = e.detail
+							path = null
+							user = null
+							folder = e.detail
 						}}
 					/>
 				{:else}
@@ -588,13 +576,19 @@
 					runDrawer.openDrawer()
 				}}
 				on:filterByPath={(e) => {
-					searchPath = e.detail
+					user = null
+					folder = null
+					path = e.detail
 				}}
 				on:filterByUser={(e) => {
-					selectedUser = e.detail
+					path = null
+					folder = null
+					user = e.detail
 				}}
 				on:filterByFolder={(e) => {
-					selectedFolder = e.detail
+					path = null
+					user = null
+					folder = e.detail
 				}}
 			/>
 		{/if}
