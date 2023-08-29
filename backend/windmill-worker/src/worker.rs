@@ -1892,7 +1892,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
-            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name).await
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name, base_internal_url).await
         },
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
