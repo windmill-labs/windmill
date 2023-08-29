@@ -334,17 +334,13 @@
 		selectedFolder = folder ? folder : undefined
 		searchPath = path ? path : undefined
 
-		// If path is set, navigate to it and clear user and folder query parameters
 		if (path) {
-			console.log('goto path', path)
 			await goto(`/runs/${path}`)
 			setQueryWithoutLoad($page.url, [
 				{ key: 'user', value: null },
 				{ key: 'folder', value: null }
 			])
 		} else {
-			console.log('goto runs')
-
 			await goto('/runs')
 			setQueryWithoutLoad($page.url, [
 				{ key: 'user', value: user },
