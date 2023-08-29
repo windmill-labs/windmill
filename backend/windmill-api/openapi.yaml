@@ -3597,6 +3597,8 @@ paths:
                       type: string
                     path:
                       type: string
+                    cache_ttl:
+                      type: integer
                   required:
                     - content
                     - language
