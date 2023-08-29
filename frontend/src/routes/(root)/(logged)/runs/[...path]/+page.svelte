@@ -59,8 +59,6 @@
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 
-	let shouldSyncTimestampUrl = false
-
 	// This reactive statement is used to sync the url with the current state of the filters
 	$: {
 		let searchParams = new URLSearchParams()
@@ -81,10 +79,8 @@
 
 		jobKindsCat != 'runs' && searchParams.set('job_kinds', jobKindsCat)
 
-		if (shouldSyncTimestampUrl) {
-			minTs && searchParams.set('min_ts', minTs)
-			maxTs && searchParams.set('max_ts', maxTs)
-		}
+		minTs && searchParams.set('min_ts', minTs)
+		maxTs && searchParams.set('max_ts', maxTs)
 
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
@@ -414,7 +410,6 @@
 			on:zoom={async (e) => {
 				minTs = e.detail.min.toISOString()
 				maxTs = e.detail.max.toISOString()
-				shouldSyncTimestampUrl = true
 			}}
 		/>
 	</div>
@@ -447,7 +442,6 @@
 						label="Min datetimes"
 						on:change={async ({ detail }) => {
 							minTs = new Date(detail).toISOString()
-							shouldSyncTimestampUrl = true
 						}}
 					/>
 				</div>
@@ -461,7 +455,6 @@
 						label="Max datetimes"
 						on:change={async ({ detail }) => {
 							maxTs = new Date(detail).toISOString()
-							shouldSyncTimestampUrl = true
 						}}
 					/>
 				</div>
@@ -475,8 +468,6 @@
 				on:click={() => {
 					minTs = undefined
 					maxTs = undefined
-
-					shouldSyncTimestampUrl = false
 
 					autoRefresh = true
 					jobs = undefined
