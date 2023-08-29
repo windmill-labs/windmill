@@ -61,6 +61,7 @@
 				<Tab value="settings-early-stop">Early Stop</Tab>
 				<Tab value="settings-worker-group">Worker Group</Tab>
 				<Tab value="settings-concurrency">Concurrency</Tab>
+				<Tab value="settings-cache">Cache</Tab>
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
@@ -238,6 +239,36 @@
 							}}
 						/>
 					</TabContent>
+					<TabContent value="settings-cache" class="p-4 flex flex-col">
+						<h2 class="border-b pb-1 mb-4 flex items-center gap-4"
+							>Cache <Toggle
+								size="xs"
+								checked={Boolean($flowStore.value.cache_ttl)}
+								on:change={() => {
+									if ($flowStore.value.cache_ttl && $flowStore.value.cache_ttl != undefined) {
+										$flowStore.value.cache_ttl = undefined
+									} else {
+										$flowStore.value.cache_ttl = 300
+									}
+								}}
+								options={{
+									right: 'Cache the results for each possible inputs'
+								}}
+							/></h2
+						>
+
+						<div class="flex gap-x-4 flex-col gap-2">
+							<div class="text-xs">How long to keep the cache valid</div>
+							<div>
+								{#if $flowStore.value.cache_ttl}
+									<SecondsInput bind:seconds={$flowStore.value.cache_ttl} />
+								{:else}
+									<SecondsInput disabled />
+								{/if}
+							</div>
+						</div>
+					</TabContent>
+
 					<TabContent value="settings-worker-group" class="p-4 flex flex-col">
 						<Alert type="info" title="Worker Group">
 							When a worker group is defined at the flow level, any steps inside the flow will run

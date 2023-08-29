@@ -1,26 +1,26 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select path, tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
+  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "path",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 2,
+        "ordinal": 1,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "concurrency_time_window_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "cache_ttl",
         "type_info": "Int4"
       }
     ],
@@ -31,11 +31,11 @@
       ]
     },
     "nullable": [
-      false,
+      true,
       true,
       true,
       true
     ]
   },
-  "hash": "d164caec6637ab53d8c2e0faad653a458f31a976bb23c3a43d35b8476b066954"
+  "hash": "0694f4be1a7966126f20afbd9ee094088db8ce98aefdbe96144c42e38e5bd813"
 }

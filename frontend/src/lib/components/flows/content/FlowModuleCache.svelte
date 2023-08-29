@@ -24,7 +24,7 @@
 		if (isCacheEnabled && flowModule.cache_ttl != undefined) {
 			flowModule.cache_ttl = undefined
 		} else {
-			flowModule.cache_ttl = 60 * 60 * 24 * 2
+			flowModule.cache_ttl = 600
 		}
 	}}
 	options={{
