@@ -986,7 +986,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     let cached_res_path = if job.cache_ttl.is_some() {
     let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
-        let permissioned_as = &job.permissioned_as;
         if job.is_flow_step {
             let flow_path = sqlx::query_scalar!(
                 "SELECT script_path FROM queue WHERE id = $1",
@@ -997,10 +996,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
             let step = step.unwrap_or(-1);
-            Some(format!("{permissioned_as}/cache/{flow_path}/{step}/{args_hash}"))
+            Some(format!("{flow_path}/cache/{step}/{args_hash}"))
         } else if let Some(script_path) = &job.script_path {
             let is_flow = if job.is_flow() { "flow/" } else { "" };
-            Some(format!("{permissioned_as}/cache/{is_flow}{script_path}/{args_hash}"))
+            Some(format!("{script_path}/{is_flow}cache/{args_hash}"))
         } else {
             None
         }
