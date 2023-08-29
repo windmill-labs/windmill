@@ -52,6 +52,8 @@ components:
           type: number
         skip_expr:
           type: string
+        cache_ttl:
+          type: number
       required:
         - modules
 

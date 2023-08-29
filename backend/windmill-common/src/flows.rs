@@ -60,7 +60,7 @@ pub struct ListableFlow {
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
-    pub description: String,
+    pub description: Option<String>,
     pub value: serde_json::Value,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
