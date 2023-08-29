@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)",
+  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "cache_ttl",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -34,8 +39,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "9289709b2727425be0e7f1e341d6acd46e1e79d5018f6a18cb41d50ca3f4ba11"
+  "hash": "cf21b61aa5b5e47744235c860e2d9b90d7654a4b5d0ec32085b178399f701bfc"
 }

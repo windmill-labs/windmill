@@ -10,7 +10,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Alert, Badge, Button, Drawer, Kbd } from './common'
+	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput } from './common'
 	import { faPlus, faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -27,6 +27,7 @@
 	import { Icon } from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -168,7 +169,8 @@
 					tag: script.tag,
 					envs: script.envs,
 					concurrent_limit: script.concurrent_limit,
-					concurrency_time_window_s: script.concurrency_time_window_s
+					concurrency_time_window_s: script.concurrency_time_window_s,
+					cache_ttl: script.cache_ttl
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -210,7 +212,8 @@
 						draft_only: true,
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: script.concurrency_time_window_s
+						concurrency_time_window_s: script.concurrency_time_window_s,
+						cache_ttl: script.cache_ttl
 					}
 				})
 			}
@@ -443,6 +446,34 @@
 			{:else}
 				<Loader2 class="animate-spin" />
 			{/if}
+
+			<h2 class="border-b pb-1 mt-10 mb-4 flex items-center gap-4"
+				>Cache <Toggle
+					size="xs"
+					checked={Boolean(script.cache_ttl)}
+					on:change={() => {
+						if (script.cache_ttl && script.cache_ttl != undefined) {
+							script.cache_ttl = undefined
+						} else {
+							script.cache_ttl = 300
+						}
+					}}
+					options={{
+						right: 'Cache the results for each possible inputs'
+					}}
+				/></h2
+			>
+
+			<div class="flex gap-x-4 shrink flex-col">
+				<div class="text-xs">How long to the keep cache valid</div>
+
+				{#if script.cache_ttl}
+					<SecondsInput bind:seconds={script.cache_ttl} />
+				{:else}
+					<SecondsInput disabled />
+				{/if}
+			</div>
+
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4">
 					Custom env variables

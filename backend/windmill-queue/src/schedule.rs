@@ -74,7 +74,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     let (payload, tag) = if schedule.is_flow {
         (JobPayload::Flow(schedule.script_path), None)
     } else {
-        let (hash, tag, concurrent_limit, concurrency_time_window_s) =
+        let (hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
             windmill_common::get_latest_hash_for_path(
                 tx.transaction_mut(),
                 &schedule.workspace_id,
@@ -87,6 +87,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 path: schedule.script_path,
                 concurrent_limit: concurrent_limit,
                 concurrency_time_window_s: concurrency_time_window_s,
+                cache_ttl: cache_ttl,
             },
             tag,
         )

@@ -2,6 +2,7 @@ use async_recursion::async_recursion;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
+use windmill_api_client::{types::CreateResource, Client};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -10,7 +11,12 @@ use windmill_queue::CLOUD_HOSTED;
 
 use anyhow::Result;
 use std::{
-    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
+    borrow::Borrow,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    io,
+    os::unix::process::ExitStatusExt,
+    panic,
     time::Duration,
 };
 
@@ -563,6 +569,32 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
             .unwrap_or(0);
         dst.push_str(&src[0..byte_pos]);
         *limit = 0;
+    }
+}
+
+pub fn hash_args(v: &serde_json::Value) -> i64 {
+    let mut dh = DefaultHasher::new();
+    serde_json::to_string(v).unwrap().hash(&mut dh);
+    dh.finish() as i64
+}
+
+pub async fn save_in_cache(client: &AuthedClient, job: &QueuedJob, cached_path: String, r: &Value) {
+    let client: &Client = client.get_client();
+    let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
+    let cr = &CreateResource {
+        path: cached_path,
+        description: None,
+        resource_type: "cache".to_string(),
+        value: serde_json::json!({
+            "value": r,
+            "expire": expire
+        }),
+    };
+    if let Err(e) = client
+        .create_resource(&job.workspace_id, Some(true), cr)
+        .await
+    {
+        tracing::error!("Error creating cache resource {e}")
     }
 }
 
