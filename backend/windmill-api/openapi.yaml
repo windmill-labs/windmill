@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.160.0
+  version: 1.161.0
   title: Windmill API
 
   contact:
@@ -5831,7 +5831,8 @@ components:
           type: array
           items:
             type: integer
-
+        cache_ttl:
+          type: number
       required:
         - hash
         - path
@@ -5905,6 +5906,8 @@ components:
           type: array
           items:
             type: integer
+        cache_ttl:
+          type: number
       required:
         - path
         - summary

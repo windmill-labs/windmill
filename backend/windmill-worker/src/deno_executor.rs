@@ -71,8 +71,20 @@ pub async fn generate_deno_lock(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     worker_name: &str,
+    base_internal_url: &str,
 ) -> error::Result<String> {
     let _ = write_file(job_dir, "main.ts", code).await?;
+
+    let import_map_path = format!("{job_dir}/import_map.json");
+    let import_map = format!(
+        r#"{{
+        "imports": {{
+            "/": "{base_internal_url}/api/scripts_u/empty_ts/"
+        }}
+      }}"#,
+    );
+    write_file(job_dir, "import_map.json", &import_map).await?;
+    write_file(job_dir, "empty.ts", "").await?;
 
     let child = Command::new(DENO_PATH.as_str())
         .current_dir(job_dir)
@@ -81,6 +93,8 @@ pub async fn generate_deno_lock(
             "--unstable",
             "--lock=lock.json",
             "--lock-write",
+            "--import-map",
+            &import_map_path,
             "main.ts",
         ])
         .stdout(Stdio::piped())
@@ -260,6 +274,7 @@ run().catch(async (e) => {{
             if !reqs.is_empty() {
                 let _ = write_file(job_dir, "lock.json", &reqs).await?;
                 args.push("--lock=lock.json");
+                args.push("--lock-write");
             }
         }
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
