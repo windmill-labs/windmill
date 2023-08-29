@@ -306,9 +306,13 @@
 	let runDrawer: Drawer
 	let cancelAllJobs = false
 
-	$: searchPath && setExclusiveParam({ path: searchPath })
-	$: selectedUser && setExclusiveParam({ user: selectedUser })
-	$: selectedFolder && setExclusiveParam({ folder: selectedFolder })
+	function removeQueryParams(param: string) {
+		setQueryWithoutLoad($page.url, [{ key: param, value: null }])
+	}
+
+	$: searchPath ? setExclusiveParam({ path: searchPath }) : removeQueryParams('path')
+	$: selectedUser ? setExclusiveParam({ user: selectedUser }) : removeQueryParams('user')
+	$: selectedFolder ? setExclusiveParam({ folder: selectedFolder }) : removeQueryParams('folder')
 
 	async function setExclusiveParam({
 		path,

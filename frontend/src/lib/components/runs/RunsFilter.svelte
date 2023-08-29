@@ -73,6 +73,7 @@
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
+							manualToggle = true
 							selectedUser = undefined
 						}}
 					>
@@ -102,6 +103,8 @@
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
+							manualToggle = true
+
 							selectedFolder = undefined
 						}}
 					>
@@ -132,6 +135,8 @@
 					<button
 						class="absolute top-2 right-2 z-50"
 						on:click={() => {
+							manualToggle = true
+
 							selectedPath = undefined
 						}}
 					>
