@@ -160,9 +160,24 @@
 			<span class="text-xs absolute -top-4">Kind</span>
 			<ToggleButtonGroup bind:selected={jobKindsCat}>
 				<ToggleButton value="all" label="All" />
-				<ToggleButton value="runs" label="Runs" />
-				<ToggleButton value="previews" label="Previews" />
-				<ToggleButton value="dependencies" label="Deps" />
+				<ToggleButton
+					value="runs"
+					label="Runs"
+					showTooltipIcon
+					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+				/>
+				<ToggleButton
+					value="previews"
+					label="Previews"
+					showTooltipIcon
+					tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+				/>
+				<ToggleButton
+					value="dependencies"
+					label="Deps"
+					showTooltipIcon
+					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+				/>
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative">
