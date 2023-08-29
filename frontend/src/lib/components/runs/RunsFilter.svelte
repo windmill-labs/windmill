@@ -30,13 +30,13 @@
 	let manuallySet = false
 
 	$: {
-		if (path !== null && path !== '' && filterBy !== 'path') {
+		if (path !== null && path !== '' && filterBy !== 'path' && !manuallySet) {
 			manuallySet = true
 			filterBy = 'path'
-		} else if (user !== null && user !== '' && filterBy !== 'user') {
+		} else if (user !== null && user !== '' && filterBy !== 'user' && !manuallySet) {
 			manuallySet = true
 			filterBy = 'user'
-		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
+		} else if (folder !== null && folder !== '' && filterBy !== 'folder' && !manuallySet) {
 			manuallySet = true
 			filterBy = 'folder'
 		}
