@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.162.0](https://github.com/windmill-labs/windmill/compare/v1.161.0...v1.162.0) (2023-08-29)
+
+
+### Features
+
+* add cache to inline scripts ([bf0014c](https://github.com/windmill-labs/windmill/commit/bf0014c387361ce358d31c7cbc44a9c4c97606df))
+* add caching to flows and scripts ([#2193](https://github.com/windmill-labs/windmill/issues/2193)) ([03e48a4](https://github.com/windmill-labs/windmill/commit/03e48a4ca557cd2c385988d3a935cea38bc6e81e))
+* **frontend:** Filter runs by user ([#2187](https://github.com/windmill-labs/windmill/issues/2187)) ([095969f](https://github.com/windmill-labs/windmill/commit/095969f125e9186cb4f02f75e914ef9a70e3abc4))
+
+
+### Bug Fixes
+
+* add setState, getState to client ([67f868f](https://github.com/windmill-labs/windmill/commit/67f868f08ed10f3f7c185af67bff7080c339e974))
+* relative imports in deno ([30ea354](https://github.com/windmill-labs/windmill/commit/30ea354cae91ea040b3112c4138a1e5f0d7ab530))
+
 ## [1.161.0](https://github.com/windmill-labs/windmill/compare/v1.160.0...v1.161.0) (2023-08-28)
 
 
