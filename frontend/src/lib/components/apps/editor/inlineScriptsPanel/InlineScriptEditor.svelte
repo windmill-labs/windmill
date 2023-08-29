@@ -207,7 +207,15 @@
 						}}
 					>
 						<svelte:fragment slot="button">
-							<Button nonCaptureEvent={true} color="light" variant="border" size="xs">Cache</Button>
+							<Button
+								nonCaptureEvent={true}
+								btnClasses={Boolean(inlineScript.cache_ttl)
+									? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
+									: 'bg-surface text-primay hover:bg-hover'}
+								color="light"
+								variant="border"
+								size="xs">Cache</Button
+							>
 						</svelte:fragment>
 						<div class="block text-primary">
 							<Toggle

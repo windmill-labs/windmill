@@ -1515,7 +1515,7 @@ async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
-            "SELECT * FROM resource WHERE workspace_id = $1",
+            "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
             &w_id
         )
         .fetch_all(&db)
