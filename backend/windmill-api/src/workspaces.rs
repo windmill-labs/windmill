@@ -252,7 +252,7 @@ async fn premium_info(
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = $1 AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND usage.is_workspace IS true WHERE workspace.id = $1",
     )
     .bind(w_id)
     .fetch_one(&mut *tx)
