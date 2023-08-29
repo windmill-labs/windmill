@@ -305,13 +305,19 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_tag_and_limits_for_hash(
+pub async fn get_path_tag_limits_cache_for_hash(
     db: &DB,
     w_id: &str,
     hash: i64,
-) -> error::Result<(String, Option<String>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    String,
+    Option<String>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+)> {
     let script = sqlx::query!(
-        "select path, tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -327,6 +333,7 @@ pub async fn get_path_tag_and_limits_for_hash(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }
 
@@ -1340,6 +1347,7 @@ impl From<UnifiedJob> for Job {
                 concurrency_time_window_s: uj.concurrency_time_window_s,
                 timeout: None,
                 flow_step_id: None,
+                cache_ttl: None,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -2027,8 +2035,8 @@ pub async fn run_wait_result_script_by_hash(
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let (path, tag, concurrent_limit, concurrency_time_window_s) =
-        get_path_tag_and_limits_for_hash(&db, &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
+        get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
@@ -2045,6 +2053,7 @@ pub async fn run_wait_result_script_by_hash(
             path: path,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            cache_ttl,
         },
         args,
         &authed.username,
@@ -2218,6 +2227,7 @@ async fn run_preview_job(
                 lock: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
+                cache_ttl: None,
             }),
         },
         args,
@@ -2350,8 +2360,8 @@ pub async fn run_job_by_hash(
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
-    let (path, tag, concurrent_limit, concurrency_time_window_s) =
-        get_path_tag_and_limits_for_hash(&db, &w_id, hash).await?;
+    let (path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
+        get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
@@ -2369,6 +2379,7 @@ pub async fn run_job_by_hash(
             path: path,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            cache_ttl,
         },
         args,
         &authed.username,

@@ -1619,6 +1619,7 @@ func main(derp string) (string, error) {
         language: ScriptLang::Go,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        cache_ttl: None
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, port)
@@ -1648,6 +1649,7 @@ echo "hello $msg"
         language: ScriptLang::Bash,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        cache_ttl: None
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
@@ -1675,6 +1677,7 @@ def main():
         lock: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        cache_ttl: None
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1707,6 +1710,7 @@ def main():
         lock: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        cache_ttl: None
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
@@ -1738,6 +1742,7 @@ def main():
         lock: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        cache_ttl: None
     });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)

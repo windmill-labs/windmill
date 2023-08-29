@@ -210,7 +210,7 @@ async fn create_flow(
         w_id,
         nf.path,
         nf.summary,
-        nf.description,
+        nf.description.unwrap_or_else(String::new),
         nf.value,
         &authed.username,
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
@@ -352,7 +352,7 @@ async fn update_flow(
          edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9 WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
-        nf.description,
+        nf.description.unwrap_or_else(String::new),
         nf.value,
         &authed.username,
         schema.and_then(|x| serde_json::to_string(&x).ok()),
@@ -751,6 +751,8 @@ mod tests {
             same_worker: false,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            skip_expr: None,
+            cache_ttl: None,
         };
         let expect = serde_json::json!({
           "modules": [
