@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.162.2](https://github.com/windmill-labs/windmill/compare/v1.162.1...v1.162.2) (2023-08-29)
+
+
+### Bug Fixes
+
+* fix incorrect bump ([4704899](https://github.com/windmill-labs/windmill/commit/4704899a81cb281b99949c934184e23b199b2ed8))
+
 ## [1.162.1](https://github.com/windmill-labs/windmill/compare/v1.162.0...v1.162.1) (2023-08-29)
 
 
