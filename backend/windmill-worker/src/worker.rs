@@ -511,26 +511,26 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
                         last_sync = Instant::now();
 
-                        if (crate::global_cache::worker_s3_bucket_sync_enabled(&db).await) {
+                        if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
 
-                        tracing::debug!("CAN PULL LOCK START");
-                        let _lock = CAN_PULL.write().await;
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
 
-                        tracing::info!("Started syncing cache");
-                        // if num_workers > 1 {
-                        //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                        // }
-                        if let Err(e) = copy_cache_to_tmp_cache().await {
-                            tracing::error!("failed to copy cache to tmp cache: {}", e);
-                        } else {
-                            copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
-                                if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                                    if let Err(e) = cache_global(s, copy_tx).await { 
-                                        tracing::error!("failed to sync cache: {}", e);
+                            tracing::info!("Started syncing cache");
+                            // if num_workers > 1 {
+                            //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                            // }
+                            if let Err(e) = copy_cache_to_tmp_cache().await {
+                                tracing::error!("failed to copy cache to tmp cache: {}", e);
+                            } else {
+                                copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                                    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                        if let Err(e) = cache_global(s, copy_tx).await { 
+                                            tracing::error!("failed to sync cache: {}", e);
+                                        }
                                     }
-                                }
-                            }));
-                        }
+                                }));
+                            }
                     } 
                 }
             }
