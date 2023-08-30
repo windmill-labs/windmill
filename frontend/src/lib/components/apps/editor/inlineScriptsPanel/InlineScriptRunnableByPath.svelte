@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'
@@ -28,6 +28,7 @@
 	import RunButton from './RunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import { sendUserToast } from '$lib/toast'
+	import { autoPlacement } from '@floating-ui/core'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
@@ -177,6 +178,37 @@
 				Fork
 			</Button>
 		{/if}
+		<Popup
+			floatingConfig={{
+				middleware: [
+					autoPlacement({
+						allowedPlacements: [
+							'bottom-start',
+							'bottom-end',
+							'top-start',
+							'top-end',
+							'top',
+							'bottom'
+						]
+					})
+				]
+			}}
+		>
+			<svelte:fragment slot="button">
+				<Button
+					nonCaptureEvent={true}
+					btnClasses={'bg-surface text-primay hover:bg-hover'}
+					color="light"
+					variant="border"
+					size="xs">Cache</Button
+				>
+			</svelte:fragment>
+			<div class="block text-primary">
+				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
+				settings directly by editing it. The cache will be shared by any app or flow that uses this {runnable.runType}.
+			</div>
+		</Popup>
+
 		<input
 			on:keydown|stopPropagation
 			bind:value={runnable.name}
