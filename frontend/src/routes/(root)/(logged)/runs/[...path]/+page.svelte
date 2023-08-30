@@ -92,7 +92,6 @@
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
 
-		alert('newUrl: ' + newUrl)
 		goto(newUrl)
 	}
 
