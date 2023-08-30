@@ -22,8 +22,9 @@
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, premiumStore } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { onMount } from 'svelte'
 
 	export let app: App
 	export let appPath: string = ''
@@ -110,11 +111,26 @@
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
+
+	onMount(() => {
+		if (!$premiumStore.premium) {
+			const style = document.getElementById('wm-global-style')
+
+			if (style) {
+				// Remove the style tag if it exists
+				style.remove()
+			}
+		}
+	})
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
+
+<svelte:head>
+	{@html `<` + `style>${$premiumStore.premium ? $appStore.cssString : ''}</style>`}
+</svelte:head>
 
 <div class="relative h-full">
 	<div id="app-editor-top-level-drawer" />

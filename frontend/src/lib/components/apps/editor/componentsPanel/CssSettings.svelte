@@ -2,12 +2,12 @@
 	import { getContext, onMount } from 'svelte'
 	import { LayoutDashboardIcon } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { emptyString } from '$lib/utils'
 	import type { AppViewerContext } from '../../types'
 	import { ccomponents, components } from '../component'
-	import { slide } from 'svelte/transition'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import CssHelperPanel from './CssHelperPanel.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { premiumStore } from '$lib/stores'
 
 	const STATIC_ELEMENTS = ['app'] as const
 
@@ -21,9 +21,6 @@
 	}
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
-
-	let cssError = ''
-	let cssErrorHeight: number
 
 	let cssEditor: SimpleEditor | undefined = undefined
 
@@ -47,23 +44,25 @@
 	]
 	entries.sort((a, b) => a.name.localeCompare(b.name))
 
+	let alertHeight: number | undefined = undefined
+
 	onMount(() => {
 		$cssEditorOpen = true
 	})
 </script>
 
-{#if !emptyString(cssError)}
-	<div
-		transition:slide={{ duration: 200 }}
-		bind:clientHeight={cssErrorHeight}
-		class="text-red-500 text-xs p-1"
-	>
-		{cssError}
-	</div>
-{/if}
 <Splitpanes horizontal>
 	<Pane size={60}>
-		<div style="height: calc(100% - {cssErrorHeight || 0}px);">
+		{#if !$premiumStore.premium}
+			<div bind:clientHeight={alertHeight} class="p-2">
+				<Alert type="warning" title="EE only" size="xs">
+					Global CSS is an exclusive feature of the Enterprise Edition. You can experiment with this
+					feature in the editor, but please note that the changes will not be visible in the preview
+					unless you upgrade.
+				</Alert>
+			</div>
+		{/if}
+		<div style="height: calc(100% - {alertHeight || 0}px);">
 			<SimpleEditor
 				class="h-full"
 				lang="css"

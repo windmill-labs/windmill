@@ -305,7 +305,7 @@
 </script>
 
 <svelte:head>
-	{@html `<` + `style>${$appStore.cssString}</style>`}
+	{@html `<` + `style id="wm-global-style">${$appStore.cssString}</style>`}
 </svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -391,7 +391,16 @@
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component library</svelte:fragment>
-									<Tab value="insert" size="xs" class="h-full">
+									<Tab
+										value="insert"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											if ($cssEditorOpen) {
+												$cssEditorOpen = false
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Plus size={18} />
 										</div>
@@ -399,7 +408,16 @@
 								</Popover>
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component settings</svelte:fragment>
-									<Tab value="settings" size="xs" class="h-full">
+									<Tab
+										value="settings"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											if ($cssEditorOpen) {
+												$cssEditorOpen = false
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Component size={18} />
 										</div>

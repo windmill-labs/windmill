@@ -31,7 +31,6 @@
 		Expand,
 		Laptop2,
 		Loader2,
-		PanelLeftOpen,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -92,8 +91,7 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun,
-		cssEditorOpen
+		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen } = getContext<AppEditorContext>('AppEditorContext')
@@ -786,15 +784,6 @@
 					value={true}
 				/>
 			</ToggleButtonGroup>
-		{/if}
-
-		{#if $cssEditorOpen}
-			<Button on:click={() => ($cssEditorOpen = false)} size="xs" color="dark">
-				<div class="flex flex-row gap-2">
-					<PanelLeftOpen size={16} />
-					<div>Close Global CSS Mode</div>
-				</div>
-			</Button>
 		{/if}
 	</div>
 

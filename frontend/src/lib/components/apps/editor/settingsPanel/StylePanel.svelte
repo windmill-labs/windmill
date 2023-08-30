@@ -15,7 +15,7 @@
 
 	export let component: AppComponent | undefined
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
 	let tab: 'local' | 'global' = 'local'
 
@@ -106,7 +106,13 @@
 	</Alert>
 	<div class="flex flex-row gap-2 items-center justify-between">
 		<Button color="dark" size="xs" on:click={() => {}}>Migrate custom to global CSS</Button>
-		<Button color="light" size="xs" on:click={() => {}}>Open global CSS panel</Button>
+		<Button
+			color="light"
+			size="xs"
+			on:click={() => {
+				$cssEditorOpen = true
+			}}>Open global CSS panel</Button
+		>
 	</div>
 </div>
 
