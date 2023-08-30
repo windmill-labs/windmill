@@ -37,22 +37,33 @@
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
+	let notFound = false
 
 	const dispatch = createEventDispatcher()
 
 	async function refreshScript(x: RunnableByPath) {
-		let { schema } = await getScriptByPath(x.path)
-		if (!deepEqual(x.schema, schema)) {
-			x.schema = schema
-			fields = computeFields(schema, false, fields)
+		try {
+			let { schema } = await getScriptByPath(x.path)
+			if (!deepEqual(x.schema, schema)) {
+				x.schema = schema
+				fields = computeFields(schema, false, fields)
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
 		}
 	}
 
 	async function refreshFlow(x: RunnableByPath) {
-		const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-		if (!deepEqual(x.schema, schema)) {
-			x.schema = schema
-			fields = computeFields(schema, false, fields)
+		try {
+			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
+			if (!deepEqual(x.schema, schema)) {
+				x.schema = schema
+				fields = computeFields(schema, false, fields)
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
 		}
 	}
 
@@ -74,14 +85,20 @@
 		})
 	}
 
-	function refresh() {
+	let lastRunnable: RunnableByPath | undefined = undefined
+	function refresh(runnable) {
+		if (deepEqual(runnable, lastRunnable)) {
+			return
+		}
+		notFound = false
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
 		}
+		lastRunnable = runnable
 	}
-	$: runnable.runType && refresh()
+	$: refresh(runnable)
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
@@ -100,7 +117,7 @@
 			startIcon={{ icon: faRefresh }}
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
-				refresh()
+				refresh(runnable)
 				$stateId = $stateId + 1
 				await tick()
 			}}
@@ -169,7 +186,11 @@
 	</div>
 	<div class="w-full">
 		{#key $stateId}
-			{#if runnable.runType == 'script' || runnable.runType == 'hubscript'}
+			{#if notFound}
+				<div class="text-red-400"
+					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div
+				>
+			{:else if runnable.runType == 'script' || runnable.runType == 'hubscript'}
 				<div class="border">
 					<FlowModuleScript path={runnable.path} />
 				</div>
