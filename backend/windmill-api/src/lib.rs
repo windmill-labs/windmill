@@ -59,6 +59,7 @@ mod saml;
 mod schedule;
 mod scim;
 mod scripts;
+mod settings;
 mod static_assets;
 mod tracing_init;
 mod users;
@@ -97,7 +98,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 
     pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
-        .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
+        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
 
     pub static ref SMTP_CLIENT: Option<SmtpClientBuilder<String>> = {
@@ -233,6 +234,7 @@ pub async fn run_server(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
+                .nest("/settings", settings::global_service())
                 .nest("/jobs", jobs::global_root_service())
                 .nest("/workers", workers::global_service())
                 .nest("/scripts", scripts::global_service())
