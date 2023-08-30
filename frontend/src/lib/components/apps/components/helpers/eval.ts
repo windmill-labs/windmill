@@ -18,7 +18,7 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 	}
 }
 
-function create_context_function_template(eval_string, context, noReturn: boolean) {
+function create_context_function_template(eval_string: string, context, noReturn: boolean) {
 	return `
 return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal) {
 "use strict";
@@ -27,7 +27,11 @@ ${
 		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
 		: ``
 }
-${noReturn ? `return ${eval_string}` : eval_string}
+${
+	noReturn
+		? `return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
+		: eval_string
+}
 }                                                                                                                   
 `
 }

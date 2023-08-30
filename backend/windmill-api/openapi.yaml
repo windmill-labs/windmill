@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.161.0
+  version: 1.163.1
   title: Windmill API
 
   contact:
@@ -521,6 +521,59 @@ paths:
             text/plain:
               schema:
                 type: boolean
+
+  /settings/global/{key}:
+    get:
+      summary: get global settings
+      operationId: getGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+    post:
+      summary: post global settings
+      operationId: setGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      requestBody:
+        description: value set
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: {}
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/local:
+    get:
+      summary: get local settings
+      operationId: getLocal
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
 
   /users/email:
     get:
@@ -3597,6 +3650,8 @@ paths:
                       type: string
                     path:
                       type: string
+                    cache_ttl:
+                      type: integer
                   required:
                     - content
                     - language
@@ -5448,6 +5503,12 @@ components:
       name: token
 
   parameters:
+    Key:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
     WorkspaceId:
       name: workspace
       in: path

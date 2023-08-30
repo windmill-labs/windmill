@@ -85,7 +85,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
    shared on [WindmillHub](https://hub.windmill.dev).
    ![Step 3](./imgs/windmill-flow.png)
 
-4. Build complex UI on top of your scripts and flows.
+4. Build complex UIs on top of your scripts and flows.
    ![Step 4](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '_/5 _ \* \* \*' or

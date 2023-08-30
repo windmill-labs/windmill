@@ -584,9 +584,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             if flow_job.cache_ttl.is_some() {
                 let cached_res_path = {
                     let args_hash = hash_args(&flow_job.args.clone().unwrap_or_else(|| json!({})));
-                    let permissioned_as = &flow_job.permissioned_as;
                     let flow_path = flow_job.script_path();
-                    format!("{permissioned_as}/cache/flow/{flow_path}/{args_hash}")
+                    format!("{flow_path}/flow/cache/{args_hash}")
                 };
 
                 save_in_cache(&client, &flow_job, cached_res_path, &nresult).await;

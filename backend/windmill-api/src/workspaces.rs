@@ -252,7 +252,7 @@ async fn premium_info(
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = $1 AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
     )
     .bind(w_id)
     .fetch_one(&mut *tx)
@@ -1515,7 +1515,7 @@ async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
-            "SELECT * FROM resource WHERE workspace_id = $1",
+            "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
             &w_id
         )
         .fetch_all(&db)

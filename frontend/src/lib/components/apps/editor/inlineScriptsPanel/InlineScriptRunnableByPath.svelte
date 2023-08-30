@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'
@@ -28,6 +28,7 @@
 	import RunButton from './RunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import { sendUserToast } from '$lib/toast'
+	import { autoPlacement } from '@floating-ui/core'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
@@ -37,22 +38,33 @@
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
+	let notFound = false
 
 	const dispatch = createEventDispatcher()
 
 	async function refreshScript(x: RunnableByPath) {
-		let { schema } = await getScriptByPath(x.path)
-		if (!deepEqual(x.schema, schema)) {
-			x.schema = schema
-			fields = computeFields(schema, false, fields)
+		try {
+			let { schema } = await getScriptByPath(x.path)
+			if (!deepEqual(x.schema, schema)) {
+				x.schema = schema
+				fields = computeFields(schema, false, fields)
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
 		}
 	}
 
 	async function refreshFlow(x: RunnableByPath) {
-		const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-		if (!deepEqual(x.schema, schema)) {
-			x.schema = schema
-			fields = computeFields(schema, false, fields)
+		try {
+			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
+			if (!deepEqual(x.schema, schema)) {
+				x.schema = schema
+				fields = computeFields(schema, false, fields)
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
 		}
 	}
 
@@ -74,14 +86,20 @@
 		})
 	}
 
-	function refresh() {
+	let lastRunnable: RunnableByPath | undefined = undefined
+	function refresh(runnable) {
+		if (deepEqual(runnable, lastRunnable)) {
+			return
+		}
+		notFound = false
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
 		}
+		lastRunnable = runnable
 	}
-	$: runnable.runType && refresh()
+	$: refresh(runnable)
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
@@ -100,7 +118,7 @@
 			startIcon={{ icon: faRefresh }}
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
-				refresh()
+				refresh(runnable)
 				$stateId = $stateId + 1
 				await tick()
 			}}
@@ -160,6 +178,37 @@
 				Fork
 			</Button>
 		{/if}
+		<Popup
+			floatingConfig={{
+				middleware: [
+					autoPlacement({
+						allowedPlacements: [
+							'bottom-start',
+							'bottom-end',
+							'top-start',
+							'top-end',
+							'top',
+							'bottom'
+						]
+					})
+				]
+			}}
+		>
+			<svelte:fragment slot="button">
+				<Button
+					nonCaptureEvent={true}
+					btnClasses={'bg-surface text-primay hover:bg-hover'}
+					color="light"
+					variant="border"
+					size="xs">Cache</Button
+				>
+			</svelte:fragment>
+			<div class="block text-primary">
+				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
+				settings directly by editing it. The cache will be shared by any app or flow that uses this {runnable.runType}.
+			</div>
+		</Popup>
+
 		<input
 			on:keydown|stopPropagation
 			bind:value={runnable.name}
@@ -169,7 +218,11 @@
 	</div>
 	<div class="w-full">
 		{#key $stateId}
-			{#if runnable.runType == 'script' || runnable.runType == 'hubscript'}
+			{#if notFound}
+				<div class="text-red-400"
+					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div
+				>
+			{:else if runnable.runType == 'script' || runnable.runType == 'hubscript'}
 				<div class="border">
 					<FlowModuleScript path={runnable.path} />
 				</div>

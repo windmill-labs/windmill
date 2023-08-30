@@ -20,6 +20,8 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/codeGen/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import { userStore } from '$lib/stores'
+	import CacheTtlPopup from './CacheTtlPopup.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -57,10 +59,10 @@
 	}
 
 	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(appPath, 'new_app')}/${name?.replaceAll(
-			' ',
-			'_'
-		)}`)
+		(inlineScript.path = `${defaultIfEmptyString(
+			appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)}/${name?.replaceAll(' ', '_')}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -185,7 +187,9 @@
 				{:else}
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
-
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
 					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
