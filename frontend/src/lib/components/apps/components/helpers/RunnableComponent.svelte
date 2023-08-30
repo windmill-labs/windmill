@@ -387,6 +387,7 @@
 			recordJob(jobId!, undefined, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
+			donePromise?.()
 			return
 		}
 
@@ -396,6 +397,7 @@
 			recordJob(jobId!, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
+			donePromise?.()
 			return
 		}
 
