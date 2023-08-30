@@ -346,47 +346,45 @@
 						<ContextPanel />
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
-						<SplitPanesWrapper>
-							<Splitpanes horizontal>
-								<Pane bind:size={gridPanelSize}>
+						<Splitpanes horizontal class="overflow-hidden">
+							<Pane bind:size={gridPanelSize}>
+								<div
+									on:pointerdown={(e) => {
+										$selectedComponent = undefined
+										$focusedGrid = undefined
+									}}
+									class={twMerge(
+										'bg-surface h-full w-full relative',
+										$appStore.css?.['app']?.['viewer']?.class,
+										'wm-app-viewer'
+									)}
+									style={$appStore.css?.['app']?.['viewer']?.style}
+								>
+									<div id="app-editor-top-level-drawer" />
 									<div
-										on:pointerdown={(e) => {
-											$selectedComponent = undefined
-											$focusedGrid = undefined
-										}}
-										class={twMerge(
-											'bg-surface h-full w-full relative',
-											$appStore.css?.['app']?.['viewer']?.class,
-											'wm-app-viewer'
+										class={classNames(
+											'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
+											app.fullscreen ? '' : 'max-w-6xl'
 										)}
-										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
-										<div id="app-editor-top-level-drawer" />
-										<div
-											class={classNames(
-												'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
-												app.fullscreen ? '' : 'max-w-6xl'
-											)}
-										>
-											{#if $appStore.grid}
-												<ComponentNavigation />
+										{#if $appStore.grid}
+											<ComponentNavigation />
 
-												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
-													<GridEditor {policy} />
-												</div>
-											{/if}
-										</div>
+											<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
+												<GridEditor {policy} />
+											</div>
+										{/if}
+									</div>
+								</div>
+							</Pane>
+							{#if $connectingInput?.opened == false}
+								<Pane bind:size={runnablePanelSize}>
+									<div class="relative h-full w-full">
+										<InlineScriptsPanel />
 									</div>
 								</Pane>
-								{#if $connectingInput?.opened == false}
-									<Pane bind:size={runnablePanelSize}>
-										<div class="relative h-full w-full">
-											<InlineScriptsPanel />
-										</div>
-									</Pane>
-								{/if}
-							</Splitpanes>
-						</SplitPanesWrapper>
+							{/if}
+						</Splitpanes>
 					</Pane>
 					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 						<div class="relative flex flex-col h-full">
