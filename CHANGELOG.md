@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.163.1](https://github.com/windmill-labs/windmill/compare/v1.163.0...v1.163.1) (2023-08-30)
+
+
+### Bug Fixes
+
+* avoid perpetual spinning of recompute all component ([11e1ecb](https://github.com/windmill-labs/windmill/commit/11e1ecbcda92f5ab643b776094ef10005d51b579))
+
 ## [1.163.0](https://github.com/windmill-labs/windmill/compare/v1.162.2...v1.163.0) (2023-08-30)
 
 
