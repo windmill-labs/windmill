@@ -6,8 +6,10 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { WorkerService, type WorkerPing } from '$lib/gen'
+	import { WorkerService, type WorkerPing, SettingService } from '$lib/gen'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy } from '$lib/utils'
 	import { onDestroy, onMount } from 'svelte'
@@ -17,6 +19,7 @@
 	let groupedWorkers: [string, WorkerPing[]][] = []
 	let intervalId: NodeJS.Timer | undefined
 
+	let globalCache = false
 	$: filteredWorkers = (workers ?? []).filter((x) => (x.last_ping ?? 0) < 300)
 	$: groupedWorkers = groupBy(
 		filteredWorkers,
@@ -24,6 +27,7 @@
 		(wp: WorkerPing) => wp.worker
 	)
 
+	const worker_s3_bucket_sync = 'worker_s3_bucket_sync'
 	let timeSinceLastPing = 0
 
 	async function loadWorkers(): Promise<void> {
@@ -42,7 +46,16 @@
 		secondInterval = setInterval(() => {
 			timeSinceLastPing += 1
 		}, 1000)
+		loadGlobalCache()
 	})
+
+	async function loadGlobalCache() {
+		try {
+			globalCache = (await SettingService.getGlobal({ key: worker_s3_bucket_sync })) ?? false
+		} catch (err) {
+			sendUserToast(`Could not load global cache: ${err}`, true)
+		}
+	}
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -62,6 +75,31 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 	/>
 
+	<div class="flex flex-row-reverse w-full pb-2 items-center gap-2">
+		<Tooltip
+			>global cache to s3 is an enterprise feature that enable workers to do fast cold start and
+			share a single cache backed by s3 to ensure that even with a high number of workers,
+			dependencies for python/deno/bun/go are only downloaded for the first time only once by the
+			whole fleet. require S3_CACHE_BUCKET to be set.</Tooltip
+		>
+		<Toggle
+			checked={globalCache}
+			on:change={async (e) => {
+				try {
+					console.log('Setting global cache to', e.detail)
+					await SettingService.setGlobal({
+						key: worker_s3_bucket_sync,
+						requestBody: { value: e.detail }
+					})
+					globalCache = e.detail
+				} catch (err) {
+					sendUserToast(`Could not set global cache: ${err}`, true)
+				}
+			}}
+			options={{ right: 'global cache to s3' }}
+			disabled={!$enterpriseLicense}
+		/>
+	</div>
 	{#if workers != undefined}
 		{#if groupedWorkers.length == 0}
 			<p>No workers seems to be available</p>
