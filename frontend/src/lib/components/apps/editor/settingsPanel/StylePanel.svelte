@@ -1,5 +1,6 @@
 <script lang="ts">
 	// @ts-nocheck
+
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { getContext, onMount } from 'svelte'
@@ -12,6 +13,8 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { premiumStore } from '$lib/stores'
+	import { secondaryMenu } from './secondaryMenu'
 
 	export let component: AppComponent | undefined
 
@@ -100,34 +103,41 @@
 </script>
 
 <div class="p-2 flex items-start gap-2 flex-col">
-	<Alert title="Global CSS" size="xs">
-		You can theme your app by using the global CSS. This CSS will be applied to all components of
-		the same type.
+	<Alert title="App CSS Editor" size="xs">
+		<div class="flex flex-col items-end">
+			You can also use the App CSS Editor to customise the CSS of all components.
+			<Button
+				color="blue"
+				size="xs"
+				on:click={() => {
+					secondaryMenu.close()
+					$cssEditorOpen = true
+				}}
+			>
+				Open App CSS panel
+			</Button>
+		</div>
 	</Alert>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		<Button color="dark" size="xs" on:click={() => {}}>Migrate custom to global CSS</Button>
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				$cssEditorOpen = true
-			}}>Open global CSS panel</Button
-		>
+		{#if $premiumStore.premium}
+			<Button color="dark" size="xs" on:click={() => {}}>Migrate custom to global CSS</Button>
+		{/if}
 	</div>
 </div>
 
 <Tabs bind:selected={tab}>
-	<Tab value="local" size="xs">Local</Tab>
-	<Tab value="global" size="xs">Global</Tab>
+	<Tab value="local" size="xs">Instance customisation</Tab>
+	<Tab value="global" size="xs">Global customisation {ccomponents[type].name}</Tab>
 	<svelte:fragment slot="content">
 		<TabContent value="local">
+			<div class="p-2 text-xs my-2">
+				You can customise the CSS and the classes of this component instance. Theses customisations
+				will only be applied to this component.
+			</div>
+
 			{#if component && component.customCss !== undefined}
 				{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 					<div class="w-full">
-						{#if hasClassValue($app.css[type][name])}
-							<Badge>Overriden my global CSS</Badge>
-						{/if}
-
 						<CssProperty
 							quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
 							forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
@@ -141,20 +151,21 @@
 							on:right={() => {
 								copyLocalToGlobal(name, component?.customCss?.[name])
 							}}
+							overridding={hasValues(component.customCss[name])}
 						/>
 					</div>
 				{/each}
 			{/if}
 		</TabContent>
 		<TabContent value="global">
+			<div class="p-2 text-xs my-2">
+				You can customise the CSS and the classes of all components of this type. Theses
+				customisations will be applied to all components of this type.
+			</div>
 			{#if type}
 				{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 					<div class="w-full">
 						{#if $app?.css?.[type]?.[id] && $app.css[type]}
-							{#if hasValues(component.customCss[id])}
-								HAS LOCAL CSS
-							{/if}
-
 							<CssProperty
 								{forceStyle}
 								{forceClass}
@@ -167,6 +178,7 @@
 										component?.type ? $app?.css?.[component?.type]?.[id] : undefined
 									)
 								}}
+								overriden={hasStyleValue($app.css[type][id])}
 							/>
 						{/if}
 					</div>

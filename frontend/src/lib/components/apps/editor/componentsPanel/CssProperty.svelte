@@ -21,6 +21,8 @@
 	export let tooltip: string | undefined = undefined
 	export let shouldDisplayLeft: boolean = false
 	export let shouldDisplayRight: boolean = false
+	export let overriden: boolean = false
+	export let overridding: boolean = false
 
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
@@ -77,7 +79,11 @@
 				<label class="block mb-0.5 w-full">
 					<div class="flex flex-row justify-between items-center w-full p-0.5">
 						<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
-						<Badge color="blue">Overriden by local</Badge>
+						{#if overriden}
+							<Badge color="red">Overriden by local</Badge>
+						{:else if overridding}
+							<Badge color="blue">Overriding global</Badge>
+						{/if}
 					</div>
 
 					<div class="flex gap-1">
