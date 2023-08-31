@@ -12,7 +12,7 @@ use windmill_common::{
     jobs::QueuedJob,
     utils::calculate_hash,
 };
-use windmill_parser_go::parse_go_imports;
+use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 
 use crate::{
     common::{
@@ -296,6 +296,9 @@ async fn gen_go_mod(
     }
 }
 
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+
 pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
@@ -329,6 +332,16 @@ pub async fn install_go_dependencies(
             None,
         )
         .await?;
+
+        for x in REQUIRE_PARSE.captures_iter(code) {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(format!("{job_dir}/go.mod"))
+                .unwrap();
+
+            writeln!(file, "require {}\n", &x[1])?;
+        }
     }
 
     let mut new_lockfile = false;
