@@ -31,7 +31,7 @@
 		"@types/node": "^20.3.3",
 		"@types/vscode": "~1.78.1",
 		"@typescript-eslint/eslint-plugin": "^6.5.0",
-		"@typescript-eslint/parser": "^5.60.0",
+		"@typescript-eslint/parser": "^6.5.0",
 		"@zerodevx/svelte-toast": "^0.9.5",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
