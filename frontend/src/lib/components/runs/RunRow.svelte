@@ -157,12 +157,14 @@
 			{#if job.is_flow_step}
 				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} />
 				<span class="mx-1">
-					Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)} </a>
+					Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+						>{truncateRev(job.parent_job, 6)}
+					</a>
 				</span>
 			{:else}
 				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
 				<span class="mx-1">
-					Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a>
+					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>{job.parent_job}</a>
 				</span>
 			{/if}
 		{/if}
