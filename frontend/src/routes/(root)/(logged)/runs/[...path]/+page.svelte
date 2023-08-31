@@ -92,7 +92,7 @@
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
 
-		goto(newUrl, { replaceState: true })
+		goto(newUrl)
 	}
 
 	let nbOfJobs = 30
@@ -200,6 +200,33 @@
 	let sync = true
 	let mounted: boolean = false
 
+	function updateFiltersFromURL() {
+		path = $page.params.path
+		user = $page.url.searchParams.get('user')
+		folder = $page.url.searchParams.get('folder')
+		success =
+			$page.url.searchParams.get('success') != undefined
+				? $page.url.searchParams.get('success') == 'true'
+				: undefined
+		isSkipped =
+			$page.url.searchParams.get('is_skipped') != undefined
+				? $page.url.searchParams.get('is_skipped') == 'true'
+				: false
+
+		argFilter = $page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+			: undefined
+		resultFilter = $page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+			: undefined
+
+		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+		// Handled on the main page
+		minTs = $page.url.searchParams.get('min_ts') ?? undefined
+	}
+
 	onMount(() => {
 		mounted = true
 		loadPaths()
@@ -214,6 +241,11 @@
 				sync = true
 			}
 		})
+
+		window.addEventListener('popstate', updateFiltersFromURL)
+		return () => {
+			window.removeEventListener('popstate', updateFiltersFromURL)
+		}
 	})
 
 	onDestroy(() => {
