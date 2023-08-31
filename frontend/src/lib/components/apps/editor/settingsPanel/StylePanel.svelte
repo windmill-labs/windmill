@@ -15,6 +15,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { premiumStore } from '$lib/stores'
 	import { secondaryMenu } from './secondaryMenu'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let component: AppComponent | undefined
 
@@ -25,6 +26,7 @@
 	onMount(() => {
 		if ($app.css == undefined) $app.css = {}
 		if (component && $app.css[component.type] == undefined && customCssByComponentType) {
+			debugger
 			$app.css[component.type] = Object.fromEntries(
 				customCssByComponentType.map(({ id }) => [id, {}])
 			)
@@ -57,6 +59,8 @@
 
 	function hasStyleValue(obj: ComponentCssProperty | undefined) {
 		if (!obj) return false
+
+		console.log(obj.style)
 
 		return obj.style !== ''
 	}
@@ -103,21 +107,22 @@
 </script>
 
 <div class="p-2 flex items-start gap-2 flex-col">
-	<Alert title="App CSS Editor" size="xs">
-		<div class="flex flex-col items-end">
-			You can also use the App CSS Editor to customise the CSS of all components.
-			<Button
-				color="blue"
-				size="xs"
-				on:click={() => {
-					secondaryMenu.close()
-					$cssEditorOpen = true
-				}}
-			>
-				Open App CSS panel
-			</Button>
+	<Button
+		color="blue"
+		size="xs2"
+		variant="border"
+		on:click={() => {
+			secondaryMenu.close()
+			$cssEditorOpen = true
+		}}
+	>
+		<div class="flex flex-row gap-2 text-xs items-center">
+			Open CSS editor
+			<Tooltip light>
+				You can also use the App CSS Editor to customise the CSS of all components. >
+			</Tooltip>
 		</div>
-	</Alert>
+	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
 		{#if $premiumStore.premium}
 			<Button color="dark" size="xs" on:click={() => {}}>Migrate custom to global CSS</Button>
@@ -126,15 +131,31 @@
 </div>
 
 <Tabs bind:selected={tab}>
-	<Tab value="local" size="xs">Instance customisation</Tab>
-	<Tab value="global" size="xs">Global customisation {ccomponents[type].name}</Tab>
-	<svelte:fragment slot="content">
-		<TabContent value="local">
-			<div class="p-2 text-xs my-2">
+	<Tab value="local" size="xs">
+		<div class="flex flex-row gap-2 items-center">
+			ID
+			<Badge color="indigo" size="xs">
+				{component?.id}
+			</Badge>
+
+			<Tooltip light>
 				You can customise the CSS and the classes of this component instance. Theses customisations
 				will only be applied to this component.
-			</div>
+			</Tooltip>
+		</div>
+	</Tab>
+	<Tab value="global" size="xs">
+		<div class="flex flex-row gap-2 items-center">
+			Global: {ccomponents[type].name}
 
+			<Tooltip light>
+				You can customise the CSS and the classes of all components of this type. Theses
+				customisations will be applied to all components of this type.
+			</Tooltip>
+		</div>
+	</Tab>
+	<svelte:fragment slot="content">
+		<TabContent value="local">
 			{#if component && component.customCss !== undefined}
 				{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 					<div class="w-full">
@@ -150,6 +171,7 @@
 							shouldDisplayRight={hasValues(component.customCss[name])}
 							on:right={() => {
 								copyLocalToGlobal(name, component?.customCss?.[name])
+								tab = 'global'
 							}}
 							overridding={hasValues(component.customCss[name])}
 						/>
@@ -158,10 +180,6 @@
 			{/if}
 		</TabContent>
 		<TabContent value="global">
-			<div class="p-2 text-xs my-2">
-				You can customise the CSS and the classes of all components of this type. Theses
-				customisations will be applied to all components of this type.
-			</div>
 			{#if type}
 				{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 					<div class="w-full">
@@ -177,8 +195,9 @@
 										id,
 										component?.type ? $app?.css?.[component?.type]?.[id] : undefined
 									)
+									tab = 'local'
 								}}
-								overriden={hasStyleValue($app.css[type][id])}
+								overriden={hasStyleValue(component.customCss[id])}
 							/>
 						{/if}
 					</div>

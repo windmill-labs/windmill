@@ -57,8 +57,8 @@
 			<div bind:clientHeight={alertHeight} class="p-2">
 				<Alert type="warning" title="EE only" size="xs">
 					Global CSS is an exclusive feature of the Enterprise Edition. You can experiment with this
-					feature in the editor, but please note that the changes will not be visible in the preview
-					unless you upgrade.
+					feature in the editor, but please note that the changes will not be visible in the
+					preview.
 				</Alert>
 			</div>
 		{/if}

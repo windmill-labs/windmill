@@ -6,7 +6,7 @@
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import type { ComponentCssProperty } from '../../types'
-	import type { TypedComponent } from '../component'
+	import { ccomponents, type TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { PropertyGroup } from './quickStyleProperties'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -40,28 +40,30 @@
 	{addWhitespaceBeforeCapitals(name)}
 	{#if shouldDisplayLeft}
 		<Button
-			color="dark"
+			color="light"
 			size="xs2"
+			variant="border"
 			on:click={() => {
 				dispatch('left')
 			}}
 		>
 			<div class="flex flex-row gap-2 text-2xs items-center">
 				<MoveLeft size={14} />
-				Copy to local styling
+				Copy to component
 			</div>
 		</Button>
 	{/if}
 	{#if shouldDisplayRight}
 		<Button
-			color="dark"
+			color="light"
 			size="xs2"
+			variant="border"
 			on:click={() => {
 				dispatch('right')
 			}}
 		>
 			<div class="flex flex-row gap-2 text-2xs items-center">
-				Copy to global styling
+				Copy for every {componentType ? ccomponents[componentType].name : 'component'}
 				<MoveRight size={14} />
 			</div>
 		</Button>
@@ -76,13 +78,13 @@
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<label class="block mb-0.5 w-full">
-					<div class="flex flex-row justify-between items-center w-full p-0.5">
+				<label class="block w-full">
+					<div class="flex flex-row justify-between items-center w-full h-8">
 						<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
 						{#if overriden}
-							<Badge color="red">Overriden by local</Badge>
+							<Badge color="red" small>Overriden by local</Badge>
 						{:else if overridding}
-							<Badge color="blue">Overriding global</Badge>
+							<Badge color="blue" small>Overriding global</Badge>
 						{/if}
 					</div>
 
@@ -132,7 +134,7 @@
 		{/if}
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
-			<label class="block mb-0.5">
+			<label class="block">
 				<div class="text-xs font-medium text-tertiary">
 					Tailwind classes
 					<Tooltip light documentationLink="https://tailwindcss.com/">
