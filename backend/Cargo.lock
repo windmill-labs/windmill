@@ -7233,7 +7233,9 @@ version = "1.164.0"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools",
+ "itertools 0.11.0",
+ "lazy_static",
+ "regex",
  "windmill-parser",
 ]
 
