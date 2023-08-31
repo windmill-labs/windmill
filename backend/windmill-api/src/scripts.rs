@@ -81,10 +81,12 @@ pub fn global_service() -> Router {
 }
 
 pub fn global_unauthed_service() -> Router {
-    Router::new().route(
-        "/tokened_raw/:workspace/:token/*path",
-        get(get_tokened_raw_script_by_path),
-    )
+    Router::new()
+        .route(
+            "/tokened_raw/:workspace/:token/*path",
+            get(get_tokened_raw_script_by_path),
+        )
+        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -634,6 +636,10 @@ async fn get_tokened_raw_script_by_path(
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
     return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
+}
+
+async fn get_empty_ts_script_by_path() -> String {
+    return String::new();
 }
 
 async fn raw_script_by_path(

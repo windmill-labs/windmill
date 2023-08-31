@@ -6,6 +6,11 @@ use itertools::Itertools;
 use rand::Rng;
 #[cfg(feature = "enterprise")]
 use std::process::Stdio;
+#[cfg(feature = "enterprise")]
+use windmill_common::DB;
+
+#[cfg(feature = "enterprise")]
+use windmill_common::global_settings::WORKER_S3_BUCKET_SYNC;
 
 #[cfg(feature = "enterprise")]
 use tokio::{process::Command, sync::mpsc::Sender, time::Instant};
@@ -217,6 +222,25 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
         start.elapsed().as_secs()
     );
     Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn worker_s3_bucket_sync_enabled(db: &DB) -> bool {
+    let q = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        WORKER_S3_BUCKET_SYNC
+    )
+    .fetch_optional(db)
+    .await;
+
+    if let Ok(q) = q {
+        let r = q.map(|x| x.value.as_bool().unwrap_or(true)).unwrap_or(true);
+        tracing::info!("Got global setting {WORKER_S3_BUCKET_SYNC}: {}", r);
+        r
+    } else {
+        tracing::info!("Failed to get global setting {WORKER_S3_BUCKET_SYNC}");
+        false
+    }
 }
 
 #[cfg(feature = "enterprise")]

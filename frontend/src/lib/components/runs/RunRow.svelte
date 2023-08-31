@@ -8,7 +8,16 @@
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import Row from '../table/Row.svelte'
 	import Cell from '../table/Cell.svelte'
-	import { Calendar, Check, FastForward, Hourglass, ListFilter, Play, X } from 'lucide-svelte'
+	import {
+		Calendar,
+		Check,
+		FastForward,
+		Folder,
+		Hourglass,
+		ListFilter,
+		Play,
+		X
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
@@ -101,7 +110,7 @@
 			{#if job === undefined}
 				No job found
 			{:else}
-				<div class="flex flex-row space-x-2">
+				<div class="flex flex-row gap-1">
 					<div class="whitespace-nowrap text-xs font-semibold">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
@@ -115,6 +124,20 @@
 								>
 									<ListFilter size={10} />
 								</Button>
+								{#if job.script_path?.startsWith('f/')}
+									<Button
+										size="xs2"
+										color="light"
+										on:click={() => {
+											// split script_path by / and get the second element
+											const folder = job.script_path?.split('/')[1]
+
+											dispatch('filterByFolder', folder)
+										}}
+									>
+										<Folder size={10} />
+									</Button>
+								{/if}
 							</div>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
 							<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
@@ -158,7 +181,18 @@
 				</Button>
 			</div>
 		{:else}
-			{job.created_by}
+			<div class="flex flex-row gap-1 items-center">
+				{job.created_by}
+				<Button
+					size="xs2"
+					color="light"
+					on:click={() => {
+						dispatch('filterByUser', job.created_by)
+					}}
+				>
+					<ListFilter size={10} />
+				</Button>
+			</div>
 		{/if}
 	</Cell>
 </Row>

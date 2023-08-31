@@ -86,7 +86,7 @@
 				</Cell>
 			</tr>
 			{#each jobsByDay as job (job.id)}
-				<RunRow {job} bind:selectedId on:select on:filterByPath />
+				<RunRow {job} bind:selectedId on:select on:filterByPath on:filterByUser on:filterByFolder />
 			{/each}
 		{/each}
 	</tbody>

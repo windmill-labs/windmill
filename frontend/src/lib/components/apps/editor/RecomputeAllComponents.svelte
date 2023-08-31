@@ -58,7 +58,9 @@
 					return
 				}
 
-				return $runnableComponents?.[id]?.cb?.map((f) => f())
+				return $runnableComponents?.[id]?.cb?.map((f) =>
+					f().then(() => console.log('refreshed', id))
+				)
 			})
 			.filter(Boolean)
 

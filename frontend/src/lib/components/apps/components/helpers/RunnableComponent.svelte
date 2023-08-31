@@ -16,6 +16,7 @@
 	import RefreshButton from './RefreshButton.svelte'
 	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
+	import { userStore } from '$lib/stores'
 
 	// Component props
 	export let id: string
@@ -248,7 +249,8 @@
 							content: inlineScript.content,
 							language: inlineScript.language,
 							path: inlineScript.path,
-							lock: inlineScript.lock
+							lock: inlineScript.lock,
+							cache_ttl: inlineScript.cache_ttl
 						}
 					}
 				} else if (runnable?.type === 'runnableByPath') {
@@ -258,7 +260,7 @@
 
 				return AppService.executeComponent({
 					workspace,
-					path: defaultIfEmptyString(appPath, 'newapp'),
+					path: defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
 					requestBody
 				})
 			})
@@ -385,6 +387,7 @@
 			recordJob(jobId!, undefined, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
+			donePromise?.()
 			return
 		}
 
@@ -394,6 +397,7 @@
 			recordJob(jobId!, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
+			donePromise?.()
 			return
 		}
 
@@ -421,6 +425,7 @@
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
+
 				executeComponent(true, inlineScript).catch(reject)
 			})
 			p.cancel = () => {

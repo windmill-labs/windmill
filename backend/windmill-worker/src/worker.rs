@@ -442,16 +442,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-            let bucket = s.to_string();
-            let worker_name2 = worker_name.clone();
+            if  crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
+                let bucket = s.to_string();
+                let worker_name2 = worker_name.clone();
 
-            //piptars can be fetched in background
-            handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
-                copy_all_piptars_from_bucket(&bucket).await;
-            }));
-            //denogocache.tar need to be fetched in foreground, block workers until they fetched it
-            copy_denogo_cache_from_bucket_as_tar(s).await;
+                //piptars can be fetched in background
+                handles.push(tokio::task::spawn(async move {
+                    tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
+                    copy_all_piptars_from_bucket(&bucket).await;
+                }));
+                //denogocache.tar need to be fetched in foreground, block workers until they fetched it
+                copy_denogo_cache_from_bucket_as_tar(s).await;
+            }
         }
     }
 
@@ -507,27 +509,29 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
                 if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
                     (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+                        last_sync = Instant::now();
 
-                    tracing::debug!("CAN PULL LOCK START");
-                    let _lock = CAN_PULL.write().await;
+                        if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
 
-                    tracing::info!("Started syncing cache");
-                    last_sync = Instant::now();
-                    // if num_workers > 1 {
-                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                    // }
-                    if let Err(e) = copy_cache_to_tmp_cache().await {
-                        tracing::error!("failed to copy cache to tmp cache: {}", e);
-                    } else {
-                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
-                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                                if let Err(e) = cache_global(s, copy_tx).await { 
-                                    tracing::error!("failed to sync cache: {}", e);
-                                }
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
+
+                            tracing::info!("Started syncing cache");
+                            // if num_workers > 1 {
+                            //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                            // }
+                            if let Err(e) = copy_cache_to_tmp_cache().await {
+                                tracing::error!("failed to copy cache to tmp cache: {}", e);
+                            } else {
+                                copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                                    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                        if let Err(e) = cache_global(s, copy_tx).await { 
+                                            tracing::error!("failed to sync cache: {}", e);
+                                        }
+                                    }
+                                }));
                             }
-                        }));
-                    }
-                    
+                    } 
                 }
             }
 
@@ -986,7 +990,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     let cached_res_path = if job.cache_ttl.is_some() {
     let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
-        let permissioned_as = &job.permissioned_as;
         if job.is_flow_step {
             let flow_path = sqlx::query_scalar!(
                 "SELECT script_path FROM queue WHERE id = $1",
@@ -997,10 +1000,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
             .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
             let step = step.unwrap_or(-1);
-            Some(format!("{permissioned_as}/cache/{flow_path}/{step}/{args_hash}"))
+            Some(format!("{flow_path}/cache/{step}/{args_hash}"))
         } else if let Some(script_path) = &job.script_path {
             let is_flow = if job.is_flow() { "flow/" } else { "" };
-            Some(format!("{permissioned_as}/cache/{is_flow}{script_path}/{args_hash}"))
+            Some(format!("{script_path}/{is_flow}cache/{args_hash}"))
         } else {
             None
         }
@@ -1892,7 +1895,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
-            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name).await
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name, base_internal_url).await
         },
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;

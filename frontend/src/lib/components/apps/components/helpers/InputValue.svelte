@@ -77,8 +77,11 @@
 	const debounce_ms = 50
 
 	export async function computeExpr() {
-		value = await evalExpr(lastInput as EvalAppInput)
-		return value
+		const nvalue = await evalExpr(lastInput as EvalAppInput)
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+		}
+		return nvalue
 	}
 
 	function debounce(cb: () => Promise<void>) {
