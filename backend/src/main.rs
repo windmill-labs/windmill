@@ -20,7 +20,7 @@ use tokio::{
     sync::RwLock,
 };
 use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
-use windmill_common::{utils::rd_string, METRICS_ADDR};
+use windmill_common::{global_settings::ENV_SETTINGS, utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
@@ -48,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
     if num_workers > 1 {
-        tracing::warn!("We recommend using at most 1 worker per container, use more only if you know what you are doing.");
+        tracing::warn!("We STRONGLY recommend using at most 1 worker per container, unless this worker is dedicated to native jobs only. ");
     }
     let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
@@ -119,68 +119,7 @@ Windmill Community Edition {GIT_VERSION}
 ##############################"
     );
 
-    display_config(vec![
-        "DISABLE_NSJAIL",
-        "DISABLE_SERVER",
-        "NUM_WORKERS",
-        "METRICS_ADDR",
-        "JSON_FMT",
-        "BASE_URL",
-        "TIMEOUT",
-        "ZOMBIE_JOB_TIMEOUT",
-        "RESTART_ZOMBIE_JOBS",
-        "SLEEP_QUEUE",
-        "MAX_LOG_SIZE",
-        "SERVER_BIND_ADDR",
-        "PORT",
-        "KEEP_JOB_DIR",
-        "S3_CACHE_BUCKET",
-        "TAR_CACHE_RATE",
-        "COOKIE_DOMAIN",
-        "PYTHON_PATH",
-        "DENO_PATH",
-        "GO_PATH",
-        "GOPRIVATE",
-        "GOPROXY",
-        "NETRC",
-        "PIP_INDEX_URL",
-        "PIP_EXTRA_INDEX_URL",
-        "PIP_TRUSTED_HOST",
-        "PATH",
-        "HOME",
-        "DATABASE_CONNECTIONS",
-        "TIMEOUT_WAIT_RESULT",
-        "QUEUE_LIMIT_WAIT_RESULT",
-        "DENO_AUTH_TOKENS",
-        "DENO_FLAGS",
-        "NPM_CONFIG_REGISTRY",
-        "PIP_LOCAL_DEPENDENCIES",
-        "ADDITIONAL_PYTHON_PATHS",
-        "INCLUDE_HEADERS",
-        "INSTANCE_EVENTS_WEBHOOK",
-        "CLOUD_HOSTED",
-        "GLOBAL_CACHE_INTERVAL",
-        "WORKER_TAGS",
-        "CUSTOM_TAGS",
-        "JOB_RETENTION_SECS",
-        "WAIT_RESULT_FAST_POLL_DURATION_SECS",
-        "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
-        "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
-        "EXIT_AFTER_NO_JOB_FOR_SECS",
-        "REQUEST_SIZE_LIMIT",
-        "SMTP_HOST",
-        "SMTP_USERNAME",
-        "SMTP_PORT",
-        "SMTP_TLS_IMPLICIT",
-        "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
-        "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
-    ]);
-
-    if std::env::var("WHITELIST_WORKSPACES").is_ok()
-        || std::env::var("BLACKLIST_WORKSPACES").is_ok()
-    {
-        panic!("WHITELIST_WORKSPACES and BLACKLIST_WORKSPACES have been removed, please use Worker Groups instead");
-    }
+    display_config(&ENV_SETTINGS);
 
     tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
     if let Some(ref smtp) = *SMTP_CLIENT {
@@ -244,8 +183,12 @@ Windmill Community Edition {GIT_VERSION}
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => {
-                    windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
+                Some(_addr) => {
+                    #[cfg(not(feature = "enterprise"))]
+                    panic!("Metrics are only available in the Enterprise Edition");
+
+                    #[cfg(feature = "enterprise")]
+                    windmill_common::serve_metrics(_addr, rx.resubscribe(), num_workers > 0)
                         .await
                         .map_err(anyhow::Error::from)
                 }
@@ -260,7 +203,7 @@ Windmill Community Edition {GIT_VERSION}
     Ok(())
 }
 
-fn display_config(envs: Vec<&str>) {
+fn display_config(envs: &[&str]) {
     tracing::info!(
         "config: {}",
         envs.iter()

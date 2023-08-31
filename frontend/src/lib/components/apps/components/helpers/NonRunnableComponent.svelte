@@ -10,6 +10,7 @@
 	export let id: string
 	export let result: any
 	export let render: boolean
+	export let hasChildrens: boolean
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -29,11 +30,13 @@
 <InitializeComponent {id} />
 
 {#if componentInput.type !== 'runnable'}
-	<InputValue {id} input={componentInput} bind:value={result} />
+	<InputValue key="nonrunnable" {id} input={componentInput} bind:value={result} />
 {/if}
 
-{#if render}
-	<slot />
+{#if render || hasChildrens}
+	<div class={render ? 'h-full w-full' : 'invisible h-0 overflow-hidden'}>
+		<slot />
+	</div>
 {:else}
 	<div class="w-full h-full" />
 {/if}

@@ -2,14 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
-	import {
-		displayDate,
-		displayDaysAgo,
-		forLater,
-		msToSec,
-		truncateHash,
-		truncateRev
-	} from '$lib/utils'
+	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
 	import {
 		faCalendar,
 		faCircle,
@@ -23,44 +16,24 @@
 		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
 	import { CalendarClock } from 'lucide-svelte'
-	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import { Badge } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import JobPreview from './JobPreview.svelte'
+	import TimeAgo from '../TimeAgo.svelte'
+	import { forLater } from '$lib/forLater'
+	import { workspaceStore } from '$lib/stores'
 
 	const SMALL_ICON_SCALE = 0.7
 
 	export let job: Job
 	let scheduleEditor: ScheduleEditor
 
-	let time = Date.now()
-	let interval
-	onMount(() => {
-		interval = setInterval(() => {
-			time = Date.now()
-		}, 1000)
-	})
-
-	onDestroy(() => {
-		interval && clearInterval(interval)
-	})
-
-	function displayIfRecent(date: Date): string {
-		const d = new Date(date)
-		const now = new Date()
-		const diff = now.getTime() - d.getTime()
-		if (diff < 1000 * 600) {
-			return `(${displayDaysAgo(d.toString())})`
-		} else {
-			return ''
-		}
-	}
 	function endedDate(started_at: string, duration_ms: number): string {
 		const started = new Date(started_at)
 		started.setMilliseconds(started.getMilliseconds() + duration_ms)
-		return `${displayDate(started)} ${displayIfRecent(started)}`
+		return started.toString()
 	}
 </script>
 
@@ -144,7 +117,7 @@
 							</div>
 						</JobPreview>
 						<div class="whitespace-nowrap">
-							{#if 'job_kind' in job}<a href="/run/{job.id}"
+							{#if 'job_kind' in job}<a href="/run/{job.id}?workspace={job.workspace_id}"
 									><Badge color="blue">{job.job_kind}</Badge></a
 								>
 							{/if}
@@ -186,11 +159,9 @@
 						>
 							<span>
 								{#if job?.['duration_ms']}
-									Ended {#key time}
-										{endedDate(job.started_at, job?.['duration_ms'])}{/key}
+									Ended <TimeAgo date={endedDate(job.started_at, job?.['duration_ms'])} />
 								{:else}
-									Started {#key time}
-										{displayDaysAgo(job.started_at ?? '')}{/key}
+									Started <TimeAgo date={job.started_at ?? ''} />
 								{/if}</span
 							>
 						</span></div
@@ -221,14 +192,15 @@
 							<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
-								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
+								Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+									>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
 							<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span
 								class="mx-1"
 							>
-								Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+								Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>{job.parent_job}</a></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}

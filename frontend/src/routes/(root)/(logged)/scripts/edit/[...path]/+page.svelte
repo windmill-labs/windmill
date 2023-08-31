@@ -9,7 +9,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
-	const initialState = $page.url.searchParams.get('state')
+	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
 	if ($runFormStore) {
 		initialArgs = $runFormStore

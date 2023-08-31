@@ -1,4 +1,4 @@
-import type { AppInput } from './inputType'
+import type { InputConnectionEval } from './inputType'
 import { writable, type Writable } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
 
@@ -22,7 +22,7 @@ export interface Input<T> extends Subscriber<T> {
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
 	connect: <T>(
-		inputSpec: AppInput,
+		connection: InputConnectionEval,
 		next: (x: T) => void,
 		id: string,
 		previousValue: any
@@ -70,54 +70,37 @@ export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
 	function connect<T>(
-		inputSpec: AppInput,
+		connection: InputConnectionEval,
 		next: (x: T) => void,
 		id: string,
 		previousValue: T
 	): Input<T> {
-		if (inputSpec.type === 'static') {
+		if (!connection) {
 			return {
 				id,
-				peak: () => inputSpec.value,
+				peak: () => undefined,
 				next: () => {}
 			}
-		} else if (inputSpec.type === 'connected') {
-			const connection = inputSpec.connection
-
-			if (!connection) {
-				return {
-					id,
-					peak: () => undefined,
-					next: () => {}
-				}
-			}
-
-			const { componentId, path } = connection
-			const input = cachedInput(next, `${componentId}-${path}-${id}`)
-
-			const [p] = path ? path.split('.')[0].split('[') : [undefined]
-
-			let obs = observables[`${componentId}.${p}`]
-
-			if (!obs) {
-				console.warn('Observable at ' + componentId + '.' + p + ' not found')
-				return {
-					peak: () => undefined,
-					next: () => {}
-				}
-			}
-
-			obs.subscribe(input, previousValue)
-			return input
-		} else if (inputSpec.type === 'user') {
-			return {
-				id,
-				peak: () => inputSpec.value,
-				next: () => {}
-			}
-		} else {
-			throw Error('Unknown input type ' + inputSpec)
 		}
+
+		const input = cachedInput(next, id)
+
+		const { componentId, id: idc } = connection
+
+		let obs = observables[`${componentId}.${idc}`]
+
+		if (!obs) {
+			if (componentId != 'row' && componentId != 'iter') {
+				console.warn('Observable at ' + componentId + '.' + idc + ' not found')
+			}
+			return {
+				peak: () => undefined,
+				next: () => {}
+			}
+		}
+
+		obs.subscribe(input, previousValue)
+		return input
 	}
 
 	function newOutput<T>(

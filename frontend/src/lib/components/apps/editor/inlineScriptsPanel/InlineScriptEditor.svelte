@@ -5,11 +5,11 @@
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, emptySchema, getModifierKey } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, getModifierKey, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -20,6 +20,8 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/codeGen/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import { userStore } from '$lib/stores'
+	import CacheTtlPopup from './CacheTtlPopup.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -57,10 +59,10 @@
 	}
 
 	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(appPath, 'new_app')}/${name?.replaceAll(
-			' ',
-			'_'
-		)}`)
+		(inlineScript.path = `${defaultIfEmptyString(
+			appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)}/${name?.replaceAll(' ', '_')}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -74,6 +76,9 @@
 		}
 		if (inlineScript?.schema && inlineScript.language != 'frontend') {
 			loadSchemaAndInputsByName()
+		}
+		if (inlineScript?.language == 'frontend' && inlineScript.content) {
+			inferSuggestions(inlineScript.content)
 		}
 	})
 
@@ -126,6 +131,26 @@
 			: undefined
 
 	let drawerIsOpen: boolean | undefined = undefined
+
+	async function inferSuggestions(code: string) {
+		const outputs = await parseOutputs(code, true)
+		if (outputs && inlineScript) {
+			inlineScript.suggestedRefreshOn = []
+			for (const [id, key] of outputs) {
+				if (
+					key in ($worldStore?.outputsById[id] ?? {}) &&
+					!itemsExists(inlineScript.refreshOn, { key, id }) &&
+					!itemsExists(inlineScript.suggestedRefreshOn, { key, id })
+				) {
+					inlineScript.suggestedRefreshOn = [
+						...(inlineScript?.suggestedRefreshOn ?? []),
+						{ key, id }
+					]
+				}
+			}
+			$stateId++
+		}
+	}
 </script>
 
 {#if inlineScript}
@@ -147,6 +172,10 @@
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-xs"
+						on:keyup={() => {
+							$app = $app
+							$stateId++
+						}}
 					/>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>
@@ -158,7 +187,9 @@
 				{:else}
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
-
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
 					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
@@ -235,6 +266,9 @@
 						}}
 						on:change={async (e) => {
 							if (inlineScript && inlineScript.language != 'frontend') {
+								if (inlineScript.lock) {
+									inlineScript.lock = undefined
+								}
 								const oldSchema = JSON.stringify(inlineScript.schema)
 								if (inlineScript.schema == undefined) {
 									inlineScript.schema = emptySchema()
@@ -262,7 +296,8 @@
 							)
 							runLoading = false
 						}}
-						on:change={() => {
+						on:change={async (e) => {
+							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
 					/>

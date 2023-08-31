@@ -9,12 +9,10 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import Slider from '$lib/components/Slider.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
-	import type { User } from '$lib/gen'
 	import { OauthService, Script, WorkspaceService } from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -25,17 +23,17 @@
 		workspaceStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { capitalize, setQueryWithoutLoad } from '$lib/utils'
+	import { setQueryWithoutLoad } from '$lib/utils'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faBarsStaggered, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import { Slack } from 'lucide-svelte'
 
-	let users: User[] | undefined = undefined
+	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
+
 	let initialPath: string
 	let scriptPath: string
 	let team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
-	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
@@ -151,16 +149,9 @@
 		errorHandlerInitialPath = errorHandlerScriptPath
 	}
 
-	async function loadPremiumInfo() {
-		if (isCloudHosted()) {
-			premium_info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
-		}
-	}
-
 	$: {
 		if ($workspaceStore) {
 			loadSettings()
-			loadPremiumInfo()
 		}
 	}
 
@@ -179,27 +170,6 @@
 			})
 			sendUserToast(`workspace error handler removed`)
 		}
-	}
-
-	const plans = {
-		Free: [
-			'Users use their individual global free-tier quotas when doing executions in this workspace',
-			'<b>1 000</b> free global executions per-user per month'
-		],
-		Team: [
-			`<b>$10/mo</b> per seat`,
-			`Every seat includes <b>10 000</b> executions`,
-			`Every seat includes either 1 user OR 2 operators`
-		],
-		Enterprise: [
-			`<b>Dedicated</b> and isolated database and workers available (EU/US/Asia)`,
-			`<b>Dedicated</b> entire cluster available for (EU/US/Asia)`,
-			`<b>SAML</b> support with group syncing`,
-			`<b>SLA</b>`,
-			`<b>Priority Support 24/7 with 3h response time and automation engineer assistance</b>`,
-			`<b>Design partners for Roadmap</b>`,
-			`<div class="mt-4">Self-hosted licenses also available</div>`
-		]
 	}
 </script>
 
@@ -266,156 +236,7 @@
 				>
 			{/if}
 		{:else if tab == 'premium'}
-			{#if isCloudHosted()}
-				<div class="mt-4" />
-				{#if customer_id}
-					<div class="mt-2 mb-2">
-						<Button
-							endIcon={{ icon: faExternalLink }}
-							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
-						>
-						<p class="text-xs text-tertiary mt-1">
-							See invoices, change billing information or subscription details</p
-						>
-					</div>
-				{/if}
-
-				<div class="text-xs mb-4 box p-2 max-w-3xl">
-					{#if premium_info?.premium}
-						<div class="flex flex-col gap-0.5">
-							{#if plan}
-								<div class="mb-2"
-									><div class=" inline text-2xl font-bold float-right"
-										>{capitalize(plan ?? 'free')} plan</div
-									></div
-								>
-							{:else}
-								<div class="inline text-2xl font-bold">Free plan</div>
-							{/if}
-
-							{#if plan}
-								{@const team_factor = plan == 'team' ? 10 : 40}
-								{@const user_nb = users?.filter((x) => !x.operator)?.length ?? 0}
-								{@const operator_nb = users?.filter((x) => x.operator)?.length ?? 0}
-								{@const seats_from_users = Math.ceil(user_nb + operator_nb / 2)}
-								{@const seats_from_comps = Math.ceil((premium_info?.usage ?? 0) / 10000)}
-
-								<div>
-									Authors:
-									<div class="inline text-2xl font-bold float-right">{user_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
-										period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-								<div>
-									Operators:
-									<div class="inline text-2xl font-bold float-right">{operator_nb}</div>
-									<Tooltip
-										>Actual pricing is calculated on the MAXIMUM number of operators in a given
-										billing period, see the customer portal for more info.</Tooltip
-									>
-								</div>
-
-								<div>
-									Seats from authors + operators:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({user_nb} + {operator_nb}/2) = {seats_from_users}</div
-									>
-								</div>
-								<div>
-									Computations executed this month:
-									<div class=" inline text-2xl font-bold float-right"
-										>{premium_info?.usage ?? 0}
-									</div>
-								</div>
-								<div>
-									Seats from computations:
-									<div class="inline text-2xl font-bold float-right mb-8"
-										>ceil({premium_info?.usage ?? 0} / 10 000) = {seats_from_comps}</div
-									>
-								</div>
-
-								<div>
-									Total seats:
-									<div class=" inline text-2xl font-bold float-right">
-										max({seats_from_comps}, {seats_from_users}) * {team_factor} = ${Math.max(
-											seats_from_comps,
-											seats_from_users
-										) * team_factor}/mo
-									</div>
-								</div>
-							{/if}
-						</div>
-					{:else}
-						This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
-						doing executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited
-						executions in this workspace.
-					{/if}
-				</div>
-
-				<div class="flex flex-col gap-1 mb-4">
-					<Slider text="What is an execution?">
-						<Alert type="info" title="A computation is 1s of execution">
-							The single credit-unit is called an "execution". An execution corresponds to a single
-							job whose duration is less than 1s. For any additional seconds of computation, an
-							additional execution is accounted for. Jobs are executed on one powerful virtual CPU
-							with 2Gb of memory. Most jobs will take less than 200ms to execute.
-						</Alert>
-					</Slider>
-
-					<Slider text="Operator vs Author">
-						<Alert type="info" title="Operator vs Author"
-							>An author can write scripts/flows/apps/variables/resources. An operator can only
-							run/view them.</Alert
-						>
-					</Slider>
-				</div>
-
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-xs flex flex-col h-full overflow-hidden">
-							<h2 class="mb-4">{planTitle}</h2>
-							<ul class="list-disc text-lg p-4">
-								{#each planDesc as item}
-									<li class="mt-2">{@html item}</li>
-								{/each}
-							</ul>
-
-							<div class="grow" />
-							{#if planTitle == 'Team'}
-								{#if plan != 'team'}
-									<div class="mt-4 mx-auto">
-										<Button size="lg" href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
-											>Upgrade to the Team plan</Button
-										>
-									</div>
-								{:else}
-									<div class="mx-auto text-lg font-semibold">Workspace is on the team plan</div>
-								{/if}
-							{:else if planTitle == 'Enterprise'}
-								{#if plan != 'enterprise'}
-									<div class="mt-4 mx-auto">
-										<Button size="lg" href="https://www.windmill.dev/pricing" target="_blank"
-											>See more</Button
-										>
-									</div>
-								{:else}
-									<div class="mx-auto text-lg font-semibold">Workspace is on enterprise plan</div>
-								{/if}
-							{:else if !plan}
-								<div class="mx-auto text-lg font-semibold">Workspace is on the free plan</div>
-							{:else}
-								<div class="mt-4 w-full">
-									<Button href="/api/w/{$workspaceStore}/workspaces/checkout"
-										>Upgrade to the {planTitle} plan</Button
-									>
-								</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
+			<PremiumInfo {customer_id} {plan} />
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -588,12 +409,12 @@
 		{:else if tab == 'error_handler'}
 			<PageHeader title="Script to run as error handler" primary={false} />
 			<ScriptPicker
-				kind={Script.kind.SCRIPT}
+				kind={undefined}
 				bind:itemKind={errorHandlerItemKind}
 				bind:scriptPath={errorHandlerScriptPath}
 				initialPath={errorHandlerInitialPath}
 				on:select={editErrorHandler}
-				canRefresh
+				allowRefresh
 			/>
 			<div class="flex flex-col gap-20 items-start mt-3">
 				<div class="w-2/3">

@@ -248,7 +248,7 @@
 								/>
 							{/key}
 						{:else if flowModule.value.type === 'script'}
-							<div class="border-t border-gray-200">
+							<div class="border-t">
 								{#key forceReload}
 									<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
 								{/key}
@@ -295,8 +295,8 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="cache">Cache</Tab>
 										<Tab value="concurrency">Concurrency</Tab>
-										<Tab value="early-stop">Early Stop/Break</Tab>
-										<Tab value="suspend">Suspend/Approval</Tab>
+										<Tab value="early-stop">Early Stop</Tab>
+										<Tab value="suspend">Suspend</Tab>
 										<Tab value="sleep">Sleep</Tab>
 										<Tab value="mock">Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>

@@ -64,7 +64,7 @@
 <div
 	class="translate-x-0 translate-y-0 relative w-full subgrid {visible
 		? 'visible'
-		: 'invisible h-0 overflow-hidden'} 	"
+		: 'invisible h-0 overflow-hidden'}"
 	bind:this={container}
 	on:pointerdown={onpointerdown}
 >

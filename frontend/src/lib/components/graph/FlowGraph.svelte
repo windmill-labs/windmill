@@ -161,7 +161,7 @@
 			nodes = layered.nodes
 			let hfull = Math.max(layered.height, minHeight)
 			fullWidth = layered.width
-			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight - 100)
+			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight * 1.5)
 
 			let useDataflow = dataflow && showDataflow
 			edges = useDataflow ? [] : createEdges(nodes)

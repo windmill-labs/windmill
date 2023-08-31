@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.151.2
+  version: 1.164.0
   title: Windmill API
 
   contact:
@@ -521,6 +521,59 @@ paths:
             text/plain:
               schema:
                 type: boolean
+
+  /settings/global/{key}:
+    get:
+      summary: get global settings
+      operationId: getGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+    post:
+      summary: post global settings
+      operationId: setGlobal
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/Key"
+      requestBody:
+        description: value set
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: {}
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/local:
+    get:
+      summary: get local settings
+      operationId: getLocal
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
 
   /users/email:
     get:
@@ -3597,6 +3650,8 @@ paths:
                       type: string
                     path:
                       type: string
+                    cache_ttl:
+                      type: integer
                   required:
                     - content
                     - language
@@ -3811,6 +3866,45 @@ paths:
                 items:
                   $ref: "#/components/schemas/QueuedJob"
 
+  /w/{workspace}/jobs/queue/count:
+    get:
+      summary: get queue count
+      operationId: getQueueCount
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: queue count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_length:
+                    type: integer
+                required:
+                  - database_length
+
+  /w/{workspace}/jobs/queue/cancel_all:
+    post:
+      summary: cancel all jobs
+      operationId: cancelAll
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: uuids of canceled jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/jobs/completed/list:
     get:
       summary: list all available completed jobs
@@ -3869,6 +3963,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -3897,6 +3993,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Job"
+
+  /jobs/db_clock:
+    get:
+      summary: get db clock
+      operationId: getDbClock
+      tags:
+        - job
+      responses:
+        "200":
+          description:
+            the timestamp of the db that can be used to compute the drift
+          content:
+            application/json:
+              schema:
+                type: integer
 
   /w/{workspace}/jobs_u/get/{id}:
     get:
@@ -5392,6 +5503,12 @@ components:
       name: token
 
   parameters:
+    Key:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
     WorkspaceId:
       name: workspace
       in: path
@@ -5552,14 +5669,32 @@ components:
         type: string
     StartedBefore:
       name: started_before
-      description: filter on created before (inclusive) timestamp
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
     StartedAfter:
       name: started_after
-      description: filter on created after (exclusive) timestamp
+      description: filter on started after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedAfter:
+      name: created_or_started_after
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedBefore:
+      name: created_or_started_before
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        before (inclusive) timestamp
       in: query
       schema:
         type: string
@@ -5757,7 +5892,8 @@ components:
           type: array
           items:
             type: integer
-
+        cache_ttl:
+          type: number
       required:
         - hash
         - path
@@ -5831,6 +5967,8 @@ components:
           type: array
           items:
             type: integer
+        cache_ttl:
+          type: number
       required:
         - path
         - summary
@@ -5961,6 +6099,7 @@ components:
               "preview",
               "dependencies",
               "flowdependencies",
+              "appdependencies",
               "flow",
               "flowpreview",
               "script_hub",
@@ -6066,6 +6205,7 @@ components:
               "dependencies",
               "flow",
               "flowdependencies",
+              "appdependencies",
               "flowpreview",
               "script_hub",
               "identity",
@@ -6756,6 +6896,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - edited_by
@@ -6809,6 +6961,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - path
         - schedule
@@ -6829,6 +6993,18 @@ components:
         on_failure:
           # a reference to a script path, flow path, or webhook (script/<path>, flow/<path>)
           type: string
+        on_failure_times:
+          type: number
+        on_failure_exact:
+          type: boolean
+        on_failure_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        on_recovery:
+          type: string
+        on_recovery_times:
+          type: number
+        on_recovery_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
       required:
         - schedule
         - timezone

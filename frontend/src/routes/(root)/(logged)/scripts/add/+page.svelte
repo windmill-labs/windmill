@@ -17,7 +17,7 @@
 
 	const path = $page.url.searchParams.get('path')
 
-	const initialState = $page.url.searchParams.get('state')
+	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 

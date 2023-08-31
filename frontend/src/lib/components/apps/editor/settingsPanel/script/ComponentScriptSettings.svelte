@@ -28,7 +28,7 @@
 
 	let runnable = appInput.runnable
 
-	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
 	export let actions: ActionType[] = []
 
 	function updateAutoRefresh() {
@@ -49,17 +49,19 @@
 	}
 </script>
 
-<div class={'border divide-y'}>
-	<ScriptSettingHeader
-		name={runnable?.type === 'runnableByName'
-			? runnable.name
-			: runnable?.type === 'runnableByPath'
-			? runnable.path
-			: ''}
-		{actions}
-	/>
+<div>
+	{#key $stateId}
+		<ScriptSettingHeader
+			name={runnable?.type === 'runnableByName'
+				? runnable.name
+				: runnable?.type === 'runnableByPath'
+				? runnable.path
+				: ''}
+			{actions}
+		/>
+	{/key}
 	{#if !isTriggerable(appComponent.type)}
-		<div class="flex items-center justify-between w-full px-2">
+		<div class="flex items-center justify-between w-full">
 			<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
 
 			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />

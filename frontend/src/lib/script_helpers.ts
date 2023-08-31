@@ -13,7 +13,18 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
-export const NATIVETS_INIT_CODE = `// Fetch only script, no imports allowed but benefits from a dedicated highly efficient runtime
+export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
+
+export async function main(example_input: number = 3) {
+  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
+export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
 
 export async function main() {
   const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
@@ -25,8 +36,8 @@ export async function main() {
 
 export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
-// import { toWords } from "npm:number-to-words@1"
-// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+// Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
+// import * as wmill from "npm:windmill-client@1"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -45,7 +56,7 @@ export async function main(
 `
 
 export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
-import { getVariable } from "windmill-client@${__pkg__.version}"
+import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -57,7 +68,7 @@ export async function main(
   d = "inferred type string from default arg",
   e = { nested: "object" },
 ) {
-  // let x = await getVariable('u/user/foo')
+  // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
 }
 `
@@ -100,14 +111,14 @@ func main(message string, name string) (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@1"
 
 export async function main(x: string) {
   return x
 }
 `
 
-export const BUN_INIT_CODE_CLEAR = `// import { getVariable } from "windmill-client@${__pkg__.version}"
+export const BUN_INIT_CODE_CLEAR = `// import * as wmill from "windmill-client"
 
 export async function main(x: string) {
   return x
@@ -145,7 +156,7 @@ export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
 INSERT INTO demo VALUES (?, ?)
 `
 
-export const GRAPHQL_INIT_CODE = `query($name1: String, $name2: Int, $name3: [String]) {
+export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
 		name2,
@@ -191,10 +202,11 @@ msg="$1"
 dflt="\${2:-default value}"
 
 # the last line of the stdout is the return value
+# unless you write json to './result.json' or a string to './result.out'
 echo "Hello $msg"
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@1"
 
 export async function main() {
 
@@ -239,10 +251,16 @@ func main() (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.99.0/mod.ts"
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
-  return wmill.getResumeEndpoints(approver)
+  return wmill.getResumeUrls(approver)
+}`
+
+export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
+
+export async function main(approver?: string) {
+  return wmill.getResumeUrls(approver)
 }`
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash
@@ -351,6 +369,9 @@ export function initialCode(
 	} else if (language == 'graphql') {
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'bun') {
+		if (kind === 'approval') {
+			return BUN_INIT_CODE_APPROVAL
+		}
 		if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR
 		}
@@ -375,6 +396,8 @@ export function getResetCode(
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {
 		return PYTHON_INIT_CODE_CLEAR
+	} else if (language === 'nativets') {
+		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
 	} else {

@@ -57,7 +57,7 @@
 		)
 </script>
 
-<InputValue {id} input={configuration.canvas} bind:value={canvas} />
+<InputValue key={'canvas'} {id} input={configuration.canvas} bind:value={canvas} />
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 	<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>

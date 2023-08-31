@@ -1,7 +1,7 @@
 use anyhow::Context;
 use chrono::Utc;
 use futures::TryStreamExt;
-use native_tls::TlsConnector;
+use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -13,11 +13,13 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
-use windmill_common::error::Error;
+use windmill_common::error::{self, Error};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::{transform_json_value, AuthedClient, JobCompleted};
+use crate::common::transform_json_value;
+use crate::{AuthedClient, JobCompleted};
+use urlencoding::encode;
 
 #[derive(Deserialize)]
 struct PgDatabase {
@@ -27,13 +29,14 @@ struct PgDatabase {
     port: Option<u16>,
     sslmode: Option<String>,
     dbname: String,
+    root_certificate_pem: Option<String>,
 }
 
 pub async fn do_postgresql(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
+) -> error::Result<JobCompleted> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
@@ -46,25 +49,36 @@ pub async fn do_postgresql(
         serde_json::from_value::<PgDatabase>(pg_args.get("database").unwrap_or(&json!({})).clone())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?;
     let sslmode = database.sslmode.unwrap_or("prefer".to_string());
-    let database = format!(
+    let database_string = format!(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = database.user.unwrap_or("postgres".to_string()),
-        password = database.password.unwrap_or("".to_string()),
-        host = database.host,
+        user = encode(&database.user.unwrap_or("postgres".to_string())),
+        password = encode(&database.password.unwrap_or("".to_string())),
+        host = encode(&database.host),
         port = database.port.unwrap_or(5432),
         dbname = database.dbname,
         sslmode = sslmode
     );
     let (client, handle) = if sslmode == "require" {
+        let mut connector = TlsConnector::builder();
+        if let Some(root_certificate_pem) = database.root_certificate_pem {
+            if !root_certificate_pem.is_empty() {
+                connector.add_root_certificate(
+                    Certificate::from_pem(root_certificate_pem.as_bytes())
+                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e}")))?,
+                );
+            } else {
+                connector.danger_accept_invalid_certs(true);
+                connector.danger_accept_invalid_hostnames(true);
+            }
+        } else {
+            connector
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true);
+        }
+
         let (client, connection) = tokio_postgres::connect(
-            &database,
-            MakeTlsConnector::new(
-                TlsConnector::builder()
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true)
-                    .build()
-                    .map_err(to_anyhow)?,
-            ),
+            &database_string,
+            MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
         )
         .await
         .map_err(to_anyhow)?;
@@ -76,7 +90,7 @@ pub async fn do_postgresql(
         });
         (client, handle)
     } else {
-        let (client, connection) = tokio_postgres::connect(&database, NoTls)
+        let (client, connection) = tokio_postgres::connect(&database_string, NoTls)
             .await
             .map_err(to_anyhow)?;
         let handle = tokio::spawn(async move {

@@ -57,7 +57,7 @@ from f.foo.bar import main1
 from .baz import main2
 from ..foo.bar import main3
 import f.foo.bar as bar
-
+from ..foobar.baz import main4
 
 def main():
     pass
@@ -65,7 +65,17 @@ def main():
 ";
         let r = parse_python_imports(code, "test-workspace", "f/foo/bar", &db).await?;
         println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, ["numpy", "pandas", "pandas2", "requests"]);
+        assert_eq!(
+            r,
+            [
+                "difffolder",
+                "innerdifffolder",
+                "numpy",
+                "pandas",
+                "pandas2",
+                "requests"
+            ]
+        );
 
         Ok(())
     }

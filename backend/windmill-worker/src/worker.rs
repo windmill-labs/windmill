@@ -12,15 +12,10 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
-use windmill_parser::Typ;
 use std::{
-    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration,
-    sync::{Arc, atomic::Ordering},
-    collections::hash_map::DefaultHasher,
-    hash::{Hasher, Hash},
+    collections::HashMap, time::Duration,
+    sync::{Arc, atomic::Ordering}
 };
-use regex::Regex;
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -29,29 +24,23 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue, FlowModule},
     scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path},
     utils::{rd_string, StripPath},
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob, Metrics}, IS_READY,
+    users::SUPERADMIN_SECRET_EMAIL, jobs::{JobKind, QueuedJob, Metrics}, METRICS_ENABLED, IS_READY, DB,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT, ACCEPTED_TAGS, IS_WORKER_TAGS_DEFINED};
 
 use serde_json::{json, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File},
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, Command},
+    fs::{symlink, DirBuilder},
     sync::{
-        mpsc::{self, Sender},  watch, broadcast, RwLock, Barrier
+        mpsc::{self, Sender}, RwLock, Barrier
     },
-    time::{interval, sleep, Instant, MissedTickBehavior}
+    time::Instant
 };
 
-use futures::{
-    future::{self, ready, FutureExt},
-    stream, StreamExt,
-};
+use futures::future::FutureExt;
 
 use async_recursion::async_recursion;
-use windmill_api_client::types::CreateResource;
 
 #[cfg(feature = "enterprise")]
 use rand::Rng;
@@ -63,8 +52,8 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 
 use crate::{
     worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, 
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, 
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value, save_in_cache, hash_args}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::{handle_deno_job, generate_deno_lock}, 
 };
 
 #[cfg(feature = "enterprise")]
@@ -84,7 +73,7 @@ pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) 
                 &job.workspace_id,
                 &job.permissioned_as,
                 "ephemeral-script",
-                *SESSION_TOKEN_EXPIRY,
+                *SCRIPT_TOKEN_EXPIRY,
                 &job.email,
             )
             .await.expect("could not create job token");
@@ -153,11 +142,10 @@ const NUM_SECS_PING: u64 = 5;
 
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
-const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
-pub const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 
-pub const DEFAULT_TIMEOUT: u64 = 900;
+pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
+pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
@@ -198,25 +186,9 @@ lazy_static::lazy_static! {
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
-    static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")
-        .ok()
-        .map(|x| format!(";{x}"))
-        .unwrap_or_else(|| String::new());
 
     pub static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
 
-    static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
-        .ok()
-        .map(|x| x.split(' ').map(|x| x.to_string()).collect());
-        
-    static ref DENO_EXTRA_IMPORT_MAP: String = std::env::var("DENO_EXTRA_IMPORT_MAP")
-        .ok()
-        .map(|x| x.split(',').map(|x| {
-            let mut splitted = x.split("=");
-            let key = splitted.next().unwrap();
-            let value = splitted.next().unwrap();
-            format!(",\n \"{key}\": \"{value}\"")
-        }).join("\n")).unwrap_or_else(|| String::new());
 
 
     pub static ref WHITELIST_ENVS: Option<Vec<(String, String)>> = std::env::var("WHITELIST_ENVS")
@@ -242,11 +214,14 @@ lazy_static::lazy_static! {
     static ref TIMEOUT: u64 = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_TIMEOUT);
+        .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
-    static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT);
+    pub static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT);
 
-    pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
+    pub static ref SCRIPT_TOKEN_EXPIRY: i32 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(900);
 
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
@@ -265,9 +240,7 @@ lazy_static::lazy_static! {
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
 
-    pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
 }
-
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
@@ -469,16 +442,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-            let bucket = s.to_string();
-            let worker_name2 = worker_name.clone();
+            if  crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
+                let bucket = s.to_string();
+                let worker_name2 = worker_name.clone();
 
-            //piptars can be fetched in background
-            handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
-                copy_all_piptars_from_bucket(&bucket).await;
-            }));
-            //denogocache.tar need to be fetched in foreground, block workers until they fetched it
-            copy_denogo_cache_from_bucket_as_tar(s).await;
+                //piptars can be fetched in background
+                handles.push(tokio::task::spawn(async move {
+                    tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
+                    copy_all_piptars_from_bucket(&bucket).await;
+                }));
+                //denogocache.tar need to be fetched in foreground, block workers until they fetched it
+                copy_denogo_cache_from_bucket_as_tar(s).await;
+            }
         }
     }
 
@@ -534,27 +509,29 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
                 if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
                     (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+                        last_sync = Instant::now();
 
-                    tracing::debug!("CAN PULL LOCK START");
-                    let _lock = CAN_PULL.write().await;
+                        if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
 
-                    tracing::info!("Started syncing cache");
-                    last_sync = Instant::now();
-                    // if num_workers > 1 {
-                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                    // }
-                    if let Err(e) = copy_cache_to_tmp_cache().await {
-                        tracing::error!("failed to copy cache to tmp cache: {}", e);
-                    } else {
-                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
-                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                                if let Err(e) = cache_global(s, copy_tx).await { 
-                                    tracing::error!("failed to sync cache: {}", e);
-                                }
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
+
+                            tracing::info!("Started syncing cache");
+                            // if num_workers > 1 {
+                            //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                            // }
+                            if let Err(e) = copy_cache_to_tmp_cache().await {
+                                tracing::error!("failed to copy cache to tmp cache: {}", e);
+                            } else {
+                                copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                                    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                        if let Err(e) = cache_global(s, copy_tx).await { 
+                                            tracing::error!("failed to sync cache: {}", e);
+                                        }
+                                    }
+                                }));
                             }
-                        }));
-                    }
-                    
+                    } 
                 }
             }
 
@@ -932,12 +909,6 @@ pub struct JobCompleted {
     pub success: bool
 }
 
-fn hash_args(v: &serde_json::Value) -> i64 {
-    let mut dh = DefaultHasher::new();
-    serde_json::to_string(v).unwrap().hash(&mut dh);
-    dh.finish() as i64
-}
-
 
 
 pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String, Error> {
@@ -951,7 +922,7 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
         .fetch_optional(db)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("expected content")))?,
-        _ => unreachable!()
+        _ => unreachable!("get_content called for non-script job kind: {:#?}", job.job_kind),
     };
     Ok(query)
 }
@@ -984,7 +955,7 @@ async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, code: 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
     worker_dir: &str,
@@ -1002,20 +973,62 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e));
     }
 
-    let (cache_ttl, step) = if job.is_flow_step {
-        update_flow_status_in_progress(
+    let step = if job.is_flow_step {
+        let r = update_flow_status_in_progress(
             db,
             &job.workspace_id,
             job.parent_job
                 .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
             job.id,
         )
-        .await?
+        .await?;
+
+        r
     } else {
-        (None, None)
+        None
     };
 
-    
+    let cached_res_path = if job.cache_ttl.is_some() {
+    let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
+        if job.is_flow_step {
+            let flow_path = sqlx::query_scalar!(
+                "SELECT script_path FROM queue WHERE id = $1",
+                &job.parent_job.unwrap()
+            )
+            .fetch_one(db)
+            .await
+            .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
+            .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
+            let step = step.unwrap_or(-1);
+            Some(format!("{flow_path}/cache/{step}/{args_hash}"))
+        } else if let Some(script_path) = &job.script_path {
+            let is_flow = if job.is_flow() { "flow/" } else { "" };
+            Some(format!("{script_path}/{is_flow}cache/{args_hash}"))
+        } else {
+            None
+        }
+
+    } else {
+        None
+    };
+
+    if let Some(cached_res_path) = cached_res_path.clone() {
+        let authed_client = client.get_authed().await;
+        let client: &Client = authed_client.get_client();
+        let resource = client.get_resource_value(&job.workspace_id, &cached_res_path).await;
+        if let Ok(resource) = resource {
+            let v = resource.into_inner();
+            if let Some(o) = v.as_object() {
+                let expire = o.get("expire");
+                if expire.is_some() && expire.unwrap().as_i64().map(|x| x > chrono::Utc::now().timestamp()).unwrap_or(false) {
+                    let result = v.get("value").map(|x| x.to_owned()).unwrap_or_else(|| json!({}));
+                    let logs = "Job skipped because args & path found in cache and not expired".to_string();
+                    process_result(authed_client, job, Ok(result), None, db, worker_dir, job_dir, metrics, same_worker_tx, base_internal_url, rsmq, job_completed_tx, logs).await?;
+                    return Ok(())
+                } 
+            }
+        } 
+    };
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -1043,25 +1056,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
             set_logs(&logs, &job.id, db).await;
 
-
-
-            let cached_res_path = if cache_ttl.is_some() {
-                let flow_path = sqlx::query_scalar!(
-                    "SELECT script_path FROM queue WHERE id = $1",
-                    &job.parent_job.unwrap()
-                )
-                .fetch_one(db)
-                .await
-                .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
-                .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
-                let step = step.unwrap_or(-1);
-                let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
-                let permissioned_as = &job.permissioned_as;
-                Some(format!("{permissioned_as}/cache/{flow_path}/{step}/{args_hash}"))
-            } else {
-                None
-            };
-
             tracing::debug!(
                 worker = %worker_name,
                 job_id = %job.id,
@@ -1070,37 +1064,17 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 job.id
             );
 
-            let cached_res = if let Some(cached_res_path) = cached_res_path.clone() {
-                let authed_client = client.get_authed().await;
-                let client: &Client = authed_client.get_client();
-                let resource = client.get_resource_value(&job.workspace_id, &cached_res_path).await;
-                resource.ok()
-                    .and_then(|x| {
-                        let v = x.into_inner();
-                        if let Some(o) = v.as_object() {
-                        let expire = o.get("expire");
-                            if expire.is_some() && expire.unwrap().as_i64().map(|x| x > chrono::Utc::now().timestamp()).unwrap_or(false) {
-                                v.get("value").map(|x| x.to_owned())
-                            } else { 
-                                None 
-                            }
-                        } else {
-                            None
-                        }
-                    })
-            } else {
-                None
-            };
-
-            let result = if let Some(cached_res) = cached_res {
-                Ok(cached_res)
-            } else {
-                match job.job_kind {
+            let result = match job.job_kind {
                     JobKind::Dependencies => {
                         handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await).await
                     }
                     JobKind::FlowDependencies => {
                         handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
+                            .await
+                            .map(|()| Value::Null)
+                    },
+                    JobKind::AppDependencies => {
+                        handle_app_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
                             .await
                             .map(|()| Value::Null)
                     }
@@ -1124,179 +1098,126 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             worker_name                            )
                         .await
                     }
-                }
-            };
+                };
 
             //it's a test job, no need to update the db
             if job.workspace_id == "" {
                 return Ok(());
             }
-            let client = &client.get_authed().await;
-            match result {
-                Ok(r) => {
-                    // println!("bef completed job{:?}",  SystemTime::now());
-                    if let Some(cached_path) = cached_res_path {
-                        let client: &Client = client.get_client();
-                        let expire = chrono::Utc::now().timestamp() + cache_ttl.unwrap() as i64;
-                        let cr = &CreateResource {
-                            path: cached_path,
-                            description: None,
-                            resource_type: "cache".to_string(),
-                            value: serde_json::json!({
-                                "value": r,
-                                "expire": expire
-                            })
-                        };
-                        if let Err(e) = client.create_resource(&job.workspace_id, Some(true), cr).await {
-                            tracing::error!("Error creating cache resource {e}")
-                        }
-                    }
-                    if job.is_flow_step {
-                        add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
-                        if let Some(parent_job) = job.parent_job {
-                            update_flow_status_after_job_completion(
-                                db,
-                                client,
-                                parent_job,
-                                &job.id,
-                                &job.workspace_id,
-                                true,
-                                r,
-                                metrics.clone(),
-                                false,
-                                same_worker_tx.clone(),
-                                worker_dir,
-                                None,
-                                base_internal_url,
-                                rsmq.clone()
-                            )
-                            .await?;
-                        }
-                    } else {
-                        // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
-                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs, success: true}).await.expect("send job completed");
-                        
-                    }
-                }
-                Err(e) => {
-                    let error_value = match e {
-                        Error::ExitStatus(i) => {
-                            let res = read_result(job_dir).await.ok();
-
-                            if res.is_some() && res.clone().unwrap().is_object() {
-                                res.unwrap()
-                            } else {
-                                let last_10_log_lines = logs
-                                    .lines()
-                                    .skip(logs.lines().count().max(13) - 13)
-                                    .join("\n")
-                                    .to_string()
-                                    .replace("\n\n", "\n");
-
-                                let log_lines = last_10_log_lines
-                                    .split("CODE EXECUTION ---")
-                                    .last()
-                                    .unwrap_or(&logs);
-
-                                extract_error_value(log_lines, i)
-                            }
-                        }
-                        err @ _ => {
-                            json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
-                        }
-                    };
-
-                    let result =
-                        add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
-                            .await?;
-                    if job.is_flow_step {
-                        if let Some(parent_job) = job.parent_job {
-                            update_flow_status_after_job_completion(
-                                db,
-                                client,
-                                parent_job,
-                                &job.id,
-                                &job.workspace_id,
-                                false,
-                                result,
-                                metrics,
-                                false,
-                                same_worker_tx,
-                                worker_dir,
-                                None,
-                                base_internal_url,
-                                rsmq
-                            )
-                            .await?;
-                        }
-                    }
-                }
-            };
+            let client = client.get_authed().await;
+            process_result(client, job, result, cached_res_path, db, worker_dir, job_dir, metrics, same_worker_tx, base_internal_url, rsmq, job_completed_tx, logs).await?;
         }
     }
     Ok(())
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content.as_bytes()).await?;
-    file.flush().await?;
-    Ok(file)
+async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+    client: AuthedClient, 
+    job: QueuedJob, 
+    result: error::Result<serde_json::Value>,
+    cached_res_path: Option<String>,
+    db: &DB,  
+    worker_dir: &str,
+    job_dir: &str,
+    metrics: Option<Metrics>,
+    same_worker_tx: Sender<Uuid>,
+    base_internal_url: &str,
+    rsmq: Option<R>,
+    job_completed_tx: Sender<JobCompleted>,
+    logs: String,
+) -> error::Result<()> {
+    match result {
+        Ok(r) => {
+            // println!("bef completed job{:?}",  SystemTime::now());
+            if let Some(cached_path) = cached_res_path {
+                save_in_cache(&client, &job, cached_path, &r).await;
+            }
+            if job.is_flow_step {
+                
+                add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
+                if let Some(parent_job) = job.parent_job {
+                    update_flow_status_after_job_completion(
+                        db,
+                        &client,
+                        parent_job,
+                        &job.id,
+                        &job.workspace_id,
+                        true,
+                        r,
+                        metrics.clone(),
+                        false,
+                        same_worker_tx.clone(),
+                        worker_dir,
+                        None,
+                        base_internal_url,
+                        rsmq.clone()
+                    )
+                    .await?;
+                }
+            } else {
+                // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
+                job_completed_tx.send(JobCompleted{job,result:r,logs:logs, success: true}).await.expect("send job completed");
+                
+            }
+        }
+        Err(e) => {
+            let error_value = match e {
+                Error::ExitStatus(i) => {
+                    let res = read_result(job_dir).await.ok();
+
+                    if res.is_some() && res.clone().unwrap().is_object() {
+                        res.unwrap()
+                    } else {
+                        let last_10_log_lines = logs
+                            .lines()
+                            .skip(logs.lines().count().max(13) - 13)
+                            .join("\n")
+                            .to_string()
+                            .replace("\n\n", "\n");
+
+                        let log_lines = last_10_log_lines
+                            .split("CODE EXECUTION ---")
+                            .last()
+                            .unwrap_or(&logs);
+
+                        extract_error_value(log_lines, i)
+                    }
+                }
+                err @ _ => {
+                    json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
+                }
+            };
+
+            let result =
+                add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
+                    .await?;
+            if job.is_flow_step {
+                if let Some(parent_job) = job.parent_job {
+                    update_flow_status_after_job_completion(
+                        db,
+                        &client,
+                        parent_job,
+                        &job.id,
+                        &job.workspace_id,
+                        false,
+                        result,
+                        metrics,
+                        false,
+                        same_worker_tx,
+                        worker_dir,
+                        None,
+                        base_internal_url,
+                        rsmq
+                    )
+                    .await?;
+                }
+            }
+        }
+    };
+    Ok(())
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content).await?;
-    file.flush().await?;
-    Ok(file)
-}
 
-#[async_recursion]
-pub async fn transform_json_value(
-    name: &str,
-    client: &AuthedClient,
-    workspace: &str,
-    v: Value,
-) -> error::Result<Value> {
-    tracing::info!("transform_json_value {name}", name = name);
-    match v {
-        Value::String(y) if y.starts_with("$var:") => {
-            let path = y.strip_prefix("$var:").unwrap();
-            client.get_client()
-                .get_variable_value(workspace, path)
-                .await
-                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| json!(v.into_inner()))
-        }
-        Value::String(y) if y.starts_with("$res:") => {
-            let path = y.strip_prefix("$res:").unwrap();
-            if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!(
-                    "Argument `{name}` is an invalid resource path: {path}",
-                )));
-            }
-            Ok(client.get_client()
-                .get_resource_value_interpolated(workspace, path)
-                .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner())
-        }
-        Value::Object(mut m) => {
-            for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
-                    transform_json_value(&a, client, workspace, b).await?,
-                );
-            }
-            Ok(Value::Object(m))
-        }
-        a @ _ => Ok(a),
-    }
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
@@ -1473,6 +1394,7 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
+                requirements_o,
                 logs,
                 job,
                 db,
@@ -1564,397 +1486,6 @@ mount {{
 }
 
 
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_bash_job(
-    logs: &mut String,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    content: &str,
-    job_dir: &str,
-    shared_mount: &str,
-    base_internal_url: &str,
-    worker_name: &str,
-    envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
-    logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", &format!("set -e\n{content}\necho \"\"\nsleep 0.02")).await?;
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-
-    let client = client.get_authed().await;
-    let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
-    {
-        Value::Object(ref hm) => hm.clone(),
-        _ => serde_json::Map::new(),
-    };
-    let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
-        .args
-        .iter()
-        .map(|arg| {
-            hm.get(&arg.name)
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    _ => serde_json::to_string(v).ok(),
-                })
-                .unwrap_or_else(String::new)
-        })
-        .collect::<Vec<String>>();
-    let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
-
-    let child = if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_BASH_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
-        cmd_args.extend(args);
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(cmd_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        let mut cmd_args = vec!["main.sh"];
-        cmd_args.extend(&args);
-        Command::new("/bin/bash")
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(envs)
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash run", job.timeout).await?;
-    //for now bash jobs have an empty result object
-    Ok(serde_json::json!(logs
-        .lines()
-        .last()
-        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new)))
-}
-
-
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_powershell_job(
-    logs: &mut String,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    content: &str,
-    job_dir: &str,
-    shared_mount: &str,
-    base_internal_url: &str,
-    worker_name: &str,
-    envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
-    logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
-    let pwsh_args = {
-        let client = client.get_authed().await;
-        let hm = match transform_json_value("args", &client, &job.workspace_id, job.args.clone().unwrap_or_else(|| json!({}))).await?
-        {
-            Value::Object(ref hm) => hm.clone(),
-            _ => serde_json::Map::new(),
-        };
-
-        let args_owned = windmill_parser_bash::parse_powershell_sig(&content)?
-            .args
-            .iter()
-            .map(|arg| {
-                (arg.name.clone(), hm.get(&arg.name)
-                    .and_then(|v| match v {
-                        Value::String(s) => Some(s.clone()),
-                        _ => serde_json::to_string(v).ok(),
-                    })
-                    .unwrap_or_else(String::new))
-            })
-            .collect::<Vec<(String, String)>>();
-        args_owned.iter().map(|(n, v)| format!("--{n} {v}")).join(" ")
-    };
-
-    let content = content
-        .replace('$', r"\$") // escape powershell variables
-        .replace("`", r"\`"); // escape powershell backticks
-    
-    write_file(job_dir, "main.sh", &format!("set -e\ncat > script.ps1 << EOF\n{content}\nEOF\npwsh -File script.ps1 {pwsh_args}\necho \"\"\nsleep 0.02")).await?;
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-
-    let child = if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_BASH_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
-        let cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(cmd_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        let cmd_args = vec!["main.sh"];
-        Command::new("/bin/bash")
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(envs)
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("HOME", HOME_ENV.as_str())
-            .args(cmd_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash/powershell run", job.timeout).await?;
-    //for now bash jobs have an empty result object
-    Ok(serde_json::json!(logs
-        .lines()
-        .last()
-        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new)))
-}
-
-fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<String, String> {
-    let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
-    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
-    let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
-    let deno_auth_tokens =
-        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
-
-    let mut deno_envs: HashMap<String, String> = HashMap::from([
-        (String::from("PATH"), PATH_ENV.clone()),
-        (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
-        (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
-    ]);
-
-    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
-    }
-    return deno_envs;
-}
-
-
-
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_deno_job(
-    logs: &mut String,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    job_dir: &str,
-    inner_content: &String,
-    base_internal_url: &str,
-    worker_name: &str,
-    envs: HashMap<String, String>,
-) -> error::Result<serde_json::Value> {
-
-    // let mut start = Instant::now();
-    logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-
-    let logs_to_set = logs.clone();
-    let id = job.id.clone();
-    let db2 = db.clone();
-
-    let set_logs_f = async {
-        set_logs(&logs_to_set, &id, &db2).await;
-        Ok(()) as error::Result<()>
-    };
-    
-    let write_main_f = write_file(job_dir, "main.ts", inner_content);
-
-    let write_wrapper_f = async {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
-        let dates = args.iter().enumerate().filter_map(|(i, x)| if matches!(x.typ, Typ::Datetime) {
-            Some(i) 
-        } else {
-            None
-        }).map(|x| {
-            return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined")
-        }).join("\n");
-
-        let spread = args.into_iter().map(|x| x.name).join(",");
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        let wrapper_content: String = format!(
-            r#"
-import {{ main }} from "./main.ts";
-
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
-
-BigInt.prototype.toJSON = function () {{
-    return this.toString();
-}};
-
-{dates}
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await Deno.writeTextFile("result.json", res_json);
-    Deno.exit(0);
-}}
-run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    Deno.exit(1);
-}});
-    "#,
-        );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
-        Ok(()) as error::Result<()>
-    };
-
-    let write_import_map_f = async {
-        let w_id = job.workspace_id.clone();
-        let script_path_split = job.script_path().split("/");
-        let script_path_parts_len = script_path_split.clone().count();
-        let mut relative_mounts = "".to_string();
-        for c in 0..script_path_parts_len {
-            relative_mounts += ",\n          ";
-            relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
-                (0..c).map(|_| "../").join(""),
-                &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
-                if c == script_path_parts_len - 1 { "" } else { "/" },
-            );
-        }
-        let extra_import_map = DENO_EXTRA_IMPORT_MAP.as_str();
-        let import_map = format!(
-            r#"{{
-            "imports": {{
-              "{base_internal_url}/api/w/{w_id}/scripts/raw/p/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-              "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-              "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-              "./wrapper.ts": "./wrapper.ts",
-              "./main.ts": "./main.ts"{relative_mounts}
-              {extra_import_map}
-            }}
-          }}"#,
-        );
-        write_file(job_dir, "import_map.json", &import_map).await?;
-        Ok(()) as error::Result<()>
-    };
-
-    let reserved_variables_args_out_f = async {
-        let client = client.get_authed().await;
-        let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir).await?;
-            Ok(()) as Result<()>
-        };
-        let reserved_variables_f = async {
-            let mut vars = get_reserved_variables(job, &client.token, db).await?;
-            vars.insert("RUST_LOG".to_string(), "info".to_string());
-            Ok(vars) as Result<HashMap<String, String>>
-        };
-        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
-        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
-    };
-
-    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
-        set_logs_f,
-        reserved_variables_args_out_f,
-        write_main_f,
-        write_wrapper_f,
-        write_import_map_f)?;
-
-    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
-
-    //do not cache local dependencies
-    let reload = format!("--reload={base_internal_url}");
-    let child = {
-            let script_path = format!("{job_dir}/wrapper.ts");
-            let import_map_path = format!("{job_dir}/import_map.json");
-            let mut args = Vec::with_capacity(12);
-            args.push("run");
-            args.push("--no-check");
-            args.push("--import-map");
-            args.push(&import_map_path);
-            args.push(&reload);
-            args.push("--unstable");
-            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
-                for flag in deno_flags {
-                    args.push(flag);
-                }
-            } else if !*DISABLE_NSJAIL {
-                args.push("--allow-net");
-                args.push("--allow-read=./,/tmp/windmill/cache/deno/");
-                args.push("--allow-write=./");
-                args.push("--allow-env");
-            } else {
-                args.push("-A");
-            }
-            args.push(&script_path);
-            Command::new(DENO_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(envs)
-                .envs(reserved_variables)
-                .envs(common_deno_proc_envs)
-                .env("DENO_DIR", DENO_CACHE_DIR)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-    };
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
-    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run", job.timeout).await?;
-    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
-        tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
-    }
-    read_result(job_dir).await
-}
-
-
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_args_and_out_file(
-    client: &AuthedClient,
-    job: &QueuedJob,
-    job_dir: &str,
-) -> Result<(), Error> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
-    } else {
-        None
-    };
-    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    write_file(job_dir, "args.json", &ser_args).await?;
-    write_file(job_dir, "result.json", "").await?;
-    Ok(())
-}
-
-
 
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2016,7 +1547,6 @@ async fn handle_dependency_job(
     }
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_flow_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
@@ -2039,7 +1569,7 @@ async fn handle_flow_dependency_job(
     })?;
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
 
-    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
+    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
     let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
@@ -2075,15 +1605,15 @@ async fn lock_modules(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
-    job_path: String,
+    job_path: &str,
     base_internal_url: &str,
     token: &str) -> Result<Vec<FlowModule>> {
     let mut new_flow_modules = Vec::new();
     for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             match e.value {
-                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel } => {
-                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel }
+                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel, parallelism } => {
+                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel, parallelism }
                 },
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
@@ -2111,7 +1641,7 @@ async fn lock_modules(
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.clone()), &db).await?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.to_string()), &db).await?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
@@ -2170,6 +1700,144 @@ async fn lock_modules(
     }
     Ok(new_flow_modules)
 }
+
+#[async_recursion]
+async fn lock_modules_app(
+    value: Value,     
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    job_path: &str,
+    base_internal_url: &str,
+    token: &str) -> Result<Value> {
+    match value {
+        Value::Object(mut m) => {
+            if m.contains_key("inlineScript") {
+                let v = m.get_mut("inlineScript").unwrap();
+                    if let Some(v) = v.as_object_mut() {
+                    if v.contains_key("content") && v.contains_key("language") {
+                            if let Ok(language)  = serde_json::from_value::<ScriptLang>(v.get("language").unwrap().clone()) {
+                                let content = v.get("content").unwrap().as_str().unwrap_or_default().to_string();
+                                let dependencies = match language {
+                                    ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, job_path, &db).await?.join("\n"),
+                                    _ => content.clone(),
+                                };
+                                logs.push_str("Found lockable inline script. Generating lock...\n");
+                                let new_lock = capture_dependency_job(
+                                    &job.id,
+                                    &language,
+                                    &dependencies,
+                                    logs,
+                                    job_dir,
+                                    db,
+                                    worker_name,
+                                    &job.workspace_id,
+                                    worker_dir,
+                                    base_internal_url,
+                                    token,
+                                    job.script_path()
+                                )
+                                .await;
+                                match new_lock {
+                                    Ok(new_lock) => {
+                                        v.insert("lock".to_string(), serde_json::Value::String(new_lock));
+                                        return Ok(Value::Object(m.clone()))
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            language = ?language,
+                                            error = ?e,
+                                            logs = ?logs,
+                                            "Failed to generate flow lock for inline script"
+                                        );
+                                        ()
+                                    }
+                                }
+                        }
+                    }
+                }
+            } 
+            for (a, b) in m.clone().into_iter() {
+                m.insert(
+                    a.clone(),
+                    lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?,
+                );
+            }
+            Ok(Value::Object(m))
+        },
+        Value::Array(a) => {
+            let mut nv = vec![];
+            for b in a.clone().into_iter() {
+                nv.push(lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?);
+            }
+            Ok(Value::Array(nv))
+        }, 
+        a @ _ => Ok(a),
+    }
+}
+
+
+async fn handle_app_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
+) -> error::Result<()> {
+
+    let job_path = job.script_path.clone().ok_or_else(|| {
+        error::Error::InternalErr(
+            "Cannot resolve flow dependencies for flow without path".to_string(),
+        )
+    })?;
+
+    let id = job.script_hash.clone().ok_or_else(|| {
+        Error::InternalErr(
+            "Flow Dependency requires script hash".to_owned(),
+    )})?.0;
+    let value =  sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(value) = value {
+        let value = lock_modules_app(value, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
+    
+
+        // Re-check cancelation to ensure we don't accidentially override a flow.
+        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .map(|v| Some(true) == v)
+            .unwrap_or_else(|err| {
+                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+                false
+            })
+        {
+            return Ok(());
+        }
+
+        sqlx::query!(
+            "UPDATE app_version SET value = $1 WHERE id = $2",
+            value,
+            id,
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+
+
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2227,8 +1895,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
-            Ok(String::new())
-            // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name, base_internal_url).await
         },
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
@@ -2259,431 +1926,3 @@ async fn capture_dependency_job(
     }
 }
 
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn get_reserved_variables(
-    job: &QueuedJob,
-    token: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-) -> Result<HashMap<String, String>, Error> {
-    let flow_path = if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
-            .fetch_optional(db)
-            .await?
-            .flatten()
-    } else {
-        None
-    };
-
-    let variables = variables::get_reserved_variables(
-        &job.workspace_id,
-        token,
-        &job.email,
-        &job.created_by,
-        &job.id.to_string(),
-        &job.permissioned_as,
-
-        job.script_path.clone(),
-        job.parent_job.map(|x| x.to_string()),
-        flow_path,
-        job.schedule_path.clone(),
-        job.flow_step_id.clone()
-    ).to_vec();
-
-    let mut r: HashMap<String, String>  = variables
-    .into_iter()
-    .map(|rv| (rv.name, rv.value))
-    .collect();
-
-    if let Some(ref envs) = *WHITELIST_ENVS {
-        for e in envs {
-            r.insert(e.0.clone(), e.1.clone());
-        }
-    }
-    
-    Ok(r)
-}
-
-async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
-    if pid.is_none() {
-        return -1
-    }
-    let pid = if nsjail {
-        // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1. 
-        // Ideally, we would get the number from fork() itself. This works in MOST cases.
-        pid.unwrap() + 1
-    } else {
-        pid.unwrap()
-    };
-    
-    if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
-        let mut lines = BufReader::new(file).lines();
-        while let Some(line) = lines.next_line().await.unwrap_or(None) {
-            if line.starts_with("VmHWM:") {
-                return line.split_whitespace().nth(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1);
-            };
-        }
-        -2
-    } else {
-        -3
-    }
-}
-/// - wait until child exits and return with exit status
-/// - read lines from stdout and stderr and append them to the "queue"."logs"
-///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
-/// - update the `last_line` and `logs` strings with the program output
-/// - update "queue"."last_ping" every five seconds
-/// - kill process if we exceed timeout or "queue"."canceled" is set
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn handle_child(
-    job_id: &Uuid,
-    db: &Pool<Postgres>,
-    logs: &mut String,
-    mut child: Child,
-    nsjail: bool,
-    worker_name: &str,
-    _w_id: &str,
-    child_name: &str,
-    custom_timeout: Option<i32>,
-) -> error::Result<()> {
-    let start = Instant::now();
-    let update_job_interval = Duration::from_millis(500);
-    let write_logs_delay = Duration::from_millis(500);
-
-    let pid = child.id();
-    #[cfg(target_os = "linux")]
-    if let Some(pid) = pid {
-        //set the highest oom priority
-        let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
-        let _ = file.write_all(b"1000").await;
-    } else {
-        tracing::info!("could not get child pid");
-    }
-    let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
-    let (tx, mut rx) = broadcast::channel::<()>(3);
-    let mut rx2 = tx.subscribe();
-
-
-    let output = child_joined_output_stream(&mut child);
-
-    let job_id = job_id.clone();
-
-
-    /* the cancellation future is polled on by `wait_on_child` while
-     * waiting for the child to exit normally */
-    let update_job = async {
-        let db = db.clone();
-
-        let mut interval = interval(update_job_interval);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        let mut i = 1;
-        loop {
-            tokio::select!(
-                _ = rx.recv() => break,
-                _ = interval.tick() => {
-                    // update the last_ping column every 5 seconds
-                    i+=1;
-                    if i % 10 == 0 {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
-                            &worker_name
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
-                    }
-                    let mem_peak = get_mem_peak(pid, nsjail).await;
-                    tracing::info!("{job_id} still running. mem peak: {}kB", mem_peak);
-                    let mem_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
-                        .fetch_optional(&db)
-                        .await
-                        .map(|v| Some(true) == v)
-                        .unwrap_or_else(|err| {
-                            tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
-                            false
-                        })
-                    {
-                        break;
-                    }
-                },
-            );
-        }
-    };
-
-    #[derive(PartialEq, Debug)]
-    enum KillReason {
-        TooManyLogs,
-        Timeout,
-        Cancelled,
-    }
-    /* a future that completes when the child process exits */
-    let wait_on_child = async {
-        let db = db.clone();
-
-        #[cfg(not(feature = "enterprise"))]
-        let instance_timeout_duration = *TIMEOUT_DURATION;
-
-        #[cfg(feature = "enterprise")]
-        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-            .fetch_one(&db)
-            .await
-            .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
-            }).unwrap_or(false);
-        
-        #[cfg(feature = "enterprise")]
-        let instance_timeout_duration = if premium_workspace {
-            *TIMEOUT_DURATION*6 //30mins
-        } else {
-            *TIMEOUT_DURATION
-        };
-        
-        let timeout_duration = if let Some(custom_timeout) = custom_timeout {
-            Duration::min(instance_timeout_duration, Duration::from_secs(custom_timeout as u64))
-        } else {
-            instance_timeout_duration
-        };
-
-        let kill_reason = tokio::select! {
-            biased;
-            result = child.wait() => return result.map(Ok),
-            Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(timeout_duration) => KillReason::Timeout,
-            _ = update_job => KillReason::Cancelled,
-        };
-        tx.send(()).expect("rx should never be dropped");
-        drop(tx);
-
-        let set_reason = async {
-            if kill_reason == KillReason::Timeout {
-                if let Err(err) = sqlx::query(
-                    r#"
-                       UPDATE queue
-                          SET canceled = true
-                            , canceled_by = 'timeout'
-                            , canceled_reason = $1
-                        WHERE id = $2
-                    "#,
-                )
-                .bind(format!("duration > {}", TIMEOUT_DURATION.as_secs()))
-                .bind(job_id)
-                .execute(&db)
-                .await
-                {
-                    tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
-                }
-            }
-        };
-        
-        /* send SIGKILL and reap child process */
-        let (_, kill) = future::join(set_reason, child.kill()).await;
-        kill.map(|()| Err(kill_reason))
-    };
-
-    /* a future that reads output from the child and appends to the database */
-    let lines = async move {
-        let max_log_size = if *CLOUD_HOSTED {
-            MAX_RESULT_SIZE
-        } else {
-            usize::MAX
-        };
-        /* log_remaining is zero when output limit was reached */
-        let mut log_remaining = max_log_size.saturating_sub(logs.chars().count());
-        let mut result = io::Result::Ok(());
-        let mut output = output.take_until(rx2.recv()).boxed();
-        /* `do_write` resolves the task, but does not contain the Result.
-         * It's useful to know if the task completed. */
-        let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
-
-        while let Some(line) =  output.by_ref().next().await {
-
-            let do_write_ = do_write.shared();
-
-            let mut read_lines = stream::once(async { line })
-                .chain(output.by_ref())
-                /* after receiving a line, continue until some delay has passed
-                 * _and_ the previous database write is complete */
-                .take_until(future::join(sleep(write_logs_delay), do_write_.clone()))
-                .boxed();
-
-            /* Read up until an error is encountered,
-             * handle log lines first and then the error... */
-            let mut joined = String::new();
-
-            while let Some(line) = read_lines.next().await {
-
-                match line {
-                    Ok(_) if log_remaining == 0 => (),
-                    Ok(line) => {
-                        if line.is_empty() {
-                            continue;
-                        }
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
-                        if log_remaining == 0 {
-                            tracing::info!(%job_id, "Too many logs lines for job {job_id}");
-                            let _ = set_too_many_logs.send(true);
-                            joined.push_str(&format!(
-                                "Job logs or result reached character limit of {MAX_RESULT_SIZE}; killing job."
-                            ));
-                            /* stop reading and drop our streams fairly quickly */
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        result = Err(err);
-                        break;
-                    }
-                }
-            }
-
-            logs.push_str(&joined);
-
-
-            /* Ensure the last flush completed before starting a new one.
-             *
-             * This shouldn't pause since `take_until()` reads lines until `do_write`
-             * resolves. We only stop reading lines before `take_until()` resolves if we reach
-             * EOF or a read error.  In those cases, waiting on a database query to complete is
-             * fine because we're done. */
-
-            if let Some(Ok(p)) = do_write_
-                .then(|()| write_result)
-                .await
-                .err()
-                .map(|err| err.try_into_panic())
-            {
-                panic::resume_unwind(p);
-            }
-
-            (do_write, write_result) = tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
-
-            if let Err(err) = result {
-                tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
-                break;
-            }
-
-            if *set_too_many_logs.borrow() {
-                break;
-            }
-
-        }
-
-        /* drop our end of the pipe */
-        drop(output);
-
-        if let Some(Ok(p)) = do_write
-            .then(|()| write_result)
-            .await
-            .err()
-            .map(|err| err.try_into_panic())
-        {
-            panic::resume_unwind(p);
-        }
-    }.instrument(trace_span!("child_lines"));
-
-
-    let (wait_result, _) = tokio::join!(wait_on_child, lines);
-
-    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms", start.elapsed().as_millis());
-    match wait_result {
-        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
-            "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
-        ))),
-        Ok(Ok(status)) => {
-            if status.success() {
-                Ok(())
-            } else if let Some(code) = status.code() {
-                Err(error::Error::ExitStatus(code))
-            } else {
-                Err(error::Error::ExecutionErr(format!(
-                    "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
-                    status.signal(),
-                    status.stopped_signal(),
-                    status.core_dumped()
-                )))
-            }
-        }
-        Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
-            "job process killed because {kill_reason:#?}"
-        ))),
-        Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
-    }
-}
-
-/// takes stdout and stderr from Child, panics if either are not present
-///
-/// builds a stream joining both stdout and stderr each read line by line
-fn child_joined_output_stream(
-    child: &mut Child,
-) -> impl stream::FusedStream<Item = io::Result<String>> {
-    let stderr = child
-        .stderr
-        .take()
-        .expect("child did not have a handle to stdout");
-
-    let stdout = child
-        .stdout
-        .take()
-        .expect("child did not have a handle to stdout");
-
-    let stdout = BufReader::new(stdout).lines();
-    let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
-}
-
-fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
-    mut lines: tokio::io::Lines<R>,
-) -> impl futures::Stream<Item = io::Result<String>> {
-    stream::poll_fn(move |cx| {
-        std::pin::Pin::new(&mut lines)
-            .poll_next_line(cx)
-            .map(|result| result.transpose())
-    })
-}
-
-// as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
-// so this pushes \n to thd destination string in each call
-fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
-    if *limit > 0 {
-        dst.push('\n');
-    }
-    *limit -= 1;
-
-    let src_len = src.chars().count();
-    if src_len <= *limit {
-        dst.push_str(&src);
-        *limit -= src_len;
-    } else {
-        let byte_pos = src
-            .char_indices()
-            .skip(*limit)
-            .next()
-            .map(|(byte_pos, _)| byte_pos)
-            .unwrap_or(0);
-        dst.push_str(&src[0..byte_pos]);
-        *limit = 0;
-    }
-}
-
-
-
-/* TODO retry this? */
-#[tracing::instrument(level = "trace", skip_all)]
-async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<Pool<Postgres>>) {
-    if logs.as_ref().is_empty() {
-        return;
-    }
-
-    if let Err(err) = sqlx::query!(
-        "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
-        logs.as_ref(),
-        job_id,
-    )
-    .execute(db.borrow())
-    .await
-    {
-        tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
-    }
-}

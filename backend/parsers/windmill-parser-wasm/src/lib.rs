@@ -1,6 +1,7 @@
-use serde_json;
+use serde_json::{self, json};
 use wasm_bindgen::prelude::*;
 use windmill_parser::MainArgSignature;
+use windmill_parser_ts::parse_expr_for_ids;
 
 fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
     if let Ok(r) = r {
@@ -13,6 +14,17 @@ fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
 #[wasm_bindgen]
 pub fn parse_deno(code: &str) -> String {
     wrap_sig(windmill_parser_ts::parse_deno_signature(code, false))
+}
+
+#[wasm_bindgen]
+pub fn parse_outputs(code: &str) -> String {
+    let parsed = parse_expr_for_ids(code);
+    let r = if let Ok(parsed) = parsed {
+        json!({ "outputs": parsed })
+    } else {
+        json!({"error": parsed.err().unwrap().to_string()})
+    };
+    return serde_json::to_string(&r).unwrap();
 }
 
 #[wasm_bindgen]

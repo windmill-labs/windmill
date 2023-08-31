@@ -5,11 +5,12 @@
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { forLater, msToSec } from '$lib/utils'
+	import { msToSec } from '$lib/utils'
 	import { Badge, Button, Skeleton, Tab, Tabs } from '../common'
 	import { onMount } from 'svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import { goto } from '$app/navigation'
+	import { forLater } from '$lib/forLater'
 
 	export let id: string
 	let job: Job | undefined = undefined
@@ -52,7 +53,7 @@
 	<Button
 		class="flex flex-row gap-1 items-center"
 		on:click={() => {
-			goto(`/run/${job?.id}`)
+			goto(`/run/${job?.id}?workspace=${job?.workspace_id}`)
 		}}
 	>
 		<span class="font-semibold text-xs leading-6">ID:</span>

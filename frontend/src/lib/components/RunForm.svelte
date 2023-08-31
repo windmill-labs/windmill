@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		defaultIfEmptyString,
-		displayDaysAgo,
 		emptyString,
 		getModifierKey,
 		getToday,
@@ -19,6 +18,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
+	import TimeAgo from './TimeAgo.svelte'
 
 	export let runnable:
 		| {
@@ -90,7 +90,7 @@
 						<div class="flex items-center gap-2">
 							<span class="text-sm text-tertiary">
 								{#if runnable}
-									Edited {displayDaysAgo(runnable.created_at || '')} by {runnable.created_by ||
+									Edited <TimeAgo date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
 								{/if}
 							</span>

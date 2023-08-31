@@ -6,18 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    db::{UserDB, DB},
-    users::{get_groups_for_user, Authed},
-    utils::require_super_admin,
-};
+use crate::db::ApiAuthed;
+use crate::{db::DB, users::get_groups_for_user, utils::require_super_admin};
+
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
 };
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::users::username_to_permissioned_as;
+use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination},
@@ -113,7 +111,7 @@ struct QueryListGroup {
     pub only_member_of: Option<bool>,
 }
 async fn list_group_names(
-    Authed { username, email, .. }: Authed,
+    ApiAuthed { username, email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(QueryListGroup { only_member_of }): Query<QueryListGroup>,
     Path(w_id): Path<String>,
@@ -158,7 +156,7 @@ async fn check_name_conflict<'c>(
 }
 
 pub async fn is_owner(
-    Authed { username, is_admin, groups, .. }: Authed,
+    ApiAuthed { username, is_admin, groups, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
@@ -202,8 +200,21 @@ pub async fn require_is_owner(
     }
 }
 
+async fn _check_nb_of_groups(db: &DB) -> Result<()> {
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
+        .fetch_one(db)
+        .await?;
+    if nb_groups.unwrap_or(0) >= 5 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of groups without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
 async fn create_group(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewGroup>,
@@ -211,6 +222,9 @@ async fn create_group(
     let mut tx = user_db.begin(&authed).await?;
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_groups(&_db).await?;
 
     sqlx::query!(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4)",
@@ -247,12 +261,13 @@ async fn create_group(
 }
 
 async fn create_igroup(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &authed.email).await?;
+
     sqlx::query!(
         "INSERT INTO instance_group (name, summary) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         ng.name,
@@ -277,12 +292,12 @@ async fn create_igroup(
 }
 
 async fn delete_igroup(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &authed.email).await?;
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     sqlx::query!("DELETE FROM instance_group WHERE name = $1", ng.name,)
         .execute(&mut *tx)
         .await?;
@@ -319,7 +334,7 @@ pub async fn get_group_opt<'c>(
 }
 
 async fn get_group(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<GroupInfo> {
@@ -339,7 +354,7 @@ async fn get_group(
 
     let members = sqlx::query_scalar!(
         "SELECT  usr.username  
-            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username 
+            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username AND usr_to_group.workspace_id = $2
             WHERE group_ = $1 AND usr.workspace_id = $2 AND usr_to_group.workspace_id = $2",
         name,
         w_id
@@ -358,7 +373,7 @@ async fn get_group(
 }
 
 async fn delete_group(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -406,7 +421,7 @@ async fn delete_group(
 }
 
 async fn update_group(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -442,7 +457,7 @@ async fn update_group(
 }
 
 async fn add_user(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -479,14 +494,14 @@ async fn add_user(
 }
 
 async fn add_user_igroup(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(name): Path<String>,
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
+    require_super_admin(&db, &authed.email).await?;
 
-    require_super_admin(&mut tx, &authed.email).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name)
         .fetch_optional(&mut *tx)
@@ -521,10 +536,10 @@ struct IGroup {
     name: String,
     emails: Option<Vec<String>>,
 }
-async fn list_igroups(authed: Authed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
-    let mut tx = db.begin().await?;
+async fn list_igroups(authed: ApiAuthed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    require_super_admin(&mut tx, &authed.email).await?;
     let groups = sqlx::query_as!(
         IGroup,
         "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
@@ -549,14 +564,13 @@ async fn get_igroup(Path(name): Path<String>, Extension(db): Extension<DB>) -> J
 }
 
 async fn remove_user_igroup(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(name): Path<String>,
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
-
-    require_super_admin(&mut tx, &authed.email).await?;
 
     let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name,)
         .fetch_optional(&mut *tx)
@@ -587,7 +601,7 @@ async fn remove_user_igroup(
 }
 
 async fn remove_user(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,

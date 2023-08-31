@@ -6,7 +6,6 @@
 		emptyString,
 		encodeState,
 		canWrite,
-		displayDaysAgo,
 		truncateHash
 	} from '$lib/utils'
 	import { faEdit, faCodeFork, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
@@ -57,6 +56,7 @@
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -311,7 +311,7 @@
 				onclick: () => {
 					if (!script) return
 
-					goto(
+					window.open(
 						scriptToHubUrl(
 							script.content,
 							script.summary,
@@ -319,8 +319,9 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.language == 'deno' ? '' : script.lock
-						).toString()
+							script.lock ?? ''
+						).toString(),
+						'_blank'
 					)
 				}
 			})
@@ -462,7 +463,7 @@
 
 					<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
 						<span class="text-sm text-secondary">
-							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
+							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="dark-blue">
 							{truncateHash(script?.hash ?? '')}
@@ -531,7 +532,7 @@
 
 				<Tabs selected="code">
 					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Lock file</Tab>
+					<Tab value="dependencies" size="xs">Lockfile</Tab>
 					<Tab value="arguments" size="xs">
 						<span class="inline-flex items-center gap-1">
 							Inputs
@@ -547,7 +548,7 @@
 					</Tab>
 					<svelte:fragment slot="content">
 						<TabContent value="code">
-							<div class="p-2">
+							<div class="p-2 w-full overflow-auto">
 								<HighlightCode
 									language={script.language}
 									code={script.content}
@@ -558,7 +559,9 @@
 						<TabContent value="dependencies">
 							<div class="">
 								{#if script?.lock}
-									<pre class="bg-surface-secondary text-sm p-2 h-full">{script.lock}</pre>
+									<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+										>{script.lock}</pre
+									>
 								{:else}
 									<p class="bg-surface-secondary text-sm p-2">
 										There is no lock file for this script

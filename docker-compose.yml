@@ -35,7 +35,7 @@ services:
       ## You can set the number of workers to 1 and not need any separate worker service but not recommended
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
-      - METRICS_ADDR=false
+      - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
       - REQUEST_SIZE_LIMIT=${WM_REQUEST_SIZE_LIMIT}
       # LICENSE_KEY is only needed for the enterprise edition
       - LICENSE_KEY=${WM_LICENSE_KEY}
@@ -92,7 +92,7 @@ services:
       - RUST_LOG=info
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
-      - METRICS_ADDR=false
+      - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
       - NUM_WORKERS=4
       - WORKER_TAGS=nativets,postgresql,mysql,graphql,snowflake
       # LICENSE_KEY is only needed for the enterprise edition

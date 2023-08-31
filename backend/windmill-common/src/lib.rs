@@ -9,12 +9,15 @@
 use std::net::SocketAddr;
 
 use error::Error;
+use sqlx::{Pool, Postgres};
 
 pub mod apps;
+pub mod db;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
+pub mod global_settings;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
@@ -155,28 +158,37 @@ pub async fn connect(
 
 type Tag = String;
 
-pub async fn get_latest_deployed_hash_for_path<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub type DB = Pool<Postgres>;
+
+pub async fn get_latest_deployed_hash_for_path(
+    db: &DB,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
-    deleted = false AND archived = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
         w_id
     )
-    .fetch_optional(&mut **db)
+    .fetch_optional(db)
     .await?;
 
-    let script = utils::not_found_if_none(r_o, "script", script_path)?;
+    let script = utils::not_found_if_none(r_o, "deployed script", script_path)?;
 
     Ok((
         scripts::ScriptHash(script.hash),
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }
 
@@ -184,9 +196,15 @@ pub async fn get_latest_hash_for_path<'c>(
     db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
-) -> error::Result<(scripts::ScriptHash, Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    scripts::ScriptHash,
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+)> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -202,5 +220,6 @@ pub async fn get_latest_hash_for_path<'c>(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }

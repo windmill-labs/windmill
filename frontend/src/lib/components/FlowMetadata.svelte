@@ -2,7 +2,7 @@
 	import type { Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import Icon from 'svelte-awesome'
-	import { displayDate, displayDaysAgo } from '$lib/utils'
+	import { displayDate } from '$lib/utils'
 	import {
 		faCalendar,
 		faClock,
@@ -13,19 +13,8 @@
 		faMemory
 	} from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
-	import { onDestroy, onMount } from 'svelte'
-
-	let time = Date.now()
-	let interval
-	onMount(() => {
-		interval = setInterval(() => {
-			time = Date.now()
-		}, 1000)
-	})
-
-	onDestroy(() => {
-		interval && clearInterval(interval)
-	})
+	import TimeAgo from './TimeAgo.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
@@ -45,21 +34,14 @@
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
-				{#key time}
-					Received job {displayDaysAgo(job.created_at ?? '')}
-				{/key}
+				Received job <TimeAgo date={job.created_at ?? ''} />
 			{/if}
 		</span>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
 			<Icon class="text-secondary" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-				{#if job['success'] != undefined}
-					Started: {displayDate(job.started_at ?? '')}
-				{:else}
-					{#key time}
-						Started {displayDaysAgo(job.started_at ?? '')}{/key}
-				{/if}
+				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
 			</span>
 		</div>
 	{/if}
@@ -76,11 +58,15 @@
 				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 					class="mx-2"
 				>
-					Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+					Step of flow <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
+						>{job.parent_job}</a
+					></span
 				>
 			{:else}
 				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-					Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+					Triggered by parent <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
+						>{job.parent_job}</a
+					></span
 				>
 			{/if}
 		{:else if job && job.schedule_path}

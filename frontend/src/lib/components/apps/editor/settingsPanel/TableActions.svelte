@@ -45,7 +45,7 @@
 	}
 </script>
 
-<PanelSection title={`Table actions`}>
+<PanelSection title={`Table Actions`}>
 	{#if components.length == 0}
 		<span class="text-xs text-tertiary">No action buttons</span>
 	{/if}

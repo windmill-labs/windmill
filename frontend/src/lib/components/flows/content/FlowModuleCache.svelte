@@ -18,25 +18,32 @@
 		value instead of recomputing it.
 	</Tooltip>
 </h2>
-<Toggle
-	checked={isCacheEnabled}
-	on:change={() => {
-		if (isCacheEnabled && flowModule.cache_ttl != undefined) {
-			flowModule.cache_ttl = undefined
-		} else {
-			flowModule.cache_ttl = 60 * 60 * 24 * 2
-		}
-	}}
-	options={{
-		right: 'Cache the results for each possible inputs'
-	}}
-/>
-<div class="mb-4">
-	<span class="text-xs font-bold">How long to keep cache valid</span>
+{#if flowModule.value.type != 'rawscript'}
+	<p
+		>The cache settings need to be set in the referenced script/flow settings directly. Cache for
+		hub scripts is not available yet.</p
+	>
+{:else}
+	<Toggle
+		checked={isCacheEnabled}
+		on:change={() => {
+			if (isCacheEnabled && flowModule.cache_ttl != undefined) {
+				flowModule.cache_ttl = undefined
+			} else {
+				flowModule.cache_ttl = 600
+			}
+		}}
+		options={{
+			right: 'Cache the results for each possible inputs'
+		}}
+	/>
+	<div class="mb-4">
+		<span class="text-xs font-bold">How long to keep cache valid</span>
 
-	{#if flowModule.cache_ttl}
-		<SecondsInput bind:seconds={flowModule.cache_ttl} />
-	{:else}
-		<SecondsInput disabled />
-	{/if}
-</div>
+		{#if flowModule.cache_ttl}
+			<SecondsInput bind:seconds={flowModule.cache_ttl} />
+		{:else}
+			<SecondsInput disabled />
+		{/if}
+	</div>
+{/if}

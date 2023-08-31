@@ -7,6 +7,7 @@
 // import { page } from '$app/stores'
 // import { get } from 'svelte/store'
 
+import { deepEqual } from 'fast-equals'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 export { sendUserToast }
@@ -30,46 +31,6 @@ export function parseQueryParams(url: string | undefined) {
 		params[key] = decodeURIComponent(val)
 	})
 	return params
-}
-
-export function isToday(someDate: Date): boolean {
-	const today = new Date()
-	return (
-		someDate.getDate() == today.getDate() &&
-		someDate.getMonth() == today.getMonth() &&
-		someDate.getFullYear() == today.getFullYear()
-	)
-}
-
-export function daysAgo(someDate: Date): number {
-	const today = new Date()
-	return Math.floor((today.getTime() - someDate.getTime()) / 86400000)
-}
-
-export function secondsAgo(date: Date) {
-	return Math.max(0, Math.floor((new Date().getTime() - date.getTime()) / 1000))
-}
-
-export function displayDaysAgo(dateString: string): string {
-	const date = new Date(dateString)
-	const nbSecondsAgo = secondsAgo(date)
-	if (nbSecondsAgo < 600) {
-		return `${nbSecondsAgo}s ago`
-	} else if (isToday(date)) {
-		return `today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-	} else {
-		let dAgo = daysAgo(date)
-		if (dAgo == 0) {
-			return `yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-		} else if (dAgo > 7) {
-			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], {
-				hour: '2-digit',
-				minute: '2-digit'
-			})}`
-		} else {
-			return displayDate(dateString)
-		}
-	}
 }
 
 export function displayDate(dateString: string | Date | undefined, displaySecond = false): string {
@@ -196,15 +157,6 @@ export function allTrue(dict: { [id: string]: boolean }): boolean {
 	return Object.values(dict).every(Boolean)
 }
 
-function subtractSeconds(date: Date, seconds: number): Date {
-	date.setSeconds(date.getSeconds() - seconds)
-	return date
-}
-
-export function forLater(scheduledString: string): boolean {
-	return new Date() < subtractSeconds(new Date(scheduledString), 5)
-}
-
 export function elapsedSinceSecs(date: string): number {
 	return Math.round((new Date().getTime() - new Date(date).getTime()) / 1000)
 }
@@ -219,6 +171,18 @@ export function encodeState(state: any): string {
 
 export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
+export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
+	if (!arr) {
+		return false
+	}
+	for (const i of arr) {
+		if (deepEqual(i, item)) {
+			return true
+		}
+	}
+	return false
 }
 
 export function decodeArgs(queryArgs: string | undefined): any {
@@ -390,12 +354,30 @@ export async function copyToClipboard(value?: string, sendToast = true): Promise
 	}
 
 	let success = false
-	if (navigator?.clipboard) {
+	if (navigator?.clipboard && window.isSecureContext) {
 		success = await navigator.clipboard
 			.writeText(value)
 			.then(() => true)
 			.catch(() => false)
+	} else {
+		const textArea = document.createElement('textarea')
+		textArea.value = value
+		textArea.style.position = 'fixed'
+		textArea.style.left = '-999999px'
+
+		document.body.appendChild(textArea)
+		textArea.select()
+
+		try {
+			document.execCommand('copy')
+			success = true
+		} catch (error) {
+			// ignore (success = false)
+		} finally {
+			textArea.remove()
+		}
 	}
+
 	sendToast &&
 		sendUserToast(success ? 'Copied to clipboard!' : "Couldn't copy to clipboard", !success)
 	return success

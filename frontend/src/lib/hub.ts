@@ -12,14 +12,7 @@ export function scriptToHubUrl(
 	lock: string | undefined
 ): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
-
-	url.searchParams.append('content', content)
-	url.searchParams.append('summary', summary)
-	url.searchParams.append('description', description)
-	url.searchParams.append('kind', kind)
-	url.searchParams.append('language', language)
-	url.searchParams.append('schema', JSON.stringify(schema, null, 2))
-	lock && url.searchParams.append('lockfile', lock)
+	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
 
 	return url
 }

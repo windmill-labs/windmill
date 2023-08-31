@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import {
-		canWrite,
-		defaultIfEmptyString,
-		displayDaysAgo,
-		emptyString,
-		encodeState
-	} from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
 	import { faCodeFork, faEdit, faHistory, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
@@ -22,7 +16,7 @@
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Archive, Trash, Server, Share } from 'lucide-svelte'
+	import { FolderOpen, Archive, Trash, Server, Share, Badge, Loader2 } from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
@@ -34,11 +28,14 @@
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
+
+	let deploymentInProgress = false
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
@@ -267,9 +264,15 @@
 									<span class="text-lg font-semibold">{flow.path}</span>
 								{/if}
 								<span class="text-sm text-tertiary">
-									Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 								</span>
 
+								{#if deploymentInProgress}
+									<Badge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+									</Badge>
+								{/if}
 								{#if flow.archived}
 									<div class="" />
 									<Alert type="error" title="Archived">This flow was archived</Alert>

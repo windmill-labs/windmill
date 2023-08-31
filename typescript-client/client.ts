@@ -1,4 +1,4 @@
-import { ResourceService, VariableService } from "./index";
+import { ResourceService, VariableService, JobService } from "./index";
 import { OpenAPI } from "./index";
 
 export {
@@ -243,25 +243,37 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
-// /**
-//  * Get URLs needed for resuming a flow after this step
-//  * @param approver approver name
-//  * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
-//  */
-// export async function getResumeUrls(approver?: string): Promise<{
-//   approvalPage: string;
-//   resume: string;
-//   cancel: string;
-// }> {
-//   const nonce = Math.floor(Math.random() * 4294967295);
-//   const workspace = getWorkspace();
-//   return await JobService.getResumeUrls({
-//     workspace,
-//     resumeId: nonce,
-//     approver,
-//     id: process.env.get("WM_JOB_ID") ?? "NO_JOB_ID",
-//   });
-// }
+/**
+ * Get URLs needed for resuming a flow after this step
+ * @param approver approver name
+ * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
+ */
+export async function getResumeUrls(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}> {
+  const nonce = Math.floor(Math.random() * 4294967295);
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  return await JobService.getResumeUrls({
+    workspace,
+    resumeId: nonce,
+    approver,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
+}
+
+/**
+ * @deprecated use getResumeUrls instead
+ */
+export function getResumeEndpoints(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}> {
+  return getResumeUrls(approver);
+}
 
 export function base64ToUint8Array(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));

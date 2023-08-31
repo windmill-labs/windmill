@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQueryWithoutLoad } from '$lib/utils'
+	import {
+		JobService,
+		Job,
+		CompletedJob,
+		ScriptService,
+		FlowService,
+		UserService,
+		FolderService
+	} from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
-	import { goto } from '$app/navigation'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobPreview from '$lib/components/runs/JobPreview.svelte'
@@ -21,11 +27,20 @@
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
 	import MobileFilters from '$lib/components/runs/MobileFilters.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { tweened, type Tweened } from 'svelte/motion'
+	import { goto } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
 	let selectedId: string | undefined = undefined
 
+	// All Filters
+	// Filter by
+	let path: string | null = $page.params.path
+	let user: string | null = $page.url.searchParams.get('user')
+	let folder: string | null = $page.url.searchParams.get('folder')
+	// Rest of filters handled by RunsFilter
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
 			? $page.url.searchParams.get('success') == 'true'
@@ -35,23 +50,61 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
-	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let argFilter: any = $page.url.searchParams.get('arg')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		: undefined
+	let resultFilter: any = $page.url.searchParams.get('result')
+		? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		: undefined
+
+	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+	// Handled on the main page
 	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 
-	let nbObJobs = 30
+	// This reactive statement is used to sync the url with the current state of the filters
+	$: {
+		let searchParams = new URLSearchParams()
 
-	$: path = $page.params.path
-	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+		user && searchParams.set('user', user)
+		folder && searchParams.set('folder', folder)
+
+		if (success !== undefined) {
+			searchParams.set('success', success.toString())
+		}
+
+		if (isSkipped) {
+			searchParams.set('is_skipped', isSkipped.toString())
+		}
+
+		// ArgFilter is an object. Encode it to a string
+		argFilter && searchParams.set('arg', encodeURIComponent(JSON.stringify(argFilter)))
+		resultFilter && searchParams.set('result', encodeURIComponent(JSON.stringify(resultFilter)))
+		schedulePath && searchParams.set('schedule_path', schedulePath)
+
+		jobKindsCat != 'runs' && searchParams.set('job_kinds', jobKindsCat)
+
+		minTs && searchParams.set('min_ts', minTs)
+		maxTs && searchParams.set('max_ts', maxTs)
+
+		let newPath = path ? `/${path}` : '/'
+		let newUrl = `/runs${newPath}?${searchParams.toString()}`
+
+		goto(newUrl)
+	}
+
+	let nbOfJobs = 30
+	let queue_count: Tweened<number> | undefined = undefined
+
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
 		if (jobKindsCat == 'all') {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
 		} else if (jobKindsCat == 'dependencies') {
-			return `${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES}`
+			return `${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES}`
 		} else if (jobKindsCat == 'previews') {
 			return `${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`
 		} else {
@@ -59,7 +112,8 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs()) ||
+		(path && success && isSkipped && jobKinds && user && folder && minTs && maxTs)
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -67,10 +121,12 @@
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
-			startedBefore,
-			startedAfter,
+			createdOrStartedBefore: startedBefore,
+			createdOrStartedAfter: startedAfter,
 			schedulePath,
-			scriptPathExact: path === '' ? undefined : path,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
 			success,
 			isSkipped,
@@ -87,10 +143,10 @@
 	let loading: boolean = false
 	async function loadJobs(): Promise<void> {
 		loading = true
-		jobs = undefined
+		getCount()
 		try {
-			const newJobs = await fetchJobs(maxTs, minTs)
-			jobs = newJobs
+			jobs = await fetchJobs(maxTs, minTs)
+			computeCompletedJobs()
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -98,16 +154,35 @@
 		loading = false
 	}
 
+	async function getCount() {
+		const qc = (await JobService.getQueueCount({ workspace: $workspaceStore! })).database_length
+		if (queue_count) {
+			queue_count.set(qc)
+		} else {
+			queue_count = tweened(qc, { duration: 1000 })
+		}
+	}
+
 	async function syncer() {
+		getCount()
 		if (sync && jobs && maxTs == undefined) {
-			const reversedJobs = [...jobs].reverse()
-			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
-			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
-			if (!ts) {
-				const date = jobs.length > 0 ? new Date(jobs[0]?.created_at!) : new Date()
-				date.setSeconds(date.getSeconds() + 1)
-				ts = date.toISOString()
+			let ts: string | undefined = undefined
+			let cursor = 0
+			while (cursor < jobs.length && minTs == undefined) {
+				let invCursor = jobs.length - 1 - cursor
+				let isQueuedJob = cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
+				if (isQueuedJob) {
+					if (cursor > 0) {
+						const date = new Date(jobs[invCursor + 1]?.created_at!)
+						date.setMilliseconds(date.getMilliseconds() + 1)
+						ts = date.toISOString()
+					}
+					break
+				}
+				cursor++
 			}
+
+			loading = true
 			const newJobs = await fetchJobs(maxTs, minTs ?? ts)
 			if (newJobs && newJobs.length > 0 && jobs) {
 				const oldJobs = jobs?.map((x) => x.id)
@@ -116,15 +191,47 @@
 					.filter((x) => oldJobs.includes(x.id))
 					.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
 				jobs = jobs
+				computeCompletedJobs()
 			}
+			loading = false
 		}
 	}
 
 	let sync = true
 	let mounted: boolean = false
+
+	function updateFiltersFromURL() {
+		path = $page.params.path
+		user = $page.url.searchParams.get('user')
+		folder = $page.url.searchParams.get('folder')
+		success =
+			$page.url.searchParams.get('success') != undefined
+				? $page.url.searchParams.get('success') == 'true'
+				: undefined
+		isSkipped =
+			$page.url.searchParams.get('is_skipped') != undefined
+				? $page.url.searchParams.get('is_skipped') == 'true'
+				: false
+
+		argFilter = $page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+			: undefined
+		resultFilter = $page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+			: undefined
+
+		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+
+		// Handled on the main page
+		minTs = $page.url.searchParams.get('min_ts') ?? undefined
+	}
+
 	onMount(() => {
 		mounted = true
 		loadPaths()
+		loadUsernames()
+		loadFolders()
 		intervalId = setInterval(syncer, 5000)
 
 		document.addEventListener('visibilitychange', () => {
@@ -134,6 +241,11 @@
 				sync = true
 			}
 		})
+
+		window.addEventListener('popstate', updateFiltersFromURL)
+		return () => {
+			window.removeEventListener('popstate', updateFiltersFromURL)
+		}
 	})
 
 	onDestroy(() => {
@@ -152,6 +264,18 @@
 	}
 
 	let paths: string[] = []
+	let usernames: string[] = []
+	let folders: string[] = []
+
+	async function loadUsernames(): Promise<void> {
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+	}
+
+	async function loadFolders(): Promise<void> {
+		folders = await FolderService.listFolders({
+			workspace: $workspaceStore!
+		}).then((x) => x.map((y) => y.name))
+	}
 
 	async function loadPaths() {
 		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
@@ -159,30 +283,17 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	async function syncTsWithURL(minTs?: string, maxTs?: string) {
-		setQueryWithoutLoad($page.url, [
-			{ key: 'min_ts', value: minTs },
-			{ key: 'max_ts', value: maxTs }
-		])
-	}
+	let completedJobs: CompletedJob[] | undefined = undefined
 
-	$: syncTsWithURL(minTs, maxTs)
-
-	$: completedJobs =
-		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
-
-	let searchPath = ''
-	$: searchPath = path
-
-	$: searchPath && onSearchPathChange()
-
-	function onSearchPathChange() {
-		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
+	function computeCompletedJobs() {
+		completedJobs =
+			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 	}
 
 	let argError = ''
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
+
 	function reloadLogsWithoutFilterError() {
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
@@ -201,49 +312,49 @@
 			}
 		},
 		{
-			label: 'Last 30 seconds',
+			label: 'Within 30 seconds',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last minute',
+			label: 'Within last minute',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 5 minutes',
+			label: 'Within last 5 minutes',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 30 minutes',
+			label: 'Within last 30 minutes',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 24 hours',
+			label: 'Within last 24 hours',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last 7 days',
+			label: 'Within last 7 days',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
 			}
 		},
 		{
-			label: 'Last month',
+			label: 'Within last month',
 			setMinMax: () => {
 				minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 				maxTs = new Date().toISOString()
@@ -254,8 +365,23 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
+	let cancelAllJobs = false
 </script>
 
+<ConfirmationModal
+	title="Confirm cancelling all jobs"
+	confirmationText="Cancel all jobs"
+	open={cancelAllJobs}
+	on:confirmed={async () => {
+		cancelAllJobs = false
+		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
+		loadJobs()
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}}
+	on:canceled={() => {
+		cancelAllJobs = false
+	}}
+/>
 <div class="w-full h-screen">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
@@ -275,20 +401,19 @@
 			<div class="hidden xl:block">
 				<RunsFilter
 					bind:isSkipped
-					{paths}
-					{jobKindsCat}
-					bind:selectedPath={searchPath}
+					bind:user
+					bind:folder
+					bind:path
 					bind:success
 					bind:argFilter
 					bind:resultFilter
 					bind:argError
 					bind:resultError
+					bind:jobKindsCat
 					on:change={reloadLogsWithoutFilterError}
-					on:clearFilters={() => {
-						minTs = undefined
-						maxTs = undefined
-						autoRefresh = true
-					}}
+					{usernames}
+					{folders}
+					{paths}
 				/>
 			</div>
 			<div class="xl:hidden">
@@ -298,19 +423,18 @@
 						<RunsFilter
 							bind:isSkipped
 							{paths}
-							{jobKindsCat}
-							bind:selectedPath={searchPath}
+							{usernames}
+							{folders}
+							bind:jobKindsCat
+							bind:folder
+							bind:path
+							bind:user
 							bind:success
 							bind:argFilter
 							bind:resultFilter
 							bind:argError
 							bind:resultError
 							on:change={reloadLogsWithoutFilterError}
-							on:clearFilters={() => {
-								minTs = undefined
-								maxTs = undefined
-								autoRefresh = true
-							}}
 						/>
 					</svelte:fragment>
 				</MobileFilters>
@@ -320,16 +444,32 @@
 
 	<div class="p-2 w-full">
 		<RunChart
+			maxIsNow={maxTs == undefined}
 			jobs={completedJobs}
 			on:zoom={async (e) => {
 				minTs = e.detail.min.toISOString()
 				maxTs = e.detail.max.toISOString()
-				jobs = await fetchJobs(maxTs, minTs)
 			}}
 		/>
 	</div>
-	<div class="flex flex-col gap-1 md:flex-row w-full p-4 justify-between">
-		<div class="flex flex-row gap-1 w-full">
+	<div class="flex flex-col gap-1 md:flex-row w-full p-4">
+		<div class="flex gap-2 grow mb-2">
+			<div class="flex gap-1 relative max-w-36 min-w-[50px]">
+				<div class="text-xs absolute -top-4 truncate">Jobs waiting for a worker</div>
+				<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
+			</div>
+			<div class="flex"
+				><Button
+					size="xs"
+					color="light"
+					variant="contained"
+					title="Require to be an admin. Cancel all jobs in queue"
+					disabled={!$userStore?.is_admin && !$superadmin}
+					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
+				></div
+			>
+		</div>
+		<div class="flex flex-row gap-1 w-full max-w-xl">
 			<div class="relative w-full">
 				<div class="flex gap-1 relative w-full">
 					<span class="text-xs absolute -top-4">Min datetime</span>
@@ -341,7 +481,6 @@
 						label="Min datetimes"
 						on:change={async ({ detail }) => {
 							minTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
 						}}
 					/>
 				</div>
@@ -355,7 +494,6 @@
 						label="Max datetimes"
 						on:change={async ({ detail }) => {
 							maxTs = new Date(detail).toISOString()
-							jobs = await fetchJobs(maxTs, minTs)
 						}}
 					/>
 				</div>
@@ -369,8 +507,10 @@
 				on:click={() => {
 					minTs = undefined
 					maxTs = undefined
-					autoRefresh = true
 
+					autoRefresh = true
+					jobs = undefined
+					completedJobs = undefined
 					selectedManualDate = 0
 					selectedId = undefined
 					loadJobs()
@@ -419,10 +559,21 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbObJobs
-						loadMoreQuantity={30}
+						bind:nbOfJobs
 						on:filterByPath={(e) => {
-							searchPath = e.detail
+							user = null
+							folder = null
+							path = e.detail
+						}}
+						on:filterByUser={(e) => {
+							path = null
+							folder = null
+							user = e.detail
+						}}
+						on:filterByFolder={(e) => {
+							path = null
+							user = null
+							folder = e.detail
 						}}
 					/>
 				{:else}
@@ -450,10 +601,24 @@
 			<RunsTable
 				{jobs}
 				bind:selectedId
-				bind:nbObJobs
-				loadMoreQuantity={30}
+				bind:nbOfJobs
 				on:select={() => {
 					runDrawer.openDrawer()
+				}}
+				on:filterByPath={(e) => {
+					user = null
+					folder = null
+					path = e.detail
+				}}
+				on:filterByUser={(e) => {
+					path = null
+					folder = null
+					user = e.detail
+				}}
+				on:filterByFolder={(e) => {
+					path = null
+					user = null
+					folder = e.detail
 				}}
 			/>
 		{/if}

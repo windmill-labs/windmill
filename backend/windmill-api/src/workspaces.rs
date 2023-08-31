@@ -10,12 +10,13 @@
 use std::str::FromStr;
 
 use crate::BASE_URL;
+use crate::db::ApiAuthed;
 use crate::{
     apps::AppWithLastVersion,
-    db::{UserDB, DB},
+    db::DB,
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{Authed, WorkspaceInvite, VALID_USERNAME, send_email_if_possible},
+    users::{WorkspaceInvite, VALID_USERNAME, send_email_if_possible},
     utils::require_super_admin,
     variables::build_crypt,
     webhook_util::{InstanceEvent, WebhookShared}
@@ -34,6 +35,7 @@ use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::db::UserDB;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
@@ -220,7 +222,7 @@ pub struct EditErrorHandler {
 }
 
 async fn list_pending_invites(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<WorkspaceInvite>> {
@@ -243,14 +245,14 @@ pub struct PremiumWorkspaceInfo {
     pub usage: Option<i32>,
 }
 async fn premium_info(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<PremiumWorkspaceInfo> {
     require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
-        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = usage.id AND usage.is_workspace IS true WHERE workspace.id = $1",
+        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
     )
     .bind(w_id)
     .fetch_one(&mut *tx)
@@ -267,7 +269,7 @@ struct PlanQuery {
 
 #[cfg(feature = "enterprise")]
 async fn stripe_checkout(
-    authed: Authed,
+    authed: ApiAuthed,
     Path(w_id): Path<String>,
     Query(plan): Query<PlanQuery>,
 ) -> Result<Redirect> {
@@ -311,7 +313,7 @@ async fn stripe_checkout(
 
 #[cfg(feature = "enterprise")]
 async fn stripe_portal(
-    authed: Authed,
+    authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<Redirect> {
@@ -337,7 +339,7 @@ async fn stripe_portal(
 }
 
 // async fn stripe_usage(
-//     authed: Authed,
+//     authed: ApiAuthed,
 //     Path(w_id): Path<String>,
 //     Extension(db): Extension<DB>,
 //     Extension(base_url): Extension<Arc<BaseUrl>>,
@@ -381,7 +383,7 @@ async fn stripe_portal(
 // }
 
 async fn exists_workspace(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Json(WorkspaceId { id }): Json<WorkspaceId>,
 ) -> JsonResult<bool> {
@@ -398,7 +400,7 @@ async fn exists_workspace(
 }
 
 async fn list_workspaces(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<Workspace>> {
     let mut tx = user_db.begin(&authed).await?;
@@ -415,7 +417,7 @@ async fn list_workspaces(
 }
 
 async fn get_settings(
-    authed: Authed,
+    authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
@@ -438,7 +440,7 @@ struct DeployTo {
     deploy_to: Option<String>,
 }
 async fn get_deploy_to(
-    authed: Authed,
+    authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<DeployTo> {
@@ -457,10 +459,10 @@ async fn get_deploy_to(
 }
 
 async fn edit_slack_command(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(es): Json<EditCommandScript>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -499,10 +501,10 @@ async fn edit_slack_command(
 
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_to(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(es): Json<EditDeployTo>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -546,16 +548,16 @@ async fn edit_deploy_to() -> Result<String> {
 
 const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
 
-async fn is_allowed_auto_domain(Authed { email, .. }: Authed) -> JsonResult<bool> {
+async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
     return Ok(Json(!BANNED_DOMAINS.contains(domain)));
 }
 
 async fn edit_auto_invite(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, email, username, .. }: Authed,
+    ApiAuthed { is_admin, email, username, .. }: ApiAuthed,
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -620,10 +622,10 @@ async fn edit_auto_invite(
 }
 
 async fn edit_webhook(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ew): Json<EditWebhook>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -662,10 +664,10 @@ async fn edit_webhook(
 }
 
 async fn edit_openai_resource_path(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(eo): Json<EditOpenaiResourcePath>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -726,10 +728,10 @@ async fn exists_openai_resource_path(
 
 
 async fn edit_error_handler(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ee): Json<EditErrorHandler>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -781,15 +783,16 @@ async fn edit_error_handler(
 }
 
 async fn list_workspaces_as_super_admin(
-    authed: Authed,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(pagination): Query<Pagination>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    let mut tx = user_db.begin(&authed).await?;
-    require_super_admin(&mut tx, &email).await?;
+    require_super_admin(&db, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
+    let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
         "SELECT * FROM workspace LIMIT $1 OFFSET $2",
@@ -804,7 +807,7 @@ async fn list_workspaces_as_super_admin(
 
 async fn user_workspaces(
     Extension(db): Extension<DB>,
-    Authed { email, .. }: Authed,
+    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<WorkspaceList> {
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
@@ -841,15 +844,16 @@ lazy_static::lazy_static! {
 }
 
 async fn create_workspace(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
 
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&mut tx, &authed.email).await?;
+        require_super_admin(&db, &authed.email).await?;
     }
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
     check_name_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
@@ -937,10 +941,10 @@ async fn create_workspace(
 }
 
 async fn edit_workspace(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, .. }: Authed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ew): Json<EditWorkspace>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -972,7 +976,7 @@ async fn edit_workspace(
 async fn archive_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, email, .. }: Authed,
+    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
@@ -998,7 +1002,7 @@ async fn archive_workspace(
 async fn unarchive_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { is_admin, username, email, .. }: Authed,
+    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
@@ -1024,7 +1028,7 @@ async fn unarchive_workspace(
 async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, .. }: Authed,
+    ApiAuthed { username, email, .. }: ApiAuthed,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -1036,7 +1040,7 @@ async fn delete_workspace(
         _ => Ok(w_id),
     }?;
     let mut tx = db.begin().await?;
-    require_super_admin(&mut tx, &email).await?;
+    require_super_admin(&db, &email).await?;
 
     sqlx::query!("DELETE FROM script WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1142,7 +1146,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
 }
 
 async fn invite_user(
-    Authed { username, is_admin, .. }: Authed,
+    ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -1191,7 +1195,7 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 }
 
 async fn add_user(
-    Authed { username, email, is_admin, .. }: Authed,
+    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
@@ -1255,7 +1259,7 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 }
 
 async fn delete_invite(
-    Authed { username, is_admin, .. }: Authed,
+    ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nu): Json<NewWorkspaceInvite>,
@@ -1413,7 +1417,7 @@ where
 }
 
 async fn tarball_workspace(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(ArchiveQueryParams {
@@ -1511,7 +1515,7 @@ async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
             Resource,
-            "SELECT * FROM resource WHERE workspace_id = $1",
+            "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
             &w_id
         )
         .fetch_all(&db)

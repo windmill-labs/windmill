@@ -33,15 +33,17 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::db::UserDB;
 use windmill_common::jobs::JobPayload;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
+use crate::db::ApiAuthed;
 use crate::saml::SamlSsoLogin;
-use crate::users::{login_externally, Authed, LoginUserInfo};
+use crate::users::{login_externally, LoginUserInfo};
 use crate::webhook_util::{InstanceEvent, WebhookShared};
 use crate::{
-    db::{UserDB, DB},
+    db::DB,
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
 };
@@ -49,7 +51,7 @@ use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRE
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
-use windmill_queue::QueueTransaction;
+use windmill_queue::PushIsolationLevel;
 
 use std::{fs, str};
 
@@ -340,7 +342,7 @@ struct CreateAccount {
     expires_in: i64,
 }
 async fn create_account(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(payload): Json<CreateAccount>,
@@ -364,7 +366,7 @@ async fn create_account(
 }
 
 async fn delete_account(
-    authed: Authed,
+    authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Query((w_id, id)): Query<(String, i32)>,
 ) -> error::Result<String> {
@@ -455,7 +457,7 @@ async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
 }
 
 async fn disconnect(
-    authed: Authed,
+    authed: ApiAuthed,
     Path((w_id, id)): Path<(String, i32)>,
     Extension(user_db): Extension<UserDB>,
 ) -> error::Result<String> {
@@ -474,7 +476,7 @@ async fn disconnect(
 }
 
 async fn disconnect_slack(
-    authed: Authed,
+    authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> error::Result<String> {
@@ -502,7 +504,7 @@ struct VariablePath {
     path: String,
 }
 async fn refresh_token(
-    authed: Authed,
+    authed: ApiAuthed,
     Path((w_id, id)): Path<(String, i32)>,
     Extension(user_db): Extension<UserDB>,
     Json(VariablePath { path }): Json<VariablePath>,
@@ -635,7 +637,7 @@ async fn connect_callback(
 
 async fn connect_slack_callback(
     Path(w_id): Path<String>,
-    authed: Authed,
+    authed: ApiAuthed,
     cookies: Cookies,
     Extension(user_db): Extension<UserDB>,
     Json(callback): Json<OAuthCallback>,
@@ -783,13 +785,12 @@ async fn slack_command(
         }
     }
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         "SELECT * FROM workspace_settings WHERE slack_team_id = $1",
         form.team_id,
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(&db)
     .await?;
 
     if let Some(settings) = settings {
@@ -798,9 +799,9 @@ async fn slack_command(
                 (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
+                let (script_hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
                     windmill_common::get_latest_deployed_hash_for_path(
-                        tx.transaction_mut(),
+                        &db,
                         &settings.workspace_id,
                         path,
                     )
@@ -811,6 +812,7 @@ async fn slack_command(
                         path: path.to_owned(),
                         concurrent_limit,
                         concurrency_time_window_s,
+                        cache_ttl,
                     },
                     tag,
                 )
@@ -821,8 +823,10 @@ async fn slack_command(
                 "response_url".to_string(),
                 serde_json::Value::String(form.response_url),
             );
+            let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
             let (uuid, tx) = windmill_queue::push(
+                &db,
                 tx,
                 &settings.workspace_id,
                 payload,
@@ -852,7 +856,6 @@ async fn slack_command(
             ));
         }
     }
-    tx.commit().await?;
 
     return Ok(format!(
         "workspace not properly configured (did you set the script to trigger in the settings?)"

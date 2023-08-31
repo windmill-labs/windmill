@@ -14,6 +14,8 @@
 	import { cleanExpr } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
+
 	export let flow: {
 		summary: string
 		description?: string
@@ -101,7 +103,7 @@
 		>
 			{#if stepDetail == undefined}
 				<div>
-					<p class="font-medium text-tertiary text-center pt-4 pb-8">
+					<p class="font-medium text-secondary text-center pt-4 pb-8">
 						Click on a step to see its details
 					</p>
 					<h3 class="mb-2 font-semibold">Flow Inputs</h3>
@@ -110,7 +112,7 @@
 			{:else if stepDetail == 'Input'}
 				<SchemaViewer schema={flow?.schema} />
 			{:else if stepDetail == 'Result'}
-				<p class="font-medium text-tertiary text-center pt-4 pb-8"> End of the flow </p>
+				<p class="font-medium text-secondary text-center pt-4 pb-8"> End of the flow </p>
 			{:else if typeof stepDetail != 'string' && stepDetail.value}
 				<div class="">
 					<div class="sticky top-0 bg-surface w-full flex items-center py-2">
@@ -125,9 +127,10 @@
 							{:else if stepDetail.value.type == 'identity'}
 								Identity
 							{:else if stepDetail.value.type == 'forloopflow'}
-								For loop
+								For loop {#if stepDetail.value.parallel}(parallel){/if}
+								{#if stepDetail.value.skip_failures}(skip failures){/if}
 							{:else if stepDetail.value.type == 'branchall'}
-								Run all branches
+								Run all branches {#if stepDetail.value.parallel}(parallel){/if}
 							{:else if stepDetail.value.type == 'branchone'}
 								Run one branch
 							{:else if stepDetail.value.type == 'flow'}
@@ -151,7 +154,7 @@
 					{/if}
 				</div>
 				{#if stepDetail.value.type == 'identity'}
-					<p class="font-medium text-tertiary text-center pt-4 pb-8">
+					<p class="font-medium text-secondary text-center pt-4 pb-8">
 						An identity step returns its inputs as outputs
 					</p>
 				{:else if stepDetail.value.type == 'rawscript'}
@@ -196,10 +199,12 @@
 								src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
 							/>
 						</div>
+					{:else}
+						<FlowModuleScript path={stepDetail.value.path} />
 					{/if}
 				{:else if stepDetail.value.type == 'forloopflow'}
 					<div>
-						<p class="font-medium text-tertiary pb-2"> Iterator expression: </p>
+						<p class="font-medium text-secondary pb-2"> Iterator expression: </p>
 						{#if stepDetail.value.iterator.type == 'static'}
 							<ObjectViewer json={stepDetail.value.iterator.value} />
 						{:else}
@@ -209,18 +214,18 @@
 						{/if}
 					</div>
 				{:else if stepDetail.value.type == 'branchall'}
-					<p class="font-medium text-tertiary text-center pt-4 pb-8">
+					<p class="font-medium text-secondary text-center pt-4 pb-8">
 						All branches will run, regardless of the inputs
 					</p>
 				{:else if stepDetail.value.type == 'branchone'}
-					<p class="font-medium text-tertiary text-center pt-4 pb-8">
+					<p class="font-medium text-secondary text-center pt-4 pb-8">
 						Only one branch will run based on a predicate
 					</p>
 				{:else if stepDetail.value.type == 'flow'}
 					<FlowPathViewer noSide path={stepDetail.value.path} />
 				{/if}
 			{:else}
-				<p class="font-medium text-tertiary text-center pt-4 pb-8">
+				<p class="font-medium text-secondary text-center pt-4 pb-8">
 					Step {stepDetail} selected
 				</p>
 			{/if}

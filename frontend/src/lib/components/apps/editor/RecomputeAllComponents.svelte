@@ -16,7 +16,7 @@
 	let firstLoad = false
 
 	$: !firstLoad &&
-		$initialized.initializedComponents?.length ==
+		$initialized.initializedComponents?.length >=
 			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
 		refresh()
 	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
@@ -58,7 +58,9 @@
 					return
 				}
 
-				return $runnableComponents?.[id]?.cb?.map((f) => f())
+				return $runnableComponents?.[id]?.cb?.map((f) =>
+					f().then(() => console.log('refreshed', id))
+				)
 			})
 			.filter(Boolean)
 
@@ -102,7 +104,6 @@
 <!-- {allItems($app.grid, $app.subgrids)
 	.map((x) => x.id)
 	.filter((x) => !$initialized.initializedComponents?.includes(x))} -->
-
 <div class="flex items-center">
 	<Button
 		disabled={componentNumber == 0}

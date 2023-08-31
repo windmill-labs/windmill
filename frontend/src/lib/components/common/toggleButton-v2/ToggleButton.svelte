@@ -5,6 +5,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 
+	import { Info } from 'lucide-svelte'
+
 	export let value: any
 	export let label: string | undefined = undefined
 	export let iconOnly: boolean = false
@@ -14,6 +16,7 @@
 	export let selectedColor: string = '#3b82f6'
 	export let small: boolean = false
 	export let iconProps: Record<string, any> = {}
+	export let showTooltipIcon: boolean = false
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -45,8 +48,10 @@
 		{#if label && !iconOnly}
 			{label}
 		{/if}
+		{#if showTooltipIcon}
+			<Info size={14} class="text-gray-400" />
+		{/if}
 	</Tab>
-
 	<svelte:fragment slot="text">
 		{tooltip}
 	</svelte:fragment>

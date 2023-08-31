@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, forLater, msToSec } from '$lib/utils'
+	import { displayDate, msToSec } from '$lib/utils'
 	import {
 		faCalendar,
 		faCheck,
@@ -13,6 +13,7 @@
 
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
 	import Badge from './common/badge/Badge.svelte'
+	import { forLater } from '$lib/forLater'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -52,7 +53,7 @@
 	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>
-		<Badge>
+		<Badge color="blue">
 			<Icon data={faCalendar} scale={SMALL_ICON_SCALE} class="mr-2" />
 			Scheduled for {displayDate(job.scheduled_for)}
 		</Badge>

@@ -450,7 +450,7 @@
 						{/if}
 					</div>
 					{#if variableEditor}
-						<div class="text-sm text-tertiary-inverse">
+						<div class="text-sm text-tertiary">
 							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 								Linked to variable <button
 									class="text-blue-500 underline"

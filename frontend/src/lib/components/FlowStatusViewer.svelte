@@ -13,10 +13,11 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	const dispatch = createEventDispatcher()
 
@@ -101,16 +102,20 @@
 				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
 				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 			) {
+				console.debug('updating', mod.job)
 				JobService.getJob({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: mod.job ?? ''
 				}).then((job) => {
-					localFlowModuleStates[mod.id ?? ''] = {
+					const newState = {
 						type: mod.type,
-						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
+						scheduled_for: job?.['scheduled_for'],
 						job_id: job?.id,
 						parent_module: mod['parent_module'],
 						args: job?.args
+					}
+					if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
+						localFlowModuleStates[mod.id ?? ''] = newState
 					}
 				})
 			}
@@ -208,7 +213,7 @@
 		{/if}
 		{#if isListJob}
 			{#if render}
-				<div class="w-full h-full border border-gray-600 bg-surface p-1">
+				<div class="w-full h-full border border-gray-600 bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
@@ -438,6 +443,7 @@
 						</div>
 
 						<FlowGraph
+							download
 							success={isSuccess(job?.['success'])}
 							flowModuleStates={localFlowModuleStates}
 							on:select={(e) => {
@@ -481,7 +487,7 @@
 								{/if}
 							{:else if node}
 								<div class="px-2 flex gap-2 min-w-0">
-									<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
+									<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
 									{#if node.job_id}
 										<div class="truncate w-full"
 											><div class=" text-primary whitespace-nowrap truncate w-full">
@@ -492,7 +498,7 @@
 													target="_blank"
 													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 												>
-													{truncateRev(node.job_id, 24)}
+													{truncateRev(node.job_id ?? '', 10) ?? ''}
 												</a>
 											</div>
 										</div>

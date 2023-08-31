@@ -282,7 +282,7 @@
 								{/if}
 								{#each jobs ?? [] as job}
 									{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-									<a href="/run/{job.id}">
+									<a href="/run/{job.id}?workspace={$workspaceStore}">
 										<JobPreview id={job.id}>
 											<div>
 												<div

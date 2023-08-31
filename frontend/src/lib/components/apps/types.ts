@@ -14,6 +14,7 @@ import type {
 	ConnectedAppInput,
 	ConnectedInput,
 	EvalAppInput,
+	EvalV2AppInput,
 	InputConnection,
 	ResultAppInput,
 	RowAppInput,
@@ -34,7 +35,6 @@ export type Aligned = {
 }
 
 export interface GeneralAppInput {
-	onlyStatic?: boolean
 	tooltip?: string
 	placeholder?: string
 	customTitle?: string
@@ -55,6 +55,7 @@ export type Configuration =
 	| UserAppInput
 	| RowAppInput
 	| EvalAppInput
+	| EvalV2AppInput
 	| UploadAppInput
 	| ResultAppInput
 
@@ -105,7 +106,10 @@ export type InlineScript = {
 	language: Preview.language | 'frontend'
 	path?: string
 	schema?: Schema
+	lock?: string
+	cache_ttl?: number
 	refreshOn?: { id: string; key: string }[]
+	suggestedRefreshOn?: { id: string; key: string }[]
 }
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
