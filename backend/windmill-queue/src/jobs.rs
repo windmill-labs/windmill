@@ -1654,12 +1654,13 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 "deno".to_string()
             }
         };
-        tag.unwrap_or_else(|| {
-            language
-                .as_ref()
-                .map(|x| x.as_str().replace("$workspace", workspace_id))
-                .unwrap_or_else(default)
-        })
+        tag.map(|x| x.as_str().replace("$workspace", workspace_id).to_string())
+            .unwrap_or_else(|| {
+                language
+                    .as_ref()
+                    .map(|x| x.as_str().to_string())
+                    .unwrap_or_else(default)
+            })
     };
 
     let mut tx = match tx {
