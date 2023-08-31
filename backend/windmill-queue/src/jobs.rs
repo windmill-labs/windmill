@@ -91,7 +91,7 @@ lazy_static::lazy_static! {
 
     pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
 
-    pub static ref PULL_QUERY: String = format!(
+    pub static ref PULL_QUERY_NON_RUNNING: String = format!(
         "UPDATE queue
         SET running = true
           , started_at = coalesce(started_at, now())
@@ -100,17 +100,35 @@ lazy_static::lazy_static! {
         WHERE id = (
             SELECT id
             FROM queue
-            WHERE ((running = false AND scheduled_for <= now())
-               OR (suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()))) 
-                {}
+            WHERE running = false AND scheduled_for <= now() AND ({})
             ORDER BY scheduled_for, created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
         )
         RETURNING *",
-        format!(" AND ({})",
-        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "))
+        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR ")
     );
+
+
+    pub static ref PULL_QUERY_SUSPEND: String = format!(
+        "UPDATE queue
+        SET running = true
+          , started_at = coalesce(started_at, now())
+          , last_ping = now()
+          , suspend_until = null
+        WHERE id = (
+            SELECT id
+            FROM queue
+            WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND ({})
+            ORDER BY scheduled_for, created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        RETURNING *",
+        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR ")
+    );
+
+
 
     // When compiled in 'benchmark' mode, this flags is exposed via the /workers/toggle endpoint
     // and make it possible to disable to current active workers (such that they don't pull any)
@@ -940,14 +958,19 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
 pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
     rsmq: Option<R>,
+    suspend_first: bool,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
     // let rs = rd_string(2);
     // let instant = Instant::now();
 
     loop {
         let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
-        let (job, mut tx) =
-            pull_single_job_and_mark_as_running_no_concurrency_limit(tx, rsmq.clone()).await?;
+        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(
+            tx,
+            rsmq.clone(),
+            suspend_first,
+        )
+        .await?;
 
         if job.is_none() {
             return Ok(None);
@@ -1093,6 +1116,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 >(
     mut tx: QueueTransaction<'c, R>,
     rsmq: Option<R>,
+    suspend_first: bool,
 ) -> windmill_common::error::Result<(Option<QueuedJob>, QueueTransaction<'c, R>)> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
@@ -1139,9 +1163,22 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        sqlx::query_as::<_, QueuedJob>(&PULL_QUERY)
-            .fetch_optional(&mut tx)
-            .await?
+
+        let r = if suspend_first {
+            sqlx::query_as::<_, QueuedJob>(&PULL_QUERY_SUSPEND)
+                .fetch_optional(&mut tx)
+                .await?
+        } else {
+            None
+        };
+
+        if r.is_none() {
+            sqlx::query_as::<_, QueuedJob>(&PULL_QUERY_NON_RUNNING)
+                .fetch_optional(&mut tx)
+                .await?
+        } else {
+            r
+        }
     };
     Ok((job, tx))
 }
