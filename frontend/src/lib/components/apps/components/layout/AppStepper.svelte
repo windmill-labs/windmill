@@ -37,15 +37,17 @@
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
 	let maxReachedIndex = -1
 	let statusByStep = [] as Array<'success' | 'error' | 'pending'>
+	let debugMode: boolean = false
 
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
 		result: undefined,
-		loading: false
+		loading: false,
+		lastAction: undefined as 'previous' | 'next' | undefined
 	})
 
 	async function handleTabSelection() {
-		if (runnableComponent) {
+		if (runnableComponent && !debugMode) {
 			await runnableComponent?.runComponent()
 		}
 
@@ -67,6 +69,8 @@
 
 	async function runStep(targetIndex: number) {
 		statusByStep[selectedIndex] = 'pending'
+
+		outputs?.lastAction.set(directionClicked === 'left' ? 'previous' : 'next')
 
 		if (runnableComponent) {
 			await runnableComponent?.runComponent()
@@ -100,7 +104,14 @@
 			return false
 		},
 		setTab: (tab: number) => {
-			selected = tabs[tab]
+			debugMode = tab >= 0
+
+			if (debugMode) {
+				selected = tabs[tab]
+			} else {
+				selected = tabs[0]
+			}
+
 			handleTabSelection()
 		}
 	}

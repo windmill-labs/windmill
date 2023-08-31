@@ -77,6 +77,9 @@
 		{#if component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView'}
 			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
 		{/if}
+		{#if component.type === 'steppercomponent'}
+			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
+		{/if}
 		<button
 			title="Expand"
 			class={classNames(
