@@ -7243,6 +7243,8 @@ dependencies = [
  "anyhow",
  "gosyn",
  "itertools 0.11.0",
+ "lazy_static",
+ "regex",
  "windmill-parser",
 ]
 
