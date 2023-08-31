@@ -43,7 +43,10 @@ const ami = pulumi.output(
   aws.ec2.getAmi({
     owners: ["amazon"],
     mostRecent: true,
-    filters: [{ name: "description", values: ["Amazon Linux 2 *"] }],
+    filters: [
+      { name: "description", values: ["Amazon Linux 2 *"] },
+      { name: "architecture", values: ["x86_64"] },
+    ],
   })
 );
 
@@ -135,7 +138,7 @@ const sampleKey = new tailscale.TailnetKey("bench-ipn", {
   reusable: true,
 });
 
-const ipn = new aws.ec2.Instance("bench-ipn", {
+const ipn = new aws.ec2.Instance("bench-ipn-2", {
   ami: ami.id,
   availabilityZone: "us-east-2a",
   keyName: deployer.keyName,
@@ -157,23 +160,7 @@ sudo systemctl enable --now tailscaled
 sleep 30
 sudo tailscale up --authkey="${sampleKey.key}" --hostname=bench-ipn --ssh --advertise-tags=tag:ipns
 
-sudo yum install -y docker
-sudo service docker start
-sudo systemctl enable docker
-sudo systemctl start docker
-
-sudo curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compose.yml -o docker-compose.yml
-sudo curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
-sudo curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
-sudo curl https://raw.githubusercontent.com/windmill-labs/windmill/main/oauth.json -o oauth.json
-
-
-sudo yum install -y wget
-wget https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) 
-sudo mv docker-compose-$(uname -s)-$(uname -m) /usr/local/bin/docker-compose
-sudo chmod -v +x /usr/local/bin/docker-compose
-
-sudo docker-compose up -d
+sudo yum install -y wget unzip
 `,
 });
 
@@ -182,7 +169,7 @@ const amiEcs = pulumi.output(
   aws.ec2.getAmi({
     owners: ["amazon"],
     mostRecent: true,
-    filters: [{ name: "name", values: ["amzn2-ami-ecs-*-x86_64-*"] }],
+    filters: [{ name: "name", values: ["amzn2-ami-ecs-*-arm64-*"] }],
   })
 );
 
@@ -193,7 +180,7 @@ const lt = new aws.ec2.LaunchTemplate("lt2", {
   namePrefix: "windmill",
   imageId: amiEcs.id,
   keyName: deployer.keyName,
-  instanceType: "t3.medium",
+  instanceType: "t4g.medium",
   iamInstanceProfile: {
     name: "ecsInstanceRole",
   },
@@ -274,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill:latest",
+        image: "ghcr.io/windmill-labs/windmill:1.164.0",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -286,7 +273,7 @@ db.address.apply((address) => {
         ],
         environment: [
           { name: "DISABLE_SERVER", value: "true" },
-          { name: "METRICS_ADDR", value: "true" },
+          // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
             name: "DATABASE_URL",
@@ -324,13 +311,13 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill:latest",
+        image: "ghcr.io/windmill-labs/windmill:1.164.0",
         cpu: 1024,
         memory: 1024,
         essential: true,
         environment: [
           { name: "NUM_WORKERS", value: "0" },
-          { name: "METRICS_ADDR", value: "true" },
+          // { name: "METRICS_ADDR", value: "true" },
           { name: "RUST_LOG", value: "info" },
           {
             name: "DATABASE_URL",
@@ -354,7 +341,7 @@ db.address.apply((address) => {
             containerPort: 8000,
           },
           {
-            containerPort: 8000,
+            containerPort: 8001,
           },
         ],
       },
@@ -375,7 +362,7 @@ db.address.apply((address) => {
     loadBalancers: [
       {
         targetGroupArn: lb.defaultTargetGroup.arn,
-        containerName: "server",
+        containerName: "windmill-server",
         containerPort: 8000,
       },
     ],
