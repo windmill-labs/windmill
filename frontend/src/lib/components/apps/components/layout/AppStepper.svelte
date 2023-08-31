@@ -30,7 +30,7 @@
 		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected: string = tabs[0]
+	$: selected = tabs[0]
 	let tabHeight: number = 0
 	let footerHeight: number = 0
 	let runnableComponent: RunnableComponent
@@ -40,7 +40,7 @@
 	let debugMode: boolean = false
 
 	let outputs = initOutput($worldStore, id, {
-		currentStepIndex: 0,
+		currentStepIndex: 1,
 		result: undefined,
 		loading: false,
 		lastAction: undefined as 'previous' | 'next' | undefined
@@ -72,7 +72,7 @@
 
 		outputs?.lastAction.set(directionClicked === 'left' ? 'previous' : 'next')
 
-		if (runnableComponent) {
+		if (runnableComponent && !debugMode) {
 			await runnableComponent?.runComponent()
 		}
 
