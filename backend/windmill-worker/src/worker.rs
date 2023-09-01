@@ -478,6 +478,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut last_executed_job: Option<Instant> = None;
     let mut last_checked_suspended = Instant::now();
+
+
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {

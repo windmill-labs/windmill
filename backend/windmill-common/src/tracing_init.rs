@@ -12,6 +12,9 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
+#[cfg(feature = "flamegraph")]
+use tracing_flame::FlameLayer;
+
 fn json_layer<S>() -> Layer<S, format::JsonFields, format::Format<format::Json>> {
     tracing_subscriber::fmt::layer()
         .json()
@@ -40,6 +43,9 @@ pub fn initialize_tracing() {
     let env_filter = EnvFilter::from_default_env();
 
     let ts_base = tracing_subscriber::registry().with(env_filter);
+
+    #[cfg(feature = "flamegraph")]
+    let ts_base = ts_base.with(FlameLayer::default());
 
     match json_fmt {
         true => ts_base.with(json_layer().flatten_event(true)).init(),
