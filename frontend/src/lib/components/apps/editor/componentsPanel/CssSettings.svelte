@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import { AlertTriangle, LayoutDashboardIcon } from 'lucide-svelte'
+	import { AlertTriangle, Info, LayoutDashboardIcon } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
 	import { ccomponents, components } from '../component'
@@ -54,7 +54,7 @@
 <Splitpanes horizontal>
 	<Pane size={60}>
 		{#if !$premiumStore.premium}
-			<div bind:clientHeight={alertHeight} class="p-2">
+			<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 				<div class="flex flex-row gap-2 items-center text-yellow-500 text-xs">
 					<AlertTriangle size={16} />
 					EE only
@@ -63,6 +63,10 @@
 						with this feature in the editor, but please note that the changes will not be visible in
 						the preview.
 					</Tooltip>
+				</div>
+				<div class="flex flex-row gap-2 items-center text-blue-500 text-xs">
+					<Info size={16} />
+					Component customisation is available in the Community Edition
 				</div>
 			</div>
 		{/if}

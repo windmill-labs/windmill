@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, ComponentCssProperty } from '../../types'
 	import { ccomponents, type AppComponent } from '../component'
 
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -40,13 +40,16 @@
 
 	$: migrations = new Map<string, string[]>()
 
-	function setOrUpdateMigration(key: string, value: string) {
-		const selector = customisationByComponent
+	function getSelector(key: string) {
+		return customisationByComponent
 			.find((c) => c.components.includes(component?.type ?? ''))
 			?.selectors.find((s) => {
 				return s.customCssKey === key
 			})?.selector
+	}
 
+	function setOrUpdateMigration(key: string, value: string) {
+		const selector = getSelector(key)
 		if (!selector) {
 			return
 		}
@@ -85,7 +88,7 @@
 
 					cssString = cssString.replace(
 						regex,
-						`.${key} {\n\t${existingValue}\n\t${value.join('\n\t')}\n}`
+						`${key} {\n\t${existingValue}\n\t${value.join('\n\t')}\n}`
 					)
 				}
 			} else {
@@ -96,6 +99,18 @@
 
 		$app.cssString = cssString
 	}
+
+	function hasStyles(customCss: Record<string, ComponentCssProperty> | undefined) {
+		if (!customCss) {
+			return false
+		}
+
+		return Object.keys(customCss ?? {})
+			.map((key) => customCss[key])
+			.some((c) => c.style !== '')
+	}
+
+	let type: string | undefined = component?.type
 </script>
 
 {#if migrationModalOpen}
@@ -124,30 +139,35 @@
 					<div class="leading-6 font-semibold text-sm"> Migrate to CSS editor </div>
 					<div class="">
 						<div class="">
-							<div class="leading-6 text-xs font-semibold"
-								>ID <Badge color="indigo" size="xs">
-									{component?.id}
-								</Badge>
-							</div>
-
+							{#if hasStyles(component?.customCss)}
+								<div class="leading-6 text-xs font-semibold">
+									ID <Badge color="indigo" size="xs">
+										{component?.id}
+									</Badge>
+								</div>
+							{/if}
 							{#if component?.type && $app.css}
-								{#each Object.keys(component.customCss ?? {}) as x}
-									{#if component.customCss[x].style != undefined && component.customCss[x].style !== ''}
+								{#each Object.keys(component.customCss ?? {}) as cssKey}
+									{#if component.customCss?.[cssKey].style != undefined && component.customCss[cssKey].style !== ''}
 										<div class="grid grid-cols-2 gap-2">
 											<div>
 												<div class="flex flex-row justify-between items-center py-0.5">
 													<div class="leading-6 text-xs font-semibold">
 														<Badge>
-															{x}
+															{cssKey}
 														</Badge>
 													</div>
 													<Button
 														color="light"
 														size="xs"
 														on:click={() => {
-															setOrUpdateMigration(x, component.customCss[x].style)
-
-															component.customCss[x].style = ''
+															if (component?.customCss?.[cssKey]?.style != undefined) {
+																setOrUpdateMigration(
+																	cssKey,
+																	component.customCss[cssKey].style ?? ''
+																)
+																component.customCss[cssKey].style = ''
+															}
 														}}
 													>
 														<div class="flex flex-row gap-2 items-center">
@@ -157,14 +177,14 @@
 													</Button>
 												</div>
 												<div class="border p-2 rounded-md">
-													<Highlight code={component.customCss[x].style} language={css} />
+													<Highlight code={component.customCss[cssKey].style} language={css} />
 												</div>
 											</div>
 											<div class="">
 												<div class="leading-6 text-xs font-semibold my-1">Preview</div>
 												<div class="border rounded-md p-2">
 													<Highlight
-														code={`.wm-button {\n\t${component.customCss[x].style}\n}`}
+														code={`.wm-button {\n\t${component.customCss[cssKey].style}\n}`}
 														language={css}
 													/>
 												</div>
@@ -174,27 +194,31 @@
 								{/each}
 							{/if}
 
-							<div class="leading-6 text-xs font-semibold">
-								Global: {component?.type ? ccomponents[component.type]?.name : ''}
-							</div>
+							{#if hasStyles(component?.type ? $app.css?.[component?.type] : undefined)}
+								<div class="leading-6 text-xs font-semibold">
+									Global: {component?.type ? ccomponents[component.type]?.name : ''}
+								</div>
+							{/if}
 
 							{#if component?.type && $app.css}
-								{#each Object.keys($app.css[component?.type] ?? {}) as x}
-									{#if $app.css[component?.type][x].style != undefined && $app.css[component?.type][x].style !== ''}
+								{#each Object.keys($app.css[component?.type] ?? {}) as cssKey}
+									{#if type && $app.css?.[type]?.[cssKey].style != undefined && $app.css[type]?.[cssKey].style !== ''}
 										<div class="grid grid-cols-2 gap-2">
 											<div>
 												<div class="flex flex-row justify-between items-center py-0.5">
 													<div class="leading-6 text-xs font-semibold">
 														<Badge>
-															{x}
+															{cssKey}
 														</Badge>
 													</div>
 													<Button
 														color="light"
 														size="xs"
 														on:click={() => {
-															setOrUpdateMigration(x, $app.css[component?.type][x].style)
-															$app.css[component?.type][x].style = ''
+															if (type && $app.css?.[type]) {
+																setOrUpdateMigration(cssKey, $app.css[type][cssKey].style)
+																$app.css[type][cssKey].style = ''
+															}
 														}}
 													>
 														<div class="flex flex-row gap-2 items-center">
@@ -204,14 +228,14 @@
 													</Button>
 												</div>
 												<div class="border p-2 rounded-md">
-													<Highlight code={$app.css[component?.type][x].style} language={css} />
+													<Highlight code={$app.css[type][cssKey].style} language={css} />
 												</div>
 											</div>
 											<div class="">
 												<div class="leading-6 text-xs font-semibold my-1">Preview</div>
 												<div class="border rounded-md p-2">
 													<Highlight
-														code={`.wm-button {\n\t${$app.css[component?.type][x].style}\n}`}
+														code={`${getSelector(cssKey)} {\n\t${$app.css[type][cssKey].style}\n}`}
 														language={css}
 													/>
 												</div>
@@ -232,7 +256,11 @@
 							<div class="text-gray-500 text-xs">No migrations</div>
 						{/if}
 					</div>
-					<div class="mt-2 w-64 float-right">
+					<div class="mt-2 flex flex-row justify-end items-center gap-2">
+						<div class="text-xs">
+							If the class is already present in the CSS editor, the migration will append the new
+							values to the existing ones.
+						</div>
 						<Button
 							size="xs"
 							color="dark"

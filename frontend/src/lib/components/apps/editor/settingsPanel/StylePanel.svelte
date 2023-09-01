@@ -13,7 +13,6 @@
 	import { premiumStore } from '$lib/stores'
 	import { secondaryMenu } from './secondaryMenu'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { fade } from 'svelte/transition'
 
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	export let component: AppComponent | undefined
@@ -25,7 +24,6 @@
 	onMount(() => {
 		if ($app.css == undefined) $app.css = {}
 		if (component && $app.css[component.type] == undefined && customCssByComponentType) {
-			debugger
 			$app.css[component.type] = Object.fromEntries(
 				customCssByComponentType.map(({ id }) => [id, {}])
 			)
@@ -52,8 +50,6 @@
 
 	function hasStyleValue(obj: ComponentCssProperty | undefined) {
 		if (!obj) return false
-
-		console.log(obj.style)
 
 		return obj.style !== ''
 	}
@@ -101,7 +97,7 @@
 	let migrationModal: CssMigrationModal | undefined = undefined
 </script>
 
-<div class="p-2 flex items-start gap-2 flex-col">
+<div class="p-2 flex items-start gap-2 flex-row justify-between">
 	<Button
 		color="blue"
 		size="xs2"
@@ -149,7 +145,7 @@
 	</Tab>
 	<Tab value="global" size="xs">
 		<div class="flex flex-row gap-2 items-center">
-			Global: {ccomponents[type].name}
+			Global: {type ? ccomponents[type].name : ''}
 
 			<Tooltip light>
 				You can customise the CSS and the classes of all components of this type. Theses
@@ -186,7 +182,7 @@
 			{#if type}
 				{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 					<div class="w-full">
-						{#if $app?.css?.[type]?.[id] && $app.css[type]}
+						{#if $app.css && type && $app.css[type]}
 							<CssProperty
 								{forceStyle}
 								{forceClass}
