@@ -1,6 +1,4 @@
 <script lang="ts">
-	// @ts-nocheck
-
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { getContext, onMount } from 'svelte'
@@ -11,12 +9,13 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { premiumStore } from '$lib/stores'
 	import { secondaryMenu } from './secondaryMenu'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { fade } from 'svelte/transition'
 
+	import CssMigrationModal from './CSSMigrationModal.svelte'
 	export let component: AppComponent | undefined
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
@@ -49,12 +48,6 @@
 		if (!obj) return false
 
 		return Object.values(obj).some((v) => v !== '')
-	}
-
-	function hasClassValue(obj: ComponentCssProperty | undefined) {
-		if (!obj) return false
-
-		return obj.class !== ''
 	}
 
 	function hasStyleValue(obj: ComponentCssProperty | undefined) {
@@ -104,6 +97,8 @@
 	}
 
 	let type = component?.type
+
+	let migrationModal: CssMigrationModal | undefined = undefined
 </script>
 
 <div class="p-2 flex items-start gap-2 flex-col">
@@ -116,16 +111,24 @@
 			$cssEditorOpen = true
 		}}
 	>
-		<div class="flex flex-row gap-2 text-xs items-center">
-			Open CSS editor
+		<div class="flex flex-row gap-1 text-xs items-center">
+			Open CSS editor{$premiumStore.premium ? '  (EE only)' : ''}
 			<Tooltip light>
-				You can also use the App CSS Editor to customise the CSS of all components. >
+				You can also use the App CSS Editor to customise the CSS of all components.
 			</Tooltip>
 		</div>
 	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		{#if $premiumStore.premium}
-			<Button color="dark" size="xs" on:click={() => {}}>Migrate custom to global CSS</Button>
+		{#if $premiumStore.premium || true}
+			<Button
+				color="dark"
+				size="xs"
+				on:click={() => {
+					migrationModal?.open()
+				}}
+			>
+				Migrate to CSS editor
+			</Button>
 		{/if}
 	</div>
 </div>
@@ -248,3 +251,4 @@
 		The local CSS for this component already exists. Do you want to override it?
 	</div>
 </ConfirmationModal>
+<CssMigrationModal bind:this={migrationModal} {component} />

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import { LayoutDashboardIcon } from 'lucide-svelte'
+	import { AlertTriangle, LayoutDashboardIcon } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
 	import { ccomponents, components } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import CssHelperPanel from './CssHelperPanel.svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { premiumStore } from '$lib/stores'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const STATIC_ELEMENTS = ['app'] as const
 
@@ -55,11 +55,15 @@
 	<Pane size={60}>
 		{#if !$premiumStore.premium}
 			<div bind:clientHeight={alertHeight} class="p-2">
-				<Alert type="warning" title="EE only" size="xs">
-					Global CSS is an exclusive feature of the Enterprise Edition. You can experiment with this
-					feature in the editor, but please note that the changes will not be visible in the
-					preview.
-				</Alert>
+				<div class="flex flex-row gap-2 items-center text-yellow-500 text-xs">
+					<AlertTriangle size={16} />
+					EE only
+					<Tooltip light>
+						App CSS editor is an exclusive feature of the Enterprise Edition. You can experiment
+						with this feature in the editor, but please note that the changes will not be visible in
+						the preview.
+					</Tooltip>
+				</div>
 			</div>
 		{/if}
 		<div style="height: calc(100% - {alertHeight || 0}px);">

@@ -110,6 +110,7 @@ export const authorizedClassnames = [
 interface Selector {
 	selector: string
 	comment?: string | undefined
+	customCssKey?: string | undefined
 }
 
 interface Variable {
@@ -145,7 +146,7 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['buttoncomponent'],
 		selectors: [
-			{ selector: '.wm-button', comment: 'Applied to the button' },
+			{ selector: '.wm-button', comment: 'Applied to the button', customCssKey: 'button' },
 			{ selector: '.wm-button-wrapper', comment: 'Applied to the div around the button	' },
 			{ selector: '.wm-button-container', comment: 'Applied to the button container' }
 		],
