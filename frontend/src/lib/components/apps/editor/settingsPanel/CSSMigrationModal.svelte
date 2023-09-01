@@ -35,9 +35,6 @@
 	}
 
 	$: generatedCode = generateCodeFromMigrations(migrations)
-
-	$: console.log(generatedCode)
-
 	$: migrations = new Map<string, string[]>()
 
 	function getSelector(key: string) {

@@ -1,4 +1,5 @@
 import * as csstree from 'css-tree'
+import type { ComponentCssProperty } from '../../types'
 
 export function sanitizeCss(css: string, authorizedClassNames: string[]) {
 	const ast = csstree.parse(css)
@@ -702,3 +703,9 @@ export const customisationByComponent: Customisation[] = [
  * Multi Select
  * resource select
  */
+
+export function hasStyleValue(obj: ComponentCssProperty | undefined) {
+	if (!obj) return false
+
+	return obj.style !== ''
+}

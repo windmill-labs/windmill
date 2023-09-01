@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
-	import { ccomponents, type AppComponent } from '../component'
+	import { ccomponents, type AppComponent, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { quickStyleProperties } from '../componentsPanel/quickStyleProperties'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -13,7 +13,7 @@
 	import { premiumStore } from '$lib/stores'
 	import { secondaryMenu } from './secondaryMenu'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
+	import { customisationByComponent, hasStyleValue } from '../componentsPanel/cssUtils'
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
 	export let component: AppComponent | undefined
@@ -26,7 +26,7 @@
 	let type = component?.type
 	let migrationModal: CssMigrationModal | undefined = undefined
 
-	const customCssByComponentType =
+	$: customCssByComponentType =
 		component?.type && $app.css
 			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
 					id,
@@ -34,18 +34,6 @@
 					forceClass: v?.['class'] != undefined
 			  }))
 			: undefined
-
-	function hasValues(obj: ComponentCssProperty | undefined) {
-		if (!obj) return false
-
-		return Object.values(obj).some((v) => v !== '')
-	}
-
-	function hasStyleValue(obj: ComponentCssProperty | undefined) {
-		if (!obj) return false
-
-		return obj.style !== ''
-	}
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
 		if (!value) {
@@ -55,7 +43,7 @@
 
 			if (!type) return
 
-			if (hasValues($app.css?.[type]?.[name])) {
+			if (hasStyleValue($app.css?.[type]?.[name])) {
 				overrideGlobalCSS = () => {
 					$app.css![type]![name] = JSON.parse(JSON.stringify(value))
 					app.set($app)
@@ -72,7 +60,7 @@
 		if (!value) {
 			sendUserToast('No global CSS to copy')
 		} else {
-			if (hasValues(value)) {
+			if (hasStyleValue(value)) {
 				overrideLocalCSS = () => {
 					component!.customCss![id] = JSON.parse(JSON.stringify(value))
 					app.set($app)
@@ -85,14 +73,20 @@
 		}
 	}
 
-	onMount(() => {
-		if ($app.css == undefined) $app.css = {}
-		if (component && $app.css[component.type] == undefined && customCssByComponentType) {
-			$app.css[component.type] = Object.fromEntries(
-				customCssByComponentType.map(({ id }) => [id, {}])
-			)
+	function initGlobalCss() {
+		if ($app.css && component && !$app.css[component.type]?.style && components[component.type]) {
+			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
+			app.set($app)
 		}
-	})
+	}
+
+	function getSelector(key: string) {
+		return customisationByComponent
+			.find((c) => c.components.includes(component?.type ?? ''))
+			?.selectors.find((s) => {
+				return s.customCssKey === key
+			})?.selector
+	}
 </script>
 
 <div class="p-2 flex items-start gap-2 flex-row justify-between">
@@ -141,7 +135,7 @@
 			</Tooltip>
 		</div>
 	</Tab>
-	<Tab value="global" size="xs">
+	<Tab value="global" size="xs" on:pointerdown={() => initGlobalCss()}>
 		<div class="flex flex-row gap-2 items-center">
 			Global: {type ? ccomponents[type].name : ''}
 
@@ -162,15 +156,16 @@
 							forceClass={ccomponents[component.type].customCss[name].class !== undefined}
 							tooltip={ccomponents[component.type].customCss[name].tooltip}
 							{name}
+							wmClass={getSelector(name)}
 							componentType={component.type}
 							bind:value={component.customCss[name]}
 							on:change={() => app.set($app)}
-							shouldDisplayRight={hasValues(component.customCss[name])}
+							shouldDisplayRight={hasStyleValue(component.customCss[name])}
 							on:right={() => {
 								copyLocalToGlobal(name, component?.customCss?.[name])
 								tab = 'global'
 							}}
-							overridding={hasValues(component.customCss[name])}
+							overridding={hasStyleValue(component.customCss[name])}
 						/>
 					</div>
 				{/each}

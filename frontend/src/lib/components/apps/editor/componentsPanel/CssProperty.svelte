@@ -23,6 +23,7 @@
 	export let shouldDisplayRight: boolean = false
 	export let overriden: boolean = false
 	export let overridding: boolean = false
+	export let wmClass: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
@@ -34,10 +35,15 @@
 	}
 </script>
 
-<div
-	class="capitalize border-b flex justify-between items-center h-8 p-2 text-xs leading-6 font-bold"
->
-	{addWhitespaceBeforeCapitals(name)}
+<div class=" border-b flex justify-between items-center h-8 p-2 text-xs leading-6 font-bold">
+	<div class="flex flex-row gap-2">
+		<div class="capitalize">
+			{addWhitespaceBeforeCapitals(name)}
+		</div>
+		{#if wmClass}
+			<Badge small>{wmClass}</Badge>
+		{/if}
+	</div>
 	{#if shouldDisplayLeft}
 		<Button
 			color="light"
