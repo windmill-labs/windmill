@@ -299,7 +299,7 @@
 		requestAnimationFrame(animate)
 	}
 
-	function easeInOut(t) {
+	function easeInOut(t: number) {
 		return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 	}
 
@@ -331,7 +331,7 @@
 	function updateCssContent(cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)
 		if (existingElement && $appStore.cssString !== existingElement.innerHTML) {
-			existingElement.innerHTML = $appStore.cssString ?? ''
+			existingElement.innerHTML = cssString ?? ''
 		}
 	}
 </script>

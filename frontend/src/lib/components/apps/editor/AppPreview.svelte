@@ -24,7 +24,6 @@
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import { workspaceStore, premiumStore } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { onMount } from 'svelte'
 
 	export let app: App
 	export let appPath: string = ''
@@ -111,17 +110,27 @@
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
+	const cssId = 'wm-global-style'
 
-	onMount(() => {
-		if (!$premiumStore.premium) {
-			const style = document.getElementById('wm-global-style')
+	$: addOrRemoveCss($premiumStore.premium)
 
-			if (style) {
-				// Remove the style tag if it exists
-				style.remove()
+	function addOrRemoveCss(isPremium: boolean) {
+		const existingElement = document.getElementById(cssId)
+
+		if (!isPremium) {
+			if (existingElement) {
+				existingElement.remove()
+			}
+		} else {
+			if (!existingElement) {
+				const head = document.head
+				const link = document.createElement('style')
+				link.id = cssId
+				link.innerHTML = $appStore.cssString!
+				head.appendChild(link)
 			}
 		}
-	})
+	}
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
