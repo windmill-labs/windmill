@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Cell from '$lib/components/table/Cell.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
 	import type { Job } from '$lib/gen'
+	import { ArrowDownIcon } from 'lucide-svelte'
+	import Button from '../common/button/Button.svelte'
 	import RunRow from './RunRow.svelte'
+	import VirtualList from 'svelte-tiny-virtual-list'
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
@@ -57,44 +57,83 @@
 	}
 
 	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbOfJobs))
+
+	let flatJobs: Array<
+		| {
+				type: 'date'
+				date: string
+		  }
+		| {
+				type: 'job'
+				job: Job
+		  }
+	> = []
+	$: {
+		flatJobs = []
+		for (const [date, jobsByDay] of Object.entries(groupedJobs)) {
+			flatJobs.push({ type: 'date', date })
+			for (const job of jobsByDay) {
+				flatJobs.push({ type: 'job', job })
+			}
+		}
+	}
+
+	let stickyIndices: number[] = []
+
+	$: {
+		stickyIndices = []
+		let index = 0
+		for (const entry of flatJobs) {
+			if (entry.type === 'date') {
+				stickyIndices.push(index)
+			}
+			index++
+		}
+	}
 </script>
 
-<DataTable
-	rounded={false}
-	size="sm"
-	loadMore={loadMoreQuantity}
-	shouldLoadMore={nbOfJobs < jobs.length}
-	on:loadMore={() => (nbOfJobs += loadMoreQuantity)}
->
-	<Head>
-		<Cell first head class="w-8" />
-		<Cell head>Timestamp</Cell>
-		<Cell head>Path</Cell>
-		<Cell head last>Triggered by</Cell>
-	</Head>
+<div class="divide-y h-full">
+	<div class="flex flex-row bg-surface-secondary sticky top-0">
+		<div class="w-8" />
+		<div>Timestamp</div>
+		<div>Path</div>
+		<div>Triggered by</div>
+	</div>
 
-	<tbody class="divide-y">
-		{#each Object.entries(groupedJobs) as [date, jobsByDay]}
-			<tr class="border-t">
-				<Cell
-					first
-					colspan="6"
-					scope="colgroup"
-					class="bg-surface-secondary/30 py-2 border-b font-semibold"
-				>
-					{date}
-				</Cell>
-			</tr>
-			{#each jobsByDay as job (job.id)}
-				<RunRow {job} bind:selectedId on:select on:filterByPath on:filterByUser on:filterByFolder />
-			{/each}
-		{/each}
-	</tbody>
-	{#if jobs.length == 0}
-		<tr>
-			<td colspan="4" class="text-center py-8">
-				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-			</td>
-		</tr>
-	{/if}
-</DataTable>
+	<VirtualList width="100%" height="100%" itemCount={flatJobs.length} itemSize={50}>
+		<div slot="item" let:index let:style {style}>
+			{@const jobOrDate = flatJobs[index]}
+			{#if jobOrDate.type === 'date'}
+				<div class="bg-surface-secondary/30 py-2 border-b font-semibold">
+					{jobOrDate.date}
+				</div>
+			{:else}
+				<RunRow
+					job={jobOrDate.job}
+					bind:selectedId
+					on:select
+					on:filterByPath
+					on:filterByUser
+					on:filterByFolder
+				/>
+			{/if}
+		</div>
+	</VirtualList>
+</div>
+{#if jobs.length == 0}
+	<tr>
+		<td colspan="4" class="text-center py-8">
+			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
+		</td>
+	</tr>
+{/if}
+{#if nbOfJobs < jobs.length}
+	<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
+		<Button color="light" size="xs2" on:click={() => (nbOfJobs += loadMoreQuantity)}>
+			<div class="flex flex-row gap-1 items-center">
+				Load {loadMoreQuantity} more
+				<ArrowDownIcon size={16} />
+			</div>
+		</Button>
+	</div>
+{/if}

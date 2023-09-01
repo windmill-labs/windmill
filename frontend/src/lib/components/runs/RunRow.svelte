@@ -6,8 +6,7 @@
 	import Icon from 'svelte-awesome'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
-	import Row from '../table/Row.svelte'
-	import Cell from '../table/Cell.svelte'
+
 	import {
 		Calendar,
 		Check,
@@ -21,6 +20,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 	const SMALL_ICON_SCALE = 0.7
@@ -42,15 +42,20 @@
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
-<Row
-	hoverable
-	selected={selectedId === job.id}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<div
+	class={twMerge(
+		'hover:bg-surface-hover cursor-pointer',
+		selectedId === job.id ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+		'transition-all',
+		'flex flex-row'
+	)}
 	on:click={() => {
 		selectedId = job.id
 		dispatch('select')
 	}}
 >
-	<Cell first>
+	<div>
 		<div>
 			{#if 'success' in job && job.success}
 				{#if job.is_skipped}
@@ -80,8 +85,8 @@
 				</Badge>
 			{/if}
 		</div>
-	</Cell>
-	<Cell>
+	</div>
+	<div>
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -103,9 +108,9 @@
 				{/if}
 			{/if}
 		</div>
-	</Cell>
+	</div>
 
-	<Cell>
+	<div>
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -164,12 +169,14 @@
 			{:else}
 				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
 				<span class="mx-1">
-					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>{job.parent_job}</a>
+					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+						>{job.parent_job}</a
+					>
 				</span>
 			{/if}
 		{/if}
-	</Cell>
-	<Cell last>
+	</div>
+	<div>
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -196,5 +203,5 @@
 				</Button>
 			</div>
 		{/if}
-	</Cell>
-</Row>
+	</div>
+</div>

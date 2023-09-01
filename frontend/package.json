@@ -105,6 +105,7 @@
 		"svelte-exmarkdown": "^2.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-timezone-picker": "^2.0.3",
+		"svelte-tiny-virtual-list": "^2.0.5",
 		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
 		"windmill-parser-wasm": "^1.154.3",
