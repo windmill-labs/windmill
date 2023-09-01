@@ -15,20 +15,16 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import CssMigrationModal from './CSSMigrationModal.svelte'
+	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
 	export let component: AppComponent | undefined
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
 	let tab: 'local' | 'global' = 'local'
-
-	onMount(() => {
-		if ($app.css == undefined) $app.css = {}
-		if (component && $app.css[component.type] == undefined && customCssByComponentType) {
-			$app.css[component.type] = Object.fromEntries(
-				customCssByComponentType.map(({ id }) => [id, {}])
-			)
-		}
-	})
+	let overrideGlobalCSS: (() => void) | undefined = undefined
+	let overrideLocalCSS: (() => void) | undefined = undefined
+	let type = component?.type
+	let migrationModal: CssMigrationModal | undefined = undefined
 
 	const customCssByComponentType =
 		component?.type && $app.css
@@ -38,9 +34,6 @@
 					forceClass: v?.['class'] != undefined
 			  }))
 			: undefined
-
-	let overrideGlobalCSS: (() => void) | undefined = undefined
-	let overrideLocalCSS: (() => void) | undefined = undefined
 
 	function hasValues(obj: ComponentCssProperty | undefined) {
 		if (!obj) return false
@@ -92,9 +85,14 @@
 		}
 	}
 
-	let type = component?.type
-
-	let migrationModal: CssMigrationModal | undefined = undefined
+	onMount(() => {
+		if ($app.css == undefined) $app.css = {}
+		if (component && $app.css[component.type] == undefined && customCssByComponentType) {
+			$app.css[component.type] = Object.fromEntries(
+				customCssByComponentType.map(({ id }) => [id, {}])
+			)
+		}
+	})
 </script>
 
 <div class="p-2 flex items-start gap-2 flex-row justify-between">
@@ -182,13 +180,12 @@
 			{#if type}
 				{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
 					<div class="w-full">
-						{#if $app.css && type && $app.css[type]}
-							<CssProperty
+						{#if $app.css && type && $app.css[type] && component?.customCss}
+							<CssPropertyWrapper
 								{forceStyle}
 								{forceClass}
-								name={id}
-								bind:value={$app.css[type][id]}
-								shouldDisplayLeft={hasValues($app.css[type][id])}
+								{id}
+								bind:property={$app.css[type]}
 								on:left={() => {
 									copyGlobalToLocal(
 										id,
