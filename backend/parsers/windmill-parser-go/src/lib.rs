@@ -6,7 +6,12 @@ use gosyn::{
 };
 use itertools::Itertools;
 
+use regex::Regex;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+
+lazy_static::lazy_static! {
+    pub static ref REQUIRE_PARSE: Regex = Regex::new(r"//require (.*)\n").unwrap();
+}
 
 pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let filtered_code = filter_non_main(code);
@@ -46,7 +51,14 @@ pub fn parse_go_imports(code: &str) -> anyhow::Result<Vec<String>> {
         })
         .collect();
     imports.sort();
-    Ok(imports)
+    Ok([
+        imports,
+        REQUIRE_PARSE
+            .captures_iter(code)
+            .map(|x| x[1].to_string())
+            .collect_vec(),
+    ]
+    .concat())
 }
 
 fn get_name(param: &Field) -> String {

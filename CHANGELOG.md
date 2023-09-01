@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [1.165.0](https://github.com/windmill-labs/windmill/compare/v1.164.0...v1.165.0) (2023-08-31)
+
+
+### Features
+
+* improve queue performance when queue grows large ([ada88a2](https://github.com/windmill-labs/windmill/commit/ada88a2bf94fec71187bbdb210065de43d4cd3fb))
+* support partial go dependency pinning ([41107c7](https://github.com/windmill-labs/windmill/commit/41107c7cfa7b56099a9c8b08cfb16ff3cf840ff2))
+
+
+### Bug Fixes
+
+* uniformize that all job links specify the workspace ([d311d76](https://github.com/windmill-labs/windmill/commit/d311d76557432a72a5d6d7ab010aeb1fe0e599de))
+
+## [1.164.0](https://github.com/windmill-labs/windmill/compare/v1.163.1...v1.164.0) (2023-08-31)
+
+
+### Features
+
+* add workspace variable to worker tag ([276cd6d](https://github.com/windmill-labs/windmill/commit/276cd6dac39b7cb181ac46e3edea79a3a3bcff8d))
+
+
+### Bug Fixes
+
+* **frontend:** allow using Docker in Flow ([#2201](https://github.com/windmill-labs/windmill/issues/2201)) ([bb749c1](https://github.com/windmill-labs/windmill/commit/bb749c14f877f7cb1e8642b881a00aedfeb08f7d))
+
 ## [1.163.1](https://github.com/windmill-labs/windmill/compare/v1.163.0...v1.163.1) (2023-08-30)
 
 

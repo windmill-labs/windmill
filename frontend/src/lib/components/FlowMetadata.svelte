@@ -14,6 +14,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
@@ -57,11 +58,15 @@
 				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 					class="mx-2"
 				>
-					Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+					Step of flow <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
+						>{job.parent_job}</a
+					></span
 				>
 			{:else}
 				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-					Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+					Triggered by parent <a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}
+						>{job.parent_job}</a
+					></span
 				>
 			{/if}
 		{:else if job && job.schedule_path}
