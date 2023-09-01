@@ -74,7 +74,7 @@
 		}
 
 		for (const [key, value] of migrations) {
-			if (cssString.includes(key)) {
+			if (cssString.includes(`${key} {` || `${key}{`)) {
 				// append value to existing value
 				const regex = new RegExp(`\\${key}\\s*{\\s*([\\s\\S]*?)\\s*}`, 'g')
 
@@ -89,10 +89,14 @@
 					)
 				}
 			} else {
+				const firstBreakline = cssString === '' ? '' : '\n\n'
+
 				// append key and value
-				cssString += `${key} {\n\t${value.join('\n\t')}\n}\n\n`
+				cssString += `${firstBreakline}${key} {\n\t${value.join('\n\t')}\n}\n\n`
 			}
 		}
+
+		debugger
 
 		$app.cssString = cssString
 	}
@@ -181,7 +185,9 @@
 												<div class="leading-6 text-xs font-semibold my-1">Preview</div>
 												<div class="border rounded-md p-2">
 													<Highlight
-														code={`.wm-button {\n\t${component.customCss[cssKey].style}\n}`}
+														code={`${getSelector(cssKey)} {\n\t${
+															component.customCss[cssKey].style
+														}\n}`}
 														language={css}
 													/>
 												</div>

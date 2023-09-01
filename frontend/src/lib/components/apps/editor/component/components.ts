@@ -2168,7 +2168,8 @@ This is a paragraph.
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' },
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			drawer: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',

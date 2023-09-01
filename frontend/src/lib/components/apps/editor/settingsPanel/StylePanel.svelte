@@ -74,7 +74,13 @@
 	}
 
 	function initGlobalCss() {
-		if ($app.css && component && !$app.css[component.type]?.style && components[component.type]) {
+		if (
+			$app.css &&
+			component &&
+			!$app.css[component.type]?.style &&
+			components[component.type] &&
+			$app.css[component.type] === undefined
+		) {
 			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
 			app.set($app)
 		}

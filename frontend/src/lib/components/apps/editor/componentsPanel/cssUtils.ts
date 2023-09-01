@@ -148,20 +148,26 @@ export const customisationByComponent: Customisation[] = [
 		components: ['buttoncomponent'],
 		selectors: [
 			{ selector: '.wm-button', comment: 'Applied to the button', customCssKey: 'button' },
-			{ selector: '.wm-button-wrapper', comment: 'Applied to the div around the button	' },
-			{ selector: '.wm-button-container', comment: 'Applied to the button container' }
+			{ selector: '.wm-button-wrapper', comment: 'Applied to the div around the button' },
+			{
+				selector: '.wm-button-container',
+				comment: 'Applied to the button container',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['containercomponent'],
-		selectors: [{ selector: '.wm-container', comment: 'Container component' }],
+		selectors: [
+			{ selector: '.wm-container', comment: 'Container component', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
 		components: ['listcomponent'],
 		selectors: [
-			{ selector: '.wm-list', comment: 'List component' },
+			{ selector: '.wm-list', comment: 'List component', customCssKey: 'container' },
 			{ selector: '.wm-list-pagination', comment: 'Pagination component' },
 			{ selector: '.wm-list-pagination-buttons', comment: 'Pagination buttons component' }
 		],
@@ -170,32 +176,48 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['drawercomponent'],
 		selectors: [
-			{ selector: '.wm-drawer', comment: 'main drawer element' },
-			{ selector: '.wm-drawer-button', comment: 'button to open drawer' },
-			{ selector: '.wm-drawer-button-container', comment: 'container for button to open drawer' }
+			{ selector: '.wm-drawer', comment: 'main drawer element', customCssKey: 'drawer' },
+			{ selector: '.wm-drawer-button', comment: 'button to open drawer', customCssKey: 'button' },
+			{
+				selector: '.wm-drawer-button-container',
+				comment: 'container for button to open drawer',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['verticalsplitpanescomponent'],
 		selectors: [
-			{ selector: '.wm-vertical-split-panes', comment: 'Vertical split panes component' }
+			{
+				selector: '.wm-vertical-split-panes',
+				comment: 'Vertical split panes component',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['horizontalsplitpanescomponent'],
 		selectors: [
-			{ selector: '.wm-horizontal-split-panes', comment: 'Horizontal split panes component' }
+			{
+				selector: '.wm-horizontal-split-panes',
+				comment: 'Horizontal split panes component',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['modalcomponent'],
 		selectors: [
-			{ selector: '.wm-modal', comment: 'main modal element' },
-			{ selector: '.wm-modal-button', comment: 'button to open modal' },
-			{ selector: '.wm-modal-button-container', comment: 'container for button to open modal' }
+			{ selector: '.wm-modal', comment: 'main modal element', customCssKey: 'popup' },
+			{ selector: '.wm-modal-button', comment: 'button to open modal', customCssKey: 'button' },
+			{
+				selector: '.wm-modal-button-container',
+				comment: 'container for button to open modal',
+				customCssKey: 'buttonContainer'
+			}
 		],
 		variables: []
 	},
@@ -284,39 +306,45 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['tabscomponent'],
 		selectors: [
-			{ selector: '.wm-tabs-container', comment: 'Tabs container' },
-			{ selector: '.wm-tabs-tabRow', comment: 'Tabs row' },
-			{ selector: '.wm-tabs-alltabs', comment: 'All tabs' },
-			{ selector: '.wm-tabs-selectedTab', comment: 'Selected tab' }
+			{ selector: '.wm-tabs-container', comment: 'Tabs container', customCssKey: 'container' },
+			{ selector: '.wm-tabs-tabRow', comment: 'Tabs row', customCssKey: 'tabRow' },
+			{ selector: '.wm-tabs-alltabs', comment: 'All tabs', customCssKey: 'allTabs' },
+			{ selector: '.wm-tabs-selectedTab', comment: 'Selected tab', customCssKey: 'selectedTab' }
 		],
 		variables: []
 	},
 	{
 		components: ['carousellistcomponent'],
-		selectors: [{ selector: '.wm-carousel', comment: 'Carousel component' }],
+		selectors: [
+			{ selector: '.wm-carousel', comment: 'Carousel component', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
-		components: ['submitcomponent'],
+		components: ['formcomponent'],
 		selectors: [
-			{ selector: '.wm-submit', comment: 'Submit component' },
-			{ selector: '.wm-submit-button', comment: 'Submit button' }
+			{ selector: '.wm-submit', comment: 'Submit component', customCssKey: 'container' },
+			{ selector: '.wm-submit-button', comment: 'Submit button', customCssKey: 'button' }
 		],
 		variables: []
 	},
 	{
 		components: ['numberinputcomponent'],
-		selectors: [{ selector: '.wm-number-input', comment: 'Number component' }],
+		selectors: [
+			{ selector: '.wm-number-input', comment: 'Number component', customCssKey: 'input' }
+		],
 		variables: []
 	},
 	{
 		components: ['currencycomponent'],
-		selectors: [{ selector: '.wm-currency-input', comment: 'Currency component' }],
+		selectors: [
+			{ selector: '.wm-currency-input', comment: 'Currency component', customCssKey: 'input' }
+		],
 		variables: []
 	},
 	{
 		components: ['dateinputcomponent'],
-		selectors: [{ selector: '.wm-date-input', comment: 'Date component' }],
+		selectors: [{ selector: '.wm-date-input', comment: 'Date component', customCssKey: 'input' }],
 		variables: []
 	},
 	{
@@ -326,21 +354,21 @@ export const customisationByComponent: Customisation[] = [
 			'textareainputcomponent',
 			'passwordinputcomponent'
 		],
-		selectors: [{ selector: '.wm-text-input', comment: 'Text component' }],
+		selectors: [{ selector: '.wm-text-input', comment: 'Text component', customCssKey: 'input' }],
 		variables: []
 	},
 	{
 		components: ['htmlcomponent'],
-		selectors: [{ selector: '.wm-html', comment: 'HTML component' }],
+		selectors: [{ selector: '.wm-html', comment: 'HTML component', customCssKey: 'container' }],
 		variables: []
 	},
 	{
 		components: ['tablecomponent'],
 		selectors: [
-			{ selector: '.wm-table-container', comment: 'Table component' },
-			{ selector: '.wm-table-header', comment: 'Table header' },
-			{ selector: '.wm-table-body', comment: 'Table body' },
-			{ selector: '.wm-table-footer', comment: 'Table footer' },
+			{ selector: '.wm-table-container', comment: 'Table component', customCssKey: 'container' },
+			{ selector: '.wm-table-header', comment: 'Table header', customCssKey: 'tableHeader' },
+			{ selector: '.wm-table-body', comment: 'Table body', customCssKey: 'tableBody' },
+			{ selector: '.wm-table-footer', comment: 'Table footer', customCssKey: 'tableFooter' },
 			{ selector: '.wm-table-row-selected', comment: 'Selected row' },
 			{ selector: '.wm-table-row', comment: 'Table row' }
 		],
@@ -348,86 +376,114 @@ export const customisationByComponent: Customisation[] = [
 	},
 	{
 		components: ['steppercomponent'],
-		selectors: [{ selector: 'wm-stepper', comment: 'Stepper component' }],
+		selectors: [
+			{ selector: 'wm-stepper', comment: 'Stepper component', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
 		components: ['fileinputcomponent'],
-		selectors: [{ selector: 'wm-file-input', comment: 'File input component' }],
+		selectors: [
+			{ selector: 'wm-file-input', comment: 'File input component', customCssKey: 'input' }
+		],
 		variables: []
 	},
 	{
 		components: ['checkboxcomponent'],
-		selectors: [{ selector: 'wm-toggle', comment: 'Checkbox component' }],
+		selectors: [{ selector: 'wm-toggle', comment: 'Checkbox component', customCssKey: 'text' }],
 		variables: []
 	},
 	{
 		components: ['imagecomponent'],
-		selectors: [{ selector: '.wm-image', comment: 'Image component' }],
+		selectors: [{ selector: '.wm-image', comment: 'Image component', customCssKey: 'image' }],
 		variables: []
 	},
 	{
 		components: ['pdfcomponent'],
-		selectors: [{ selector: '.wm-pdf', comment: 'PDF component' }],
+		selectors: [{ selector: '.wm-pdf', comment: 'PDF component', customCssKey: 'container' }],
 		variables: []
 	},
 	{
 		components: ['horizontaldividercomponent'],
 		selectors: [
-			{ selector: '.wm-horizontal-divider', comment: 'Horizontal divider component' },
-			{ selector: '.wm-horizontal-divider-container', comment: 'Horizontal divider container' }
+			{
+				selector: '.wm-horizontal-divider',
+				comment: 'Horizontal divider component',
+				customCssKey: 'divider'
+			},
+			{
+				selector: '.wm-horizontal-divider-container',
+				comment: 'Horizontal divider container',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['verticaldividercomponent'],
 		selectors: [
-			{ selector: '.wm-vertical-divider', comment: 'Vertical divider component' },
-			{ selector: '.wm-vertical-divider-container', comment: 'Vertical divider container' }
+			{
+				selector: '.wm-vertical-divider',
+				comment: 'Vertical divider component',
+				customCssKey: 'divider'
+			},
+			{
+				selector: '.wm-vertical-divider-container',
+				comment: 'Vertical divider container',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['logcomponent', 'jobidlogcomponent'],
 		selectors: [
-			{ selector: '.wm-log-header', comment: 'Log header' },
-			{ selector: '.wm-log-container', comment: 'Log container' }
+			{ selector: '.wm-log-header', comment: 'Log header', customCssKey: 'header' },
+			{ selector: '.wm-log-container', comment: 'Log container', customCssKey: 'container' }
 		],
 		variables: []
 	},
 	{
 		components: ['mapcomponent'],
-		selectors: [{ selector: '.wm-map', comment: 'Map component' }],
+		selectors: [{ selector: '.wm-map', comment: 'Map component', customCssKey: 'map' }],
 		variables: []
 	},
 	{
 		components: ['iconcomponent'],
 		selectors: [
-			{ selector: '.wm-icon', comment: 'Icon component' },
-			{ selector: '.wm-icon-container', comment: 'Icon container' }
+			{ selector: '.wm-icon', comment: 'Icon component', customCssKey: 'icon' },
+			{ selector: '.wm-icon-container', comment: 'Icon container', customCssKey: 'container' }
 		],
 		variables: []
 	},
 	{
 		components: ['flowstatuscomponent', 'jobidflowstatuscomponent'],
 		selectors: [
-			{ selector: '.wm-flow-status-header', comment: 'Flow status header' },
-			{ selector: '.wm-flow-status-container', comment: 'Flow status container' }
+			{ selector: '.wm-flow-status-header', comment: 'Flow status header', customCssKey: 'header' },
+			{
+				selector: '.wm-flow-status-container',
+				comment: 'Flow status container',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['selecttabcomponent'],
 		selectors: [
-			{ selector: '.wm-select-tab-row', comment: 'Select tab row' },
-			{ selector: '.wm-select-tab', comment: 'Select tab' },
-			{ selector: '.wm-select-tab-selected', comment: 'Select tab selected' }
+			{ selector: '.wm-select-tab-row', comment: 'Select tab row', customCssKey: 'tabRow' },
+			{ selector: '.wm-select-tab', comment: 'Select tab', customCssKey: 'tab' },
+			{
+				selector: '.wm-select-tab-selected',
+				comment: 'Select tab selected',
+				customCssKey: 'selectedTab'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['piechartcomponent'],
-		selectors: [{ selector: '.wm-pie-chart', comment: 'Pie chart' }],
+		selectors: [{ selector: '.wm-pie-chart', comment: 'Pie chart', customCssKey: 'container' }],
 		variables: []
 	},
 	{
@@ -443,67 +499,71 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['formbuttoncomponent'],
 		selectors: [
-			{ selector: '.wm-modal-form-popup', comment: 'Modal form popup' },
-			{ selector: '.wm-modal-form-button', comment: 'Modal form button' }
+			{ selector: '.wm-modal-form-popup', comment: 'Modal form popup', customCssKey: 'popup' },
+			{ selector: '.wm-modal-form-button', comment: 'Modal form button', customCssKey: 'button' }
 		],
 		variables: []
 	},
 	{
 		components: ['downloadcomponent'],
 		selectors: [
-			{ selector: '.wm-download-button', comment: 'Download button' },
+			{ selector: '.wm-download-button', comment: 'Download button', customCssKey: 'button' },
 			{ selector: '.wm-download-button-container', comment: 'Download button container' }
 		],
 		variables: []
 	},
 	{
 		components: ['barchartcomponent'],
-		selectors: [{ selector: '.wm-bar-chart', comment: 'Bar chart' }],
+		selectors: [{ selector: '.wm-bar-chart', comment: 'Bar chart', customCssKey: 'container' }],
 		variables: []
 	},
 	{
 		components: ['scatterchartcomponent'],
-		selectors: [{ selector: '.wm-scatter-chart', comment: 'Scatter chart' }],
+		selectors: [
+			{ selector: '.wm-scatter-chart', comment: 'Scatter chart', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
 		components: ['chartjscomponent'],
-		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS' }],
+		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS', customCssKey: 'container' }],
 		variables: []
 	},
 	{
 		components: ['timeseriescomponent'],
-		selectors: [{ selector: '.wm-timeseries', comment: 'Time series' }],
+		selectors: [{ selector: '.wm-timeseries', comment: 'Time series', customCssKey: 'container' }],
 		variables: []
 	},
 	{
 		components: ['conditionalwrapper'],
-		selectors: [{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs' }],
+		selectors: [
+			{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
 		components: ['displaycomponent'],
 		selectors: [
-			{ selector: '.wm-rich-result-header', comment: 'Rich result header' },
-			{ selector: '.wm-rich-result-container', comment: 'Rich result container' }
+			{ selector: '.wm-rich-result-header', comment: 'Rich result header', customCssKey: 'header' },
+			{
+				selector: '.wm-rich-result-container',
+				comment: 'Rich result container',
+				customCssKey: 'container'
+			}
 		],
 		variables: []
 	},
 	{
 		components: ['mardowncomponent'],
-		selectors: [{ selector: '.wm-markdown', comment: 'Markdown component' }],
+		selectors: [
+			{ selector: '.wm-markdown', comment: 'Markdown component', customCssKey: 'container' }
+		],
 		variables: []
 	},
 	{
 		components: ['schemaformcomponent'],
-		selectors: [{ selector: '.wm-schema-form', comment: 'Schema form component' }],
-		variables: []
-	},
-	{
-		components: ['formcomponent'],
 		selectors: [
-			{ selector: '.wm-form-submit', comment: 'Form submit' },
-			{ selector: '.wm-form-submit-button', comment: 'Form submit button' }
+			{ selector: '.wm-schema-form', comment: 'Schema form component', customCssKey: 'container' }
 		],
 		variables: []
 	},
@@ -697,12 +757,6 @@ export const customisationByComponent: Customisation[] = [
 		]
 	}
 ]
-
-/**
- * Select
- * Multi Select
- * resource select
- */
 
 export function hasStyleValue(obj: ComponentCssProperty | undefined) {
 	if (!obj) return false

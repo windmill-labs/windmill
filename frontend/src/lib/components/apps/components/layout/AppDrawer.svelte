@@ -94,7 +94,8 @@
 			fullScreen={$mode !== 'dnd'}
 		>
 			<div
-				class={twMerge('h-full', 'wm-drawer')}
+				class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
+				style={css?.drawer?.style}
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {
