@@ -30,22 +30,24 @@
 		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected: string = tabs[0]
+	let selected = tabs[0]
 	let tabHeight: number = 0
 	let footerHeight: number = 0
 	let runnableComponent: RunnableComponent
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
 	let maxReachedIndex = -1
 	let statusByStep = [] as Array<'success' | 'error' | 'pending'>
+	let debugMode: boolean = false
 
 	let outputs = initOutput($worldStore, id, {
 		currentStepIndex: 0,
 		result: undefined,
-		loading: false
+		loading: false,
+		lastAction: undefined as 'previous' | 'next' | undefined
 	})
 
 	async function handleTabSelection() {
-		if (runnableComponent) {
+		if (runnableComponent && !debugMode) {
 			await runnableComponent?.runComponent()
 		}
 
@@ -68,7 +70,9 @@
 	async function runStep(targetIndex: number) {
 		statusByStep[selectedIndex] = 'pending'
 
-		if (runnableComponent) {
+		outputs?.lastAction.set(directionClicked === 'left' ? 'previous' : 'next')
+
+		if (runnableComponent && !debugMode) {
 			await runnableComponent?.runComponent()
 		}
 
@@ -100,7 +104,14 @@
 			return false
 		},
 		setTab: (tab: number) => {
-			selected = tabs[tab]
+			debugMode = tab >= 0
+
+			if (debugMode) {
+				selected = tabs[tab]
+			} else {
+				selected = tabs[0]
+			}
+
 			handleTabSelection()
 		}
 	}
