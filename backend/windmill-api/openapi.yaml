@@ -2305,6 +2305,40 @@ paths:
                   - content
                   - language
 
+  /scripts/hub/query:
+    get:
+      summary: query hub scripts by similarity
+      operationId: queryHubScripts
+      tags:
+        - script
+      parameters:
+        - name: text
+          description: query text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                  required:
+                    - id
+
   /w/{workspace}/scripts/list:
     get:
       summary: list all available scripts

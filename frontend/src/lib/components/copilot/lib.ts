@@ -7,7 +7,10 @@ import { existsOpenaiResourcePath, workspaceStore, type DBSchema } from '$lib/st
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import type { CompletionCreateParamsStreaming } from 'openai/resources/chat'
+import type {
+	CompletionCreateParamsStreaming,
+	CreateChatCompletionRequestMessage
+} from 'openai/resources/chat'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -20,12 +23,24 @@ const openaiConfig: CompletionCreateParamsStreaming = {
 }
 
 let workspace: string | undefined = undefined
+let openai: OpenAI | undefined = undefined
 
 workspaceStore.subscribe(async (value) => {
 	workspace = value
-	if (workspace) {
+	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
+	openai = new OpenAI({
+		baseURL,
+		apiKey: 'fakekey',
+		defaultHeaders: {
+			Authorization: ''
+		},
+		dangerouslyAllowBrowser: true
+	})
+	if (value) {
 		try {
-			existsOpenaiResourcePath.set(await WorkspaceService.existsOpenaiResourcePath({ workspace }))
+			existsOpenaiResourcePath.set(
+				await WorkspaceService.existsOpenaiResourcePath({ workspace: value })
+			)
 		} catch (err) {
 			existsOpenaiResourcePath.set(false)
 			console.error('Could not get if OpenAI resource exists')
@@ -57,7 +72,11 @@ interface FixScriptOpions extends BaseOptions {
 
 type CopilotOptions = ScriptGenerationOptions | EditScriptOptions | FixScriptOpions
 
-async function addResourceTypes(scriptOptions: CopilotOptions, workspace: string, prompt: string) {
+export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
+	if (!workspace) {
+		throw new Error('Workspace not initialized')
+	}
+
 	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
 		const resourceTypes = await ResourceService.listResourceType({ workspace })
 		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
@@ -116,7 +135,7 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 	return prompt
 }
 
-async function getPrompts(scriptOptions: CopilotOptions, workspace: string) {
+async function getPrompts(scriptOptions: CopilotOptions) {
 	const promptsConfig = PROMPTS_CONFIGS[scriptOptions.type]
 	let prompt = promptsConfig.prompts[scriptOptions.language].prompt
 	if (scriptOptions.type !== 'fix') {
@@ -134,7 +153,7 @@ async function getPrompts(scriptOptions: CopilotOptions, workspace: string) {
 		prompt = prompt.replace('{error}', scriptOptions.error)
 	}
 
-	prompt = await addResourceTypes(scriptOptions, workspace, prompt)
+	prompt = await addResourceTypes(scriptOptions, prompt)
 
 	prompt = addDBSChema(scriptOptions, prompt)
 
@@ -165,55 +184,79 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+export async function getNonStreamingCompletion(
+	messages: CreateChatCompletionRequestMessage[],
+	abortController: AbortController
+) {
+	if (!openai) {
+		throw new Error('OpenAI not initialized')
+	}
+
+	const completion = await openai.chat.completions.create(
+		{
+			...openaiConfig,
+			messages,
+			stream: false
+		},
+		{
+			signal: abortController.signal
+		}
+	)
+
+	return completion.choices[0]?.message.content || ''
+}
+
+export async function getCompletion(
+	messages: CreateChatCompletionRequestMessage[],
+	abortController: AbortController
+) {
+	if (!openai) {
+		throw new Error('OpenAI not initialized')
+	}
+
+	const completion = await openai.chat.completions.create(
+		{
+			...openaiConfig,
+			messages
+		},
+		{
+			signal: abortController.signal
+		}
+	)
+
+	return completion
+}
+
 export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
 	generatedExplanation?: Writable<string>
 ) {
-	if (!workspace) {
-		throw new Error('No workspace selected')
-	}
-
-	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
-	const openai = new OpenAI({
-		baseURL,
-		apiKey: 'fakekey',
-		defaultHeaders: {
-			Authorization: ''
-		},
-		dangerouslyAllowBrowser: true
-	})
-
-	const { prompt, systemPrompt } = await getPrompts(scriptOptions, workspace)
+	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
 
 	const { samplePrompt, sampleAnswer } = getSampleInteraction(scriptOptions)
 
-	const completion = await openai.chat.completions.create(
-		{
-			...openaiConfig,
-			messages: [
-				{
-					role: 'system',
-					content: systemPrompt
-				},
-				{
-					role: 'user',
-					content: samplePrompt
-				},
-				{
-					role: 'assistant',
-					content: sampleAnswer
-				},
-				{
-					role: 'user',
-					content: prompt
-				}
-			]
-		},
-		{
-			signal: abortController.signal
-		}
+	const completion = await getCompletion(
+		[
+			{
+				role: 'system',
+				content: systemPrompt
+			},
+			{
+				role: 'user',
+				content: samplePrompt
+			},
+			{
+				role: 'assistant',
+				content: sampleAnswer
+			},
+			{
+				role: 'user',
+				content: prompt
+			}
+		],
+		abortController
 	)
 
 	let response = ''
@@ -274,4 +317,55 @@ export async function copilot(
 	if (code.length === 0) {
 		throw new Error('No code block found')
 	}
+
+	return code
+}
+
+function getStringEndDelta(prev: string, now: string) {
+	return now.slice(prev.length)
+}
+
+export async function deltaCodeCompletion(
+	messages: CreateChatCompletionRequestMessage[],
+	generatedCodeDelta: Writable<string>,
+	abortController: AbortController
+) {
+	const completion = await getCompletion(messages, abortController)
+
+	let response = ''
+	let code = ''
+	let delta = ''
+	for await (const part of completion) {
+		response += part.choices[0]?.delta?.content || ''
+		let match = response.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
+
+		if (match) {
+			// if we have a full code block
+			delta = getStringEndDelta(code, match[1])
+			code = match[1]
+			generatedCodeDelta.set(delta)
+
+			break
+		}
+
+		// partial code block, keep going
+		match = response.match(/```[a-zA-Z]+\n([\s\S]*)/)
+
+		if (!match) {
+			continue
+		}
+
+		if (!match[1].endsWith('`')) {
+			// skip udpating if possible that part of three ticks (end of code block)s
+			delta = getStringEndDelta(code, match[1])
+			generatedCodeDelta.set(delta)
+			code = match[1]
+		}
+	}
+
+	if (code.length === 0) {
+		throw new Error('No code block found')
+	}
+
+	return code
 }

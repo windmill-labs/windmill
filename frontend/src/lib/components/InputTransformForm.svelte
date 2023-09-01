@@ -46,6 +46,10 @@
 	)
 
 	let propertyType = getPropertyType(arg)
+	$: {
+		// update propertyType on arg change
+		propertyType = getPropertyType(arg)
+	}
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'

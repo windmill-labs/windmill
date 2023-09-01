@@ -160,6 +160,7 @@ pub async fn get_hub_flow_by_id(
         &format!("https://hub.windmill.dev/flows/{id}/json"),
         &email,
         false,
+        None,
     )
     .await?
     .json()

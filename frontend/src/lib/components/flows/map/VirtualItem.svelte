@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
+	import { Badge, type Drawer } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { faBolt } from '@fortawesome/free-solid-svg-icons'
+	import { faBolt, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { ClipboardCopy, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -31,6 +32,8 @@
 		deleteBranch: { module: FlowModule; index: number }
 	}>()
 	let openMenu = false
+
+	const aiDrawerStore = getContext<Writable<Drawer | undefined>>('ai-drawer')
 </script>
 
 {#if insertable && deleteBranch}
@@ -138,6 +141,19 @@
 			class="text-primary bg-surface border mx-0.5 rotate-180 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 		>
 			<Icon data={faBolt} scale={0.8} />
+		</button>
+	</div>
+
+	<div class="w-7 absolute top-12 left-[80%] -translate-x-1/2">
+		<button
+			title="AI Flow Builder"
+			on:click={() => {
+				$aiDrawerStore?.openDrawer()
+			}}
+			type="button"
+			class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+		>
+			<Icon data={faMagicWandSparkles} scale={0.8} />
 		</button>
 	</div>
 {/if}
