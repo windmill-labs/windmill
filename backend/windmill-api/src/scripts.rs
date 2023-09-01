@@ -70,6 +70,8 @@ pub struct ScriptWDraft {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
 }
 
 pub fn global_service() -> Router {
@@ -81,10 +83,12 @@ pub fn global_service() -> Router {
 }
 
 pub fn global_unauthed_service() -> Router {
-    Router::new().route(
-        "/tokened_raw/:workspace/:token/*path",
-        get(get_tokened_raw_script_by_path),
-    )
+    Router::new()
+        .route(
+            "/tokened_raw/:workspace/:token/*path",
+            get(get_tokened_raw_script_by_path),
+        )
+        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -369,7 +373,8 @@ async fn create_script(
 
     let lock = if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
-        || ns.language == ScriptLang::Bun)
+        || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Deno)
     {
         Some(String::new())
     } else {
@@ -391,8 +396,8 @@ async fn create_script(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
         &w_id,
         &hash.0,
         ns.path,
@@ -411,7 +416,8 @@ async fn create_script(
         ns.draft_only,
         envs,
         ns.concurrent_limit,
-        ns.concurrency_time_window_s
+        ns.concurrency_time_window_s,
+        ns.cache_ttl,
     )
     .execute(&mut tx)
     .await?;
@@ -608,7 +614,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, draft.value as draft FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, draft.value as draft FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -652,6 +658,10 @@ async fn get_tokened_raw_script_by_path(
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
     return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
+}
+
+async fn get_empty_ts_script_by_path() -> String {
+    return String::new();
 }
 
 async fn raw_script_by_path(

@@ -114,7 +114,8 @@
 <InitializeComponent {id} />
 
 <RunnableWrapper
-	render={true}
+	hasChildrens
+	{render}
 	{outputs}
 	autoRefresh
 	{componentInput}
@@ -204,7 +205,7 @@
 						page = page + 1
 						outputs?.page.set(page, true)
 					}}
-					disabled={pagination.disableNext}
+					disabled={pagination.disableNext && pagination.total > 0}
 				>
 					<div class="flex flex-row gap-1 items-center">
 						Next
@@ -216,7 +217,7 @@
 						{/if}
 					</div>
 				</Button>
-				<div class="text-xs">{page + 1} of {pagination.total}</div>
+				<div class="text-xs">{page + 1} {pagination.total > 0 ? `of ${pagination.total}` : ''}</div>
 			</div>
 		{/if}
 	</div>

@@ -14,9 +14,7 @@ use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use std::{
     collections::HashMap, time::Duration,
-    sync::{Arc, atomic::Ordering},
-    collections::hash_map::DefaultHasher,
-    hash::{Hasher, Hash},
+    sync::{Arc, atomic::Ordering}
 };
 
 use tracing::{trace_span, Instrument};
@@ -26,7 +24,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue, FlowModule},
     scripts::{ScriptHash, ScriptLang, get_full_hub_script_by_path},
     utils::{rd_string, StripPath},
-    users::SUPERADMIN_SECRET_EMAIL, jobs::{JobKind, QueuedJob, Metrics}, METRICS_ENABLED, IS_READY,
+    users::SUPERADMIN_SECRET_EMAIL, jobs::{JobKind, QueuedJob, Metrics}, METRICS_ENABLED, IS_READY, DB,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED, HTTP_CLIENT, ACCEPTED_TAGS, IS_WORKER_TAGS_DEFINED};
 
@@ -43,7 +41,6 @@ use tokio::{
 use futures::future::FutureExt;
 
 use async_recursion::async_recursion;
-use windmill_api_client::types::CreateResource;
 
 #[cfg(feature = "enterprise")]
 use rand::Rng;
@@ -55,8 +52,8 @@ use windmill_queue::{add_completed_job, add_completed_job_error,IDLE_WORKERS};
 
 use crate::{
     worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::handle_deno_job, 
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress, 
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs, write_file, transform_json_value, save_in_cache, hash_args}, go_executor::{handle_go_job, install_go_dependencies}, js_eval::{transpile_ts, eval_fetch_timeout}, pg_executor::do_postgresql, mysql_executor::do_mysql, graphql_executor::do_graphql, bun_executor::{handle_bun_job, gen_lockfile}, bash_executor::{ANSI_ESCAPE_RE, handle_powershell_job, handle_bash_job}, deno_executor::{handle_deno_job, generate_deno_lock}, 
 };
 
 #[cfg(feature = "enterprise")]
@@ -445,16 +442,18 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-            let bucket = s.to_string();
-            let worker_name2 = worker_name.clone();
+            if  crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
+                let bucket = s.to_string();
+                let worker_name2 = worker_name.clone();
 
-            //piptars can be fetched in background
-            handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
-                copy_all_piptars_from_bucket(&bucket).await;
-            }));
-            //denogocache.tar need to be fetched in foreground, block workers until they fetched it
-            copy_denogo_cache_from_bucket_as_tar(s).await;
+                //piptars can be fetched in background
+                handles.push(tokio::task::spawn(async move {
+                    tracing::info!(worker = %worker_name2, "Started initial piptar sync in background");
+                    copy_all_piptars_from_bucket(&bucket).await;
+                }));
+                //denogocache.tar need to be fetched in foreground, block workers until they fetched it
+                copy_denogo_cache_from_bucket_as_tar(s).await;
+            }
         }
     }
 
@@ -478,6 +477,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
+    let mut last_checked_suspended = Instant::now();
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
@@ -510,27 +510,29 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
                 if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
                     (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+                        last_sync = Instant::now();
 
-                    tracing::debug!("CAN PULL LOCK START");
-                    let _lock = CAN_PULL.write().await;
+                        if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
 
-                    tracing::info!("Started syncing cache");
-                    last_sync = Instant::now();
-                    // if num_workers > 1 {
-                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                    // }
-                    if let Err(e) = copy_cache_to_tmp_cache().await {
-                        tracing::error!("failed to copy cache to tmp cache: {}", e);
-                    } else {
-                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
-                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                                if let Err(e) = cache_global(s, copy_tx).await { 
-                                    tracing::error!("failed to sync cache: {}", e);
-                                }
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
+
+                            tracing::info!("Started syncing cache");
+                            // if num_workers > 1 {
+                            //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                            // }
+                            if let Err(e) = copy_cache_to_tmp_cache().await {
+                                tracing::error!("failed to copy cache to tmp cache: {}", e);
+                            } else {
+                                copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                                    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                        if let Err(e) = cache_global(s, copy_tx).await { 
+                                            tracing::error!("failed to sync cache: {}", e);
+                                        }
+                                    }
+                                }));
                             }
-                        }));
-                    }
-                    
+                    } 
                 }
             }
 
@@ -602,7 +604,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         },
                         (job, timer) = {
                             let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                            pull(&db, rsmq.clone()).map(|x| (x, timer)) 
+                            let suspend_first = if last_checked_suspended.elapsed().as_secs() > 5 {            
+                                last_checked_suspended = Instant::now();
+                                true
+                            } else { false };
+                            pull(&db, rsmq.clone(), suspend_first).map(|x| (x, timer)) 
                         } => {
                             timer.map(|timer| {
                                 let duration_pull_s = timer.stop_and_record();
@@ -908,12 +914,6 @@ pub struct JobCompleted {
     pub success: bool
 }
 
-fn hash_args(v: &serde_json::Value) -> i64 {
-    let mut dh = DefaultHasher::new();
-    serde_json::to_string(v).unwrap().hash(&mut dh);
-    dh.finish() as i64
-}
-
 
 
 pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String, Error> {
@@ -960,7 +960,7 @@ async fn do_nativets(job: QueuedJob, logs: String, client: &AuthedClient, code: 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
     worker_dir: &str,
@@ -978,20 +978,62 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e));
     }
 
-    let (cache_ttl, step) = if job.is_flow_step {
-        update_flow_status_in_progress(
+    let step = if job.is_flow_step {
+        let r = update_flow_status_in_progress(
             db,
             &job.workspace_id,
             job.parent_job
                 .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
             job.id,
         )
-        .await?
+        .await?;
+
+        r
     } else {
-        (None, None)
+        None
     };
 
-    
+    let cached_res_path = if job.cache_ttl.is_some() {
+    let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
+        if job.is_flow_step {
+            let flow_path = sqlx::query_scalar!(
+                "SELECT script_path FROM queue WHERE id = $1",
+                &job.parent_job.unwrap()
+            )
+            .fetch_one(db)
+            .await
+            .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
+            .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
+            let step = step.unwrap_or(-1);
+            Some(format!("{flow_path}/cache/{step}/{args_hash}"))
+        } else if let Some(script_path) = &job.script_path {
+            let is_flow = if job.is_flow() { "flow/" } else { "" };
+            Some(format!("{script_path}/{is_flow}cache/{args_hash}"))
+        } else {
+            None
+        }
+
+    } else {
+        None
+    };
+
+    if let Some(cached_res_path) = cached_res_path.clone() {
+        let authed_client = client.get_authed().await;
+        let client: &Client = authed_client.get_client();
+        let resource = client.get_resource_value(&job.workspace_id, &cached_res_path).await;
+        if let Ok(resource) = resource {
+            let v = resource.into_inner();
+            if let Some(o) = v.as_object() {
+                let expire = o.get("expire");
+                if expire.is_some() && expire.unwrap().as_i64().map(|x| x > chrono::Utc::now().timestamp()).unwrap_or(false) {
+                    let result = v.get("value").map(|x| x.to_owned()).unwrap_or_else(|| json!({}));
+                    let logs = "Job skipped because args & path found in cache and not expired".to_string();
+                    process_result(authed_client, job, Ok(result), None, db, worker_dir, job_dir, metrics, same_worker_tx, base_internal_url, rsmq, job_completed_tx, logs).await?;
+                    return Ok(())
+                } 
+            }
+        } 
+    };
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -1019,25 +1061,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
             set_logs(&logs, &job.id, db).await;
 
-
-
-            let cached_res_path = if cache_ttl.is_some() {
-                let flow_path = sqlx::query_scalar!(
-                    "SELECT script_path FROM queue WHERE id = $1",
-                    &job.parent_job.unwrap()
-                )
-                .fetch_one(db)
-                .await
-                .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
-                .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
-                let step = step.unwrap_or(-1);
-                let args_hash = hash_args(&job.args.clone().unwrap_or_else(|| json!({})));
-                let permissioned_as = &job.permissioned_as;
-                Some(format!("{permissioned_as}/cache/{flow_path}/{step}/{args_hash}"))
-            } else {
-                None
-            };
-
             tracing::debug!(
                 worker = %worker_name,
                 job_id = %job.id,
@@ -1046,37 +1069,17 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 job.id
             );
 
-            let cached_res = if let Some(cached_res_path) = cached_res_path.clone() {
-                let authed_client = client.get_authed().await;
-                let client: &Client = authed_client.get_client();
-                let resource = client.get_resource_value(&job.workspace_id, &cached_res_path).await;
-                resource.ok()
-                    .and_then(|x| {
-                        let v = x.into_inner();
-                        if let Some(o) = v.as_object() {
-                        let expire = o.get("expire");
-                            if expire.is_some() && expire.unwrap().as_i64().map(|x| x > chrono::Utc::now().timestamp()).unwrap_or(false) {
-                                v.get("value").map(|x| x.to_owned())
-                            } else { 
-                                None 
-                            }
-                        } else {
-                            None
-                        }
-                    })
-            } else {
-                None
-            };
-
-            let result = if let Some(cached_res) = cached_res {
-                Ok(cached_res)
-            } else {
-                match job.job_kind {
+            let result = match job.job_kind {
                     JobKind::Dependencies => {
                         handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await).await
                     }
                     JobKind::FlowDependencies => {
                         handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
+                            .await
+                            .map(|()| Value::Null)
+                    },
+                    JobKind::AppDependencies => {
+                        handle_app_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir, base_internal_url, &client.get_token().await)
                             .await
                             .map(|()| Value::Null)
                     }
@@ -1100,118 +1103,126 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             worker_name                            )
                         .await
                     }
-                }
-            };
+                };
 
             //it's a test job, no need to update the db
             if job.workspace_id == "" {
                 return Ok(());
             }
-            let client = &client.get_authed().await;
-            match result {
-                Ok(r) => {
-                    // println!("bef completed job{:?}",  SystemTime::now());
-                    if let Some(cached_path) = cached_res_path {
-                        let client: &Client = client.get_client();
-                        let expire = chrono::Utc::now().timestamp() + cache_ttl.unwrap() as i64;
-                        let cr = &CreateResource {
-                            path: cached_path,
-                            description: None,
-                            resource_type: "cache".to_string(),
-                            value: serde_json::json!({
-                                "value": r,
-                                "expire": expire
-                            })
-                        };
-                        if let Err(e) = client.create_resource(&job.workspace_id, Some(true), cr).await {
-                            tracing::error!("Error creating cache resource {e}")
-                        }
-                    }
-                    if job.is_flow_step {
-                        add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
-                        if let Some(parent_job) = job.parent_job {
-                            update_flow_status_after_job_completion(
-                                db,
-                                client,
-                                parent_job,
-                                &job.id,
-                                &job.workspace_id,
-                                true,
-                                r,
-                                metrics.clone(),
-                                false,
-                                same_worker_tx.clone(),
-                                worker_dir,
-                                None,
-                                base_internal_url,
-                                rsmq.clone()
-                            )
-                            .await?;
-                        }
-                    } else {
-                        // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
-                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs, success: true}).await.expect("send job completed");
-                        
-                    }
-                }
-                Err(e) => {
-                    let error_value = match e {
-                        Error::ExitStatus(i) => {
-                            let res = read_result(job_dir).await.ok();
-
-                            if res.is_some() && res.clone().unwrap().is_object() {
-                                res.unwrap()
-                            } else {
-                                let last_10_log_lines = logs
-                                    .lines()
-                                    .skip(logs.lines().count().max(13) - 13)
-                                    .join("\n")
-                                    .to_string()
-                                    .replace("\n\n", "\n");
-
-                                let log_lines = last_10_log_lines
-                                    .split("CODE EXECUTION ---")
-                                    .last()
-                                    .unwrap_or(&logs);
-
-                                extract_error_value(log_lines, i)
-                            }
-                        }
-                        err @ _ => {
-                            json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
-                        }
-                    };
-
-                    let result =
-                        add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
-                            .await?;
-                    if job.is_flow_step {
-                        if let Some(parent_job) = job.parent_job {
-                            update_flow_status_after_job_completion(
-                                db,
-                                client,
-                                parent_job,
-                                &job.id,
-                                &job.workspace_id,
-                                false,
-                                result,
-                                metrics,
-                                false,
-                                same_worker_tx,
-                                worker_dir,
-                                None,
-                                base_internal_url,
-                                rsmq
-                            )
-                            .await?;
-                        }
-                    }
-                }
-            };
+            let client = client.get_authed().await;
+            process_result(client, job, result, cached_res_path, db, worker_dir, job_dir, metrics, same_worker_tx, base_internal_url, rsmq, job_completed_tx, logs).await?;
         }
     }
     Ok(())
 }
+
+async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+    client: AuthedClient, 
+    job: QueuedJob, 
+    result: error::Result<serde_json::Value>,
+    cached_res_path: Option<String>,
+    db: &DB,  
+    worker_dir: &str,
+    job_dir: &str,
+    metrics: Option<Metrics>,
+    same_worker_tx: Sender<Uuid>,
+    base_internal_url: &str,
+    rsmq: Option<R>,
+    job_completed_tx: Sender<JobCompleted>,
+    logs: String,
+) -> error::Result<()> {
+    match result {
+        Ok(r) => {
+            // println!("bef completed job{:?}",  SystemTime::now());
+            if let Some(cached_path) = cached_res_path {
+                save_in_cache(&client, &job, cached_path, &r).await;
+            }
+            if job.is_flow_step {
+                
+                add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
+                if let Some(parent_job) = job.parent_job {
+                    update_flow_status_after_job_completion(
+                        db,
+                        &client,
+                        parent_job,
+                        &job.id,
+                        &job.workspace_id,
+                        true,
+                        r,
+                        metrics.clone(),
+                        false,
+                        same_worker_tx.clone(),
+                        worker_dir,
+                        None,
+                        base_internal_url,
+                        rsmq.clone()
+                    )
+                    .await?;
+                }
+            } else {
+                // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
+                job_completed_tx.send(JobCompleted{job,result:r,logs:logs, success: true}).await.expect("send job completed");
+                
+            }
+        }
+        Err(e) => {
+            let error_value = match e {
+                Error::ExitStatus(i) => {
+                    let res = read_result(job_dir).await.ok();
+
+                    if res.is_some() && res.clone().unwrap().is_object() {
+                        res.unwrap()
+                    } else {
+                        let last_10_log_lines = logs
+                            .lines()
+                            .skip(logs.lines().count().max(13) - 13)
+                            .join("\n")
+                            .to_string()
+                            .replace("\n\n", "\n");
+
+                        let log_lines = last_10_log_lines
+                            .split("CODE EXECUTION ---")
+                            .last()
+                            .unwrap_or(&logs);
+
+                        extract_error_value(log_lines, i)
+                    }
+                }
+                err @ _ => {
+                    json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
+                }
+            };
+
+            let result =
+                add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
+                    .await?;
+            if job.is_flow_step {
+                if let Some(parent_job) = job.parent_job {
+                    update_flow_status_after_job_completion(
+                        db,
+                        &client,
+                        parent_job,
+                        &job.id,
+                        &job.workspace_id,
+                        false,
+                        result,
+                        metrics,
+                        false,
+                        same_worker_tx,
+                        worker_dir,
+                        None,
+                        base_internal_url,
+                        rsmq
+                    )
+                    .await?;
+                }
+            }
+        }
+    };
+    Ok(())
+}
+
+
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
@@ -1388,6 +1399,7 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
+                requirements_o,
                 logs,
                 job,
                 db,
@@ -1540,7 +1552,6 @@ async fn handle_dependency_job(
     }
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_flow_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
@@ -1563,7 +1574,7 @@ async fn handle_flow_dependency_job(
     })?;
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
 
-    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?;
+    flow.modules = lock_modules(flow.modules, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
     let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
 
     // Re-check cancelation to ensure we don't accidentially override a flow.
@@ -1599,15 +1610,15 @@ async fn lock_modules(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
-    job_path: String,
+    job_path: &str,
     base_internal_url: &str,
     token: &str) -> Result<Vec<FlowModule>> {
     let mut new_flow_modules = Vec::new();
     for mut e in modules.into_iter() {
         let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag, concurrent_limit, concurrency_time_window_s} = e.value else {
             match e.value {
-                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel } => {
-                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel }
+                FlowModuleValue::ForloopFlow { iterator, modules, skip_failures, parallel, parallelism } => {
+                    e.value = FlowModuleValue::ForloopFlow { iterator, modules: lock_modules(modules, job, logs, job_dir, db, worker_name, worker_dir, job_path.clone(), base_internal_url, token).await?, skip_failures, parallel, parallelism }
                 },
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
@@ -1635,7 +1646,7 @@ async fn lock_modules(
         };
         // sync with windmill-api/scripts
         let dependencies = match language {
-            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.clone()), &db).await?.join("\n"),
+            ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, &path.clone().unwrap_or_else(|| job_path.to_string()), &db).await?.join("\n"),
             _ => content.clone(),
         };
         let new_lock = capture_dependency_job(
@@ -1694,6 +1705,144 @@ async fn lock_modules(
     }
     Ok(new_flow_modules)
 }
+
+#[async_recursion]
+async fn lock_modules_app(
+    value: Value,     
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    job_path: &str,
+    base_internal_url: &str,
+    token: &str) -> Result<Value> {
+    match value {
+        Value::Object(mut m) => {
+            if m.contains_key("inlineScript") {
+                let v = m.get_mut("inlineScript").unwrap();
+                    if let Some(v) = v.as_object_mut() {
+                    if v.contains_key("content") && v.contains_key("language") {
+                            if let Ok(language)  = serde_json::from_value::<ScriptLang>(v.get("language").unwrap().clone()) {
+                                let content = v.get("content").unwrap().as_str().unwrap_or_default().to_string();
+                                let dependencies = match language {
+                                    ScriptLang::Python3 => windmill_parser_py_imports::parse_python_imports(&content, &job.workspace_id, job_path, &db).await?.join("\n"),
+                                    _ => content.clone(),
+                                };
+                                logs.push_str("Found lockable inline script. Generating lock...\n");
+                                let new_lock = capture_dependency_job(
+                                    &job.id,
+                                    &language,
+                                    &dependencies,
+                                    logs,
+                                    job_dir,
+                                    db,
+                                    worker_name,
+                                    &job.workspace_id,
+                                    worker_dir,
+                                    base_internal_url,
+                                    token,
+                                    job.script_path()
+                                )
+                                .await;
+                                match new_lock {
+                                    Ok(new_lock) => {
+                                        v.insert("lock".to_string(), serde_json::Value::String(new_lock));
+                                        return Ok(Value::Object(m.clone()))
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            language = ?language,
+                                            error = ?e,
+                                            logs = ?logs,
+                                            "Failed to generate flow lock for inline script"
+                                        );
+                                        ()
+                                    }
+                                }
+                        }
+                    }
+                }
+            } 
+            for (a, b) in m.clone().into_iter() {
+                m.insert(
+                    a.clone(),
+                    lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?,
+                );
+            }
+            Ok(Value::Object(m))
+        },
+        Value::Array(a) => {
+            let mut nv = vec![];
+            for b in a.clone().into_iter() {
+                nv.push(lock_modules_app(b, job, logs, job_dir, db, worker_name, worker_dir, job_path, base_internal_url, token).await?);
+            }
+            Ok(Value::Array(nv))
+        }, 
+        a @ _ => Ok(a),
+    }
+}
+
+
+async fn handle_app_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    worker_dir: &str,
+    base_internal_url: &str,
+    token: &str,
+) -> error::Result<()> {
+
+    let job_path = job.script_path.clone().ok_or_else(|| {
+        error::Error::InternalErr(
+            "Cannot resolve flow dependencies for flow without path".to_string(),
+        )
+    })?;
+
+    let id = job.script_hash.clone().ok_or_else(|| {
+        Error::InternalErr(
+            "Flow Dependency requires script hash".to_owned(),
+    )})?.0;
+    let value =  sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(value) = value {
+        let value = lock_modules_app(value, job, logs, job_dir, db, worker_name, worker_dir, &job_path, base_internal_url, token).await?;
+    
+
+        // Re-check cancelation to ensure we don't accidentially override a flow.
+        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .map(|v| Some(true) == v)
+            .unwrap_or_else(|err| {
+                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+                false
+            })
+        {
+            return Ok(());
+        }
+
+        sqlx::query!(
+            "UPDATE app_version SET value = $1 WHERE id = $2",
+            value,
+            id,
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+
+
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -1751,8 +1900,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Deno => {
-            Ok(String::new())
-            // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, w_id, worker_name, base_internal_url).await
         },
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;

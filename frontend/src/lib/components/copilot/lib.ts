@@ -165,15 +165,15 @@ function getSampleInteraction(scriptOptions: CopilotOptions) {
 	const prompts = promptsConfig.prompts[scriptOptions.language]
 	let samplePrompt = prompts.prompt
 	if (scriptOptions.type !== 'fix') {
-		samplePrompt = samplePrompt.replace('{description}', prompts.example_description)
+		samplePrompt = samplePrompt.replace('{description}', prompts.example_description ?? '')
 	}
 
 	if (scriptOptions.type !== 'gen') {
-		samplePrompt = samplePrompt.replace('{code}', prompts.example_code)
+		samplePrompt = samplePrompt.replace('{code}', prompts.example_code ?? '')
 	}
 
 	if (scriptOptions.type === 'fix') {
-		samplePrompt = samplePrompt.replace('{error}', prompts.example_error)
+		samplePrompt = samplePrompt.replace('{error}', prompts.example_error ?? '')
 	}
 	return { samplePrompt, sampleAnswer: prompts.example_answer }
 }

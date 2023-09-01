@@ -137,7 +137,7 @@
 					{#each pastPreviews as { id, created_at, success, result }}
 						<tr class="">
 							<td class="text-xs">
-								<a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a>
+								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank">{id.substring(30)}</a>
 							</td>
 							<td class="text-xs">{displayDate(created_at)}</td>
 							<td class="text-xs">

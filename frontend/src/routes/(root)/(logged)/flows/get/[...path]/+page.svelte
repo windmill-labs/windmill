@@ -16,7 +16,7 @@
 	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import { FolderOpen, Archive, Trash, Server, Share } from 'lucide-svelte'
+	import { FolderOpen, Archive, Trash, Server, Share, Badge, Loader2 } from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
@@ -34,6 +34,8 @@
 	let can_write = false
 	let path = $page.params.path
 	let shareModal: ShareModal
+
+	let deploymentInProgress = false
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
@@ -265,6 +267,12 @@
 									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 								</span>
 
+								{#if deploymentInProgress}
+									<Badge color="yellow">
+										<Loader2 size={12} class="inline animate-spin mr-1" />
+										Deployment in progress
+									</Badge>
+								{/if}
 								{#if flow.archived}
 									<div class="" />
 									<Alert type="error" title="Archived">This flow was archived</Alert>

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
+use uuid::Uuid;
 
 use crate::{
     common::{
@@ -10,7 +11,7 @@ use crate::{
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, NPM_CONFIG_REGISTRY,
     PATH_ENV,
 };
-use tokio::process::Command;
+use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, BASE_URL};
 use windmill_common::{
     error::{self},
@@ -62,8 +63,67 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
     return deno_envs;
 }
 
+pub async fn generate_deno_lock(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    worker_name: &str,
+    base_internal_url: &str,
+) -> error::Result<String> {
+    let _ = write_file(job_dir, "main.ts", code).await?;
+
+    let import_map_path = format!("{job_dir}/import_map.json");
+    let import_map = format!(
+        r#"{{
+        "imports": {{
+            "/": "{base_internal_url}/api/scripts_u/empty_ts/"
+        }}
+      }}"#,
+    );
+    write_file(job_dir, "import_map.json", &import_map).await?;
+    write_file(job_dir, "empty.ts", "").await?;
+
+    let child = Command::new(DENO_PATH.as_str())
+        .current_dir(job_dir)
+        .args(vec![
+            "cache",
+            "--unstable",
+            "--lock=lock.json",
+            "--lock-write",
+            "--import-map",
+            &import_map_path,
+            "main.ts",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    handle_child(
+        job_id,
+        db,
+        logs,
+        child,
+        false,
+        worker_name,
+        w_id,
+        "deno cache",
+        None,
+    )
+    .await?;
+
+    let path_lock = format!("{job_dir}/lock.json");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = "".to_string();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
+    requirements_o: Option<String>,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -210,6 +270,13 @@ run().catch(async (e) => {{
         args.push(&import_map_path);
         args.push(&reload);
         args.push("--unstable");
+        if let Some(reqs) = requirements_o {
+            if !reqs.is_empty() {
+                let _ = write_file(job_dir, "lock.json", &reqs).await?;
+                args.push("--lock=lock.json");
+                args.push("--lock-write");
+            }
+        }
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag);

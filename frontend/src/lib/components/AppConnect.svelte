@@ -1,5 +1,8 @@
 <script lang="ts" context="module">
-	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
+	const apiTokenApps: Record<
+		string,
+		{ img?: string; instructions: string[]; linkedSecret?: string }
+	> = {
 		airtable: {
 			img: '/airtable_connect.png',
 			instructions: [
@@ -12,7 +15,7 @@
 		discord_webhook: {
 			img: '/discord_webhook.png',
 			instructions: ['Click on Server Settings', 'Click on Integration', 'Find "Webhooks"'],
-			key: 'webhook_url'
+			linkedSecret: 'webhook_url'
 		},
 		toggl: {
 			img: '/toggl_connect.png',
@@ -83,11 +86,39 @@
 		| undefined = undefined
 	let args: any = {}
 
-	$: key =
-		apiTokenApps[resource_type]?.key ??
-		(args != undefined
-			? Object.keys(args).filter((x) => ['token', 'password', 'api_key', 'key'].includes(x))[0]
-			: undefined)
+	$: linkedSecretCandidates = apiTokenApps[resource_type]?.linkedSecret
+		? ([apiTokenApps[resource_type]?.linkedSecret] as string[])
+		: args != undefined
+		? Object.keys(args).filter((x) =>
+				['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+		  )
+		: undefined
+
+	function linkedSecretValue(x: string) {
+		let r = 0
+		if (x.includes('secret')) {
+			r += 10
+		}
+		if (x.includes('password')) {
+			r += 5
+		}
+		if (x.includes('private')) {
+			r += 4
+		}
+		if (x.includes('key')) {
+			r += 3
+		}
+		if (x.includes('token')) {
+			r += 2
+		}
+		if (x.includes('pass')) {
+			r += 1
+		}
+		return r
+	}
+	$: linkedSecret = linkedSecretCandidates?.sort(
+		(ua, ub) => linkedSecretValue(ua) - linkedSecretValue(ub)
+	)?.[0]
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -159,7 +190,7 @@
 				apiTokenApps[x] ?? {
 					instructions: '',
 					img: undefined,
-					key: undefined
+					linkedSecret: undefined
 				}
 			])
 	}
@@ -214,12 +245,12 @@
 
 			const resourceValue = args
 
-			if (!manual || key != undefined) {
+			if (!manual || linkedSecret != undefined) {
 				await VariableService.createVariable({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path,
-						value: manual ? args[key ?? ''] : value,
+						value: manual ? args[linkedSecret ?? ''] : value,
 						is_secret: true,
 						description: emptyString(description)
 							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
@@ -228,7 +259,7 @@
 						account: account
 					}
 				})
-				resourceValue[key ?? 'token'] = `$var:${path}`
+				resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
 			}
 
 			await ResourceService.createResource({
@@ -271,7 +302,7 @@
 			args['password'] == '' &&
 			args['api_key'] == '' &&
 			args['key'] == '' &&
-			key != undefined) ||
+			linkedSecret != undefined) ||
 		(step == 3 && pathError != '') ||
 		!isValid
 
@@ -450,7 +481,13 @@
 			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
 				{#key resource_type}
-					<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
+					<ApiConnectForm
+						{linkedSecret}
+						{linkedSecretCandidates}
+						{resource_type}
+						bind:args
+						bind:isValid
+					/>
 				{/key}
 			</div>
 
@@ -467,7 +504,8 @@
 			{#if apiTokenApps[resource_type] || !manual}
 				<ul class="mt-10">
 					<li>
-						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}
+						1. A secret variable containing the {apiTokenApps[resource_type]?.linkedSecret ??
+							'token'}
 						<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
 						will be stored a
 						<span class="font-mono whitespace-nowrap">{path}</span>.

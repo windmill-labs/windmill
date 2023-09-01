@@ -16,6 +16,7 @@
 	import RefreshButton from './RefreshButton.svelte'
 	import { clearErrorByComponentId, selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
+	import { userStore } from '$lib/stores'
 
 	// Component props
 	export let id: string
@@ -42,6 +43,7 @@
 	export let recomputableByRefreshButton: boolean
 	export let errorHandledByComponent: boolean = false
 	export let hideRefreshButton: boolean = false
+	export let hasChildrens: boolean
 
 	const {
 		worldStore,
@@ -246,7 +248,9 @@
 						requestBody['raw_code'] = {
 							content: inlineScript.content,
 							language: inlineScript.language,
-							path: inlineScript.path
+							path: inlineScript.path,
+							lock: inlineScript.lock,
+							cache_ttl: inlineScript.cache_ttl
 						}
 					}
 				} else if (runnable?.type === 'runnableByPath') {
@@ -256,7 +260,7 @@
 
 				return AppService.executeComponent({
 					workspace,
-					path: defaultIfEmptyString(appPath, 'newapp'),
+					path: defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
 					requestBody
 				})
 			})
@@ -383,6 +387,7 @@
 			recordJob(jobId!, undefined, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
+			donePromise?.()
 			return
 		}
 
@@ -392,6 +397,7 @@
 			recordJob(jobId!, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
+			donePromise?.()
 			return
 		}
 
@@ -419,6 +425,7 @@
 			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
+
 				executeComponent(true, inlineScript).catch(reject)
 			})
 			p.cancel = () => {
@@ -501,9 +508,14 @@
 	bind:this={resultJobLoader}
 />
 
-{#if render}
-	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
+{#if render || hasChildrens}
+	<div
+		class="h-full flex relative flex-row flex-wrap {wrapperClass} {render
+			? 'visible'
+			: 'invisible h-0 overflow-hidden'}"
+		style={wrapperStyle}
+	>
+		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
@@ -557,7 +569,7 @@
 				<slot />
 			</div>
 		{/if}
-		{#if !initializing && autoRefresh === true && !hideRefreshButton}
+		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50">
 				<RefreshButton {loading} componentId={id} />
 			</div>

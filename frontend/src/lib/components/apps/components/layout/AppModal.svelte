@@ -115,7 +115,8 @@
 			`${
 				$mode == 'dnd' ? 'absolute' : 'fixed'
 			} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-			open ? 'z-[1100] bg-black bg-opacity-60' : 'h-0 overflow-hidden'
+			open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden',
+			$mode === 'dnd' ? 'z-[1000]' : 'z-[1100]'
 		)}
 	>
 		<div

@@ -23,6 +23,7 @@ pub enum JobKind {
     FlowPreview,
     Identity,
     FlowDependencies,
+    AppDependencies,
     Noop,
 }
 
@@ -89,6 +90,8 @@ pub struct QueuedJob {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_step_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
 }
 
 impl QueuedJob {
@@ -97,6 +100,9 @@ impl QueuedJob {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("tmp/main")
+    }
+    pub fn is_flow(&self) -> bool {
+        matches!(self.job_kind, JobKind::Flow | JobKind::FlowPreview)
     }
 }
 
@@ -155,6 +161,7 @@ impl Default for QueuedJob {
             concurrency_time_window_s: None,
             timeout: None,
             flow_step_id: None,
+            cache_ttl: None,
         }
     }
 }
@@ -169,6 +176,7 @@ pub enum JobPayload {
         path: String,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
+        cache_ttl: Option<i32>,
     },
     Code(RawCode),
     Dependencies {
@@ -179,6 +187,10 @@ pub enum JobPayload {
     },
     FlowDependencies {
         path: String,
+    },
+    AppDependencies {
+        path: String,
+        version: i64,
     },
     Flow(String),
     RawFlow {
@@ -197,6 +209,7 @@ pub struct RawCode {
     pub lock: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub cache_ttl: Option<i32>,
 }
 
 type Tag = String;
@@ -211,7 +224,7 @@ pub async fn script_path_to_payload(
     let (job_payload, tag) = if script_path.starts_with("hub/") {
         (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
     } else {
-        let (script_hash, tag, concurrent_limit, concurrency_time_window_s) =
+        let (script_hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
             get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
@@ -219,6 +232,7 @@ pub async fn script_path_to_payload(
                 path: script_path.to_owned(),
                 concurrent_limit,
                 concurrency_time_window_s,
+                cache_ttl: cache_ttl,
             },
             tag,
         )
@@ -230,9 +244,9 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     script_hash: &ScriptHash,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
-) -> error::Result<(Option<Tag>, Option<i32>, Option<i32>)> {
+) -> error::Result<(Option<Tag>, Option<i32>, Option<i32>, Option<i32>)> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -247,6 +261,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.tag,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.cache_ttl,
     ))
 }
 

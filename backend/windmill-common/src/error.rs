@@ -94,7 +94,13 @@ impl IntoResponse for Error {
             }
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
-        tracing::error!(error = e.to_string());
+
+        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+            tracing::warn!(not_found = e.to_string());
+        } else {
+            tracing::error!(error = e.to_string());
+        };
+
         axum::response::Response::builder()
             .header("Content-Type", "text/plain")
             .status(status)

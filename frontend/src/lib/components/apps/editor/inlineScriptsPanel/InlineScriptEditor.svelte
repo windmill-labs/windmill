@@ -20,6 +20,8 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
+	import { userStore } from '$lib/stores'
+	import CacheTtlPopup from './CacheTtlPopup.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -57,10 +59,10 @@
 	}
 
 	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(appPath, 'new_app')}/${name?.replaceAll(
-			' ',
-			'_'
-		)}`)
+		(inlineScript.path = `${defaultIfEmptyString(
+			appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)}/${name?.replaceAll(' ', '_')}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -170,7 +172,7 @@
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-xs"
-						on:keydown={() => {
+						on:keyup={() => {
 							$app = $app
 							$stateId++
 						}}
@@ -185,7 +187,9 @@
 				{:else}
 					<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 				{/if}
-
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
 					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
@@ -262,6 +266,9 @@
 						}}
 						on:change={async (e) => {
 							if (inlineScript && inlineScript.language != 'frontend') {
+								if (inlineScript.lock) {
+									inlineScript.lock = undefined
+								}
 								const oldSchema = JSON.stringify(inlineScript.schema)
 								if (inlineScript.schema == undefined) {
 									inlineScript.schema = emptySchema()

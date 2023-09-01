@@ -21,7 +21,7 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
-export const VERSION = "v1.156.0";
+export const VERSION = "v1.165.0";
 
 await new Command()
   .name("wmillbench")
