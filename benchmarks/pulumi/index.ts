@@ -261,7 +261,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-worker",
-        image: "ghcr.io/windmill-labs/windmill:1.164.0",
+        image: "ghcr.io/windmill-labs/windmill:1.165.0",
         cpu: 1024,
         memory: 1800,
         essential: true,
@@ -311,7 +311,7 @@ db.address.apply((address) => {
     containerDefinitions: JSON.stringify([
       {
         name: "windmill-server",
-        image: "ghcr.io/windmill-labs/windmill:1.164.0",
+        image: "ghcr.io/windmill-labs/windmill:1.165.0",
         cpu: 1024,
         memory: 1024,
         essential: true,
