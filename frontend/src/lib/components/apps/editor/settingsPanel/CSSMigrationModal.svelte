@@ -96,8 +96,6 @@
 			}
 		}
 
-		debugger
-
 		$app.cssString = cssString
 	}
 

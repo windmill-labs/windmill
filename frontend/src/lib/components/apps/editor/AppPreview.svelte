@@ -128,10 +128,6 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<svelte:head>
-	{@html `<` + `style>${$premiumStore.premium ? $appStore.cssString : ''}</style>`}
-</svelte:head>
-
 <div class="relative h-full">
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />

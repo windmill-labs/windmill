@@ -95,7 +95,7 @@
 	}
 </script>
 
-<div class="p-2 flex items-start gap-2 flex-row justify-between">
+<div class="p-2 flex items-center gap-2 flex-row justify-between">
 	<Button
 		color="blue"
 		size="xs2"
@@ -116,12 +116,12 @@
 		{#if $premiumStore.premium || true}
 			<Button
 				color="dark"
-				size="xs"
+				size="xs2"
 				on:click={() => {
 					migrationModal?.open()
 				}}
 			>
-				Migrate to CSS editor
+				Move to CSS editor
 			</Button>
 		{/if}
 	</div>

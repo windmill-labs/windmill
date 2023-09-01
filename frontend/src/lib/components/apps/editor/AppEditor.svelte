@@ -22,7 +22,7 @@
 	import { Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { premiumStore, userStore, workspaceStore } from '$lib/stores'
 	import { classNames, encodeState } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import AppPreview from './AppPreview.svelte'
@@ -304,11 +304,37 @@
 	}
 
 	$: selectedTab !== 'css' && $cssEditorOpen && (selectedTab = 'css')
-</script>
 
-<svelte:head>
-	{@html `<` + `style id="wm-global-style">${$appStore.cssString}</style>`}
-</svelte:head>
+	const cssId = 'wm-global-style'
+
+	$: addOrRemoveCss($premiumStore.premium, $mode === 'preview')
+	$: updateCssContent($appStore.cssString)
+
+	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
+		const existingElement = document.getElementById(cssId)
+
+		if (!isPremium && isPreview) {
+			if (existingElement) {
+				existingElement.remove()
+			}
+		} else {
+			if (!existingElement) {
+				const head = document.head
+				const link = document.createElement('style')
+				link.id = cssId
+				link.innerHTML = $appStore.cssString!
+				head.appendChild(link)
+			}
+		}
+	}
+
+	function updateCssContent(cssString: string | undefined) {
+		const existingElement = document.getElementById(cssId)
+		if (existingElement && $appStore.cssString !== existingElement.innerHTML) {
+			existingElement.innerHTML = $appStore.cssString ?? ''
+		}
+	}
+</script>
 
 <DarkModeObserver on:change={onThemeChange} />
 
