@@ -204,7 +204,7 @@
 							label={`Docker`}
 							lang="docker"
 							on:click={() => {
-								if (isCloudHosted() || true) {
+								if (isCloudHosted()) {
 									sendUserToast(
 										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
 										true,

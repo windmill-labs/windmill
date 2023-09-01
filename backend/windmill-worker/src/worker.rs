@@ -477,6 +477,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
+    let mut last_checked_suspended = Instant::now();
     loop {
         // let instant: Instant = Instant::now();
         if *METRICS_ENABLED {
@@ -603,7 +604,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         },
                         (job, timer) = {
                             let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                            pull(&db, rsmq.clone()).map(|x| (x, timer)) 
+                            let suspend_first = if last_checked_suspended.elapsed().as_secs() > 5 {            
+                                last_checked_suspended = Instant::now();
+                                true
+                            } else { false };
+                            pull(&db, rsmq.clone(), suspend_first).map(|x| (x, timer)) 
                         } => {
                             timer.map(|timer| {
                                 let duration_pull_s = timer.stop_and_record();

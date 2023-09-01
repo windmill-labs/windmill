@@ -67,6 +67,7 @@ impl TimersPermission for PermissionsContainer {
         ()
     }
 }
+
 pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
@@ -122,8 +123,6 @@ pub async fn eval_timeout(
                 .enable_all()
                 .build()?;
 
-            let re = Regex::new(r"import (.*)\n").unwrap();
-            let expr = re.replace_all(&expr, "").to_string();
             // pretty frail but this it to make the expr more user friendly and not require the user to write await
             let expr = ["variable", "step", "resource", "result_by_id"]
                 .into_iter()
