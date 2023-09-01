@@ -293,7 +293,7 @@
 									<div class="col-span-2">
 										<a
 											target="_blank"
-											href="/runs/{i.id}"
+											href="/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
