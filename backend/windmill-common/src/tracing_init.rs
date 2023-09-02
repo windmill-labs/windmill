@@ -12,9 +12,6 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-#[cfg(feature = "flamegraph")]
-use tracing_flame::FlameLayer;
-
 fn json_layer<S>() -> Layer<S, format::JsonFields, format::Format<format::Json>> {
     tracing_subscriber::fmt::layer()
         .json()
@@ -44,13 +41,26 @@ pub fn initialize_tracing() {
 
     let ts_base = tracing_subscriber::registry().with(env_filter);
 
-    #[cfg(feature = "flamegraph")]
-    let ts_base = ts_base.with(FlameLayer::default());
-
     match json_fmt {
         true => ts_base.with(json_layer().flatten_event(true)).init(),
         false => ts_base
             .with(compact_layer().with_ansi(style.to_lowercase() != "never"))
             .init(),
     }
+}
+
+#[cfg(feature = "flamegraph")]
+use tracing_flame::FlameLayer;
+
+#[cfg(feature = "flamegraph")]
+pub fn setup_flamegraph() -> impl Drop {
+    // let fmt_layer = Layer::default();
+
+    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    tracing_subscriber::registry()
+        // .with(fmt_layer)
+        .with(flame_layer)
+        .init();
+    _guard
 }

@@ -36,8 +36,8 @@ incremental = true
 
 [features]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
-benchmark = ["windmill-api/benchmark"]
-flamegraph = ["windmill-worker/flamegraph"]
+benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
+flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 
 [dependencies]
 anyhow.workspace = true

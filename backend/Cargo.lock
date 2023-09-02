@@ -7215,6 +7215,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-flame",
  "tracing-subscriber",
  "uuid 1.4.1",
 ]
@@ -7405,7 +7406,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
- "tracing-flame",
  "urlencoding",
  "uuid 1.4.1",
  "windmill-api-client",
