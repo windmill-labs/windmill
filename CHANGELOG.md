@@ -7,8 +7,6 @@
 ### Bug Fixes
 
 * fix setting is ready for s3 workers ([b0ed0f9](https://github.com/windmill-labs/windmill/commit/b0ed0f964843247d11ecfe586f1565589df95ff6))
-* fix setting is ready for s3 workers ([a4d1c98](https://github.com/windmill-labs/windmill/commit/a4d1c987d49268b0f91dba22bc4fd0aa56563c08))
-* fix setting is ready for s3 workers ([8f8806a](https://github.com/windmill-labs/windmill/commit/8f8806a1b9d5a943fd12be8f0729c91c0f5cba71))
 
 ## [1.166.0](https://github.com/windmill-labs/windmill/compare/v1.165.0...v1.166.0) (2023-09-03)
 
