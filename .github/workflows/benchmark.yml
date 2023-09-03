@@ -22,6 +22,8 @@ jobs:
         image: ghcr.io/windmill-labs/windmill:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
+          RUST_LOG: info
+
     steps:
       - uses: denoland/setup-deno@v1
         with:
