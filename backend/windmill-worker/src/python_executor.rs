@@ -280,8 +280,7 @@ pub async fn handle_python_job(
                 let name = &x.name;
                 format!(
                     "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
-                                     kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], \
-                                     '%Y-%m-%dT%H:%M')\n",
+                                     kwargs[\"{name}\"] = datetime.fromisoformat(kwargs[\"{name}\"])\n",
                 )
             }
             _ => "".to_string(),

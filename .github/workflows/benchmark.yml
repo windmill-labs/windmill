@@ -22,7 +22,6 @@ jobs:
         image: ghcr.io/windmill-labs/windmill:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
-          RUST_LOG: info
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
