@@ -1135,6 +1135,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 
         let mut msg: Option<_> = None;
         let mut tag = None;
+
         while msg.is_none() && !all_tags.is_empty() {
             let ntag = all_tags.pop().unwrap();
             tag = Some(ntag.clone());
@@ -1143,7 +1144,8 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 .await
                 .map_err(|e| anyhow::anyhow!(e))?;
         }
-        #[cfg(feature = "benchmark")]
+
+        // #[cfg(feature = "benchmark")]
         // println!("rsmq 1: {:?}", instant.elapsed());
 
         // println!("3.1: {:?} {rs}", instant.elapsed());

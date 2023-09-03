@@ -655,8 +655,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             Ok(Some(QueuedJob::default()))
         } else {
             // println!("2: {:?}",  instant.elapsed());
+            let _wait_signal = false;
+
             #[cfg(feature = "benchmark")]
-            if IDLE_WORKERS.load(Ordering::Relaxed) {
+            let _wait_signal = IDLE_WORKERS.load(Ordering::Relaxed);
+
+            if _wait_signal {
                 // tracing::warn!("Worker is marked as idle. Not pulling any job for now");
                 tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
                 Ok(None)
