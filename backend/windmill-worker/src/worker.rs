@@ -560,7 +560,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
-    IS_READY.store(true, Ordering::Relaxed);
+    // IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(worker = %worker_name, "listening for jobs");
 
     loop {
@@ -732,7 +732,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         };
 
-        if !first_run {
+        if first_run {
             first_run = false;
         }
 
