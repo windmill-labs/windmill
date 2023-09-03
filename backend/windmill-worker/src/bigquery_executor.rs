@@ -6,7 +6,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -55,7 +55,7 @@ pub async fn do_bigquery(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
+) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
@@ -176,12 +176,7 @@ pub async fn do_bigquery(
             }
 
             if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                return Ok(JobCompleted {
-                    job: job,
-                    result: Value::Array(vec![]),
-                    logs: "".to_string(),
-                    success: true,
-                });
+                return Ok(Value::Array(vec![]));
             }
 
             if result.schema.is_none() {
@@ -223,12 +218,7 @@ pub async fn do_bigquery(
                 })
                 .collect();
 
-            return Ok(JobCompleted {
-                job: job,
-                result: rows,
-                logs: "".to_string(),
-                success: true,
-            });
+            return Ok(rows);
         }
         Err(e) => match response.json::<BigqueryErrorResponse>().await {
             Ok(bq_err) => return Err(Error::ExecutionErr(bq_err.error.message)),

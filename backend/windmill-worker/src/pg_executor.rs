@@ -18,7 +18,7 @@ use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::transform_json_value;
-use crate::{AuthedClient, JobCompleted};
+use crate::AuthedClient;
 use urlencoding::encode;
 
 #[derive(Deserialize)]
@@ -36,7 +36,7 @@ pub async fn do_postgresql(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
-) -> error::Result<JobCompleted> {
+) -> error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
@@ -181,7 +181,7 @@ pub async fn do_postgresql(
 
     handle.abort();
     // And then check that we got back the same string we sent over.
-    return Ok(JobCompleted { job: job, result, logs: "".to_string(), success: true });
+    return Ok(result);
 }
 
 pub fn pg_cell_to_json_value(
