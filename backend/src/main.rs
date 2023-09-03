@@ -40,7 +40,11 @@ mod monitor;
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
+    #[cfg(not(feature = "flamegraph"))]
     windmill_common::tracing_init::initialize_tracing();
+
+    #[cfg(feature = "flamegraph")]
+    let _guard = windmill_common::tracing_init::setup_flamegraph();
 
     let num_workers = std::env::var("NUM_WORKERS")
         .ok()
@@ -92,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Database connected");
 
     let rsmq = if let Some(config) = rsmq_config {
+        tracing::info!("Redis config set: {:?}", config);
         Some(rsmq_async::MultiplexedRsmq::new(config).await.unwrap())
     } else {
         None

@@ -104,6 +104,14 @@ impl QueuedJob {
     pub fn is_flow(&self) -> bool {
         matches!(self.job_kind, JobKind::Flow | JobKind::FlowPreview)
     }
+
+    pub fn full_path(&self) -> String {
+        format!(
+            "{}/{}",
+            if self.is_flow() { "flow" } else { "script" },
+            self.script_path()
+        )
+    }
 }
 
 impl QueuedJob {
