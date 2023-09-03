@@ -66,7 +66,7 @@ use windmill_queue::IDLE_WORKERS;
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, handle_bun_job},
-    common::{hash_args, read_result, save_in_cache, set_logs, transform_json_value, write_file},
+    common::{hash_args, read_result, save_in_cache, transform_json_value, write_file},
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
     graphql_executor::do_graphql,
@@ -857,6 +857,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         workspace: job.workspace_id.to_string(),
                         client: OnceCell::new(),
                     };
+
                     let is_flow = job.job_kind == JobKind::Flow
                         || job.job_kind == JobKind::FlowPreview
                         || job.job_kind == JobKind::FlowDependencies;
@@ -1381,8 +1382,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 "job {} on worker {} (tag: {})\n",
                 &job.id, &worker_name, &job.tag
             ));
-
-            set_logs(&logs, &job.id, db).await;
 
             tracing::debug!(
                 worker = %worker_name,
