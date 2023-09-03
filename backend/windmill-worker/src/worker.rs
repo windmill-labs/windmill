@@ -665,6 +665,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
                 Ok(None)
             } else {
+                #[cfg(feature = "benchmark")]
                 if !started {
                     started = true
                 }
