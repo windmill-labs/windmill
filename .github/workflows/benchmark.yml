@@ -36,4 +36,5 @@ jobs:
         run:
           deno run --unstable -A
           https://raw.githubusercontent.com/windmill-labs/windmill/main/benchmarks/benchmark_noop.ts
-          --host http://windmill:8000 -e admin@windmill.dev -p changeme -j 10000
+          --host http://localhost:8000 -e admin@windmill.dev -p changeme -j
+          10000
