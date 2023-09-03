@@ -534,67 +534,45 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(100);
 
     let db2 = db.clone();
+    let base_internal_url2 = base_internal_url.to_string();
+    let same_worker_tx2 = same_worker_tx.clone();
     let rsmq2 = rsmq.clone();
-    let worker_name2 = worker_name.clone();
+    let worker_dir2 = worker_dir.clone();
+    let worker_execution_failed2 = worker_execution_failed.clone();
     let send_result = tokio::spawn(async move {
-        while let Some(JobCompleted { job, logs, result, success, cached_res_path }) =
-            job_completed_rx.recv().await
-        {
-            let metrics = build_language_metrics(&worker_execution_failed, &job.language);
-
-            if success {
-                // println!("bef completed job{:?}",  SystemTime::now());
-                if let Some(cached_path) = cached_res_path {
-                    save_in_cache(&client, &job, cached_path, &result).await;
-                }
-                add_completed_job(db, &job, true, false, result.clone(), logs, rsmq.clone())
-                    .await?;
-                if job.is_flow_step {
-                    if let Some(parent_job) = job.parent_job {
-                        update_flow_status_after_job_completion(
-                            db,
-                            &client,
-                            parent_job,
-                            &job.id,
-                            &job.workspace_id,
-                            true,
-                            result,
-                            metrics.clone(),
-                            false,
-                            same_worker_tx.clone(),
-                            &worker_dir,
-                            None,
-                            base_internal_url,
-                            rsmq.clone(),
-                        )
-                        .await?;
-                    }
-                }
-            } else {
-                let result =
-                    add_completed_job_error(db, &job, logs, result, metrics.clone(), rsmq.clone())
-                        .await?;
-                if job.is_flow_step {
-                    if let Some(parent_job) = job.parent_job {
-                        update_flow_status_after_job_completion(
-                            db,
-                            &client,
-                            parent_job,
-                            &job.id,
-                            &job.workspace_id,
-                            false,
-                            result,
-                            metrics,
-                            false,
-                            same_worker_tx,
-                            &worker_dir,
-                            None,
-                            base_internal_url,
-                            rsmq,
-                        )
-                        .await?;
-                    }
-                }
+        while let Some(jc) = job_completed_rx.recv().await {
+            let metrics = build_language_metrics(&worker_execution_failed2, &jc.job.language);
+            let token = jc.token.clone();
+            let workspace = jc.job.workspace_id.clone();
+            let client = AuthedClient {
+                base_internal_url: base_internal_url2.to_string(),
+                workspace,
+                token,
+                client: OnceCell::new(),
+            };
+            if let Err(err) = process_completed_job(
+                &jc,
+                &client,
+                &db2,
+                &worker_dir2,
+                metrics.clone(),
+                same_worker_tx2.clone(),
+                rsmq2.clone(),
+            )
+            .await
+            {
+                handle_job_error(
+                    &db2,
+                    &client,
+                    &jc.job,
+                    err,
+                    metrics,
+                    false,
+                    same_worker_tx2.clone(),
+                    &worker_dir2,
+                    rsmq2.clone(),
+                )
+                .await;
             }
         }
 
@@ -811,6 +789,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             result: json!({}),
                             logs: String::new(),
                             cached_res_path: None,
+                            token: "".to_string(),
                         })
                         .await
                         .expect("send job completed");
@@ -902,13 +881,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         handle_job_error(
                             db,
                             &authed_client.get_authed().await,
-                            job,
+                            &job,
                             err,
                             metrics,
                             false,
                             same_worker_tx.clone(),
                             &worker_dir,
-                            base_internal_url,
                             rsmq.clone(),
                         )
                         .await;
@@ -982,6 +960,100 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     println!("worker {} exited", i_worker);
 }
 
+// async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+//     client: AuthedClient,
+//     job: QueuedJob,
+//     result: error::Result<serde_json::Value>,
+//     cached_res_path: Option<String>,
+//     db: &DB,
+//     worker_dir: &str,
+//     job_dir: &str,
+//     metrics: Option<Metrics>,
+//     same_worker_tx: Sender<Uuid>,
+//     base_internal_url: &str,
+//     rsmq: Option<R>,
+//     job_completed_tx: Sender<JobCompleted>,
+//     logs: String,
+// ) -> error::Result<()> {
+
+pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+    JobCompleted { job, result, logs, success, cached_res_path, .. }: &JobCompleted,
+    client: &AuthedClient,
+    db: &DB,
+    worker_dir: &str,
+    metrics: Option<Metrics>,
+    same_worker_tx: Sender<Uuid>,
+    rsmq: Option<R>,
+) -> windmill_common::error::Result<()> {
+    if *success {
+        // println!("bef completed job{:?}",  SystemTime::now());
+        if let Some(cached_path) = cached_res_path {
+            save_in_cache(&client, &job, cached_path.to_string(), &result).await;
+        }
+        add_completed_job(
+            db,
+            &job,
+            true,
+            false,
+            result,
+            logs.to_string(),
+            rsmq.clone(),
+        )
+        .await?;
+        if job.is_flow_step {
+            if let Some(parent_job) = job.parent_job {
+                update_flow_status_after_job_completion(
+                    db,
+                    client,
+                    parent_job,
+                    &job.id,
+                    &job.workspace_id,
+                    true,
+                    result.clone(),
+                    metrics.clone(),
+                    false,
+                    same_worker_tx.clone(),
+                    &worker_dir,
+                    None,
+                    rsmq.clone(),
+                )
+                .await?;
+            }
+        }
+    } else {
+        let result = add_completed_job_error(
+            db,
+            &job,
+            logs.to_string(),
+            &result,
+            metrics.clone(),
+            rsmq.clone(),
+        )
+        .await?;
+        if job.is_flow_step {
+            if let Some(parent_job) = job.parent_job {
+                update_flow_status_after_job_completion(
+                    db,
+                    client,
+                    parent_job,
+                    &job.id,
+                    &job.workspace_id,
+                    false,
+                    result,
+                    metrics,
+                    false,
+                    same_worker_tx,
+                    &worker_dir,
+                    None,
+                    rsmq,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn build_language_metrics(
     worker_execution_failed: &HashMap<
         Option<ScriptLang>,
@@ -1020,13 +1092,12 @@ fn build_language_metrics(
 pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
-    job: QueuedJob,
+    job: &QueuedJob,
     err: Error,
     metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
-    base_internal_url: &str,
     rsmq: Option<R>,
 ) {
     let err = match err {
@@ -1038,9 +1109,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     let update_job_future = || {
         add_completed_job_error(
             db,
-            &job,
+            job,
             format!("Unexpected error during job execution:\n{err}"),
-            err.clone(),
+            &err,
             metrics.clone(),
             rsmq_2,
         )
@@ -1071,7 +1142,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             same_worker_tx,
             worker_dir,
             None,
-            base_internal_url,
             rsmq.clone(),
         )
         .await;
@@ -1082,11 +1152,12 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                     if let Ok(Some(parent_job)) =
                         get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
                     {
+                        let e = json!({"message": err.to_string(), "name": "InternalErr"});
                         let _ = add_completed_job_error(
                             db,
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
-                            json!({"message": err.to_string(), "name": "InternalErr"}),
+                            &e,
                             metrics.clone(),
                             rsmq,
                         )
@@ -1136,6 +1207,7 @@ pub struct JobCompleted {
     pub logs: String,
     pub success: bool,
     pub cached_res_path: Option<String>,
+    pub token: String,
 }
 
 pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String, Error> {
@@ -1273,6 +1345,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             logs,
                             success: true,
                             cached_res_path: None,
+                            token: authed_client.token,
                         })
                         .await
                         .expect("send job completed");
@@ -1292,7 +1365,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 args,
                 same_worker_tx,
                 worker_dir,
-                base_internal_url,
                 rsmq,
             )
             .await?;
@@ -1392,6 +1464,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 job_completed_tx,
                 logs,
                 cached_res_path,
+                client.get_token().await,
             )
             .await?;
         }
@@ -1406,11 +1479,19 @@ async fn process_result(
     job_completed_tx: Sender<JobCompleted>,
     logs: String,
     cached_res_path: Option<String>,
+    token: String,
 ) -> error::Result<()> {
     match result {
         Ok(r) => {
             job_completed_tx
-                .send(JobCompleted { job, result: r, logs, success: true, cached_res_path })
+                .send(JobCompleted {
+                    job,
+                    result: r,
+                    logs,
+                    success: true,
+                    cached_res_path,
+                    token: token,
+                })
                 .await
                 .expect("send job completed");
         }
@@ -1450,6 +1531,7 @@ async fn process_result(
                     logs: logs,
                     success: false,
                     cached_res_path,
+                    token: token,
                 })
                 .await
                 .expect("send job completed");
