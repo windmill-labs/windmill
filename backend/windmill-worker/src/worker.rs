@@ -733,7 +733,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         first_run = false;
 
         if !IS_READY.load(Ordering::Relaxed) {
-            IS_READY.store(false, Ordering::Relaxed);
+            IS_READY.store(true, Ordering::Relaxed);
         }
 
         if *METRICS_ENABLED {
