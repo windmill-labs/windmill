@@ -547,8 +547,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     });
 
-    tracing::info!(worker = %worker_name, "listening for jobs");
-
     let mut first_run = true;
 
     let mut last_executed_job: Option<Instant> = None;
@@ -561,6 +559,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut infos = BenchmarkInfo { iters: 0, timings: vec![] };
 
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
+
+    IS_READY.store(true, Ordering::Relaxed);
+    tracing::info!(worker = %worker_name, "listening for jobs");
+
     loop {
         #[cfg(feature = "benchmark")]
         let loop_start = Instant::now();
@@ -730,10 +732,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         };
 
-        first_run = false;
-
-        if !IS_READY.load(Ordering::Relaxed) {
-            IS_READY.store(true, Ordering::Relaxed);
+        if !first_run {
+            first_run = false;
         }
 
         if *METRICS_ENABLED {
