@@ -24,8 +24,9 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           RUST_LOG: info
         options: >-
-          --pull --health-interval 10s --health-timeout 5s --health-retries 5
-          --health-cmd "curl http://localhost:8000/api/version"
+          --pull always --health-interval 10s --health-timeout 5s
+          --health-retries 5 --health-cmd "curl
+          http://localhost:8000/api/version"
     steps:
       - uses: denoland/setup-deno@v1
         with:
