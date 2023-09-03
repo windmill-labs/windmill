@@ -11,6 +11,8 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-queue/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2"]
+benchmark = ["windmill-queue/benchmark"]
+flamegraph = []
 
 [dependencies]
 windmill-queue.workspace = true

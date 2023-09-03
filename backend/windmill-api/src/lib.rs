@@ -156,7 +156,9 @@ pub async fn run_server(
         for tag in ALL_TAGS.clone() {
             let r =
                 rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
-            if r.is_ok() {
+            if let Err(e) = r {
+                tracing::info!("Redis queue {tag} could not be created: {e}");
+            } else {
                 tracing::info!("Redis queue {tag} created");
             }
         }

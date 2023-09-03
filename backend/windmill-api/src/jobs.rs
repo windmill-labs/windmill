@@ -2253,6 +2253,7 @@ async fn run_preview_job(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn add_noop_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
