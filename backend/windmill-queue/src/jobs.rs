@@ -14,7 +14,6 @@ use std::time::Instant;
 use anyhow::Context;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Duration, Utc};
-use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
@@ -95,23 +94,6 @@ lazy_static::lazy_static! {
     pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
 
 
-    pub static ref PULL_QUERY_SUSPEND: String = format!(
-        "UPDATE queue
-        SET running = true
-          , started_at = coalesce(started_at, now())
-          , last_ping = now()
-          , suspend_until = null
-        WHERE id = (
-            SELECT id
-            FROM queue
-            WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND ({})
-            ORDER BY scheduled_for, created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        RETURNING *",
-        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR ")
-    );
 
 
 
@@ -1206,7 +1188,21 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   or suspend_until <= now() if it has timed out */
 
         let r = if suspend_first {
-            sqlx::query_as::<_, QueuedJob>(&PULL_QUERY_SUSPEND)
+            sqlx::query_as::<_, QueuedJob>("UPDATE queue
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
+            WHERE id = (
+                SELECT id
+                FROM queue
+                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag = ANY($1)
+                ORDER BY created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING *")
+                .bind(ACCEPTED_TAGS.as_slice())
                 .fetch_optional(db)
                 .await?
         } else {
