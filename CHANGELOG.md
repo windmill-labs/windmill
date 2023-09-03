@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.166.0](https://github.com/windmill-labs/windmill/compare/v1.165.0...v1.166.0) (2023-09-03)
+
+
+### Features
+
+* **frontend:** App stepper debug ([#2202](https://github.com/windmill-labs/windmill/issues/2202)) ([77f8eac](https://github.com/windmill-labs/windmill/commit/77f8eac21e0edfa1eada617d78a498a3a6ae1dce))
+
+
+### Bug Fixes
+
+* fix datetime handling for python ([b35ffd4](https://github.com/windmill-labs/windmill/commit/b35ffd435de97ed34fcda69490abd734ea3229fa))
+* **frontend:** Fix App Modal z-index ([#2210](https://github.com/windmill-labs/windmill/issues/2210)) ([9787edb](https://github.com/windmill-labs/windmill/commit/9787edb67c329265bf179fe304d00cdc1df7042e))
+* see run detail in a new tab ([719a7b1](https://github.com/windmill-labs/windmill/commit/719a7b11da81f68452ba9fc22ff456fe1ddde1de))
+* update wmill python generator thus updating windmill-api ([f912f1d](https://github.com/windmill-labs/windmill/commit/f912f1de86e91c5cdbc0012e2362467c4965936a))
+
+
+### Performance Improvements
+
+* improve queue performance ([#2222](https://github.com/windmill-labs/windmill/issues/2222)) ([069e2d1](https://github.com/windmill-labs/windmill/commit/069e2d18d586aa3d407e3b089d1ad94b2b838af0))
+
 ## [1.165.0](https://github.com/windmill-labs/windmill/compare/v1.164.0...v1.165.0) (2023-08-31)
 
 
