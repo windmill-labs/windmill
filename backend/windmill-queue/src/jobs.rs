@@ -146,11 +146,12 @@ pub async fn cancel_job<'c: 'async_recursion>(
         let reason = reason
             .clone()
             .unwrap_or_else(|| "No reason provided".to_string());
+        let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         let add_job = add_completed_job_error(
             &db,
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
-            serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username}),
+            &e,
             None,
             rsmq.clone(),
         )
@@ -201,7 +202,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
-    e: serde_json::Value,
+    e: &serde_json::Value,
     metrics: Option<Metrics>,
     rsmq: Option<R>,
 ) -> Result<serde_json::Value, Error> {
@@ -209,7 +210,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = serde_json::json!({ "error": e });
-    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs, rsmq).await?;
+    let _ = add_completed_job(db, &queued_job, false, false, &result, logs, rsmq).await?;
     Ok(result)
 }
 
@@ -241,7 +242,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
-    result: serde_json::Value,
+    result: &serde_json::Value,
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {

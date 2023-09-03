@@ -71,8 +71,6 @@ pub async fn gen_lockfile(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
     handle_child(
         job_id,
         db,
@@ -139,8 +137,6 @@ pub async fn install_lockfile(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
     handle_child(
         job_id,
         db,
@@ -170,8 +166,6 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<serde_json::Value> {
-    set_logs(&logs, &job.id, &db).await;
-
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url);
@@ -209,6 +203,7 @@ pub async fn handle_bun_job(
         .await?;
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
+        set_logs(&logs, &job.id, &db).await;
         let _ = gen_lockfile(
             logs,
             &job.id,
@@ -224,9 +219,12 @@ pub async fn handle_bun_job(
         .await?;
     }
 
-    // let mut start = Instant::now();
     logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
-    set_logs(&logs, &job.id, &db).await;
+
+    let logs_f = async {
+        set_logs(&logs, &job.id, &db).await;
+        Ok(()) as error::Result<()>
+    };
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
@@ -291,27 +289,35 @@ run().catch(async (e) => {{
         Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
-
-    let _ = write_file(
-        &job_dir,
-        "loader.bun.ts",
-        &format!(
-            r#"
+    let write_loader_f = async {
+        write_file(
+            &job_dir,
+            "loader.bun.ts",
+            &format!(
+                r#"
 import {{ plugin }} from "bun";
 
 {}
 
 plugin(p)
 "#,
-            RELATIVE_BUN_LOADER
-                .replace("W_ID", &job.workspace_id)
-                .replace("BASE_INTERNAL_URL", base_internal_url)
-                .replace("TOKEN", &client.get_token().await)
-                .replace("CURRENT_PATH", job.script_path())
-        ),
-    )
-    .await?;
+                RELATIVE_BUN_LOADER
+                    .replace("W_ID", &job.workspace_id)
+                    .replace("BASE_INTERNAL_URL", base_internal_url)
+                    .replace("TOKEN", &client.get_token().await)
+                    .replace("CURRENT_PATH", job.script_path())
+            ),
+        )
+        .await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let (reserved_variables, _, _, _) = tokio::try_join!(
+        reserved_variables_args_out_f,
+        write_wrapper_f,
+        logs_f,
+        write_loader_f
+    )?;
 
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
@@ -370,8 +376,6 @@ plugin(p)
             .spawn()?
     };
 
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
     handle_child(
         &job.id,
         db,
@@ -384,7 +388,6 @@ plugin(p)
         job.timeout,
     )
     .await?;
-    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     read_result(job_dir).await
 }
 
