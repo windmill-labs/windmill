@@ -6,17 +6,25 @@
 	import { Skeleton } from '../common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
+	import type { FlowCopilotContext } from '../copilot/flow'
+	import { classNames } from '$lib/utils'
+	import { fade } from 'svelte/transition'
 
 	export let loading: boolean
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let size = 40
+
+	const { focusStore: copilotFocusStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
 </script>
 
-<div class="h-full overflow-hidden border-t">
+<div class={classNames('h-full overflow-hidden', $copilotFocusStore ? '' : 'border-t')}>
 	<Splitpanes>
 		<Pane {size} minSize={15} class="h-full relative z-0">
+			{#if $copilotFocusStore}
+				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0 pb-1" />
+			{/if}
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
 				{#if loading}
 					<div class="p-2 pt-10">

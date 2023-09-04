@@ -17,7 +17,6 @@
 	},
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",
-		"@modyfi/vite-plugin-yaml": "^1.0.4",
 		"@playwright/test": "^1.34.3",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",

@@ -4,7 +4,7 @@
 	import Portal from 'svelte-portal'
 	import { fade } from 'svelte/transition'
 
-	export let placement: PopoverPlacement = 'auto'
+	export let placement: PopoverPlacement = 'bottom'
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 

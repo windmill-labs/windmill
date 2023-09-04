@@ -212,6 +212,7 @@ async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serd
 #[derive(Deserialize)]
 struct HubScriptsQuery {
     text: String,
+    kind: Option<String>,
     limit: Option<i64>,
 }
 async fn query_hub_scripts(
@@ -223,6 +224,7 @@ async fn query_hub_scripts(
         "https://hub.windmill.dev/scripts/query",
         &email,
         &query.text,
+        &query.kind,
         &query.limit,
     )
     .await?;

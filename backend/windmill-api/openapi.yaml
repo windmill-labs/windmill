@@ -2372,6 +2372,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: kind
+          description: query scripts kind
+          in: query
+          required: false
+          schema:
+            type: string
         - name: limit
           description: query limit
           in: query

@@ -93,9 +93,13 @@ pub async fn query_elems_from_hub(
     url: &str,
     email: &str,
     query_text: &str,
+    query_kind: &Option<String>,
     query_limit: &Option<i64>,
 ) -> Result<serde_json::Value> {
     let mut query_params = vec![("text", query_text)];
+    if let Some(query_kind) = query_kind {
+        query_params.push(("kind", query_kind.as_str()));
+    }
     let query_limit = query_limit.unwrap_or(0).to_string();
     if query_limit.parse::<i64>().unwrap() > 0 {
         query_params.push(("limit", query_limit.as_str()));

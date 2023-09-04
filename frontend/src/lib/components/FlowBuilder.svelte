@@ -7,8 +7,7 @@
 		DraftService,
 		type PathScript,
 		RawScript,
-		ScriptService,
-		CancelablePromise
+		ScriptService
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import { enterpriseLicense, hubScripts, userStore, workspaceStore } from '$lib/stores'
@@ -46,6 +45,7 @@
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
 	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
+	import { fade } from 'svelte/transition'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -365,27 +365,30 @@
 
 	let flowCopilotContext: FlowCopilotContext = {
 		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([])
+		modulesStore: writable<FlowCopilotModule[]>([]),
+		focusStore: writable<boolean>(false)
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
 
-	const { drawerStore: copilotDrawerStore, modulesStore: copilotModulesStore } = flowCopilotContext
+	const {
+		drawerStore: copilotDrawerStore,
+		modulesStore: copilotModulesStore,
+		focusStore: copilotFocusStore
+	} = flowCopilotContext
 
-	let requests: { promise: CancelablePromise<{ id: string }[]>; ts: number }[] = []
+	let doneTs = 0
 	async function hubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
 		try {
-			const currentRequest = ScriptService.queryHubScripts({
-				text: `${text}`,
-				limit: type === 'script' ? 3 : 10
-			})
-
 			// make sure we display the results of the last request last
 			const ts = Date.now()
-			requests.push({ promise: currentRequest, ts })
-			const scriptIds = await currentRequest
-			requests.forEach((r) => r.ts < ts && r.promise.cancel())
-			requests = requests.filter((r) => r.ts <= ts)
+			const scriptIds = await ScriptService.queryHubScripts({
+				text: `${text}`,
+				limit: 3,
+				kind: type
+			})
+			if (ts < doneTs) return
+			doneTs = ts
 
 			const scripts = scriptIds
 				.map((qs) => {
@@ -396,7 +399,7 @@
 				})
 				.filter((s) => !!s)
 
-			$copilotModulesStore[idx].hubCompletions = scripts.slice(0, 3) as {
+			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
 				approved: boolean
@@ -446,6 +449,7 @@
 		waitingStep = undefined
 		copilotLoading = true
 		copilotStatus = "Generating code for step '" + numberToChars(i) + "'..."
+		$copilotFocusStore = true
 		try {
 			abortController = new AbortController()
 
@@ -465,12 +469,12 @@
 
 			let module = $copilotModulesStore[i]
 
-			// if (module.type === 'trigger') {
-			// 	if (!$scheduleStore.cron) {
-			// 		$scheduleStore.cron = '0 */15 * * *'
-			// 	}
-			// 	$scheduleStore.enabled = true
-			// }
+			if (module.type === 'trigger') {
+				if (!$scheduleStore.cron) {
+					$scheduleStore.cron = '0 */15 * * *'
+				}
+				$scheduleStore.enabled = true
+			}
 
 			const flowModule = {
 				id: numberToChars(i),
@@ -701,6 +705,19 @@
 		copilotLoading = false
 		await sleep(3000)
 		copilotStatus = ''
+		$copilotFocusStore = false
+	}
+
+	$: {
+		if ($copilotFocusStore) {
+			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
+				el.classList.add('hidden')
+			})
+		} else {
+			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
+				el.classList.remove('hidden')
+			})
+		}
 	}
 </script>
 
@@ -714,8 +731,11 @@
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
 		<div
-			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full"
+			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full relative"
 		>
+			{#if $copilotFocusStore}
+				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+			{/if}
 			<div class="flex w-full max-w-md gap-4 items-center">
 				<div class="min-w-64 w-full">
 					<input

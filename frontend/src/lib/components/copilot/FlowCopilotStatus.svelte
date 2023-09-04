@@ -15,7 +15,8 @@
 
 	let copilotPopover: ManualPopover | undefined = undefined
 
-	const { modulesStore, drawerStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
+	const { modulesStore, drawerStore, focusStore } =
+		getContext<FlowCopilotContext>('FlowCopilotContext')
 
 	$: copilotStatus.length > 0 ? copilotPopover?.open() : copilotPopover?.close()
 </script>
@@ -23,31 +24,32 @@
 <ManualPopover bind:this={copilotPopover}>
 	<Button
 		size="xs"
-		btnClasses="mr-2"
+		btnClasses="mr-2 z-[901]"
 		on:click={() => {
 			if (copilotLoading || waitingStep !== undefined) {
 				abortController?.abort()
 				waitingStep = undefined
 				copilotStatus = ''
+				$focusStore = false
 			} else {
 				$drawerStore?.openDrawer()
 			}
 		}}
-		startIcon={copilotLoading
+		startIcon={copilotLoading || waitingStep !== undefined
 			? undefined
 			: {
 					icon: faMagicWandSparkles
 			  }}
 		color={copilotLoading || waitingStep !== undefined ? 'red' : 'light'}
-		variant="border"
+		variant={copilotLoading || waitingStep !== undefined ? 'contained' : 'border'}
 	>
 		{#if copilotLoading}
-			<WindmillIcon class="mr-1 text-white" height="16px" width="20px" spin="veryfast" />
+			<WindmillIcon white class="mr-1 text-white" height="16px" width="20px" spin="veryfast" />
 		{/if}
 
-		{copilotLoading || waitingStep !== undefined ? 'Cancel' : 'AI Flow Builder'}
+		{copilotLoading ? 'Cancel' : waitingStep !== undefined ? 'Exit' : 'AI Flow Builder'}
 	</Button>
-	<div slot="content" class="text-sm flex flex-row items-center"
+	<div slot="content" class="text-sm flex flex-row items-center z-[901]"
 		><span class="font-semibold">{copilotStatus}</span>
 		{#if waitingStep !== undefined}
 			<Button

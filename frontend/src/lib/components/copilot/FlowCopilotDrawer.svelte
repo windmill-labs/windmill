@@ -82,11 +82,11 @@
 												? copilotModule.selectedCompletion.summary
 												: copilotModule.description}
 										</div>
-										{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion}
-											<div class="text-secondary text-xs break-all">
-												{copilotModule.selectedCompletion.path}
-											</div>
-										{/if}
+										<div class="text-secondary text-xs break-all">
+											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
+												? copilotModule.selectedCompletion.path
+												: 'to generate from scratch using Copilot'}
+										</div>
 									</div>
 								</div>
 								{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion && copilotModule.selectedCompletion?.kind !== 'script'}
@@ -122,72 +122,65 @@
 							/>
 						{/if}
 						{#if copilotModule.description.length > 3 && copilotModule.source === undefined}
-							<ul class="divide-y border rounded-md transition-all mt-2">
-								<li>
-									<button
-										class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
-										on:click={() => {
-											copilotModule.source = 'custom'
-											copilotModule.selectedCompletion = undefined
-										}}
-									>
-										<div class="flex items-center gap-4">
-											<div
-												class={classNames(
-													'rounded-md p-1 flex justify-center items-center border',
-													'bg-surface border'
-												)}
+							<div class="mt-2 flex">
+								<Button
+									on:click={() => {
+										copilotModule.source = 'custom'
+										copilotModule.selectedCompletion = undefined
+									}}
+									color="dark"
+									variant="border"
+									startIcon={{
+										icon: faMagicWandSparkles
+									}}
+									size="sm"
+								>
+									Generate from scratch using Copilot
+								</Button>
+							</div>
+							{#if copilotModule.hubCompletions.length > 0}
+								<p class="mt-2 font-semibold text-sm">Hub scripts</p>
+								<ul class="divide-y border rounded-md transition-all mt-1">
+									{#each copilotModule.hubCompletions as item (item.path)}
+										<li>
+											<button
+												class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
+												on:click={() => {
+													copilotModule.source = 'hub'
+													copilotModule.selectedCompletion = item
+												}}
 											>
-												<Icon data={faMagicWandSparkles} />
-											</div>
-
-											<div class="text-left font-normal">
-												<div class="text-primary flex-wrap text-md font-semibold mb-1">
-													Generate step from scratch using Windmill AI
-												</div>
-											</div>
-										</div>
-									</button>
-								</li>
-								{#each copilotModule.hubCompletions as item (item.path)}
-									<li>
-										<button
-											class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
-											on:click={() => {
-												copilotModule.source = 'hub'
-												copilotModule.selectedCompletion = item
-											}}
-										>
-											<div class="flex items-center gap-4">
-												<div
-													class={classNames(
-														'rounded-md p-1 flex justify-center items-center border',
-														'bg-surface border'
-													)}
-												>
-													<svelte:component
-														this={APP_TO_ICON_COMPONENT[item['app']]}
-														height={18}
-														width={18}
-													/>
-												</div>
-
-												<div class="text-left font-normal">
-													<div class="text-primary text-md font-semibold mb-1">
-														{item.summary ?? ''}
+												<div class="flex items-center gap-4">
+													<div
+														class={classNames(
+															'rounded-md p-1 flex justify-center items-center border',
+															'bg-surface border'
+														)}
+													>
+														<svelte:component
+															this={APP_TO_ICON_COMPONENT[item['app']]}
+															height={18}
+															width={18}
+														/>
 													</div>
-													<div class="text-secondary text-xs break-all">
-														{item.path}
+
+													<div class="text-left font-normal">
+														<div class="text-primary text-md font-semibold mb-1">
+															{item.summary ?? ''}
+														</div>
+														<div class="text-secondary text-xs break-all">
+															{item.path}
+														</div>
 													</div>
 												</div>
-											</div>
-											{#if item.kind !== 'script'}
-												<Badge color="gray" baseClass="border">{capitalize(item.kind)}</Badge>
-											{/if}
-										</button>
-									</li>
-								{/each}
-							</ul>
+												{#if item.kind !== 'script'}
+													<Badge color="gray" baseClass="border">{capitalize(item.kind)}</Badge>
+												{/if}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 						{/if}
 					</div>
 				</div>
