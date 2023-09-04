@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = []
+benchmark = []
 
 [dependencies]
 windmill-audit.workspace = true

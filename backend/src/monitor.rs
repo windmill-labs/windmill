@@ -133,7 +133,7 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         let _ = handle_job_error(
             db,
             &client,
-            job,
+            &job,
             error::Error::ExecutionErr(format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
                 last_ping
@@ -145,7 +145,6 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             true,
             same_worker_tx_never_used,
             "",
-            base_internal_url,
             rsmq.clone(),
         )
         .await;

@@ -3,7 +3,7 @@
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.145.0/mod.ts";
 import { Action } from "./action.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
@@ -21,7 +21,7 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
-export const VERSION = "v1.165.0";
+export const VERSION = "v1.167.0";
 
 await new Command()
   .name("wmillbench")
@@ -157,6 +157,7 @@ await new Command()
       custom,
     }) => {
       windmill.setClient("", host);
+      console.log("Backend version: " + (await fetch(`${host}/api/version`)));
 
       const custom_content: Action | undefined = custom
         ? JSON.parse(await Deno.readTextFile(custom))
@@ -212,6 +213,7 @@ await new Command()
             flowPattern,
             scriptPattern,
             zombieTimeout,
+            continous,
           },
           null,
           4
@@ -227,7 +229,9 @@ await new Command()
       let final_token: string;
       if (!token) {
         if (email && password) {
+          console.log("Logging in with email and password...");
           final_token = await login(email, password);
+          console.log("Logged in!");
         } else {
           console.error("Token or email with password are required.");
           return;
@@ -235,6 +239,8 @@ await new Command()
       } else {
         final_token = token;
       }
+
+      console.log("Using token", final_token);
 
       config.token = final_token;
       windmill.setClient(final_token, host);

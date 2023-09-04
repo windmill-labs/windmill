@@ -174,10 +174,10 @@ ${
 		: `
 URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
-  RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" $URL)
-  COMPLETED=$(echo $RESPONSE | jq .completed)
+  curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
+  COMPLETED=$(cat res.json | jq .completed)
   if [ "$COMPLETED" = "true" ]; then
-    echo $RESPONSE | jq .result
+    cat res.json | jq .result
     break
   else
     sleep 1

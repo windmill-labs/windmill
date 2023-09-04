@@ -12,7 +12,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient};
 
 #[derive(Serialize)]
 struct Claims {
@@ -64,7 +64,7 @@ pub async fn do_snowflake(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
+) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
@@ -201,7 +201,7 @@ pub async fn do_snowflake(
                 })
                 .collect();
 
-            Ok(JobCompleted { job: job, result: rows, logs: "".to_string(), success: true })
+            Ok(rows)
         }
         Err(e) => {
             let resp = response.text().await.unwrap_or("".to_string());

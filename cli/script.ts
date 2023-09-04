@@ -83,7 +83,7 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = path.substring(0, path.length - 3);
+    const remotePath = path.substring(0, path.indexOf("."));
     const metaPath = remotePath + ".script.json";
     let typed = undefined;
     try {
@@ -180,6 +180,8 @@ export async function handleFile(
 export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? [
+        filePath.replace(".script.json", ".fetch.ts"),
+        filePath.replace(".script.json", ".bun.ts"),
         filePath.replace(".script.json", ".ts"),
         filePath.replace(".script.json", ".py"),
         filePath.replace(".script.json", ".go"),
@@ -188,12 +190,12 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.json", "my.sql"),
         filePath.replace(".script.json", "bq.sql"),
         filePath.replace(".script.json", "sf.sql"),
-        filePath.replace(".script.json", ".fetch.ts"),
-        filePath.replace(".script.json", ".bun.ts"),
         filePath.replace(".script.json", ".gql"),
         filePath.replace(".script.json", ".ps1"),
       ]
     : [
+        filePath.replace(".script.yaml", ".fetch.ts"),
+        filePath.replace(".script.yaml", ".bun.ts"),
         filePath.replace(".script.yaml", ".ts"),
         filePath.replace(".script.yaml", ".py"),
         filePath.replace(".script.yaml", ".go"),
@@ -201,8 +203,6 @@ export async function findContentFile(filePath: string) {
         filePath.replace(".script.yaml", "pg.sql"),
         filePath.replace(".script.yaml", "bq.sql"),
         filePath.replace(".script.yaml", "sf.sql"),
-        filePath.replace(".script.yaml", ".fetch.ts"),
-        filePath.replace(".script.yaml", ".bun.ts"),
         filePath.replace(".script.yaml", ".gql"),
         filePath.replace(".script.yaml", ".ps1"),
       ];
