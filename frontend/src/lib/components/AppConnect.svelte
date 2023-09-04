@@ -195,13 +195,13 @@
 					linkedSecret: undefined
 				}
 			])
-			const filteredNativeLanguages = filteredConnectsManual.filter(([key, _]) =>
+			const filteredNativeLanguages = filteredConnectsManual?.filter(([key, _]) =>
       nativeLanguagesCategory.includes(key)
     );
 
     filteredConnectsManual = [
-      ...filteredNativeLanguages,
-      ...filteredConnectsManual.filter(([key, _]) => !nativeLanguagesCategory.includes(key))
+      ...(filteredNativeLanguages ?? []),
+      ...(filteredConnectsManual ?? []).filter(([key, _]) => !nativeLanguagesCategory.includes(key))
     ];
 	}
 
