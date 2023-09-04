@@ -12,17 +12,11 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history'
 	import { enterpriseLicense, hubScripts, userStore, workspaceStore } from '$lib/stores'
-	import { capitalize, classNames, encodeState, formatCron, sleep } from '$lib/utils'
+	import { encodeState, formatCron, sleep } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
-	import { Drawer, DrawerContent } from '$lib/components/common'
+	import type { Drawer } from '$lib/components/common'
 
-	import {
-		faAdd,
-		faCalendarAlt,
-		faClose,
-		faMagicWandSparkles,
-		faSave
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCalendarAlt, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -42,14 +36,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
-	import { stepCopilot, type FlowCopilotModule, glueCopilot } from './copilot/flow'
-	import { APP_TO_ICON_COMPONENT, WindmillIcon } from './icons'
-	import { Icon } from 'svelte-awesome'
+	import {
+		stepCopilot,
+		type FlowCopilotModule,
+		glueCopilot,
+		type FlowCopilotContext
+	} from './copilot/flow'
 	import { numberToChars } from './flows/idUtils'
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import ManualPopover from './ManualPopover.svelte'
+	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
+	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -367,9 +363,14 @@
 		})
 	}
 
-	let aiDrawerStore = writable<Drawer | undefined>(undefined)
+	let flowCopilotContext: FlowCopilotContext = {
+		drawerStore: writable<Drawer | undefined>(undefined),
+		modulesStore: writable<FlowCopilotModule[]>([])
+	}
 
-	setContext('ai-drawer', aiDrawerStore)
+	setContext('FlowCopilotContext', flowCopilotContext)
+
+	const { drawerStore: copilotDrawerStore, modulesStore: copilotModulesStore } = flowCopilotContext
 
 	let requests: { promise: CancelablePromise<{ id: string }[]>; ts: number }[] = []
 	async function hubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
@@ -395,7 +396,7 @@
 				})
 				.filter((s) => !!s)
 
-			$flowCopilotModules[idx].hubCompletions = scripts.slice(0, 3) as {
+			$copilotModulesStore[idx].hubCompletions = scripts.slice(0, 3) as {
 				path: string
 				summary: string
 				approved: boolean
@@ -412,7 +413,6 @@
 	let copilotLoading = false
 	let waitingStep: number | undefined = undefined
 	let flowCopilotMode: 'trigger' | 'sequence' = 'trigger'
-	let copilotPopover: ManualPopover | undefined = undefined
 	let copilotStatus: string = ''
 
 	function getInitCopilotModules(mode: typeof flowCopilotMode): FlowCopilotModule[] {
@@ -438,17 +438,9 @@
 		]
 	}
 
-	let flowCopilotModules: Writable<FlowCopilotModule[]> = writable(
-		getInitCopilotModules(flowCopilotMode)
-	)
-
 	$: {
-		flowCopilotModules.set(getInitCopilotModules(flowCopilotMode))
+		copilotModulesStore.set(getInitCopilotModules(flowCopilotMode))
 	}
-
-	setContext('flow-copilot-modules', flowCopilotModules)
-
-	$: copilotStatus.length > 0 ? copilotPopover?.open() : copilotPopover?.close()
 
 	async function genFlow(i: number) {
 		waitingStep = undefined
@@ -471,9 +463,24 @@
 				prevCode = ($flowStore.value.modules[i - 1].value as RawScript).content
 			}
 
-			let module = $flowCopilotModules[i]
+			let module = $copilotModulesStore[i]
+
+			// if (module.type === 'trigger') {
+			// 	if (!$scheduleStore.cron) {
+			// 		$scheduleStore.cron = '0 */15 * * *'
+			// 	}
+			// 	$scheduleStore.enabled = true
+			// }
+
 			const flowModule = {
 				id: numberToChars(i),
+				stop_after_if:
+					module.type === 'trigger'
+						? {
+								expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+								skip_if_stopped: true
+						  }
+						: undefined,
 				value: {
 					input_transforms: {},
 					content: '',
@@ -482,7 +489,7 @@
 				}
 			}
 
-			if (i === 1 && $flowCopilotModules[i - 1].type === 'trigger') {
+			if (i === 1 && $copilotModulesStore[i - 1].type === 'trigger') {
 				const loopModule: FlowModule = {
 					id: numberToChars(i) + '_loop',
 					value: {
@@ -501,14 +508,13 @@
 				$flowStore.value.modules.push(flowModule)
 			}
 
-			$aiDrawerStore?.closeDrawer()
+			$copilotDrawerStore?.closeDrawer()
 			select(numberToChars(i))
 			await sleep(200)
 
 			const deltaStore = writable<string>('')
 			const unsubscribe = deltaStore.subscribe(async (delta) => {
-				// $flowCopilotModules[i].editor?.setCode(code)
-				$flowCopilotModules[i].editor?.append(delta)
+				$copilotModulesStore[i].editor?.append(delta)
 			})
 			await stepCopilot(module, deltaStore, prevCode, abortController)
 			unsubscribe()
@@ -530,7 +536,7 @@
 						const inputs = await glueCopilot(
 							Object.keys(currentFlowModule.value.input_transforms),
 							pastModule.value.type === 'rawscript' ? pastModule.value.content : '',
-							i === 1 && $flowCopilotModules[i - 1].type === 'trigger',
+							i === 1 && $copilotModulesStore[i - 1].type === 'trigger',
 							abortController
 						)
 
@@ -700,215 +706,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<Drawer bind:this={$aiDrawerStore}>
-	<DrawerContent on:close={$aiDrawerStore.closeDrawer}>
-		<h1 class="pb-4">AI Flow Builder</h1>
-		<div class="flex flex-col gap-4">
-			<ToggleButtonGroup bind:selected={flowCopilotMode}>
-				<ToggleButton value="trigger" label="Trigger" />
-				<ToggleButton value="sequence" label="Sequence" />
-			</ToggleButtonGroup>
-			{#each $flowCopilotModules as copilotModule, i}
-				<div>
-					{#if i === 1 && $flowCopilotModules[i - 1].type === 'trigger'}
-						<div class="flex flex-row items-center pb-2 gap-2">
-							<Badge color="indigo">{numberToChars(i)}_loop</Badge>
-							<p class="font-semibold">For loop</p>
-						</div>
-					{/if}
-					<div class={i === 1 && $flowCopilotModules[i - 1].type === 'trigger' ? 'pl-4' : ''}>
-						<div class="flex flex-row items-center justify-between">
-							<div class="flex flex-row items-center gap-2">
-								<Badge color="indigo">{numberToChars(i)}</Badge>
-								<p class="font-semibold"
-									>{copilotModule.type === 'trigger' ? 'Trigger' : 'Action'}</p
-								>
-							</div>
-							{#if flowCopilotMode === 'sequence' && i >= 1}
-								<button
-									on:click={() => {
-										flowCopilotModules.update((prev) => {
-											prev.splice(i, 1)
-											return prev
-										})
-									}}
-								>
-									<Icon data={faClose} />
-								</button>
-							{/if}
-						</div>
-						{#if copilotModule.source !== undefined}
-							<div
-								class="p-4 gap-4 flex flex-row grow bg-surface transition-all items-center rounded-md justify-between border"
-							>
-								<div class="flex items-center gap-4">
-									<div
-										class={classNames(
-											'rounded-md p-1 flex justify-center items-center border',
-											'bg-surface border'
-										)}
-									>
-										{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion}
-											<svelte:component
-												this={APP_TO_ICON_COMPONENT[copilotModule.selectedCompletion['app']]}
-												height={18}
-												width={18}
-											/>
-										{:else}
-											<Icon data={faMagicWandSparkles} />
-										{/if}
-									</div>
-
-									<div class="w-full text-left font-normal">
-										<div class="text-primary flex-wrap text-md font-semibold mb-1">
-											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
-												? copilotModule.selectedCompletion.summary
-												: copilotModule.description}
-										</div>
-										{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion}
-											<div class="text-secondary text-xs break-all">
-												{copilotModule.selectedCompletion.path}
-											</div>
-										{/if}
-									</div>
-								</div>
-								{#if copilotModule.source === 'hub' && copilotModule.selectedCompletion && copilotModule.selectedCompletion?.kind !== 'script'}
-									<Badge color="gray" baseClass="border"
-										>{capitalize(copilotModule.selectedCompletion.kind)}</Badge
-									>
-								{/if}
-
-								<button
-									on:click={() => {
-										copilotModule.selectedCompletion = undefined
-										copilotModule.source = undefined
-									}}
-								>
-									<Icon data={faClose} />
-								</button>
-							</div>
-						{:else}
-							<input
-								name="description"
-								type="text"
-								placeholder={copilotModule.type === 'trigger'
-									? 'describe what should trigger your flow'
-									: 'describe what this step should do'}
-								bind:value={copilotModule.description}
-								on:input={() => {
-									if (copilotModule.description.length > 2) {
-										hubCompletions(copilotModule.description, i, copilotModule.type)
-									} else {
-										copilotModule.hubCompletions = []
-									}
-								}}
-							/>
-						{/if}
-						{#if copilotModule.description.length > 3 && copilotModule.source === undefined}
-							<ul class="divide-y border rounded-md transition-all mt-2">
-								<li>
-									<button
-										class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
-										on:click={() => {
-											copilotModule.source = 'custom'
-											copilotModule.selectedCompletion = undefined
-										}}
-									>
-										<div class="flex items-center gap-4">
-											<div
-												class={classNames(
-													'rounded-md p-1 flex justify-center items-center border',
-													'bg-surface border'
-												)}
-											>
-												<Icon data={faMagicWandSparkles} />
-											</div>
-
-											<div class="text-left font-normal">
-												<div class="text-primary flex-wrap text-md font-semibold mb-1">
-													Generate step from scratch using Windmill AI
-												</div>
-											</div>
-										</div>
-									</button>
-								</li>
-								{#each copilotModule.hubCompletions as item (item.path)}
-									<li>
-										<button
-											class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
-											on:click={() => {
-												copilotModule.source = 'hub'
-												copilotModule.selectedCompletion = item
-											}}
-										>
-											<div class="flex items-center gap-4">
-												<div
-													class={classNames(
-														'rounded-md p-1 flex justify-center items-center border',
-														'bg-surface border'
-													)}
-												>
-													<svelte:component
-														this={APP_TO_ICON_COMPONENT[item['app']]}
-														height={18}
-														width={18}
-													/>
-												</div>
-
-												<div class="text-left font-normal">
-													<div class="text-primary text-md font-semibold mb-1">
-														{item.summary ?? ''}
-													</div>
-													<div class="text-secondary text-xs break-all">
-														{item.path}
-													</div>
-												</div>
-											</div>
-											{#if item.kind !== 'script'}
-												<Badge color="gray" baseClass="border">{capitalize(item.kind)}</Badge>
-											{/if}
-										</button>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					</div>
-				</div>
-			{/each}
-			{#if flowCopilotMode !== 'trigger'}
-				<div class="flex justify-start">
-					<Button
-						startIcon={{ icon: faAdd }}
-						size="xs"
-						variant="border"
-						on:click={() =>
-							flowCopilotModules.update((prev) => [
-								...prev,
-								{
-									id: numberToChars(prev.length),
-									type: 'script',
-									description: '',
-									code: '',
-									source: undefined,
-									hubCompletions: [],
-									selectedCompletion: undefined
-								}
-							])}>Add step</Button
-					>
-				</div>
-			{/if}
-
-			<Button
-				on:click={() => genFlow(0)}
-				spacingSize="md"
-				startIcon={{ icon: faMagicWandSparkles }}
-				disabled={$flowCopilotModules.find((m) => m.source === undefined) !== undefined}
-			>
-				Build flow
-			</Button>
-		</div>
-	</DrawerContent>
-</Drawer>
+<FlowCopilotDrawer {hubCompletions} {genFlow} bind:flowCopilotMode />
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
@@ -987,55 +785,14 @@
 					<Awareness />
 				{/if}
 
-				<ManualPopover bind:this={copilotPopover}>
-					<Button
-						size="xs"
-						btnClasses="mr-2"
-						on:click={() => {
-							if (copilotLoading || waitingStep !== undefined) {
-								abortController?.abort()
-								waitingStep = undefined
-								copilotStatus = ''
-							} else {
-								$aiDrawerStore?.openDrawer()
-							}
-						}}
-						startIcon={copilotLoading
-							? undefined
-							: {
-									icon: faMagicWandSparkles
-							  }}
-						color={copilotLoading || waitingStep !== undefined ? 'red' : 'light'}
-						variant="border"
-					>
-						{#if copilotLoading}
-							<WindmillIcon class="mr-1 text-white" height="16px" width="20px" spin="veryfast" />
-						{/if}
-
-						{copilotLoading || waitingStep !== undefined ? 'Cancel' : 'AI Flow Builder'}
-					</Button>
-					<div slot="content" class="text-sm flex flex-row items-center"
-						><span class="font-semibold">{copilotStatus}</span>
-						{#if waitingStep !== undefined}
-							<Button
-								btnClasses="ml-2"
-								color="green"
-								on:click={() => {
-									if (waitingStep === undefined) {
-										return
-									}
-									if (waitingStep >= $flowCopilotModules.length - 1) {
-										handleFlowGenInputs()
-									} else {
-										genFlow(waitingStep + 1)
-									}
-								}}
-							>
-								Validate and continue
-							</Button>
-						{/if}</div
-					>
-				</ManualPopover>
+				<FlowCopilotStatus
+					{copilotLoading}
+					bind:copilotStatus
+					bind:waitingStep
+					{genFlow}
+					{handleFlowGenInputs}
+					{abortController}
+				/>
 
 				<FlowImportExportMenu />
 

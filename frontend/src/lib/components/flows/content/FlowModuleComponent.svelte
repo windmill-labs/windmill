@@ -38,8 +38,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
-	import type { FlowCopilotModule } from '$lib/components/copilot/flow'
-	import type { Writable } from 'svelte/store'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -73,10 +72,10 @@
 	let validCode = true
 	let width = 1200
 
-	const flowCopilotModules = getContext<Writable<FlowCopilotModule[]>>('flow-copilot-modules')
+	const { modulesStore: copilotModulesStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
 
 	function setCopilotModuleEditor() {
-		flowCopilotModules.update((modules) => {
+		copilotModulesStore.update((modules) => {
 			const module = modules.find((m) => m.id === flowModule.id)
 			if (module) {
 				module.editor = editor

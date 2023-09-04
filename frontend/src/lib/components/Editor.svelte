@@ -205,6 +205,7 @@
 					forceMoveMarkers: true
 				}
 			])
+			editor.revealLine(lineCount)
 		}
 	}
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, type Drawer } from '$lib/components/common'
+	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { faBolt, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
@@ -7,7 +7,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
-	import type { Writable } from 'svelte/store'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -33,7 +33,7 @@
 	}>()
 	let openMenu = false
 
-	const aiDrawerStore = getContext<Writable<Drawer | undefined>>('ai-drawer')
+	const { drawerStore: copilotDrawerStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
 </script>
 
 {#if insertable && deleteBranch}
@@ -148,7 +148,7 @@
 		<button
 			title="AI Flow Builder"
 			on:click={() => {
-				$aiDrawerStore?.openDrawer()
+				$copilotDrawerStore?.openDrawer()
 			}}
 			type="button"
 			class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
