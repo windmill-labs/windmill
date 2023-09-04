@@ -7,7 +7,7 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{common::transform_json_value, AuthedClient, JobCompleted};
+use crate::{common::transform_json_value, AuthedClient};
 
 #[derive(Deserialize)]
 struct GraphqlApi {
@@ -31,7 +31,7 @@ pub async fn do_graphql(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
-) -> windmill_common::error::Result<JobCompleted> {
+) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
         Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
@@ -88,10 +88,5 @@ pub async fn do_graphql(
     }
 
     // And then check that we got back the same string we sent over.
-    return Ok(JobCompleted {
-        job: job,
-        result: result.data.unwrap_or(json!({})),
-        logs: "".to_string(),
-        success: true,
-    });
+    return Ok(result.data.unwrap_or(json!({})));
 }
