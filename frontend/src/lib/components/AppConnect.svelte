@@ -74,6 +74,8 @@
 
 	export let newPageOAuth = false
 
+	const nativeLanguagesCategory = ['postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql'];
+
 	let filter = ''
 	let manual = false
 	let value: string = ''
@@ -193,6 +195,14 @@
 					linkedSecret: undefined
 				}
 			])
+			const filteredNativeLanguages = filteredConnectsManual.filter(([key, _]) =>
+      nativeLanguagesCategory.includes(key)
+    );
+
+    filteredConnectsManual = [
+      ...filteredNativeLanguages,
+      ...filteredConnectsManual.filter(([key, _]) => !nativeLanguagesCategory.includes(key))
+    ];
 	}
 
 	async function next() {
@@ -423,7 +433,31 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
+			<h2 class="mt-8 mb-4">Others</h2>
+      <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+        {#if filteredConnectsManual}
+          {#each filteredConnectsManual as [key, _]}
+            {#if nativeLanguagesCategory.includes(key)}
+              <Button
+                size="sm"
+                variant="border"
+                color={key === resource_type ? 'blue' : 'light'}
+                btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+                on:click={() => {
+                  manual = true;
+                  resource_type = key;
+                  next();
+                  dispatch('click');
+                }}
+              >
+                <IconedResourceType name={key} after={true} width="20px" height="20px" />
+              </Button>
+            {/if}
+          {/each}
+        {/if}
+      </div>
+
+			<h2 class="mt-8 mb-4"></h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, _]}
