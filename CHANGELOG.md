@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.167.0](https://github.com/windmill-labs/windmill/compare/v1.166.1...v1.167.0) (2023-09-04)
+
+
+### Features
+
+* submit result in background thread (unify architecture for dedicated worker) ([#2226](https://github.com/windmill-labs/windmill/issues/2226)) ([dff1cd9](https://github.com/windmill-labs/windmill/commit/dff1cd9a64f755f239eb57599c104c47f4d33b12))
+
+
+### Bug Fixes
+
+* **cli:** prioritize correctly content file to resolve for ts types ([2906d53](https://github.com/windmill-labs/windmill/commit/2906d535a126f4fe2cfe6dffda46e5fe841056da))
+
 ## [1.166.1](https://github.com/windmill-labs/windmill/compare/v1.166.0...v1.166.1) (2023-09-03)
 
 
