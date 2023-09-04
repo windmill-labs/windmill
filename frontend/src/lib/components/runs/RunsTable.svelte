@@ -4,6 +4,7 @@
 	import Button from '../common/button/Button.svelte'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
+	import { onMount } from 'svelte'
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
@@ -68,6 +69,7 @@
 				job: Job
 		  }
 	> = []
+
 	$: {
 		flatJobs = []
 		for (const [date, jobsByDay] of Object.entries(groupedJobs)) {
@@ -90,32 +92,60 @@
 			index++
 		}
 	}
+	let tableHeight: number = 0
+	let header: number = 0
+
+	onMount(() => {
+		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
+	})
 </script>
 
-<div class="divide-y h-full">
-	<div class="flex flex-row bg-surface-secondary sticky top-0">
-		<div class="w-8" />
-		<div>Timestamp</div>
-		<div>Path</div>
-		<div>Triggered by</div>
+<div class="divide-y min-w-[640px]" id="runs-table-wrapper">
+	<div
+		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 z-50"
+		bind:clientHeight={header}
+	>
+		<div class="w-1/12" />
+		<div class="w-4/12 text-xs font-semibold">Timestamp</div>
+		<div class="w-4/12 text-xs font-semibold">Path</div>
+		<div class="w-3/12 text-xs font-semibold">Triggered by</div>
 	</div>
 
-	<VirtualList width="100%" height="100%" itemCount={flatJobs.length} itemSize={50}>
-		<div slot="item" let:index let:style {style}>
+	<VirtualList width="100%" height={tableHeight - header} itemCount={flatJobs.length} itemSize={42}>
+		<div slot="item" let:index let:style {style} class="w-full">
 			{@const jobOrDate = flatJobs[index]}
-			{#if jobOrDate.type === 'date'}
-				<div class="bg-surface-secondary/30 py-2 border-b font-semibold">
-					{jobOrDate.date}
-				</div>
+
+			{#if jobOrDate}
+				{#if jobOrDate?.type === 'date'}
+					<div class="bg-surface-secondary/30 py-2 border-b font-semibold text-xs pl-5">
+						{jobOrDate.date}
+					</div>
+				{:else}
+					<div class="flex flex-row items-center h-full w-full">
+						<RunRow
+							job={jobOrDate.job}
+							bind:selectedId
+							on:select
+							on:filterByPath
+							on:filterByUser
+							on:filterByFolder
+						/>
+					</div>
+				{/if}
 			{:else}
-				<RunRow
-					job={jobOrDate.job}
-					bind:selectedId
-					on:select
-					on:filterByPath
-					on:filterByUser
-					on:filterByFolder
-				/>
+				{JSON.stringify(jobOrDate)}
+			{/if}
+		</div>
+		<div slot="footer">
+			{#if nbOfJobs < jobs.length}
+				<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
+					<Button color="light" size="xs2" on:click={() => (nbOfJobs += loadMoreQuantity)}>
+						<div class="flex flex-row gap-1 items-center">
+							Load {loadMoreQuantity} more
+							<ArrowDownIcon size={16} />
+						</div>
+					</Button>
+				</div>
 			{/if}
 		</div>
 	</VirtualList>
@@ -126,14 +156,4 @@
 			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
 		</td>
 	</tr>
-{/if}
-{#if nbOfJobs < jobs.length}
-	<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
-		<Button color="light" size="xs2" on:click={() => (nbOfJobs += loadMoreQuantity)}>
-			<div class="flex flex-row gap-1 items-center">
-				Load {loadMoreQuantity} more
-				<ArrowDownIcon size={16} />
-			</div>
-		</Button>
-	</div>
 {/if}

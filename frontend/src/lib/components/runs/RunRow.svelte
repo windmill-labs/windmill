@@ -48,45 +48,44 @@
 		'hover:bg-surface-hover cursor-pointer',
 		selectedId === job.id ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'transition-all',
-		'flex flex-row'
+		'flex flex-row items-center h-full w-full '
 	)}
 	on:click={() => {
 		selectedId = job.id
 		dispatch('select')
 	}}
 >
-	<div>
-		<div>
-			{#if 'success' in job && job.success}
-				{#if job.is_skipped}
-					<Badge color="green" rounded>
-						<FastForward size={14} />
-					</Badge>
-				{:else}
-					<Badge color="green" baseClass="!px-1.5">
-						<Check size={14} />
-					</Badge>
-				{/if}
-			{:else if 'success' in job}
-				<Badge color="red" baseClass="!px-1.5">
-					<X size={14} />
-				</Badge>
-			{:else if 'running' in job && job.running}
-				<Badge color="yellow" baseClass="!px-1.5">
-					<Play size={14} />
-				</Badge>
-			{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-				<Badge color="blue" baseClass="!px-1.5">
-					<Calendar size={14} />
+	<div class="w-1/12 flex justify-center">
+		{#if 'success' in job && job.success}
+			{#if job.is_skipped}
+				<Badge color="green" rounded>
+					<FastForward size={14} />
 				</Badge>
 			{:else}
-				<Badge baseClass="!px-1.5">
-					<Hourglass size={14} />
+				<Badge color="green" baseClass="!px-1.5">
+					<Check size={14} />
 				</Badge>
 			{/if}
-		</div>
+		{:else if 'success' in job}
+			<Badge color="red" baseClass="!px-1.5">
+				<X size={14} />
+			</Badge>
+		{:else if 'running' in job && job.running}
+			<Badge color="yellow" baseClass="!px-1.5">
+				<Play size={14} />
+			</Badge>
+		{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
+			<Badge color="blue" baseClass="!px-1.5">
+				<Calendar size={14} />
+			</Badge>
+		{:else}
+			<Badge baseClass="!px-1.5">
+				<Hourglass size={14} />
+			</Badge>
+		{/if}
 	</div>
-	<div>
+
+	<div class="w-5/12 flex justify-start">
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -110,7 +109,7 @@
 		</div>
 	</div>
 
-	<div>
+	<div class="w-5/12 flex justify-start">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -176,7 +175,7 @@
 			{/if}
 		{/if}
 	</div>
-	<div>
+	<div class="w-3/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -191,7 +190,9 @@
 			</div>
 		{:else}
 			<div class="flex flex-row gap-1 items-center">
-				{job.created_by}
+				<div class="text-xs">
+					{job.created_by}
+				</div>
 				<Button
 					size="xs2"
 					color="light"
