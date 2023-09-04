@@ -457,31 +457,33 @@
         {/if}
       </div>
 
-			<h2 class="mt-8 mb-4"></h2>
-			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#if filteredConnectsManual}
-					{#each filteredConnectsManual as [key, _]}
-						<Button
-							size="sm"
-							variant="border"
-							color={key === resource_type ? 'blue' : 'light'}
-							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-							on:click={() => {
-								manual = true
-								resource_type = key
-								next()
-								dispatch('click')
-							}}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/each}
-				{:else}
-					{#each new Array(9) as _}
-						<Skeleton layout={[[2]]} />
-					{/each}
-				{/if}
-			</div>
+	  <h2 class="mt-8 mb-4"></h2>
+	  <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+		  {#if filteredConnectsManual}
+			  {#each filteredConnectsManual as [key, _]}
+				  {#if !nativeLanguagesCategory.includes(key)} <!-- Exclude specific items -->
+					  <Button
+						  size="sm"
+						  variant="border"
+						  color={key === resource_type ? 'blue' : 'light'}
+						  btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						  on:click={() => {
+							  manual = true;
+							  resource_type = key;
+							  next();
+							  dispatch('click');
+						  }}
+					  >
+						  <IconedResourceType name={key} after={true} width="20px" height="20px" />
+					  </Button>
+				  {/if}
+			  {/each}
+		  {:else}
+			  {#each new Array(9) as _}
+				  <Skeleton layout={[[2]]} />
+			  {/each}
+		  {/if}
+	  </div>	  
 		{:else if step == 2 && manual}
 			<Path
 				bind:error={pathError}
