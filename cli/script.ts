@@ -83,7 +83,7 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = path.substring(0, path.length - 3);
+    const remotePath = path.substring(0, path.indexOf("."));
     const metaPath = remotePath + ".script.json";
     let typed = undefined;
     try {
