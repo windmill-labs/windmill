@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use base64::Engine;
+use futures::channel::mpsc::Sender;
 use itertools::Itertools;
 use uuid::Uuid;
 
@@ -10,7 +11,7 @@ use crate::{
         write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, JobCompleted,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::error::Result;
@@ -416,17 +417,14 @@ pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, Stri
 
 pub async fn start_worker(
     requirements_o: Option<String>,
-    logs: &mut String,
-    code: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    shared_mount: &str,
-) -> mspc:: {
+    job_completed_tx: Sender<JobCompleted>,
+    
+) -> {
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url);
