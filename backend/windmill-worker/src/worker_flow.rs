@@ -54,7 +54,6 @@ pub async fn update_flow_status_after_job_completion<
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
-    base_internal_url: &str,
     rsmq: Option<R>,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
@@ -71,7 +70,6 @@ pub async fn update_flow_status_after_job_completion<
         same_worker_tx.clone(),
         worker_dir,
         stop_early_override,
-        base_internal_url,
         rsmq.clone(),
     )
     .await?;
@@ -89,7 +87,6 @@ pub async fn update_flow_status_after_job_completion<
             same_worker_tx.clone(),
             worker_dir,
             nrec.stop_early_override,
-            base_internal_url,
             rsmq.clone(),
         )
         .await?;
@@ -119,7 +116,6 @@ pub async fn update_flow_status_after_job_completion_internal<
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
-    base_internal_url: &str,
     rsmq: Option<R>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
@@ -575,7 +571,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 db,
                 &flow_job,
                 logs,
-                canceled_job_to_result(&flow_job),
+                &canceled_job_to_result(&flow_job),
                 metrics.clone(),
                 rsmq.clone(),
             )
@@ -595,7 +591,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 &flow_job,
                 success,
                 stop_early && skip_if_stop_early,
-                nresult.clone(),
+                &nresult,
                 logs,
                 rsmq.clone(),
             )
@@ -610,17 +606,17 @@ pub async fn update_flow_status_after_job_completion_internal<
             nresult.clone(),
             same_worker_tx.clone(),
             worker_dir,
-            base_internal_url,
             rsmq.clone(),
         )
         .await
         {
             Err(err) => {
+                let e = json!({"message": err.to_string(), "name": "InternalError"});
                 let _ = add_completed_job_error(
                     db,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
-                    json!({"message": err.to_string(), "name": "InternalError"}),
+                    &e,
                     metrics.clone(),
                     rsmq.clone(),
                 )
@@ -885,7 +881,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
-    base_internal_url: &str,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let value = flow_job
@@ -909,7 +904,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         last_result,
         same_worker_tx,
         worker_dir,
-        base_internal_url,
         rsmq,
     )
     .await?;
@@ -927,7 +921,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
-    base_internal_url: &str,
     rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_root = flow_job
@@ -964,7 +957,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             same_worker_tx,
             worker_dir,
             None,
-            base_internal_url,
             rsmq,
         )
         .await;
@@ -994,7 +986,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 same_worker_tx,
                 worker_dir,
                 Some(true),
-                base_internal_url,
                 rsmq,
             )
             .await;
@@ -1167,7 +1158,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, result, logs, rsmq).await?;
+                    add_completed_job(db, &flow_job, success, skipped, &result, logs, rsmq).await?;
 
                 return Ok(());
             }
