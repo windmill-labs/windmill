@@ -392,9 +392,7 @@
 
 			const scripts = scriptIds
 				.map((qs) => {
-					const s = $hubScripts
-						?.filter((hs) => type === 'script' || hs.kind === 'trigger')
-						.find((hs) => hs.ask_id === Number(qs.id))
+					const s = $hubScripts?.find((hs) => hs.ask_id === Number(qs.id))
 					return s
 				})
 				.filter((s) => !!s)
