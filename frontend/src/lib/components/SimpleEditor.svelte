@@ -20,6 +20,7 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+	import { authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -187,6 +188,42 @@
 		})
 	}
 
+	$: lang == 'css' && addCSSClassCompletions()
+
+	function addCSSClassCompletions() {
+		const cssClasses = authorizedClassnames.map((className) => '.' + className)
+
+		languages.registerCompletionItemProvider('css', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = cssClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
+
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
+	}
+
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
@@ -201,6 +238,40 @@
 			} else {
 				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
+		} else if (lang === 'css') {
+			const cssClasses = authorizedClassnames.map((className) => '.' + className)
+
+			languages.registerCompletionItemProvider('css', {
+				provideCompletionItems: function (model, position, context, token) {
+					const word = model.getWordUntilPosition(position)
+					const range = {
+						startLineNumber: position.lineNumber,
+						startColumn: word.startColumn,
+						endLineNumber: position.lineNumber,
+						endColumn: word.endColumn
+					}
+
+					if (word && word.word) {
+						const currentWord = word.word
+
+						const suggestions = cssClasses
+							.filter((className) => className.includes(currentWord))
+							.map((className) => ({
+								label: className,
+								kind: languages.CompletionItemKind.Class,
+								insertText: className,
+								documentation: 'Custom CSS class',
+								range: range
+							}))
+
+						console.log(suggestions)
+
+						return { suggestions }
+					}
+
+					return { suggestions: [] }
+				}
+			})
 		}
 	}
 

@@ -34,7 +34,12 @@
 				</div>
 				<div class="flex flex-row gap-2 items-center text-blue-500 text-xs">
 					<Info size={16} />
-					Component customisation is available in the Community Edition
+					Component styling is still available in the Community Edition
+					<Tooltip light>
+						App CSS editor is an exclusive feature of the Enterprise Edition. You can experiment
+						with this feature in the editor, but please note that the changes will not be visible in
+						the preview.
+					</Tooltip>
 				</div>
 			</div>
 		{/if}
