@@ -1,10 +1,9 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import { ArrowDownIcon } from 'lucide-svelte'
-	import Button from '../common/button/Button.svelte'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import { onMount } from 'svelte'
+	import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
@@ -14,6 +13,7 @@
 	function getTime(job: Job): string | undefined {
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
+
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
 		const groupedLogs: Record<string, Job[]> = {}
 
@@ -59,7 +59,7 @@
 
 	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbOfJobs))
 
-	let flatJobs: Array<
+	type FlatJobs =
 		| {
 				type: 'date'
 				date: string
@@ -68,17 +68,21 @@
 				type: 'job'
 				job: Job
 		  }
-	> = []
 
-	$: {
-		flatJobs = []
+	function flattenJobs(groupedJobs: Record<string, Job[]>): Array<FlatJobs> {
+		const flatJobs: Array<FlatJobs> = []
+
 		for (const [date, jobsByDay] of Object.entries(groupedJobs)) {
 			flatJobs.push({ type: 'date', date })
 			for (const job of jobsByDay) {
 				flatJobs.push({ type: 'job', job })
 			}
 		}
+
+		return flatJobs
 	}
+
+	$: flatJobs = flattenJobs(groupedJobs)
 
 	let stickyIndices: number[] = []
 
@@ -94,13 +98,29 @@
 	}
 	let tableHeight: number = 0
 	let header: number = 0
+	let containerWidth: number = 0
+	const MAX_ITEMS = 1000
+
+	function infiniteHandler({ detail: { loaded, error, complete } }) {
+		try {
+			nbOfJobs += loadMoreQuantity
+
+			if (nbOfJobs >= MAX_ITEMS) {
+				complete()
+			} else {
+				loaded()
+			}
+		} catch (e) {
+			error()
+		}
+	}
 
 	onMount(() => {
 		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
 	})
 </script>
 
-<div class="divide-y min-w-[640px]" id="runs-table-wrapper">
+<div class="divide-y min-w-[640px]" id="runs-table-wrapper" bind:clientWidth={containerWidth}>
 	<div
 		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 z-50"
 		bind:clientHeight={header}
@@ -129,6 +149,7 @@
 							on:filterByPath
 							on:filterByUser
 							on:filterByFolder
+							{containerWidth}
 						/>
 					</div>
 				{/if}
@@ -137,16 +158,11 @@
 			{/if}
 		</div>
 		<div slot="footer">
-			{#if nbOfJobs < jobs.length}
-				<div class="bg-surface border-t flex flex-row justify-center py-4 items-center gap-2">
-					<Button color="light" size="xs2" on:click={() => (nbOfJobs += loadMoreQuantity)}>
-						<div class="flex flex-row gap-1 items-center">
-							Load {loadMoreQuantity} more
-							<ArrowDownIcon size={16} />
-						</div>
-					</Button>
+			<InfiniteLoading on:infinite={infiniteHandler}>
+				<div slot="noMore">
+					<div class="text-center text-xs text-secondary">No more jobs to load</div>
 				</div>
-			{/if}
+			</InfiniteLoading>
 		</div>
 	</VirtualList>
 </div>
