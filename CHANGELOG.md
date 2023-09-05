@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.167.1](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.167.1) (2023-09-05)
+
+
+### Bug Fixes
+
+* **frontend:** add virtual list ([#2218](https://github.com/windmill-labs/windmill/issues/2218)) ([e4c896b](https://github.com/windmill-labs/windmill/commit/e4c896b4b9f28b2fa219be249a2794faf3f1b7d0))
+
 ## [1.167.0](https://github.com/windmill-labs/windmill/compare/v1.166.1...v1.167.0) (2023-09-04)
 
 
