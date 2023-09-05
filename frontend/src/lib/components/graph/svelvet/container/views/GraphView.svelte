@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { pointer, select, selectAll } from 'd3-selection'
 	import { zoom, zoomIdentity, zoomTransform } from 'd3-zoom'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import SimpleBezierEdge from '../../edges/views/Edges/SimpleBezierEdge.svelte'
 	import SmoothStepEdge from '../../edges/views/Edges/SmoothStepEdge.svelte'
 	import StepEdge from '../../edges/views/Edges/StepEdge.svelte'
@@ -13,6 +13,8 @@
 
 	import { Expand, Minus, Plus } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { fade } from 'svelte/transition'
 
 	//these are typscripted as any, however they have been transformed inside of store.ts
 	export let canvasId: string
@@ -124,6 +126,16 @@
 			)
 			.style('transform-origin', '0 0')
 	}
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	$: {
+		if ($copilotCurrentStepStore !== undefined) {
+			// reset zoom
+			d3.select(`#zoomable-${canvasId}`).call(d3Zoom.transform, d3.zoomIdentity)
+		}
+	}
 </script>
 
 <div class="zoomable" id={`zoomable-${canvasId}`}>
@@ -132,6 +144,9 @@
 		<div class={`Nodes Nodes-${canvasId}`} on:contextmenu|preventDefault>
 			<!-- This container is transformed by d3zoom -->
 			<div class={`Node Node-${canvasId}`}>
+				{#if $copilotCurrentStepStore !== undefined}
+					<div transition:fade class="fixed inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+				{/if}
 				{#each nodes as node}
 					{#if node.data.html}
 						<Node {node} {canvasId}>{@html node.data.html}</Node>
@@ -203,6 +218,7 @@
 {#if showDataflowToggle}
 	<div id="dataflow_toggle">
 		<Toggle
+			disabled={$copilotCurrentStepStore !== undefined}
 			textClass="!text-secondary"
 			size="xs"
 			bind:checked={dataflow}
@@ -214,10 +230,24 @@
 {/if}
 
 <div id="buttons">
-	<button title="Zoom In" id={`zoom_in_${canvasId}`}>
+	<button
+		title="Zoom In"
+		id={`zoom_in_${canvasId}`}
+		class={'relative overflow-hidden ' +
+			($copilotCurrentStepStore !== undefined
+				? '!bg-gray-400/20 text-black/20 border-gray-400/20'
+				: '')}
+	>
 		<Plus size="14" class="flex justify-start m-1" />
 	</button>
-	<button title="Zoom Out" id={`zoom_out_${canvasId}`}>
+	<button
+		title="Zoom Out"
+		id={`zoom_out_${canvasId}`}
+		class={'relative overflow-hidden ' +
+			($copilotCurrentStepStore !== undefined
+				? '!bg-gray-400/20 text-black/20 border-gray-400/20'
+				: '')}
+	>
 		<Minus size="14" class="flex justify-start m-1" />
 	</button>
 

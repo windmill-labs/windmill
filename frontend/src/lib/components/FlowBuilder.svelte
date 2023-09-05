@@ -366,7 +366,7 @@
 	let flowCopilotContext: FlowCopilotContext = {
 		drawerStore: writable<Drawer | undefined>(undefined),
 		modulesStore: writable<FlowCopilotModule[]>([]),
-		focusStore: writable<boolean>(false)
+		currentStepStore: writable<string | undefined>(undefined)
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -374,7 +374,7 @@
 	const {
 		drawerStore: copilotDrawerStore,
 		modulesStore: copilotModulesStore,
-		focusStore: copilotFocusStore
+		currentStepStore: copilotCurrentStepStore
 	} = flowCopilotContext
 
 	let doneTs = 0
@@ -412,7 +412,6 @@
 
 	let abortController: AbortController | undefined = undefined
 	let copilotLoading = false
-	let waitingStep: number | undefined = undefined
 	let flowCopilotMode: 'trigger' | 'sequence' = 'trigger'
 	let copilotStatus: string = ''
 
@@ -444,17 +443,16 @@
 	}
 
 	async function genFlow(i: number) {
-		waitingStep = undefined
 		copilotLoading = true
 		copilotStatus = "Generating code for step '" + numberToChars(i) + "'..."
-		$copilotFocusStore = true
+		$copilotCurrentStepStore = numberToChars(i)
 		try {
 			abortController = new AbortController()
 
+			$flowStore.value.modules = $flowStore.value.modules.slice(0, i)
 			let prevCode = ''
 			if (i === 0) {
 				prevCode = ''
-				$flowStore.value.modules = []
 				$flowStore.schema = {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
 					properties: {},
@@ -514,6 +512,7 @@
 			select(numberToChars(i))
 			await sleep(200)
 
+			$copilotModulesStore[i].editor?.setCode('')
 			const deltaStore = writable<string>('')
 			const unsubscribe = deltaStore.subscribe(async (delta) => {
 				$copilotModulesStore[i].editor?.append(delta)
@@ -643,7 +642,6 @@
 
 			copilotStatus =
 				"Waiting for the user to validate code and inputs of step '" + numberToChars(i) + "'"
-			waitingStep = i
 		} catch (err) {
 			if (err?.message) {
 				sendUserToast('Failed to generate code: ' + err.message, true)
@@ -659,7 +657,7 @@
 	async function handleFlowGenInputs() {
 		copilotLoading = true
 		select('Input')
-		waitingStep = undefined
+		$copilotCurrentStepStore = 'Input'
 
 		// filter out unused flow inputs
 		const flowInputs: Record<string, SchemaProperty> = {}
@@ -703,17 +701,29 @@
 		copilotLoading = false
 		await sleep(3000)
 		copilotStatus = ''
-		$copilotFocusStore = false
+		$copilotCurrentStepStore = undefined
 	}
 
 	$: {
-		if ($copilotFocusStore) {
+		if ($copilotCurrentStepStore !== undefined) {
 			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
 				el.classList.add('hidden')
 			})
+			setTimeout(() => {
+				document.querySelectorAll('#flow-graph *').forEach((el) => {
+					if (el instanceof HTMLElement) {
+						el.style.pointerEvents = 'none'
+					}
+				})
+			}, 250)
 		} else {
 			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
 				el.classList.remove('hidden')
+			})
+			document.querySelectorAll('#flow-graph *').forEach((el) => {
+				if (el instanceof HTMLElement) {
+					el.style.pointerEvents = ''
+				}
 			})
 		}
 	}
@@ -731,7 +741,7 @@
 		<div
 			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full relative"
 		>
-			{#if $copilotFocusStore}
+			{#if $copilotCurrentStepStore !== undefined}
 				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 			{/if}
 			<div class="flex w-full max-w-md gap-4 items-center">
@@ -806,7 +816,6 @@
 				<FlowCopilotStatus
 					{copilotLoading}
 					bind:copilotStatus
-					bind:waitingStep
 					{genFlow}
 					{handleFlowGenInputs}
 					{abortController}

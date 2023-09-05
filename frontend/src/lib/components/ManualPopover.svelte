@@ -24,7 +24,7 @@
 	<Portal>
 		<div
 			use:popperContent
-			class="z-[5001] rounded-lg shadow-md border p-4 bg-surface"
+			class="z-[901] rounded-lg shadow-md border p-4 bg-surface"
 			transition:fade={{ duration: 200 }}
 		>
 			<slot name="content" />

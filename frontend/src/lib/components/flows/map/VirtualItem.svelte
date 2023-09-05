@@ -33,7 +33,8 @@
 	}>()
 	let openMenu = false
 
-	const { drawerStore: copilotDrawerStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
+	const { drawerStore: copilotDrawerStore, currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 {#if insertable && deleteBranch}
@@ -55,7 +56,8 @@
 	class={classNames(
 		'w-full flex relative overflow-hidden rounded-sm',
 		selectable ? 'cursor-pointer' : '',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
+		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : ''
 	)}
 	style="min-width: 275px; max-height: 80px; background-color: {bgColor};"
 	on:click={() => {

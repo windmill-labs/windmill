@@ -72,10 +72,11 @@
 	let validCode = true
 	let width = 1200
 
-	const { modulesStore: copilotModulesStore } = getContext<FlowCopilotContext>('FlowCopilotContext')
+	const { modulesStore: copilotModulesStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	function setCopilotModuleEditor() {
-		copilotModulesStore.update((modules) => {
+		copilotModulesStore?.update((modules) => {
 			const module = modules.find((m) => m.id === flowModule.id)
 			if (module) {
 				module.editor = editor

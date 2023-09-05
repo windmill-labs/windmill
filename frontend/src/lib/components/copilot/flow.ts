@@ -34,7 +34,7 @@ export type FlowCopilotModule = {
 export type FlowCopilotContext = {
 	drawerStore: Writable<Drawer | undefined>
 	modulesStore: Writable<FlowCopilotModule[]>
-	focusStore: Writable<boolean>
+	currentStepStore: Writable<string | undefined>
 }
 
 const systemPrompt = `You write code as instructed by the user. Only output code. Wrap the code in a code block. 
