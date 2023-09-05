@@ -160,7 +160,9 @@
 		<div slot="footer">
 			<InfiniteLoading on:infinite={infiniteHandler}>
 				<div slot="noMore">
-					<div class="text-center text-xs text-secondary">No more jobs to load</div>
+					<div class="text-center text-xs text-secondary p-2">
+						Reached the limit of {MAX_ITEMS} jobs. Please refine your search using filters.
+					</div>
 				</div>
 			</InfiniteLoading>
 		</div>
