@@ -9,6 +9,7 @@
 use std::net::SocketAddr;
 
 use error::Error;
+use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
 pub mod apps;
@@ -170,9 +171,11 @@ pub async fn get_latest_deployed_hash_for_path(
     Option<i32>,
     Option<i32>,
     Option<i32>,
+    ScriptLang,
+    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -189,6 +192,8 @@ pub async fn get_latest_deployed_hash_for_path(
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
     ))
 }
 
@@ -202,9 +207,11 @@ pub async fn get_latest_hash_for_path<'c>(
     Option<i32>,
     Option<i32>,
     Option<i32>,
+    ScriptLang,
+    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker  from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -221,5 +228,7 @@ pub async fn get_latest_hash_for_path<'c>(
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
     ))
 }

@@ -1,20 +1,28 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{
+    collections::{HashMap, VecDeque},
+    process::Stdio,
+};
 
+use anyhow::Context;
 use base64::Engine;
-use futures::channel::mpsc::Sender;
 use itertools::Itertools;
 use uuid::Uuid;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        write_file, write_file_binary,
+        build_envs_map, create_args_and_out_file, get_reserved_variables, handle_child,
+        read_result, set_logs, write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, JobCompleted,
+    AuthedClientBackgroundTask, JobCompleted, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
+    DISABLE_NUSER, MAX_BUFFERED_DEDICATED_JOBS, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
 };
-use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::error::Result;
+use tokio::{
+    fs::File,
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    process::Command,
+    sync::mpsc::{Receiver, Sender},
+};
+use windmill_common::{error::Result, variables};
 use windmill_common::{
     error::{self},
     jobs::QueuedJob,
@@ -418,17 +426,37 @@ pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, Stri
 pub async fn start_worker(
     requirements_o: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    inner_content: &String,
+    inner_content: &str,
     base_internal_url: &str,
+    job_dir: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
+    w_id: &str,
+    script_path: &str,
+    token: &str,
     job_completed_tx: Sender<JobCompleted>,
-    
-) -> {
+    mut jobs_rx: Receiver<QueuedJob>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<()> {
+    let mut logs = "".to_string();
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url);
-
+    let context = variables::get_reserved_variables(
+        w_id,
+        &token,
+        "dedicated_worker@windmill.dev",
+        "dedicated_worker",
+        "NOT_AVAILABLE",
+        "dedicated_worker",
+        Some(script_path.to_string()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .to_vec();
+    let context_envs = build_envs_map(context);
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -451,9 +479,9 @@ pub async fn start_worker(
             .await?;
         }
         install_lockfile(
-            logs,
-            &job.id,
-            &job.workspace_id,
+            &mut logs,
+            &Uuid::nil(),
+            &w_id,
             db,
             job_dir,
             worker_name,
@@ -463,12 +491,12 @@ pub async fn start_worker(
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
-            logs,
-            &job.id,
-            &job.workspace_id,
+            &mut logs,
+            &Uuid::nil(),
+            &w_id,
             db,
-            &client.get_token().await,
-            &job.script_path(),
+            token,
+            &script_path,
             job_dir,
             base_internal_url,
             worker_name,
@@ -477,7 +505,7 @@ pub async fn start_worker(
         .await?;
     }
 
-    let write_wrapper_f = async {
+    {
         // let mut start = Instant::now();
         let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
         let dates = args
@@ -500,38 +528,56 @@ pub async fn start_worker(
             r#"
 import {{ main }} from "./main.ts";
 
-const fs = require('fs/promises');
-
-const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
-
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
 {dates}
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await fs.writeFile("result.json", res_json);
-    process.exit(0);
+
+let stdout = Bun.stdout.writer();
+// let stdout = Bun.file("output.txt").writer();
+stdout.write('start\n'); 
+
+for await (const chunk of Bun.stdin.stream()) {{
+    const lines = Buffer.from(chunk).toString();
+    let exit = false;
+    for (const line of lines.trim().split("\n")) {{
+        // stdout.write('s: ' + line + 'EE\n'); 
+        if (line === "end") {{
+            exit = true;
+            break;
+        }}
+        try {{
+            let {{ {spread} }} = JSON.parse(line) 
+            let res: any = await main(...[ {spread} ]);
+            stdout.write(JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+        }} catch (e) {{
+            stdout.write(JSON.stringify({{ error: {{ message: e.message, name: e.name, stack: e.stack, line: line }}}}) + '\n');
+        }}
+        stdout.flush();
+    }}
+    if (exit) {{
+        break;
+    }}
 }}
-run().catch(async (e) => {{
-    await fs.writeFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    process.exit(1);
-}});
-    "#,
+"#,
         );
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
-        Ok(()) as error::Result<()>
-    };
+    }
 
-    let reserved_variables_f = async {
-        let client = client.get_authed().await;
-        let vars = get_reserved_variables().await?;
-        Ok(vars) as Result<HashMap<String, String>>
-    };
-    let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
+    let reserved_variables = windmill_common::variables::get_reserved_variables(
+        w_id,
+        token,
+        "dedicated_worker",
+        "dedicated_worker",
+        Uuid::nil().to_string().as_str(),
+        "dedicted_worker",
+        Some(script_path.to_string()),
+        None,
+        None,
+        None,
+        None,
+    );
 
     let _ = write_file(
         &job_dir,
@@ -545,16 +591,16 @@ import {{ plugin }} from "bun";
 plugin(p)
 "#,
             RELATIVE_BUN_LOADER
-                .replace("W_ID", &job.workspace_id)
+                .replace("W_ID", &w_id)
                 .replace("BASE_INTERNAL_URL", base_internal_url)
-                .replace("TOKEN", &client.get_token().await)
-                .replace("CURRENT_PATH", job.script_path())
+                .replace("TOKEN", token)
+                .replace("CURRENT_PATH", script_path)
         ),
     )
     .await?;
 
     //do not cache local dependencies
-    let child = {
+    let mut child = {
         let script_path = format!("{job_dir}/wrapper.ts");
         let args = vec![
             "run",
@@ -567,27 +613,105 @@ plugin(p)
         Command::new(&*BUN_PATH)
             .current_dir(job_dir)
             .env_clear()
+            .envs(context_envs)
             .envs(envs)
-            .envs(reserved_variables)
+            .envs(
+                reserved_variables
+                    .iter()
+                    .map(|x| (x.name.clone(), x.value.clone()))
+                    .collect::<Vec<_>>(),
+            )
             .envs(common_bun_proc_envs)
             .args(args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
 
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
-    handle_child(
-        &job.id,
-        db,
-        logs,
-        child,
-        false,
-        worker_name,
-        &job.workspace_id,
-        "bun run",
-        job.timeout,
-    )
-    .await?;
+    let stdout = child
+        .stdout
+        .take()
+        .expect("child did not have a handle to stdout");
+
+    let mut reader = BufReader::new(stdout).lines();
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .expect("child did not have a handle to stdin");
+
+    // Ensure the child process is spawned in the runtime so it can
+    // make progress on its own while we await for any output.
+    let child = tokio::spawn(async move {
+        let status = child
+            .wait()
+            .await
+            .expect("child process encountered an error");
+
+        println!("child status was: {}", status);
+    });
+
+    let mut jobs = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
+    // let mut i = 0;
+    // let mut j = 0;
+    let mut alive = true;
+    loop {
+        tokio::select! {
+            biased;
+            _ = killpill_rx.recv(), if alive => {
+                println!("received killpill for dedicated worker");
+                alive = false;
+                if let Err(e) = write_stdin(&mut stdin, "end").await {
+                    tracing::info!("Could not write end message to stdin: {e:?}")
+                }
+            },
+            line = reader.next_line() => {
+                // j += 1;
+
+                if let Some(line) = line.expect("line is ok") {
+                    if line == "start" {
+                        tracing::info!("dedicated worker process started");
+                        continue;
+                    }
+                    tracing::debug!("processed job");
+
+                    let result = serde_json::from_str(&line).expect("json is ok");
+                    let job: QueuedJob = jobs.pop_front().expect("pop");
+                    job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                } else {
+                    tracing::info!("dedicated worker process exited");
+                    break;
+                }
+            }
+            job = jobs_rx.recv(), if alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS => {
+                // i += 1;
+                if let Some(job) = job {
+                    tracing::debug!("received job");
+                    jobs.push_back(job.clone());
+                    write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
+                    // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({}))).expect("serialize")).await?;
+                    stdin.flush().await.context("stdin flush")?;
+                } else {
+                    tracing::debug!("job channel closed");
+                    alive = false;
+                    if let Err(e) = write_stdin(&mut stdin, "end").await {
+                        tracing::error!("Could not write end message to stdin: {e:?}")
+                    }
+                }
+            }
+        }
+    }
+
+    child
+        .await
+        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e}"))?;
+    tracing::info!("dedicated worker child process exited successfully");
+    Ok(())
+}
+
+async fn write_stdin(stdin: &mut tokio::process::ChildStdin, s: &str) -> error::Result<()> {
+    let _ = &stdin.write_all(format!("{s}\n").as_bytes()).await?;
+    stdin.flush().await.context("stdin flush")?;
+    Ok(())
 }

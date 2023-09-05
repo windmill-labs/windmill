@@ -297,6 +297,17 @@ pub enum FlowModuleValue {
     Identity,
 }
 
+impl FlowModuleValue {
+    pub fn is_simple(&self) -> bool {
+        match self {
+            FlowModuleValue::Script { .. } => true,
+            FlowModuleValue::Flow { .. } => true,
+            FlowModuleValue::RawScript { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

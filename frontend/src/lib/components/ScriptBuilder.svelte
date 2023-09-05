@@ -168,6 +168,7 @@
 					kind: script.kind,
 					tag: script.tag,
 					envs: script.envs,
+					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl
@@ -473,6 +474,30 @@
 					<SecondsInput disabled />
 				{/if}
 			</div>
+
+			<h2 class="border-b pb-1 mt-10 mb-4 items-center flex gap-1"
+				>Dedicated Workers<Tooltip
+					>In this mode, the script is meant to be run on dedicated workers that run the script at
+					native speed. Can reach 400rps per dedicated worker. Only available on enterprise edition</Tooltip
+				>
+				<Toggle
+					disabled={!$enterpriseLicense ||
+						!isCloudHosted() ||
+						script.language != Script.language.BUN}
+					size="xs"
+					checked={Boolean(script.dedicated_worker)}
+					on:change={() => {
+						if (script.dedicated_worker) {
+							script.dedicated_worker = undefined
+						} else {
+							script.dedicated_worker = true
+						}
+					}}
+					options={{
+						right: 'Script is run on dedicated workers'
+					}}
+				/></h2
+			>
 
 			{#if !isCloudHosted()}
 				<h2 class="border-b pb-1 mt-10 mb-4">
