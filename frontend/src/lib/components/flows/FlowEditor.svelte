@@ -8,7 +8,6 @@
 	import type { FlowEditorContext } from './types'
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
-	import { setContext } from 'svelte'
 
 	export let loading: boolean
 
