@@ -1,21 +1,24 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 
-	import type { AppViewerContext, RichConfigurations } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let render: boolean
+	export let customCss: ComponentCustomCSS<'selectstepcomponent'> | undefined = undefined
 
-	const { worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['selectstepcomponent'].initialData.configuration,
@@ -68,6 +71,7 @@
 		}
 	}
 
+	$: css = concatCustomCss($app.css?.selectstepcomponent, customCss)
 	$: selected && handleSelection(selected)
 </script>
 
@@ -82,7 +86,13 @@
 
 <InitializeComponent {id} />
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment} class="wm-select-step">
+<AlignWrapper
+	{render}
+	{horizontalAlignment}
+	{verticalAlignment}
+	class={twMerge(css?.container?.class, 'wm-select-step')}
+	style={css?.container?.style}
+>
 	<div class="w-full" on:pointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => item.label)}

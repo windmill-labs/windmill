@@ -591,6 +591,7 @@
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'chartjscomponent'}
@@ -607,6 +608,7 @@
 				id={component.id}
 				configuration={component.configuration}
 				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
 				bind:initializing

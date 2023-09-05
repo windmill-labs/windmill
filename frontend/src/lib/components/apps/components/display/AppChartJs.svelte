@@ -40,7 +40,7 @@
 		...(resolvedConfig.options ?? {})
 	} as ChartOptions
 
-	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
+	$: css = concatCustomCss($app.css?.chartjscomponent, customCss)
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}

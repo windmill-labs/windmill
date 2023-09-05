@@ -61,6 +61,7 @@
 		css?.container?.class,
 		'wm-markdown'
 	)}
+	style={css?.container?.style}
 >
 	<RunnableWrapper
 		{outputs}

@@ -96,12 +96,18 @@
 {/each}
 
 <InitializeComponent {id} />
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper
+	{render}
+	{horizontalAlignment}
+	{verticalAlignment}
+	class={twMerge(css?.container?.class, 'wm-toggle-container')}
+	style={css?.container?.style}
+>
 	<Toggle
 		size="sm"
 		bind:checked={value}
 		options={{ right: resolvedConfig.label }}
-		textClass={twMerge(css?.text?.class, 'wm-toggle')}
+		textClass={twMerge(css?.text?.class, 'wm-toggle-text')}
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()

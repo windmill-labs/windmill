@@ -35,45 +35,47 @@
 	}
 </script>
 
-<div class=" border-b flex justify-between items-center h-8 p-2 text-xs leading-6 font-bold">
-	<div class="flex flex-row gap-2">
-		<div class="capitalize">
-			{addWhitespaceBeforeCapitals(name)}
+<div class=" border-b flex justify-between items-center p-2 text-xs leading-6 font-bold">
+	<div class="flex flex-col gap-1 w-full items-start">
+		<div class="flex flex-row h-8 items-center justify-between w-full">
+			<div class="capitalize">
+				{addWhitespaceBeforeCapitals(name)}
+			</div>
+			{#if shouldDisplayLeft}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						dispatch('left')
+					}}
+				>
+					<div class="flex flex-row gap-2 text-2xs items-center">
+						<MoveLeft size={14} />
+						Copy for this component
+					</div>
+				</Button>
+			{/if}
+			{#if shouldDisplayRight}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						dispatch('right')
+					}}
+				>
+					<div class="flex flex-row gap-2 text-2xs items-center">
+						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
+						<MoveRight size={14} />
+					</div>
+				</Button>
+			{/if}
 		</div>
 		{#if wmClass}
 			<Badge small>{wmClass}</Badge>
 		{/if}
 	</div>
-	{#if shouldDisplayLeft}
-		<Button
-			color="light"
-			size="xs2"
-			variant="border"
-			on:click={() => {
-				dispatch('left')
-			}}
-		>
-			<div class="flex flex-row gap-2 text-2xs items-center">
-				<MoveLeft size={14} />
-				Copy to component
-			</div>
-		</Button>
-	{/if}
-	{#if shouldDisplayRight}
-		<Button
-			color="light"
-			size="xs2"
-			variant="border"
-			on:click={() => {
-				dispatch('right')
-			}}
-		>
-			<div class="flex flex-row gap-2 text-2xs items-center">
-				Copy for every {componentType ? ccomponents[componentType].name : 'component'}
-				<MoveRight size={14} />
-			</div>
-		</Button>
-	{/if}
 </div>
 
 {#if value}

@@ -89,6 +89,7 @@
 					css?.buttonContainer?.class,
 					'wm-modal-button-container'
 				)}
+				style={css?.button?.style}
 				wrapperStyle={css?.buttonContainer?.style}
 				disabled={resolvedConfig.buttonDisabled}
 				on:pointerdown={(e) => {
@@ -137,7 +138,6 @@
 						on:click={() => {
 							open = false
 						}}
-						style={css?.button?.style}
 						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 					>
 						<X class="text-tertiary" />

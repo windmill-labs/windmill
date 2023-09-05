@@ -18,7 +18,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'carousellistcomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
@@ -44,7 +44,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	$: css = concatCustomCss($app.css?.carousellistcomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	let inputs = {}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { LayoutDashboardIcon, ArrowUpSquare, ExternalLink } from 'lucide-svelte'
+	import { LayoutDashboardIcon, ArrowUpSquare, ExternalLink, TextCursorInput } from 'lucide-svelte'
 	import { Badge, Button, ClearableInput, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
@@ -36,18 +36,32 @@
 			icon: LayoutDashboardIcon,
 			ids: ['viewer', 'grid', 'component'].map((id) => ({ id, forceStyle: true, forceClass: true }))
 		},
-		...Object.entries(ccomponents).map(([type, { name, icon, customCss }]) => ({
-			type: type as keyof typeof components,
-			name,
-			icon,
-			ids: Object.entries(customCss).map(([id, v]) => ({
-				id,
-				forceStyle: v?.style != undefined,
-				forceClass: v?.['class'] != undefined
+		{
+			type: 'quillcomponent',
+			name: 'Rich Text Editor',
+			icon: TextCursorInput,
+			ids: ['q'].map((id) => ({ id, forceStyle: true, forceClass: true }))
+		},
+		...Object.entries(ccomponents)
+			.filter(([key]) => key !== 'quillcomponent')
+			.map(([type, { name, icon, customCss }]) => ({
+				type: type as keyof typeof components,
+				name,
+				icon,
+				ids: Object.entries(customCss).map(([id, v]) => ({
+					id,
+					forceStyle: v?.style != undefined,
+					forceClass: v?.['class'] != undefined
+				}))
 			}))
-		}))
 	]
+
+	console.log(ccomponents)
+
 	entries.sort((a, b) => a.name.localeCompare(b.name))
+
+	console.log(entries)
+
 	let search = ''
 </script>
 

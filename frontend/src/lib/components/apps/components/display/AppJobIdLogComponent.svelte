@@ -15,7 +15,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'logcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
 	export let render: boolean
 	export let configuration: RichConfigurations
 
@@ -34,7 +34,7 @@
 
 	initializing = false
 
-	$: css = concatCustomCss($app.css?.logcomponent, customCss)
+	$: css = concatCustomCss($app.css?.jobidlogcomponent, customCss)
 
 	let testJobLoader: TestJobLoader | undefined = undefined
 	let testIsLoading: boolean = false
@@ -68,12 +68,8 @@
 			Logs
 		</div>
 		<div
-			style={twMerge($app.css?.['logcomponent']?.['container']?.style, customCss?.container?.style)}
-			class={twMerge(
-				'p-2 grow overflow-auto',
-				$app.css?.['logcomponent']?.['container']?.class,
-				customCss?.container?.class
-			)}
+			style={css?.container?.style}
+			class={twMerge('p-2 grow overflow-auto', css?.container?.class, 'wm-log-container')}
 		>
 			<LogViewer
 				jobId={testJob?.id}

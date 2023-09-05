@@ -8,6 +8,7 @@
 	export let property: ComponentCssProperty | undefined = undefined
 	export let overriden: boolean = false
 	export let overridding: boolean = false
+	export let wmClass: string | undefined = undefined
 
 	function hasValues(obj: ComponentCssProperty | undefined) {
 		if (!obj) return false
@@ -27,5 +28,6 @@
 		on:right
 		{overriden}
 		{overridding}
+		{wmClass}
 	/>
 {/if}

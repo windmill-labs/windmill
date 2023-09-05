@@ -55,13 +55,8 @@
 			Logs
 		</div>
 		<div
-			style={twMerge($app.css?.['logcomponent']?.['container']?.style, customCss?.container?.style)}
-			class={twMerge(
-				'p-2 grow overflow-auto',
-				$app.css?.['logcomponent']?.['container']?.class,
-				customCss?.container?.class,
-				'wm-log-container'
-			)}
+			style={css?.container?.style}
+			class={twMerge('p-2 grow overflow-auto', css?.container?.class, 'wm-log-container')}
 		>
 			<LogViewer
 				jobId={testJob?.id}

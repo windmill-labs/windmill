@@ -49,6 +49,8 @@
 					app.set($app)
 				}
 			} else {
+				// TODO: check if $app.css[type] is undefined, and if so, set it to {name:''}
+
 				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
 				app.set($app)
 				sendUserToast('Global CSS copied')
@@ -113,7 +115,7 @@
 		</div>
 	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		{#if $premiumStore.premium || true}
+		{#if $premiumStore.premium}
 			<Button
 				color="dark"
 				size="xs2"
@@ -195,6 +197,7 @@
 									tab = 'local'
 								}}
 								overriden={hasStyleValue(component.customCss[id])}
+								wmClass={getSelector(id)}
 							/>
 						{/if}
 					</div>

@@ -12,6 +12,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { Button } from '$lib/components/common'
 	import { Loader2, ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -124,7 +125,10 @@
 	bind:result
 	bind:loading
 >
-	<div class="flex flex-col divide-y h-full wm-list">
+	<div
+		class={twMerge('flex flex-col divide-y h-full', css?.container?.class, 'wm-list')}
+		style={css?.container?.style}
+	>
 		<div
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>
@@ -150,8 +154,6 @@
 								<SubGridEditor
 									visible={render}
 									{id}
-									class={css?.container?.class}
-									style={css?.container?.style}
 									subGridId={`${id}-0`}
 									containerHeight={resolvedConfig.heightPx}
 									on:focus={() => {

@@ -12,6 +12,7 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -22,6 +23,8 @@
 	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
 	export let render: boolean
 	export let editorMode: boolean = false
+
+	$: css = concatCustomCss($app.css?.textcomponent, customCss)
 
 	let resolvedConfig = initConfig(
 		components['textcomponent'].initialData.configuration,
@@ -157,7 +160,12 @@
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<div
-		class="h-full w-full overflow-hidden"
+		class={twMerge(
+			'h-full w-full overflow-hidden',
+			customCss?.container?.class,
+			'wm-text-container'
+		)}
+		style={customCss?.container?.style}
 		on:dblclick={() => {
 			if (!editorMode) {
 				editorMode = true
@@ -172,15 +180,16 @@
 				<textarea
 					class={twMerge(
 						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
-						$app.css?.['textcomponent']?.['text']?.class,
+						css?.text?.class,
 						customCss?.text?.class,
+						'wm-text',
 						classes,
 						getClasses(),
 						getClassesByType(),
 						getHorizontalAlignement()
 					)}
 					on:pointerdown|stopPropagation
-					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+					style={customCss?.text?.style}
 					id={`text-${id}`}
 					on:pointerenter={() => {
 						const elem = document.getElementById(`text-${id}`)

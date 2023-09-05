@@ -648,7 +648,8 @@ export const components = {
 		dims: '1:1-3:1' as AppComponentDimensions,
 		documentationLink: `${documentationBaseUrl}#text`,
 		customCss: {
-			text: { class: '', style: '' }
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'left',
@@ -1397,7 +1398,8 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#toggle`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
-			text: { class: '', style: '' }
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -1452,9 +1454,7 @@ This is a paragraph.
 		icon: TextCursorInput,
 		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
 		dims: '2:1-4:4' as AppComponentDimensions,
-		customCss: {
-			input: { class: '', style: '' }
-		},
+		customCss: {},
 		initialData: {
 			componentInput: undefined,
 			configuration: {
@@ -1731,8 +1731,8 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
 		customCss: {
-			bar: { style: '' },
-			handle: { style: '' },
+			bar: { style: '', class: '' },
+			handle: { style: '', class: '' },
 			limits: { class: '', style: '' },
 			value: { class: '', style: '' }
 		},
@@ -2477,9 +2477,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#select-step`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			tabRow: { class: '', style: '' },
-			allTabs: { class: '', style: '' },
-			selectedTab: { class: '', style: '' }
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			verticalAlignment: 'center',

@@ -66,7 +66,8 @@ export const authorizedClassnames = [
 	'wm-table-row',
 	'wm-stepper',
 	'wm-file-input',
-	'wm-toggle',
+	'wm-toggle-text',
+	'wm-toggle-container',
 	'wm-image',
 	'wm-pdf',
 	'wm-horizontal-divider',
@@ -224,6 +225,11 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['rangecomponent', 'slidercomponent'],
 		selectors: [
+			{ selector: '.wm-slider-bar', comment: 'Slider bar', customCssKey: 'bar' },
+			{ selector: '.wm-slider-handle', comment: 'Slider handle', customCssKey: 'handle' },
+			{ selector: '.wm-slider-limits', comment: 'Slider limits', customCssKey: 'limits' },
+			{ selector: '.wm-slider-value', comment: 'Slider value', customCssKey: 'value' },
+
 			{ selector: '.rangeSlider', comment: 'main slider element' },
 			{ selector: '.rangeSlider.vertical', comment: 'if slider is vertical' },
 			{ selector: '.rangeSlider.focus', comment: 'if slider is focussed' },
@@ -384,13 +390,20 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['fileinputcomponent'],
 		selectors: [
-			{ selector: 'wm-file-input', comment: 'File input component', customCssKey: 'input' }
+			{ selector: '.wm-file-input', comment: 'File input component', customCssKey: 'input' }
 		],
 		variables: []
 	},
 	{
 		components: ['checkboxcomponent'],
-		selectors: [{ selector: 'wm-toggle', comment: 'Checkbox component', customCssKey: 'text' }],
+		selectors: [
+			{ selector: '.wm-toggle-text', comment: 'Checkbox component label', customCssKey: 'text' },
+			{
+				selector: '.wm-toggle-container',
+				comment: 'Checkbox component container',
+				customCssKey: 'container'
+			}
+		],
 		variables: []
 	},
 	{
@@ -525,6 +538,14 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['textcomponent'],
+		selectors: [
+			{ selector: '.wm-text', comment: 'Text component', customCssKey: 'text' },
+			{ selector: '.wm-text-container', comment: 'Text container', customCssKey: 'container' }
+		],
+		variables: []
+	},
+	{
 		components: ['chartjscomponent'],
 		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS', customCssKey: 'container' }],
 		variables: []
@@ -569,12 +590,12 @@ export const customisationByComponent: Customisation[] = [
 	},
 	{
 		components: ['selectstepcomponent'],
-		selectors: [{ selector: '.wm-select-step', comment: 'Select step' }],
+		selectors: [{ selector: '.wm-select-step', comment: 'Select step', customCssKey: 'container' }],
 		variables: []
 	},
 	{
-		components: ['selectcomponent'],
-		selectors: [{ selector: '.svelte-select', comment: 'Svelte select' }],
+		components: ['selectcomponent', 'resourceselectcomponent'],
+		selectors: [{ selector: '.svelte-select', comment: 'Svelte select', customCssKey: 'input' }],
 		variables: []
 	},
 
@@ -582,7 +603,7 @@ export const customisationByComponent: Customisation[] = [
 		components: ['multiselectcomponent'],
 		selectors: [
 			{
-				selector: 'multiselect',
+				selector: '.multiselect',
 				comment: 'top-level wrapper div'
 			},
 			{
@@ -590,52 +611,52 @@ export const customisationByComponent: Customisation[] = [
 				comment: 'top-level wrapper div when dropdown open'
 			},
 			{
-				selector: 'multiselect.disabled',
+				selector: '.multiselect.disabled',
 				comment: 'top-level wrapper div when in disabled state'
 			},
 			{
-				selector: 'multiselect > ul.selected',
+				selector: '.multiselect > ul.selected',
 				comment: 'selected list'
 			},
 			{
-				selector: 'multiselect > ul.selected > li',
+				selector: '.multiselect > ul.selected > li',
 				comment: 'selected list items'
 			},
 			{
-				selector: 'multiselect button',
+				selector: '.multiselect button',
 				comment: 'target all buttons in this component'
 			},
 			{
-				selector: 'multiselect > ul.selected > li button, button.remove-all',
+				selector: '.multiselect > ul.selected > li button, button.remove-all',
 				comment: 'buttons to remove a single or all selected options at once'
 			},
 			{
-				selector: 'multiselect > input[autocomplete]',
+				selector: '.multiselect > input[autocomplete]',
 				comment: 'input inside the top-level wrapper div'
 			},
 			{
-				selector: 'multiselect > ul.options',
+				selector: '.multiselect > ul.options',
 				comment: 'dropdown options'
 			},
 			{
-				selector: 'multiselect > ul.options > li',
+				selector: '.multiselect > ul.options > li',
 				comment: 'dropdown list items'
 			},
 			{
-				selector: 'multiselect > ul.options > li.selected',
+				selector: '.multiselect > ul.options > li.selected',
 				comment: 'selected options in the dropdown list'
 			},
 			{
-				selector: 'multiselect > ul.options > li:not(.selected):hover',
+				selector: '.multiselect > ul.options > li:not(.selected):hover',
 				comment: 'unselected but hovered options in the dropdown list'
 			},
 			{
-				selector: 'multiselect > ul.options > li.active',
+				selector: '.multiselect > ul.options > li.active',
 				comment:
 					'active item, navigated to with up/down arrow keys and ready to be selected by pressing enter'
 			},
 			{
-				selector: 'multiselect > ul.options > li.disabled',
+				selector: '.multiselect > ul.options > li.disabled',
 				comment: 'options with disabled key set to true'
 			}
 		],

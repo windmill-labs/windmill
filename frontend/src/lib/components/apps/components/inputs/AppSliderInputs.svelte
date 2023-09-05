@@ -118,13 +118,12 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div class="flex {vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1">
-		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
+		<span class={twMerge(css?.limits?.class, 'wm-slider-limits')} style={css?.limits?.style ?? ''}>
 			{vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
 		</span>
 		<div
-			class="grow"
-			style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
-				''}"
+			class={twMerge('grow', css?.bar?.class, 'wm-slider-bar')}
+			style={css?.bar?.style}
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
@@ -136,12 +135,12 @@
 				max={+(resolvedConfig?.max ?? 0)}
 			/>
 		</div>
-		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
+		<span class={twMerge(css?.limits?.class, 'wm-slider-limits')} style={css?.limits?.style ?? ''}>
 			{vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
 		</span>
 		<span class="mx-2">
 			<span
-				class={twMerge(spanClass, css?.value?.class ?? '')}
+				class={twMerge(spanClass, css?.value?.class ?? '', 'wm-slider-value')}
 				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
 			>
 				{values[0]}
