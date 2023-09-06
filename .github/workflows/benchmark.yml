@@ -29,12 +29,12 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: benchmarks
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
       - name: benchmark
         timeout-minutes: 10
         run: deno run --unstable -A
