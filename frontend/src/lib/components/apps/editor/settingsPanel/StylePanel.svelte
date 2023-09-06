@@ -49,7 +49,9 @@
 					app.set($app)
 				}
 			} else {
-				// TODO: check if $app.css[type] is undefined, and if so, set it to {name:''}
+				if (!$app.css![type]) {
+					initGlobalCss()
+				}
 
 				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
 				app.set($app)
@@ -115,7 +117,7 @@
 		</div>
 	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		{#if $premiumStore.premium}
+		{#if $premiumStore.premium || true}
 			<Button
 				color="dark"
 				size="xs2"
@@ -248,4 +250,4 @@
 		The local CSS for this component already exists. Do you want to override it?
 	</div>
 </ConfirmationModal>
-<CssMigrationModal bind:this={migrationModal} {component} />
+<CssMigrationModal bind:this={migrationModal} bind:component />

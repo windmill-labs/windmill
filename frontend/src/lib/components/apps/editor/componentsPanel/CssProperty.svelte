@@ -102,7 +102,7 @@
 								bind:value={value.style}
 								type="textarea"
 								wrapperClass="h-full min-h-[72px]"
-								inputClass="h-full"
+								inputClass="h-full !text-xs  !rounded-none !p-2"
 							/>
 						</div>
 						<div class="flex flex-col gap-1">

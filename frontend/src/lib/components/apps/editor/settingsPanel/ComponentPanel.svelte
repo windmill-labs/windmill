@@ -355,18 +355,10 @@
 						color="light"
 						size="xs"
 						variant="border"
-						on:click={() => (viewCssOptions = !viewCssOptions)}
-					>
-						{viewCssOptions ? 'Hide' : 'Show'}
-					</Button>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
 						endIcon={{ icon: faChevronRight }}
 						on:click={() => secondaryMenu.open(StylePanel, { component })}
 					>
-						Rich Editor
+						Show
 					</Button>
 				</div>
 				<AlignmentEditor bind:component={componentSettings.item.data} />

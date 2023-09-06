@@ -264,8 +264,6 @@
 								range: range
 							}))
 
-						console.log(suggestions)
-
 						return { suggestions }
 					}
 

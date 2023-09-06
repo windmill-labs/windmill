@@ -56,11 +56,7 @@
 			}))
 	]
 
-	console.log(ccomponents)
-
 	entries.sort((a, b) => a.name.localeCompare(b.name))
-
-	console.log(entries)
 
 	let search = ''
 </script>
@@ -115,7 +111,6 @@
 								<Tab value="variables" size="xs">
 									<div class="flex flex-row gap-2 justify-center-center items-center">
 										Variables ({customisation.variables.length})
-										<Tooltip light>{customisation.variablesTooltip}</Tooltip>
 									</div>
 								</Tab>
 							{/if}
