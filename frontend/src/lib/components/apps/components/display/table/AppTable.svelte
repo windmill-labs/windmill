@@ -121,7 +121,9 @@
 			return result
 		}
 		return result.filter((row) =>
-			Object.values(row).some((value) => value?.toString()?.includes(searchValue))
+			Object.values(row).some((value) =>
+				value?.toString()?.toLowercase()?.includes(searchValue.toLowerCase())
+			)
 		)
 	}
 
@@ -365,7 +367,6 @@
 													bind:inputs
 													value={row.original}
 													index={rowIndex}
-
 													onInputsChange={() => {
 														outputs?.inputs.set(inputs, true)
 													}}
