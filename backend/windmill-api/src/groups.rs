@@ -536,8 +536,7 @@ struct IGroup {
     name: String,
     emails: Option<Vec<String>>,
 }
-async fn list_igroups(authed: ApiAuthed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
-    require_super_admin(&db, &authed.email).await?;
+async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let groups = sqlx::query_as!(
