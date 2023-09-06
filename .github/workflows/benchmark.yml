@@ -38,12 +38,12 @@ jobs:
       - name: benchmark
         timeout-minutes: 10
         run: deno run --unstable -A
-          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##*/}/benchmarks/benchmark_suite.ts
+          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           --host http://localhost:8000
           -e admin@windmill.dev
           -p changeme
-          -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##*/}/benchmarks/suite_config.json
-          --branch ${GITHUB_REF##*/}
+          -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          --branch ${GITHUB_REF##ref/head/}
       - name: Push changes
         run: |
           pwd
