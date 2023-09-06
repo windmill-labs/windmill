@@ -121,14 +121,12 @@ pub async fn update_flow_status_after_job_completion_internal<
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-
         let old_status_json = sqlx::query_scalar!(
             "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
             flow,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(db)
         .await
         .map_err(|e| {
             Error::InternalErr(format!(
@@ -157,12 +155,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
-            let (loop_failures, parallelism) = compute_skip_loop_failures_and_parallelism(
-                flow,
-                old_status.step,
-                tx.transaction_mut(),
-            )
-            .await?;
+            let (loop_failures, parallelism) =
+                compute_skip_loop_failures_and_parallelism(flow, old_status.step, db).await?;
             (loop_failures.unwrap_or(false), parallelism)
         } else {
             (false, None)
@@ -186,7 +180,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             old_status.step,
             flow
         )
-        .fetch_one(&mut tx)
+        .fetch_one(db)
         .await
         .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
 
@@ -204,15 +198,15 @@ pub async fn update_flow_status_after_job_completion_internal<
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, .. }),
                 ..
-            } => {
-                compute_skip_branchall_failure(flow, old_status.step, *branch, tx.transaction_mut())
-                    .await?
-                    .unwrap_or(false)
-            }
+            } => compute_skip_branchall_failure(flow, old_status.step, *branch, db)
+                .await?
+                .unwrap_or(false),
             _ => false,
         };
 
         let skip_failure = skip_branch_failure || skip_loop_failures;
+
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
         let (inc_step_counter, new_status) = match module_status {
             FlowStatusModule::InProgress {
@@ -274,6 +268,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .into_iter()
                         .all(|x| x)
                     {
+                        success = true;
                         FlowStatusModule::Success {
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
@@ -651,10 +646,10 @@ pub async fn update_flow_status_after_job_completion_internal<
     }
 }
 
-async fn compute_skip_loop_failures_and_parallelism<'c>(
+async fn compute_skip_loop_failures_and_parallelism(
     flow: Uuid,
     step: i32,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
 ) -> Result<(Option<bool>, Option<i32>), Error> {
     sqlx::query_as(
         "
@@ -665,7 +660,7 @@ async fn compute_skip_loop_failures_and_parallelism<'c>(
     )
     .bind(step)
     .bind(flow)
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await
     .map(|(v, n)| (v,n))
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
@@ -675,7 +670,7 @@ async fn compute_skip_branchall_failure<'c>(
     flow: Uuid,
     step: i32,
     branch: usize,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
 ) -> Result<Option<bool>, Error> {
     sqlx::query_as(
         "
@@ -687,7 +682,7 @@ async fn compute_skip_branchall_failure<'c>(
     .bind(step)
     .bind(branch as i32)
     .bind(flow)
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await
     .map(|(v,)| v)
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
@@ -1810,7 +1805,9 @@ async fn compute_next_flow_transform(
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             let new_args: &mut Map<String, serde_json::Value> = &mut Map::new();
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = modules.len() == 1 && modules[0].value.is_simple();
+            let is_simple =
+                modules.len() == 1 && modules[0].value.is_simple() && flow.failure_module.is_none();
+
             let next_loop_status = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }
