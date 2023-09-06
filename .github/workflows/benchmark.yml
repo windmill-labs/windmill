@@ -37,12 +37,12 @@ jobs:
           deno-version: v1.x
       - name: benchmark
         timeout-minutes: 10
-        run: deno run --unstable -A
-          https://raw.githubusercontent.com/windmill-labs/windmill/main/benchmarks/benchmark_suite.ts
-          --host http://localhost:8000
-          -e admin@windmill.dev
-          -p changeme
-          -c https://raw.githubusercontent.com/windmill-labs/windmill/main/benchmarks/suite_config.json
+        run: deno run --unstable -A \
+          https://raw.githubusercontent.com/windmill-labs/windmill/feat/benchmarks-graph/benchmarks/benchmark_suite.ts \
+          --host http://localhost:8000 \
+          -e admin@windmill.dev \
+          -p changeme \
+          -c https://raw.githubusercontent.com/windmill-labs/windmill/feat/benchmarks-graph/benchmarks/suite_config.json
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: "Update benchmark results"
