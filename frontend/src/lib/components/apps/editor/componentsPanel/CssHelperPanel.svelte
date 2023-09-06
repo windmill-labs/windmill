@@ -10,7 +10,6 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	const STATIC_ELEMENTS = ['app'] as const
