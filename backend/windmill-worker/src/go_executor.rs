@@ -214,8 +214,7 @@ func Run(req Req) (interface{{}}, error){{
         create_args_and_out_file(client, job, job_dir).await?;
     }
 
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(

@@ -59,6 +59,10 @@ import PineconeIcon from './PineconeIcon.svelte'
 import RssIcon from './RssIcon.svelte'
 import ShopifyIcon from './ShopifyIcon.svelte'
 import TypeformIcon from './TypeformIcon.svelte'
+import BigQueryIcon from './BigQueryIcon.svelte'
+import GraphqlIcon from './GraphqlIcon.svelte'
+import NocoDbIcon from './NocoDbIcon.svelte'
+import AzureIcon from './AzureIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -124,7 +128,11 @@ export const APP_TO_ICON_COMPONENT = {
 	pinecone: PineconeIcon,
 	rss: RssIcon,
 	shopify: ShopifyIcon,
-	typeform: TypeformIcon
+	typeform: TypeformIcon,
+	bigquery: BigQueryIcon,
+	graphql: GraphqlIcon,
+	nocodb: NocoDbIcon,
+	azure: AzureIcon,
 } as const
 
 export {
@@ -184,5 +192,9 @@ export {
 	PineconeIcon,
 	RssIcon,
 	ShopifyIcon,
-	TypeformIcon
+	TypeformIcon,
+	BigQueryIcon,
+	GraphqlIcon,
+	NocoDbIcon,
+	AzureIcon,
 }

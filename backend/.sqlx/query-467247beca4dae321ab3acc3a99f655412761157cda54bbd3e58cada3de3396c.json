@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_counter SET counter = counter - 1 WHERE concurrency_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "467247beca4dae321ab3acc3a99f655412761157cda54bbd3e58cada3de3396c"
+}

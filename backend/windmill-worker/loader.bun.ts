@@ -1,4 +1,4 @@
-const p: BunPlugin = {
+const p = {
   name: "windmill-relative-resolver",
   async setup(build) {
     const { writeFileSync, readFileSync, mkdirSync } = await import("fs");
@@ -41,11 +41,3 @@ const p: BunPlugin = {
     });
   },
 };
-
-import { BunPlugin } from "bun";
-
-Bun.build({
-  entrypoints: ["main.ts"],
-  outdir: "./out",
-  plugins: [p],
-});

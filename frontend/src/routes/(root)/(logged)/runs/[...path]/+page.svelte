@@ -382,7 +382,16 @@
 		cancelAllJobs = false
 	}}
 />
-<div class="w-full h-screen">
+
+<Drawer bind:this={runDrawer}>
+	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
+		{#if selectedId}
+			<JobPreview id={selectedId} />
+		{/if}
+	</DrawerContent>
+</Drawer>
+
+<div class="w-full h-screen hidden md:block">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
@@ -552,9 +561,9 @@
 		</div>
 	</div>
 
-	<SplitPanesWrapper class="hidden md:block">
+	<SplitPanesWrapper>
 		<Splitpanes>
-			<Pane size={60} minSize={50}>
+			<Pane size={60} minSize={60}>
 				{#if jobs}
 					<RunsTable
 						{jobs}
@@ -595,40 +604,211 @@
 			</Pane>
 		</Splitpanes>
 	</SplitPanesWrapper>
-
-	<div class="md:hidden">
-		{#if jobs}
-			<RunsTable
-				{jobs}
-				bind:selectedId
-				bind:nbOfJobs
-				on:select={() => {
-					runDrawer.openDrawer()
-				}}
-				on:filterByPath={(e) => {
-					user = null
-					folder = null
-					path = e.detail
-				}}
-				on:filterByUser={(e) => {
-					path = null
-					folder = null
-					user = e.detail
-				}}
-				on:filterByFolder={(e) => {
-					path = null
-					user = null
-					folder = e.detail
-				}}
-			/>
-		{/if}
-	</div>
 </div>
 
-<Drawer bind:this={runDrawer}>
-	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
-		{#if selectedId}
-			<JobPreview id={selectedId} />
-		{/if}
-	</DrawerContent>
-</Drawer>
+<div class="md:hidden h-[calc(100vh-48px)]">
+	<SplitPanesWrapper>
+		<Splitpanes horizontal>
+			<Pane size={50} minSize={20}>
+				<div class="px-2">
+					<div class="flex items-center space-x-2 flex-row justify-between">
+						<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+							<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
+
+							<Tooltip
+								light
+								documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+								scale={0.9}
+								wrapperClass="flex items-center"
+							>
+								All past and schedule executions of scripts and flows, including previews. You only
+								see your own runs or runs of groups you belong to unless you are an admin.
+							</Tooltip>
+						</div>
+						<div class="hidden xl:block">
+							<RunsFilter
+								bind:isSkipped
+								bind:user
+								bind:folder
+								bind:path
+								bind:success
+								bind:argFilter
+								bind:resultFilter
+								bind:argError
+								bind:resultError
+								bind:jobKindsCat
+								on:change={reloadLogsWithoutFilterError}
+								{usernames}
+								{folders}
+								{paths}
+							/>
+						</div>
+						<div class="xl:hidden">
+							<MobileFilters>
+								<svelte:fragment slot="filters">
+									<span class="text-xs font-semibold leading-6">Filters</span>
+									<RunsFilter
+										bind:isSkipped
+										{paths}
+										{usernames}
+										{folders}
+										bind:jobKindsCat
+										bind:folder
+										bind:path
+										bind:user
+										bind:success
+										bind:argFilter
+										bind:resultFilter
+										bind:argError
+										bind:resultError
+										on:change={reloadLogsWithoutFilterError}
+									/>
+								</svelte:fragment>
+							</MobileFilters>
+						</div>
+					</div>
+				</div>
+				<div class="p-2 w-full">
+					<RunChart
+						maxIsNow={maxTs == undefined}
+						jobs={completedJobs}
+						on:zoom={async (e) => {
+							minTs = e.detail.min.toISOString()
+							maxTs = e.detail.max.toISOString()
+						}}
+					/>
+				</div>
+				<div class="flex flex-col gap-1 md:flex-row w-full p-4">
+					<div class="flex gap-2 grow mb-2">
+						<div class="flex gap-1 relative max-w-36 min-w-[50px]">
+							<div class="text-xs absolute -top-4 truncate">Jobs waiting for a worker</div>
+							<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
+						</div>
+						<div class="flex"
+							><Button
+								size="xs"
+								color="light"
+								variant="contained"
+								title="Require to be an admin. Cancel all jobs in queue"
+								disabled={!$userStore?.is_admin && !$superadmin}
+								on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
+							></div
+						>
+					</div>
+					<div class="flex flex-row gap-1 w-full max-w-xl">
+						<div class="relative w-full">
+							<div class="flex gap-1 relative w-full">
+								<span class="text-xs absolute -top-4">Min datetime</span>
+
+								<input
+									type="text"
+									value={minTs ?? 'zoom x axis to set min (drag with ctrl)'}
+									disabled
+								/>
+
+								<CalendarPicker
+									date={minTs}
+									label="Min datetimes"
+									on:change={async ({ detail }) => {
+										minTs = new Date(detail).toISOString()
+									}}
+								/>
+							</div>
+						</div>
+						<div class="relative w-full">
+							<div class="flex gap-1 relative w-full">
+								<span class="text-xs absolute -top-4">Max datetime</span>
+								<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+								<CalendarPicker
+									date={maxTs}
+									label="Max datetimes"
+									on:change={async ({ detail }) => {
+										maxTs = new Date(detail).toISOString()
+									}}
+								/>
+							</div>
+						</div>
+					</div>
+					<div class="flex flex-row gap-2 items-center">
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							on:click={() => {
+								minTs = undefined
+								maxTs = undefined
+
+								autoRefresh = true
+								jobs = undefined
+								completedJobs = undefined
+								selectedManualDate = 0
+								selectedId = undefined
+								loadJobs()
+							}}
+						>
+							Reset
+						</Button>
+						<Button
+							color="light"
+							size="xs"
+							wrapperClasses="border rounded-md"
+							on:click={() => {
+								manualDates[selectedManualDate].setMinMax()
+								loadJobs()
+							}}
+							dropdownItems={[
+								...manualDates.map((d, i) => ({
+									label: d.label,
+									onClick: () => {
+										selectedManualDate = i
+										d.setMinMax()
+										loadJobs()
+									}
+								}))
+							]}
+						>
+							<div class="flex flex-row items-center gap-2">
+								<RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+								{manualDates[selectedManualDate].label}
+							</div>
+						</Button>
+
+						<Toggle
+							size="xs"
+							bind:checked={autoRefresh}
+							options={{ right: 'Auto-refresh' }}
+							textClass="whitespace-nowrap"
+						/>
+					</div>
+				</div>
+			</Pane>
+			<Pane size={50} minSize={20}>
+				<div class="overflow-y-hidden h-full">
+					<RunsTable
+						{jobs}
+						bind:selectedId
+						bind:nbOfJobs
+						on:select={() => {
+							runDrawer.openDrawer()
+						}}
+						on:filterByPath={(e) => {
+							user = null
+							folder = null
+							path = e.detail
+						}}
+						on:filterByUser={(e) => {
+							path = null
+							folder = null
+							user = e.detail
+						}}
+						on:filterByFolder={(e) => {
+							path = null
+							user = null
+							folder = e.detail
+						}}
+					/>
+				</div>
+			</Pane>
+		</Splitpanes>
+	</SplitPanesWrapper>
+</div>

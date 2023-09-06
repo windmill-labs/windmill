@@ -1,6 +1,78 @@
 # Changelog
 
 
+## [1.168.2](https://github.com/windmill-labs/windmill/compare/v1.168.1...v1.168.2) (2023-09-06)
+
+
+### Bug Fixes
+
+* fix sqlx build ([64e7fb5](https://github.com/windmill-labs/windmill/commit/64e7fb56e41b45bc2476d0e98fa99dcbc355cfe0))
+
+## [1.168.1](https://github.com/windmill-labs/windmill/compare/v1.168.0...v1.168.1) (2023-09-06)
+
+
+### Bug Fixes
+
+* fix sqlx build ([92c8146](https://github.com/windmill-labs/windmill/commit/92c8146a5778290b5a76c2ea5685f95b85be2e38))
+
+## [1.168.0](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.168.0) (2023-09-06)
+
+
+### Features
+
+* dedicated workers for native-throughput performance  (EE only)  ([#2239](https://github.com/windmill-labs/windmill/issues/2239)) ([c80f155](https://github.com/windmill-labs/windmill/commit/c80f155602eca972842be7bd560395a06e4e0ae6))
+
+
+### Bug Fixes
+
+* **frontend:** add virtual list ([#2218](https://github.com/windmill-labs/windmill/issues/2218)) ([e4c896b](https://github.com/windmill-labs/windmill/commit/e4c896b4b9f28b2fa219be249a2794faf3f1b7d0))
+
+## [1.167.1](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.167.1) (2023-09-05)
+
+
+### Bug Fixes
+
+* **frontend:** add virtual list ([#2218](https://github.com/windmill-labs/windmill/issues/2218)) ([e4c896b](https://github.com/windmill-labs/windmill/commit/e4c896b4b9f28b2fa219be249a2794faf3f1b7d0))
+
+## [1.167.0](https://github.com/windmill-labs/windmill/compare/v1.166.1...v1.167.0) (2023-09-04)
+
+
+### Features
+
+* submit result in background thread (unify architecture for dedicated worker) ([#2226](https://github.com/windmill-labs/windmill/issues/2226)) ([dff1cd9](https://github.com/windmill-labs/windmill/commit/dff1cd9a64f755f239eb57599c104c47f4d33b12))
+
+
+### Bug Fixes
+
+* **cli:** prioritize correctly content file to resolve for ts types ([2906d53](https://github.com/windmill-labs/windmill/commit/2906d535a126f4fe2cfe6dffda46e5fe841056da))
+
+## [1.166.1](https://github.com/windmill-labs/windmill/compare/v1.166.0...v1.166.1) (2023-09-03)
+
+
+### Bug Fixes
+
+* fix setting is ready for s3 workers ([b0ed0f9](https://github.com/windmill-labs/windmill/commit/b0ed0f964843247d11ecfe586f1565589df95ff6))
+
+## [1.166.0](https://github.com/windmill-labs/windmill/compare/v1.165.0...v1.166.0) (2023-09-03)
+
+
+### Features
+
+* **frontend:** App stepper debug ([#2202](https://github.com/windmill-labs/windmill/issues/2202)) ([77f8eac](https://github.com/windmill-labs/windmill/commit/77f8eac21e0edfa1eada617d78a498a3a6ae1dce))
+
+
+### Bug Fixes
+
+* fix datetime handling for python ([b35ffd4](https://github.com/windmill-labs/windmill/commit/b35ffd435de97ed34fcda69490abd734ea3229fa))
+* **frontend:** Fix App Modal z-index ([#2210](https://github.com/windmill-labs/windmill/issues/2210)) ([9787edb](https://github.com/windmill-labs/windmill/commit/9787edb67c329265bf179fe304d00cdc1df7042e))
+* see run detail in a new tab ([719a7b1](https://github.com/windmill-labs/windmill/commit/719a7b11da81f68452ba9fc22ff456fe1ddde1de))
+* update wmill python generator thus updating windmill-api ([f912f1d](https://github.com/windmill-labs/windmill/commit/f912f1de86e91c5cdbc0012e2362467c4965936a))
+
+
+### Performance Improvements
+
+* improve queue performance ([#2222](https://github.com/windmill-labs/windmill/issues/2222)) ([069e2d1](https://github.com/windmill-labs/windmill/commit/069e2d18d586aa3d407e3b089d1ad94b2b838af0))
+
 ## [1.165.0](https://github.com/windmill-labs/windmill/compare/v1.164.0...v1.165.0) (2023-08-31)
 
 

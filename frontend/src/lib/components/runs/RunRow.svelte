@@ -6,8 +6,7 @@
 	import Icon from 'svelte-awesome'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
-	import Row from '../table/Row.svelte'
-	import Cell from '../table/Cell.svelte'
+
 	import {
 		Calendar,
 		Check,
@@ -21,12 +20,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
+	import { twMerge } from 'tailwind-merge'
+	import Portal from 'svelte-portal'
 
 	const dispatch = createEventDispatcher()
 	const SMALL_ICON_SCALE = 0.7
 
 	export let job: Job
 	export let selectedId: string | undefined = undefined
+	export let containerWidth: number = 0
+
 	let scheduleEditor: ScheduleEditor
 
 	function endedDate(started_at: string, duration_ms: number): string {
@@ -40,48 +43,55 @@
 	}
 </script>
 
-<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+<Portal>
+	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+</Portal>
 
-<Row
-	hoverable
-	selected={selectedId === job.id}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<div
+	class={twMerge(
+		'hover:bg-surface-hover cursor-pointer',
+		selectedId === job.id ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+		'transition-all',
+		'flex flex-row items-center h-full'
+	)}
+	style="width: {containerWidth}px"
 	on:click={() => {
 		selectedId = job.id
 		dispatch('select')
 	}}
 >
-	<Cell first>
-		<div>
-			{#if 'success' in job && job.success}
-				{#if job.is_skipped}
-					<Badge color="green" rounded>
-						<FastForward size={14} />
-					</Badge>
-				{:else}
-					<Badge color="green" baseClass="!px-1.5">
-						<Check size={14} />
-					</Badge>
-				{/if}
-			{:else if 'success' in job}
-				<Badge color="red" baseClass="!px-1.5">
-					<X size={14} />
-				</Badge>
-			{:else if 'running' in job && job.running}
-				<Badge color="yellow" baseClass="!px-1.5">
-					<Play size={14} />
-				</Badge>
-			{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-				<Badge color="blue" baseClass="!px-1.5">
-					<Calendar size={14} />
+	<div class="w-1/12 flex justify-center">
+		{#if 'success' in job && job.success}
+			{#if job.is_skipped}
+				<Badge color="green" rounded>
+					<FastForward size={14} />
 				</Badge>
 			{:else}
-				<Badge baseClass="!px-1.5">
-					<Hourglass size={14} />
+				<Badge color="green" baseClass="!px-1.5">
+					<Check size={14} />
 				</Badge>
 			{/if}
-		</div>
-	</Cell>
-	<Cell>
+		{:else if 'success' in job}
+			<Badge color="red" baseClass="!px-1.5">
+				<X size={14} />
+			</Badge>
+		{:else if 'running' in job && job.running}
+			<Badge color="yellow" baseClass="!px-1.5">
+				<Play size={14} />
+			</Badge>
+		{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
+			<Badge color="blue" baseClass="!px-1.5">
+				<Calendar size={14} />
+			</Badge>
+		{:else}
+			<Badge baseClass="!px-1.5">
+				<Hourglass size={14} />
+			</Badge>
+		{/if}
+	</div>
+
+	<div class="w-4/12 flex justify-start">
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
@@ -103,9 +113,9 @@
 				{/if}
 			{/if}
 		</div>
-	</Cell>
+	</div>
 
-	<Cell>
+	<div class="w-4/12 flex justify-star">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -114,7 +124,9 @@
 					<div class="whitespace-nowrap text-xs font-semibold">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
-								<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-8/12">
+									{job.script_path}
+								</a>
 								<Button
 									size="xs2"
 									color="light"
@@ -142,9 +154,9 @@
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
 							<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-							<a href="/run/{job.id}?workspace={job.workspace_id}"
-								>lock deps of {truncateHash(job.script_hash ?? '')}</a
-							>
+							<a href="/run/{job.id}?workspace={job.workspace_id}">
+								lock deps of {truncateHash(job.script_hash ?? '')}
+							</a>
 						{:else if 'job_kind' in job && job.job_kind == 'identity'}
 							<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
 						{/if}
@@ -164,12 +176,14 @@
 			{:else}
 				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
 				<span class="mx-1">
-					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>{job.parent_job}</a>
+					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
+						>{job.parent_job}</a
+					>
 				</span>
 			{/if}
 		{/if}
-	</Cell>
-	<Cell last>
+	</div>
+	<div class="w-3/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -184,7 +198,9 @@
 			</div>
 		{:else}
 			<div class="flex flex-row gap-1 items-center">
-				{job.created_by}
+				<div class="text-xs">
+					{job.created_by}
+				</div>
 				<Button
 					size="xs2"
 					color="light"
@@ -196,5 +212,5 @@
 				</Button>
 			</div>
 		{/if}
-	</Cell>
-</Row>
+	</div>
+</div>

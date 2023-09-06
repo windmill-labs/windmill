@@ -8,6 +8,9 @@
 
 use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
 
+#[cfg(feature = "benchmark")]
+use std::time::Instant;
+
 use anyhow::Context;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Duration, Utc};
@@ -84,49 +87,34 @@ lazy_static::lazy_static! {
         "hub".to_string(),
         "other".to_string()];
 
-    pub static ref ACCEPTED_TAGS: Vec<String> = std::env::var("WORKER_TAGS")
+    pub static ref DEDICATED_WORKER: Option<(String, String)> = std::env::var("DEDICATED_WORKER")
+        .ok()
+        .map(|x| {
+            let splitted = x.split(':').to_owned().collect_vec();
+            if splitted.len() != 2 {
+                panic!("DEDICATED_WORKER should be in the form of <workspace>:<script_path>")
+            } else {
+                let workspace = splitted[0];
+                let script_path = splitted[1];
+                (workspace.to_string(), script_path.to_string())
+            }
+        });
+
+    pub static ref ACCEPTED_TAGS: Vec<String> = {
+        let worker_tags = std::env::var("WORKER_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect())
-        .unwrap_or_else(|| DEFAULT_TAGS.clone()) ;
+        .unwrap_or_else(|| DEFAULT_TAGS.clone());
+        if let Some(ref dedicated_worker) = DEDICATED_WORKER.as_ref() {
+            vec![format!("{}:{}", dedicated_worker.0, dedicated_worker.1)]
+        } else {
+            worker_tags
+         }
+    };
 
     pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
 
-    pub static ref PULL_QUERY_NON_RUNNING: String = format!(
-        "UPDATE queue
-        SET running = true
-          , started_at = coalesce(started_at, now())
-          , last_ping = now()
-          , suspend_until = null
-        WHERE id = (
-            SELECT id
-            FROM queue
-            WHERE running = false AND scheduled_for <= now() AND ({})
-            ORDER BY scheduled_for, created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        RETURNING *",
-        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR ")
-    );
 
-
-    pub static ref PULL_QUERY_SUSPEND: String = format!(
-        "UPDATE queue
-        SET running = true
-          , started_at = coalesce(started_at, now())
-          , last_ping = now()
-          , suspend_until = null
-        WHERE id = (
-            SELECT id
-            FROM queue
-            WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND ({})
-            ORDER BY scheduled_for, created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        RETURNING *",
-        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR ")
-    );
 
 
 
@@ -179,11 +167,12 @@ pub async fn cancel_job<'c: 'async_recursion>(
         let reason = reason
             .clone()
             .unwrap_or_else(|| "No reason provided".to_string());
+        let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         let add_job = add_completed_job_error(
             &db,
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
-            serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username}),
+            &e,
             None,
             rsmq.clone(),
         )
@@ -234,7 +223,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
-    e: serde_json::Value,
+    e: &serde_json::Value,
     metrics: Option<Metrics>,
     rsmq: Option<R>,
 ) -> Result<serde_json::Value, Error> {
@@ -242,7 +231,7 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = serde_json::json!({ "error": e });
-    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs, rsmq).await?;
+    let _ = add_completed_job(db, &queued_job, false, false, &result, logs, rsmq).await?;
     Ok(result)
 }
 
@@ -268,13 +257,13 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
 }
 
-#[instrument(level = "trace", skip_all)]
+#[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
-    result: serde_json::Value,
+    result: &serde_json::Value,
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
@@ -417,6 +406,19 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         )
         .await?;
     }
+    if queued_job.concurrent_limit.is_some() {
+        if let Err(e) = sqlx::query_scalar!(
+            "UPDATE concurrency_counter SET counter = counter - 1 WHERE concurrency_id = $1",
+            queued_job.full_path()
+        )
+        .execute(&mut tx)
+        .await
+        {
+            tracing::error!("Could not decrement concurrency counter: {}", e);
+        }
+        tracing::debug!("decremented concurrency counter");
+    }
+
     tx.commit().await?;
 
     #[cfg(feature = "enterprise")]
@@ -960,13 +962,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     rsmq: Option<R>,
     suspend_first: bool,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
-    // let rs = rd_string(2);
-    // let instant = Instant::now();
-
     loop {
-        let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.clone().begin().await?).into();
-        let (job, mut tx) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            tx,
+        let job = pull_single_job_and_mark_as_running_no_concurrency_limit(
+            db,
             rsmq.clone(),
             suspend_first,
         )
@@ -985,9 +983,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
-            tx.commit().await?;
             return Ok(Option::Some(pulled_job));
         }
+
+        let itx = db.begin().await?;
+
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), itx).into();
 
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
@@ -1002,15 +1003,31 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             job_custom_concurrency_time_window_s
         );
 
+        let running_job = sqlx::query_scalar!(
+            "INSERT INTO concurrency_counter VALUES ($1, 1)
+        ON CONFLICT (concurrency_id) 
+        DO UPDATE SET counter = concurrency_counter.counter + 1
+        RETURNING concurrency_counter.counter",
+            pulled_job.full_path(),
+        )
+        .fetch_one(&mut tx)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "Error getting concurrency count for script path {job_script_path}: {e}"
+            ))
+        })?;
+        tracing::debug!("running_job: {}", running_job);
+
         let script_path_live_stats = sqlx::query!(
-            "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) + COALESCE(running_count, 0) AS total_count
+            "SELECT COALESCE(j.min_started_at, q.min_started_at) AS min_started_at, COALESCE(completed_count, 0) AS completed_count
             FROM
                 (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as completed_count
                 FROM completed_job
                 WHERE script_path = $1 AND job_kind != 'dependencies' AND started_at + INTERVAL '1 MILLISECOND' * duration_ms > (now() - INTERVAL '1 second' * $2) AND workspace_id = $3 AND canceled = false
                 GROUP BY script_path) as j
             FULL OUTER JOIN
-                (SELECT script_path, MIN(started_at) as min_started_at, COUNT(*) as running_count
+                (SELECT script_path, MIN(started_at) as min_started_at
                 FROM queue
                 WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $3 AND canceled = false
                 GROUP BY script_path) as q
@@ -1027,20 +1044,31 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             ))
         })?;
 
-        let concurrent_jobs_for_this_script: Option<i64> = script_path_live_stats.total_count;
+        let concurrent_jobs_for_this_script =
+            script_path_live_stats.completed_count.unwrap_or_default() as i32 + running_job;
         tracing::debug!(
             "Current concurrent jobs for this script: {}",
-            concurrent_jobs_for_this_script.unwrap_or(-1)
+            concurrent_jobs_for_this_script
         );
-        if concurrent_jobs_for_this_script.is_none()
-            || concurrent_jobs_for_this_script.unwrap() <= i64::from(job_custom_concurrent_limit)
-        {
+        if concurrent_jobs_for_this_script <= job_custom_concurrent_limit {
             if *METRICS_ENABLED {
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
             return Ok(Option::Some(pulled_job));
         }
+        let x = sqlx::query_scalar!(
+            "UPDATE concurrency_counter SET counter = counter - 1 WHERE concurrency_id = $1 RETURNING counter",
+            pulled_job.full_path()
+        )
+        .fetch_one(&mut tx)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "Error decreasing concurrency count for script path {job_script_path}: {e}"
+            ))
+        })?;
+        tracing::debug!("running_job after decrease: {}", x);
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
@@ -1114,25 +1142,35 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     'c,
     R: rsmq_async::RsmqConnection + Send + Clone,
 >(
-    mut tx: QueueTransaction<'c, R>,
+    db: &Pool<Postgres>,
     rsmq: Option<R>,
     suspend_first: bool,
-) -> windmill_common::error::Result<(Option<QueuedJob>, QueueTransaction<'c, R>)> {
+) -> windmill_common::error::Result<Option<QueuedJob>> {
     let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
+        #[cfg(feature = "benchmark")]
+        let instant = Instant::now();
+
         // TODO: REDIS: Race conditions / replace last_ping
 
         // TODO: shuffle this list to have fairness
         let mut all_tags = ACCEPTED_TAGS.clone();
 
         let mut msg: Option<_> = None;
+        let mut tag = None;
+
         while msg.is_none() && !all_tags.is_empty() {
+            let ntag = all_tags.pop().unwrap();
+            tag = Some(ntag.clone());
             msg = rsmq
-                .pop_message::<Vec<u8>>(&all_tags.pop().unwrap())
+                .receive_message::<Vec<u8>>(&ntag, Some(10))
                 .await
                 .map_err(|e| anyhow::anyhow!(e))?;
         }
-        // println!("3.1: {:?} {rs}", instant.elapsed());
 
+        // #[cfg(feature = "benchmark")]
+        // println!("rsmq 1: {:?}", instant.elapsed());
+
+        // println!("3.1: {:?} {rs}", instant.elapsed());
         if let Some(msg) = msg {
             let uuid = Uuid::from_bytes_le(
                 msg.message
@@ -1140,7 +1178,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                     .map_err(|_| anyhow::anyhow!("Failed to parsed Redis message"))?,
             );
 
-            sqlx::query_as::<_, QueuedJob>(
+            let m2 = sqlx::query_as::<_, QueuedJob>(
                 "UPDATE queue
             SET running = true
             , started_at = coalesce(started_at, now())
@@ -1150,8 +1188,17 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             RETURNING *",
             )
             .bind(uuid)
-            .fetch_optional(&mut tx)
-            .await?
+            .fetch_optional(db)
+            .await?;
+
+            rsmq.delete_message(&tag.unwrap(), &msg.id)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+
+            #[cfg(feature = "benchmark")]
+            println!("rsmq 2: {:?}", instant.elapsed());
+
+            m2
         } else {
             None
         }
@@ -1165,22 +1212,60 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   or suspend_until <= now() if it has timed out */
 
         let r = if suspend_first {
-            sqlx::query_as::<_, QueuedJob>(&PULL_QUERY_SUSPEND)
-                .fetch_optional(&mut tx)
+            sqlx::query_as::<_, QueuedJob>("UPDATE queue
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
+            WHERE id = (
+                SELECT id
+                FROM queue
+                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag = ANY($1)
+                ORDER BY created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING *")
+                .bind(ACCEPTED_TAGS.as_slice())
+                .fetch_optional(db)
                 .await?
         } else {
             None
         };
 
         if r.is_none() {
-            sqlx::query_as::<_, QueuedJob>(&PULL_QUERY_NON_RUNNING)
-                .fetch_optional(&mut tx)
-                .await?
+            // #[cfg(feature = "benchmark")]
+            // let instant = Instant::now();
+
+            let r = sqlx::query_as::<_, QueuedJob>(
+                "UPDATE queue
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
+            WHERE id = (
+                SELECT id
+                FROM queue
+                WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
+                ORDER BY scheduled_for, created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING *",
+            )
+            .bind(ACCEPTED_TAGS.as_slice())
+            .fetch_optional(db)
+            .await?;
+
+            // #[cfg(feature = "benchmark")]
+            // println!("pull query: {:?}", instant.elapsed());
+
+            r
         } else {
             r
         }
     };
-    Ok((job, tx))
+    Ok(job)
 }
 
 #[async_recursion]
@@ -1447,6 +1532,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         concurrent_limit,
         concurrency_time_window_s,
         cache_ttl,
+        dedicated_worker,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -1454,30 +1540,20 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
-        } => {
-            let language = fetch_scalar_isolated!(sqlx::query_scalar!(
-                    "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
-                    hash.0,
-                    workspace_id
-                ), tx)
-                .ok().flatten()
-                .ok_or_else(||{
-                    Error::InternalErr(format!(
-                        "fetching language for hash {hash} in {workspace_id}"
-                    ))
-                })?;
-            (
-                Some(hash.0),
-                Some(path),
-                None,
-                JobKind::Script,
-                None,
-                Some(language),
-                concurrent_limit,
-                concurrency_time_window_s,
-                cache_ttl,
-            )
-        }
+            language,
+            dedicated_worker,
+        } => (
+            Some(hash.0),
+            Some(path),
+            None,
+            JobKind::Script,
+            None,
+            Some(language),
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+        ),
         JobPayload::ScriptHub { path } => {
             (
                 None,
@@ -1485,6 +1561,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 None,
                 // Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
+                None,
                 None,
                 None,
                 None,
@@ -1510,6 +1587,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
+            None,
         ),
         JobPayload::Dependencies { hash, dependencies, language, path } => (
             Some(hash.0),
@@ -1518,6 +1596,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Dependencies,
             None,
             Some(language),
+            None,
             None,
             None,
             None,
@@ -1547,6 +1626,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 None,
                 None,
                 None,
+                None,
             )
         }
         JobPayload::AppDependencies { path, version } => (
@@ -1554,6 +1634,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             Some(path),
             None,
             JobKind::AppDependencies,
+            None,
             None,
             None,
             None,
@@ -1570,6 +1651,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             value.concurrent_limit.clone(),
             value.concurrency_time_window_s,
             value.cache_ttl.map(|x| x as i32),
+            None,
         ),
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
@@ -1596,6 +1678,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
+                None,
             )
         }
         JobPayload::Identity => (
@@ -1608,12 +1691,14 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
             None,
+            None,
         ),
         JobPayload::Noop => (
             None,
             None,
             None,
             JobKind::Noop,
+            None,
             None,
             None,
             None,
@@ -1673,7 +1758,13 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
-    let tag = if job_kind == JobKind::Script_Hub {
+    let tag = if dedicated_worker.is_some_and(|x| x) {
+        format!(
+            "{}:{}",
+            workspace_id,
+            script_path.clone().expect("dedicated script has a path")
+        )
+    } else if job_kind == JobKind::Script_Hub {
         "hub".to_string()
     } else {
         if tag == Some("".to_string()) {
