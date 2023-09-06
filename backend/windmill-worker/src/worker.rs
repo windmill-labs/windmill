@@ -749,6 +749,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             }
                         }));
                     }
+                    tracing::info!("Ended syncing cache sync part");
                 }
             }
         }
