@@ -31,6 +31,7 @@ use windmill_common::{
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
+        .route("/list_names/:type", get(list_names))
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
@@ -117,6 +118,32 @@ pub struct ListResourceQuery {
     resource_type: Option<String>,
     resource_type_exclude: Option<String>,
 }
+
+#[derive(Serialize, FromRow)]
+pub struct NamePath {
+    name: String,
+    path: String,
+}
+async fn list_names(
+    authed: ApiAuthed,
+    Path((w_id, rt)): Path<(String, String)>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<NamePath>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
+        rt,
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
 async fn list_resources(
     authed: ApiAuthed,
     Query(lq): Query<ListResourceQuery>,

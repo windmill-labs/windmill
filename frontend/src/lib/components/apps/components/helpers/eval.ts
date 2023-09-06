@@ -114,13 +114,13 @@ export async function eval_like(
 			if (typeof key !== 'string') {
 				throw new Error('Invalid key')
 			}
+			target[key] = value
 			let o = worldStore?.newOutput('state', key, value)
 			if (isSerializable(value)) {
 				o?.set(value, true)
 			} else {
 				o?.set('Not serializable object usable only by frontend scripts', true)
 			}
-			target[key] = value
 			return true
 		}
 	})
