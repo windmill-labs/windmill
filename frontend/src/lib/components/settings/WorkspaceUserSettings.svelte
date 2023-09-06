@@ -117,7 +117,7 @@
 				<Cell head>Username</Cell>
 
 				<Cell head>
-					Executions (<abbr title="past 5 weeks">5w</abbr>)
+					Executions (<abbr title="past 1w">1w</abbr>)
 					<Tooltip light>
 						An execution is calculated as 1 for any runs of scripts + 1 for each seconds above the
 						first one

@@ -441,7 +441,7 @@ pub async fn eval_fetch_timeout(
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let ts_expr2 = ts_expr.clone();
     timeout(
-        std::time::Duration::from_millis(100000),
+        std::time::Duration::from_secs(100),
         tokio::task::spawn_blocking(move || {
             let ops = vec![op_get_static_args::DECL, op_log::DECL];
             let ext = Extension {
@@ -536,7 +536,7 @@ pub async fn eval_fetch_timeout(
             isolate.terminate_execution();
         };
         Error::ExecutionErr(format!(
-            "The expression of evaluation `{ts_expr2}` took too long to execute (>10000ms)"
+            "The expression of evaluation `{ts_expr2}` took too long to execute (>100s)"
         ))
     })??
 }
