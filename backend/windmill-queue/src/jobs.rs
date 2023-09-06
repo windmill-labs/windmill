@@ -14,6 +14,7 @@ use std::time::Instant;
 use anyhow::Context;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Duration, Utc};
+use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
@@ -86,10 +87,30 @@ lazy_static::lazy_static! {
         "hub".to_string(),
         "other".to_string()];
 
-    pub static ref ACCEPTED_TAGS: Vec<String> = std::env::var("WORKER_TAGS")
+    pub static ref DEDICATED_WORKER: Option<(String, String)> = std::env::var("DEDICATED_WORKER")
+        .ok()
+        .map(|x| {
+            let splitted = x.split(':').to_owned().collect_vec();
+            if splitted.len() != 2 {
+                panic!("DEDICATED_WORKER should be in the form of <workspace>:<script_path>")
+            } else {
+                let workspace = splitted[0];
+                let script_path = splitted[1];
+                (workspace.to_string(), script_path.to_string())
+            }
+        });
+
+    pub static ref ACCEPTED_TAGS: Vec<String> = {
+        let worker_tags = std::env::var("WORKER_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect())
-        .unwrap_or_else(|| DEFAULT_TAGS.clone()) ;
+        .unwrap_or_else(|| DEFAULT_TAGS.clone());
+        if let Some(ref dedicated_worker) = DEDICATED_WORKER.as_ref() {
+            vec![format!("{}:{}", dedicated_worker.0, dedicated_worker.1)]
+        } else {
+            worker_tags
+         }
+    };
 
     pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
 
@@ -1511,6 +1532,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         concurrent_limit,
         concurrency_time_window_s,
         cache_ttl,
+        dedicated_worker,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -1518,30 +1540,20 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
-        } => {
-            let language = fetch_scalar_isolated!(sqlx::query_scalar!(
-                    "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
-                    hash.0,
-                    workspace_id
-                ), tx)
-                .ok().flatten()
-                .ok_or_else(||{
-                    Error::InternalErr(format!(
-                        "fetching language for hash {hash} in {workspace_id}"
-                    ))
-                })?;
-            (
-                Some(hash.0),
-                Some(path),
-                None,
-                JobKind::Script,
-                None,
-                Some(language),
-                concurrent_limit,
-                concurrency_time_window_s,
-                cache_ttl,
-            )
-        }
+            language,
+            dedicated_worker,
+        } => (
+            Some(hash.0),
+            Some(path),
+            None,
+            JobKind::Script,
+            None,
+            Some(language),
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            dedicated_worker,
+        ),
         JobPayload::ScriptHub { path } => {
             (
                 None,
@@ -1549,6 +1561,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 None,
                 // Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
+                None,
                 None,
                 None,
                 None,
@@ -1574,6 +1587,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
+            None,
         ),
         JobPayload::Dependencies { hash, dependencies, language, path } => (
             Some(hash.0),
@@ -1582,6 +1596,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::Dependencies,
             None,
             Some(language),
+            None,
             None,
             None,
             None,
@@ -1611,6 +1626,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 None,
                 None,
                 None,
+                None,
             )
         }
         JobPayload::AppDependencies { path, version } => (
@@ -1618,6 +1634,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             Some(path),
             None,
             JobKind::AppDependencies,
+            None,
             None,
             None,
             None,
@@ -1634,6 +1651,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             value.concurrent_limit.clone(),
             value.concurrency_time_window_s,
             value.cache_ttl.map(|x| x as i32),
+            None,
         ),
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
@@ -1660,6 +1678,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
+                None,
             )
         }
         JobPayload::Identity => (
@@ -1672,12 +1691,14 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
             None,
+            None,
         ),
         JobPayload::Noop => (
             None,
             None,
             None,
             JobKind::Noop,
+            None,
             None,
             None,
             None,
@@ -1737,7 +1758,13 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
-    let tag = if job_kind == JobKind::Script_Hub {
+    let tag = if dedicated_worker.is_some_and(|x| x) {
+        format!(
+            "{}:{}",
+            workspace_id,
+            script_path.clone().expect("dedicated script has a path")
+        )
+    } else if job_kind == JobKind::Script_Hub {
         "hub".to_string()
     } else {
         if tag == Some("".to_string()) {
