@@ -1,30 +1,45 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    process::Stdio,
-};
+use std::{collections::HashMap, process::Stdio};
 
+#[cfg(feature = "enterprise")]
+use std::collections::VecDeque;
+
+#[cfg(feature = "enterprise")]
 use anyhow::Context;
+
 use base64::Engine;
 use itertools::Itertools;
 use uuid::Uuid;
 
+#[cfg(feature = "enterprise")]
+use crate::{common::build_envs_map, JobCompleted};
+
 use crate::{
     common::{
-        build_envs_map, create_args_and_out_file, get_reserved_variables, handle_child,
-        read_result, set_logs, write_file, write_file_binary,
+        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
+        write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, JobCompleted, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, MAX_BUFFERED_DEDICATED_JOBS, NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
+    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
 };
-use tokio::{
-    fs::File,
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::Command,
-    sync::mpsc::{Receiver, Sender},
-};
-use windmill_common::{error::Result, variables};
+
+#[cfg(feature = "enterprise")]
+use crate::MAX_BUFFERED_DEDICATED_JOBS;
+
+use tokio::{fs::File, process::Command};
+
+#[cfg(feature = "enterprise")]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use tokio::io::AsyncReadExt;
+
+#[cfg(feature = "enterprise")]
+use tokio::sync::mpsc::{Receiver, Sender};
+
+#[cfg(feature = "enterprise")]
+use windmill_common::variables;
+
 use windmill_common::{
-    error::{self},
+    error::{self, Result},
     jobs::QueuedJob,
 };
 use windmill_parser::Typ;
@@ -423,6 +438,7 @@ pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, Stri
     return deno_envs;
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -710,6 +726,7 @@ plugin(p)
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 async fn write_stdin(stdin: &mut tokio::process::ChildStdin, s: &str) -> error::Result<()> {
     let _ = &stdin.write_all(format!("{s}\n").as_bytes()).await?;
     stdin.flush().await.context("stdin flush")?;

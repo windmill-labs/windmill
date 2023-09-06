@@ -43,6 +43,7 @@ use tokio::{
         mpsc::{self, Sender},
         Barrier, RwLock,
     },
+    task::JoinHandle,
     time::Instant,
 };
 
@@ -58,6 +59,9 @@ use crate::global_cache::{
     copy_denogo_cache_from_bucket_as_tar, copy_tmp_cache_to_cache,
 };
 
+#[cfg(feature = "enterprise")]
+use crate::bun_executor::start_worker;
+
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 #[cfg(feature = "benchmark")]
@@ -65,7 +69,7 @@ use windmill_queue::IDLE_WORKERS;
 
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
-    bun_executor::{gen_lockfile, handle_bun_job, start_worker},
+    bun_executor::{gen_lockfile, handle_bun_job},
     common::{hash_args, read_result, save_in_cache, transform_json_value, write_file},
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -601,76 +605,79 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(worker = %worker_name, "listening for jobs");
 
-    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some((workspace, script_path)) =
+    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some((_workspace, _script_path)) =
         DEDICATED_WORKER.clone()
     {
         #[cfg(not(feature = "enterprise"))]
         panic!("Dedicated worker is an enterprise feature");
 
-        let (dedicated_worker_tx, dedicated_worker_rx) =
-            mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
-        let killpill_rx = killpill_rx.resubscribe();
-        let db = db.clone();
-        let worker_dir = worker_dir.clone();
-        let base_internal_url = base_internal_url.to_string();
-        let worker_name = worker_name.clone();
-        let job_completed_tx = job_completed_tx.clone();
-        let job_dir = format!("{}/dedicated", worker_dir);
-        tokio::fs::create_dir_all(&job_dir)
-            .await
-            .expect("create dir");
-        let handle = tokio::spawn(async move {
-            let token = rd_string(30);
-            if let Err(e) = sqlx::query_scalar!(
-                "INSERT INTO token
+        #[cfg(feature = "enterprise")]
+        {
+            let (dedicated_worker_tx, dedicated_worker_rx) =
+                mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
+            let killpill_rx = killpill_rx.resubscribe();
+            let db = db.clone();
+            let worker_dir = worker_dir.clone();
+            let base_internal_url = base_internal_url.to_string();
+            let worker_name = worker_name.clone();
+            let job_completed_tx = job_completed_tx.clone();
+            let job_dir = format!("{}/dedicated", worker_dir);
+            tokio::fs::create_dir_all(&job_dir)
+                .await
+                .expect("create dir");
+            let handle = tokio::spawn(async move {
+                let token = rd_string(30);
+                if let Err(e) = sqlx::query_scalar!(
+                    "INSERT INTO token
                     (token, label, super_admin, email)
                     VALUES ($1, $2, $3, $4)",
-                token,
-                "dedicated_worker",
-                true,
-                "dedicated_worker@windmill.dev"
-            )
-            .execute(&db)
-            .await
-            {
-                panic!("failed to create token for dedicated worker: {:?}", e)
-            };
+                    token,
+                    "dedicated_worker",
+                    true,
+                    "dedicated_worker@windmill.dev"
+                )
+                .execute(&db)
+                .await
+                {
+                    panic!("failed to create token for dedicated worker: {:?}", e)
+                };
 
-            let (content, lock, _language, envs) = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+                let (content, lock, _language, envs) = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
                     "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
                     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                 )
-                .bind(&script_path)
-                .bind(&workspace)
+                .bind(&_script_path)
+                .bind(&_workspace)
                 .fetch_optional(&db)
                 .await.expect("Failed to fetch script for dedicated worker")
-                .expect(&format!("Failed to fetch script `{script_path}` in workspace {workspace} for dedicated worker"));
+                .expect(&format!("Failed to fetch script `{_script_path}` in workspace {_workspace} for dedicated worker"));
 
-            let worker_envs = build_envs(envs).expect("failed to build envs");
-            if let Err(e) = start_worker(
-                lock,
-                &db,
-                &content,
-                &base_internal_url,
-                &job_dir,
-                &worker_name,
-                worker_envs,
-                &workspace,
-                &script_path,
-                &token,
-                job_completed_tx,
-                dedicated_worker_rx,
-                killpill_rx,
-            )
-            .await
-            {
-                tracing::error!("error in dedicated worker: {:?}", e)
-            }
-        });
-        (Some(dedicated_worker_tx), Some(handle))
+                let worker_envs = build_envs(envs).expect("failed to build envs");
+                if let Err(e) = start_worker(
+                    lock,
+                    &db,
+                    &content,
+                    &base_internal_url,
+                    &job_dir,
+                    &worker_name,
+                    worker_envs,
+                    &_workspace,
+                    &_script_path,
+                    &token,
+                    job_completed_tx,
+                    dedicated_worker_rx,
+                    killpill_rx,
+                )
+                .await
+                {
+                    tracing::error!("error in dedicated worker: {:?}", e)
+                }
+            });
+            (Some(dedicated_worker_tx), Some(handle))
+        }
     } else {
-        (None, None)
+        (None, None) as (Option<Sender<QueuedJob>>, Option<JoinHandle<()>>)
     };
 
     loop {
