@@ -36,9 +36,7 @@
 					<Info size={16} />
 					Component styling is still available in the Community Edition
 					<Tooltip light>
-						App CSS editor is an exclusive feature of the Enterprise Edition. You can experiment
-						with this feature in the editor, but please note that the changes will not be visible in
-						the preview.
+						You can still style components individually in the Community Edition.
 					</Tooltip>
 				</div>
 			</div>
