@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { getContext } from 'svelte'
-	import { fade, slide } from 'svelte/transition'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import {
 		components as componentsRecord,
@@ -13,7 +12,6 @@
 	import ListItem from './ListItem.svelte'
 	import { appComponentFromType, insertNewGridItem } from '../appUtils'
 	import { push } from '$lib/history'
-	import { flip } from 'svelte/animate'
 	import { ClearableInput } from '../../../common'
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
@@ -72,22 +70,18 @@
 
 <div class="relative">
 	{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
-		<div
-			in:fade|local={{ duration: 50, delay: 50 }}
-			out:fade|local={{ duration: 50 }}
-			class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2"
-		>
+		<div class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2">
 			No components found
 		</div>
 	{:else}
-		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
+		<div>
 			{#each componentsFiltered as { title, components, presets }, index (index)}
 				{#if components.length}
-					<div transition:slide|local={{ duration: 100 }}>
+					<div>
 						<ListItem title={`${title} (${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
-									<div animate:flip={{ duration: 100 }} class="w-20">
+									<div class="w-20">
 										<button
 											on:click={() => addComponent(item)}
 											title={componentsRecord[item].name}
@@ -103,7 +97,7 @@
 								{/each}
 								{#if presets}
 									{#each presets as presetItem (presetItem)}
-										<div animate:flip={{ duration: 100 }} class="w-20">
+										<div class="w-20">
 											<button
 												on:click={() => addPresetComponent(presetItem)}
 												title={presetsRecord[presetItem].name}
