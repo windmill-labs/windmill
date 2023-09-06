@@ -1,16 +1,34 @@
 {
   "benchmarks": [
     {
-      "name": "base_bench_1000",
-      "graph_title": "Throughput benchmark (1000)",
-      "jobs": 1000,
-      "batches": 1
+      "name": "noop_benchmark",
+      "graph_title": "noop throughput benchmark",
+      "type": "noop"
     },
     {
-      "name": "base_bench_500",
-      "graph_title": "Throughput benchmark (500)",
-      "jobs": 500,
-      "batches": 1
+      "name": "flow_benchmark",
+      "graph_title": "flow throughput benchmark",
+      "type": "flow"
+    },
+    {
+      "name": "deno_benchmark",
+      "graph_title": "deno throughput benchmark",
+      "type": "deno"
+    },
+    {
+      "name": "python_benchmark",
+      "graph_title": "python throughput benchmark",
+      "type": "python"
+    },
+    {
+      "name": "go_benchmark",
+      "graph_title": "go throughput benchmark",
+      "type": "go"
+    },
+    {
+      "name": "bash_benchmark",
+      "graph_title": "bash throughput benchmark",
+      "type": "bash"
     }
   ]
 }

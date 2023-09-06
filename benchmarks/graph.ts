@@ -2,7 +2,6 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 import { JSDOM } from "https://jspm.dev/jsdom";
 
 type DataPoint = {
-  ts: number;
   value: number;
   date: Date;
 };
@@ -54,9 +53,10 @@ export function drawGraph(data: DataPoint[], title: string) {
       0,
       d3.max(data, function (d: DataPoint) {
         return +d.value;
-      }) + 100,
+      }) * 1.5,
     ])
-    .range([height, 0]);
+    .range([height, 0])
+    .nice();
   svg.append("g").call(d3.axisLeft(y));
 
   svg
@@ -99,5 +99,20 @@ export function drawGraph(data: DataPoint[], title: string) {
 }
 
 if (import.meta.main) {
+  const svg = drawGraph(
+    [
+      {
+        value: 10,
+        date: new Date(86400000),
+      },
+      {
+        value: 12,
+        date: new Date(86400000 * 2),
+      },
+    ],
+    "test"
+  );
+
+  console.log(svg);
   Deno.exit(0);
 }

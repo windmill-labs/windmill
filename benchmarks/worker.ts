@@ -1,9 +1,9 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="deno.worker" />
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.151.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.151.0/windmill-api/index.ts";
-import { Job } from "https://deno.land/x/windmill@v1.151.0/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.167.0/mod.ts";
+import * as api from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
+import { Job } from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
 import { Action, evaluate } from "./action.ts";
 
 const promise = new Promise<{
@@ -205,17 +205,13 @@ while (cont) {
                   language: api.RawScript.language.DENO,
                   type: "rawscript",
                   content:
-                    'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
                 },
               },
               {
                 id: "b",
                 value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+                  type: "identity",
                 },
               },
             ],
@@ -227,45 +223,25 @@ while (cont) {
         requestBody: payload,
       });
     } else {
-      let payload: api.Preview;
-      if (config.scriptPattern == "noop") {
-        payload = {
-          path: "noop",
-          kind: "noop",
-          args: {},
-        };
-      } else if (config.scriptPattern == "identity") {
-        payload = {
-          path: "identity",
-          kind: "identity",
-          args: {
-            identity: "itsme",
-          },
-        };
-      } else if (config.scriptPattern == "postgresql") {
-        payload = {
-          path: "postgresql",
-          language: "postgresql",
-          args: {
-            query: "SELECT email FROM usr",
-            database_url:
-              "postgres://postgres:changeme@localhost:5432/windmill",
-          },
-        };
-      } else {
-        payload = {
-          path: "denosimple",
-          language: api.Preview.language.DENO,
-          content:
-            'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
-          args: {},
-        };
-      }
       try {
-        uuid = await windmill.JobService.runScriptPreview({
-          workspace: config.workspace_id,
-          requestBody: payload,
-        });
+        if (config.scriptPattern === "identity") {
+          uuid = await windmill.JobService.runScriptPreview({
+            workspace: config.workspace_id,
+            requestBody: {
+              path: "identity",
+              kind: api.Preview.kind.IDENTITY,
+              args: {
+                identity: "itsme",
+              },
+            },
+          });
+        } else {
+          uuid = await windmill.JobService.runScriptByPath({
+            workspace: config.workspace_id,
+            path: "f/benchmarks/" + config.scriptPattern,
+            requestBody: {},
+          });
+        }
       } catch (e) {
         console.error("error running script: " + e.body);
         Deno.exit(1);
@@ -308,15 +284,15 @@ while (
   Date.now() < end_time
 ) {
   try {
-    await Deno.stdout.write(
-      enc(
-        "\rwaiting for jobs to complete: outstanding " +
-          outstanding.length +
-          " - queue" +
-          last_queue_length +
-          "\n"
-      )
-    );
+    // await Deno.stdout.write(
+    //   enc(
+    //     "\rwaiting for jobs to complete: outstanding " +
+    //       outstanding.length +
+    //       " - queue" +
+    //       last_queue_length +
+    //       "\n"
+    //   )
+    // );
     last_queue_length = await getQueueCount();
 
     const uuid = outstanding.shift()!;

@@ -10,7 +10,7 @@ type Config = {
       graph_title: string;
       name: string;
       jobs: number | undefined;
-      batches: number | undefined;
+      type: "noop" | "flow" | "deno" | "python" | "go" | "bash";
     }
   ];
 };
@@ -22,7 +22,7 @@ async function main({
   token,
   workspace,
   configPath,
-  local,
+  branch,
 }: {
   host: string;
   email?: string;
@@ -30,18 +30,24 @@ async function main({
   token?: string;
   workspace: string;
   configPath: string;
-  local?: boolean;
+  branch?: string;
 }) {
+  const { main: runNoopBenchmark } = await import(
+    branch !== undefined
+      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/benchmark_noop.ts`
+      : "./benchmark_noop.ts"
+  );
+
   const { main: runBenchmark } = await import(
-    local
-      ? "./benchmark_noop.ts"
-      : "https://raw.githubusercontent.com/windmill-labs/windmill/feat/benchmarks-graph/benchmarks/benchmark_noop.ts"
+    branch !== undefined
+      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/main.ts`
+      : "./main.ts"
   );
 
   const { drawGraph } = await import(
-    local
-      ? "./graph.ts"
-      : "https://raw.githubusercontent.com/windmill-labs/windmill/feat/benchmarks-graph/benchmarks/graph.ts"
+    branch !== undefined
+      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/graph.ts`
+      : "./graph.ts"
   );
 
   async function getConfig(configPath: string): Promise<Config> {
@@ -61,19 +67,47 @@ async function main({
           "%cRunning benchmark " + benchmark.name,
           "font-weight: bold;"
         );
-        const result:
+
+        let result:
           | {
               throughput: number;
             }
-          | undefined = await runBenchmark({
-          host,
-          email,
-          password,
-          token,
-          workspace,
-          jobs: benchmark.jobs,
-          batches: benchmark.batches,
-        });
+          | undefined;
+        if (benchmark.type === "noop") {
+          result = await runNoopBenchmark({
+            host,
+            email,
+            password,
+            token,
+            workspace,
+            jobs: 1000,
+            batches: 1,
+          });
+        } else {
+          result = await runBenchmark({
+            host,
+            email,
+            password,
+            token,
+            workspace,
+            workers: 1,
+            seconds: benchmark.type === "flow" ? 2 : 5,
+            metrics: "http://localhost:8001/metrics",
+            maximumThroughput: Infinity,
+            zombieTimeout: 90000,
+            histogramBuckets: [],
+            scriptPattern: [
+              "deno",
+              "python",
+              "go",
+              "bash",
+              "dedicated",
+            ].includes(benchmark.type)
+              ? benchmark.type
+              : "deno",
+            useFlows: benchmark.type === "flow",
+          });
+        }
 
         if (!result) {
           throw new Error("No result returned");
@@ -138,8 +172,8 @@ await new Command()
     required: true,
   })
   .option(
-    "--local",
-    "Whether it is running locally or as part of a github action"
+    "--branch <branch:string>",
+    "The branch to use when running remotely."
   )
   .action(main)
   .command(
