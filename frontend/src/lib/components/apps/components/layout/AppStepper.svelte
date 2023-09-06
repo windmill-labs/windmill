@@ -3,7 +3,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { RunnableComponent, RunnableWrapper } from '../helpers'
@@ -11,6 +11,7 @@
 	import { ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -118,11 +119,21 @@
 	}
 
 	$: selected != undefined && handleTabSelection()
-	$: css = concatCustomCss($app.css?.steppercomponent, customCss)
+	let css = initCss($app.css?.steppercomponent, customCss)
 	$: lastStep = selectedIndex === tabs.length - 1
 
 	let directionClicked: 'left' | 'right' | undefined = undefined
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.steppercomponent}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 <RunnableWrapper

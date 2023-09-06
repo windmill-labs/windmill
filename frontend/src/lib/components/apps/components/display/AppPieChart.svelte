@@ -15,10 +15,11 @@
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -73,8 +74,18 @@
 		]
 	}
 
-	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
+	let css = initCss($app.css?.piechartcomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.piechartcomponent}
+	/>
+{/each}
 
 <InputValue key="theme" {id} input={configuration.theme} bind:value={theme} />
 <InputValue key="doughnut" {id} input={configuration.doughnutStyle} bind:value={doughnut} />

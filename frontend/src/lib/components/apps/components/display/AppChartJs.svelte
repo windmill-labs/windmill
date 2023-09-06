@@ -4,12 +4,13 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -40,7 +41,7 @@
 		...(resolvedConfig.options ?? {})
 	} as ChartOptions
 
-	$: css = concatCustomCss($app.css?.chartjscomponent, customCss)
+	let css = initCss($app.css?.chartjscomponent, customCss)
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}
@@ -49,6 +50,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.chartjscomponent}
 	/>
 {/each}
 

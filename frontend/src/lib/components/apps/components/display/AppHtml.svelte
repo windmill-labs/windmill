@@ -3,9 +3,10 @@
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,8 +25,18 @@
 	let h: number | undefined = undefined
 	let w: number | undefined = undefined
 
-	$: css = concatCustomCss($app.css?.htmlcomponent, customCss)
+	let css = initCss($app.css?.htmlcomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.htmlcomponent}
+	/>
+{/each}
 
 <div
 	on:pointerdown={(e) => {

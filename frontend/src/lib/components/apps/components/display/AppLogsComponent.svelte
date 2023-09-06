@@ -5,10 +5,11 @@
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -25,14 +26,23 @@
 
 	initializing = false
 
-	$: css = concatCustomCss($app.css?.logcomponent, customCss)
-
+	let css = initCss($app.css?.logcomponent, customCss)
 	let testJobLoader: TestJobLoader | undefined = undefined
 	let testIsLoading: boolean = false
 	let testJob: Job | undefined = undefined
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.logcomponent}
+	/>
+{/each}
 
 <RunnableWrapper
 	on:started={(e) => {

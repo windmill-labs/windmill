@@ -3,7 +3,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ListWrapper from './ListWrapper.svelte'
 	import type { AppInput } from '../../inputType'
@@ -13,6 +13,7 @@
 	import { Button } from '$lib/components/common'
 	import { Loader2, ChevronLeft, ChevronRight } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -44,7 +45,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	$: isCard = resolvedConfig.width?.selected == 'card'
@@ -109,6 +110,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.listcomponent}
 	/>
 {/each}
 

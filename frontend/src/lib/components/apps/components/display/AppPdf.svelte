@@ -9,9 +9,10 @@
 	import { Button } from '../../../common'
 	import { findGridItem, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -187,11 +188,21 @@
 		return value
 	}
 
-	$: css = concatCustomCss($app.css?.pdfcomponent, customCss)
+	let css = initCss($app.css?.pdfcomponent, customCss)
 </script>
 
 <InputValue key="source" {id} input={configuration.source} bind:value={source} />
 <InputValue key="zoom" {id} input={configuration.zoom} bind:value={zoom} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.pdfcomponent}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 

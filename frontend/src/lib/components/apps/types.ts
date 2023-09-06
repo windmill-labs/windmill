@@ -20,6 +20,8 @@ import type {
 	RowAppInput,
 	Runnable,
 	StaticAppInput,
+	StaticInput,
+	TemplateV2Input,
 	UploadAppInput,
 	UserAppInput
 } from './inputType'
@@ -43,6 +45,7 @@ export interface GeneralAppInput {
 export type ComponentCssProperty = {
 	class?: string
 	style?: string
+	evalClass?: RichConfiguration
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<

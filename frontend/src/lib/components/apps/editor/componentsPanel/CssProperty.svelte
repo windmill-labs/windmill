@@ -11,6 +11,8 @@
 	import type { PropertyGroup } from './quickStyleProperties'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import CssEval from './CssEval.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -33,6 +35,7 @@
 	function toggleQuickMenu() {
 		isQuickMenuOpen = !isQuickMenuOpen
 	}
+	let dynamicClass: boolean = value.evalClass !== undefined
 </script>
 
 <div class=" border-b flex justify-between items-center p-2 text-xs leading-6 font-bold">
@@ -140,6 +143,7 @@
 				{/if}
 			</div>
 		{/if}
+
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
@@ -153,6 +157,28 @@
 					<ClearableInput bind:value={value.class} />
 				</div>
 			</label>
+		{/if}
+
+		<Toggle
+			options={{
+				right: 'Use dynamic class'
+			}}
+			size="xs"
+			bind:checked={dynamicClass}
+			on:change={(e) => {
+				if (e.detail && !value.evalClass) {
+					value.evalClass = {
+						type: 'evalv2',
+						expr: '',
+						connections: [],
+						fieldType: 'text'
+					}
+				}
+			}}
+		/>
+
+		{#if value.evalClass && dynamicClass}
+			<CssEval bind:evalClass={value.evalClass} />
 		{/if}
 	</div>
 {/if}

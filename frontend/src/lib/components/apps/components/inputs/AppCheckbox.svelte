@@ -9,12 +9,13 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -82,7 +83,7 @@
 
 	$: resolvedConfig.defaultValue != undefined && handleDefault()
 
-	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
+	let css = initCss($app.css?.checkboxcomponent, customCss)
 </script>
 
 {#each Object.keys(components['checkboxcomponent'].initialData.configuration) as key (key)}
@@ -92,6 +93,16 @@
 		{extraKey}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.checkboxcomponent}
 	/>
 {/each}
 

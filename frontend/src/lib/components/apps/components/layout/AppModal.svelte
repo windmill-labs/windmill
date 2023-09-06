@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
@@ -13,6 +13,7 @@
 	import { X } from 'lucide-svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -35,7 +36,7 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	$: css = concatCustomCss($app.css?.modalcomponent, customCss)
+	let css = initCss($app.css?.modalcomponent, customCss)
 	let open = false
 
 	function handleKeyUp(event: KeyboardEvent): void {
@@ -79,6 +80,17 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.modalcomponent}
+	/>
+{/each}
+
 {#if render}
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>

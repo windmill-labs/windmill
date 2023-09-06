@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
@@ -14,6 +14,7 @@
 	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -69,7 +70,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
+	let css = initCss($app.css?.multiselectcomponent, customCss)
 
 	function setOuterDivStyle(outerDiv: HTMLDivElement, portalRef: HTMLDivElement, style: string) {
 		outerDiv.setAttribute('style', style)
@@ -113,6 +114,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.multiselectcomponent}
 	/>
 {/each}
 

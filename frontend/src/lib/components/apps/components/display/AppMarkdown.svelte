@@ -3,12 +3,13 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { classNames } from '$lib/utils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,7 +32,7 @@
 
 	let result: string | undefined = undefined
 
-	$: css = concatCustomCss($app.css?.mardowncomponent, customCss)
+	let css = initCss($app.css?.mardowncomponent, customCss)
 
 	const proseMapping = {
 		sm: 'prose-sm',
@@ -48,6 +49,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.mardowncomponent}
 	/>
 {/each}
 

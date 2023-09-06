@@ -10,7 +10,8 @@
 		type ComponentCustomCSS
 	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -33,8 +34,18 @@
 		loading: false
 	})
 
-	$: css = concatCustomCss($app.css?.displaycomponent, customCss)
+	let css = initCss($app.css?.displaycomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.displaycomponent}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<div class="flex flex-col w-full h-full">

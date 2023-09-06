@@ -16,11 +16,12 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -106,7 +107,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.barchartcomponent, customCss)
+	let css = initCss($app.css?.barchartcomponent, customCss)
 </script>
 
 {#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}
@@ -115,6 +116,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.barchartcomponent}
 	/>
 {/each}
 

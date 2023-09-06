@@ -9,12 +9,13 @@
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import AlwaysMountedModal from '$lib/components/common/modal/AlwaysMountedModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -57,11 +58,21 @@
 	$: noInputs =
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
 
-	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
+	let css = initCss($app?.css?.formbuttoncomponent, customCss)
 	let runnableWrapper: RunnableWrapper
 	let loading = false
 	let modal: AlwaysMountedModal
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.formbuttoncomponent}
+	/>
+{/each}
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig

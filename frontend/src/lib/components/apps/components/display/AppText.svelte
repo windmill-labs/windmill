@@ -12,7 +12,8 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,8 +25,6 @@
 	export let render: boolean
 	export let editorMode: boolean = false
 
-	$: css = concatCustomCss($app.css?.textcomponent, customCss)
-
 	let resolvedConfig = initConfig(
 		components['textcomponent'].initialData.configuration,
 		configuration
@@ -33,6 +32,8 @@
 
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	let css = initCss($app.css?.textcomponent, customCss)
 
 	let result: string | undefined = undefined
 
@@ -155,6 +156,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.textcomponent}
 	/>
 {/each}
 

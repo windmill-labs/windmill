@@ -3,7 +3,7 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import Portal from 'svelte-portal'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
@@ -31,7 +31,7 @@
 
 	let appDrawer: Drawer
 
-	$: css = concatCustomCss($app.css?.drawercomponent, customCss)
+	let css = initCss($app.css?.drawercomponent, customCss)
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}

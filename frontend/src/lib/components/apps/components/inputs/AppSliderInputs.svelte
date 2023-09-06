@@ -10,11 +10,12 @@
 	} from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -67,7 +68,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.slidercomponent, customCss)
+	let css = initCss($app.css?.slidercomponent, customCss)
 
 	let lastStyle: string | undefined = undefined
 	$: if (css && slider && lastStyle !== css?.handle?.style) {
@@ -111,6 +112,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.slidercomponent}
 	/>
 {/each}
 

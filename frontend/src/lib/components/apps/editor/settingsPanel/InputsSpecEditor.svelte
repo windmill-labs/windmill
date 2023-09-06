@@ -32,6 +32,7 @@
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
+	export let allowTypeChange: boolean = true
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -84,7 +85,7 @@
 			</div>
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
-				{#if componentInput?.type}
+				{#if componentInput?.type && allowTypeChange}
 					<ToggleButtonGroup
 						class="h-7"
 						bind:selected={componentInput.type}

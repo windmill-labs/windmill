@@ -5,8 +5,9 @@
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -23,10 +24,19 @@
 
 	initializing = false
 
-	$: css = concatCustomCss($app.css?.flowstatuscomponent, customCss)
-
+	let css = initCss($app.css?.flowstatuscomponent, customCss)
 	let jobId: string | undefined
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.flowstatuscomponent}
+	/>
+{/each}
 
 <RunnableWrapper
 	on:started={(e) => {

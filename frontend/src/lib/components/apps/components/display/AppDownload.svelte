@@ -4,13 +4,14 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss, transformBareBase64IfNecessary } from '../../utils'
+	import { initCss, transformBareBase64IfNecessary } from '../../utils'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { AlignWrapper } from '../helpers'
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -48,7 +49,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.downloadcomponent, customCss)
+	let css = initCss($app.css?.downloadcomponent, customCss)
 </script>
 
 <InitializeComponent {id} />
@@ -59,6 +60,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.downloadcomponent}
 	/>
 {/each}
 

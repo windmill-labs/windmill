@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -10,6 +10,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -53,7 +54,7 @@
 	}
 
 	$: selected && handleSelection(selected)
-	$: css = concatCustomCss($app.css?.selecttabcomponent, customCss)
+	let css = initCss($app.css?.selecttabcomponent, customCss)
 </script>
 
 {#each Object.keys(components['selecttabcomponent'].initialData.configuration) as key (key)}
@@ -62,6 +63,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.selecttabcomponent}
 	/>
 {/each}
 

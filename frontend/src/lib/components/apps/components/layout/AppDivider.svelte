@@ -9,10 +9,11 @@
 		RichConfigurations,
 		VerticalAlignment
 	} from '../../types'
-	import { TailwindClassPatterns, concatCustomCss, hasTailwindClass } from '../../utils'
+	import { TailwindClassPatterns, initCss, hasTailwindClass } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -28,7 +29,7 @@
 	let size = 2
 	let color = '#00000060'
 
-	$: css = concatCustomCss($app.css?.[position + 'dividercomponent'], customCss)
+	let css = initCss($app.css?.[position + 'dividercomponent'], customCss)
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
@@ -49,6 +50,16 @@
 <InputValue key="size" {id} input={configuration.size} bind:value={size} />
 <InputValue key="color" {id} input={configuration.color} bind:value={color} />
 <InitializeComponent {id} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.[position + 'dividercomponent']}
+	/>
+{/each}
 
 <AlignWrapper
 	{horizontalAlignment}

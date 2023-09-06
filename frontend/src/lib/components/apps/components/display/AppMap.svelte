@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
@@ -12,6 +12,7 @@
 	import { defaults as defaultControls } from 'ol/control'
 	import { findGridItem, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	interface Marker {
 		lon: number
@@ -152,7 +153,7 @@
 		updateRegionOutput()
 	}
 
-	$: css = concatCustomCss($app.css?.mapcomponent, customCss)
+	let css = initCss($app.css?.mapcomponent, customCss)
 
 	function updateRegionOutput() {
 		if (map) {
@@ -202,6 +203,16 @@
 <InputValue key="markers" {id} input={configuration.markers} bind:value={markers} />
 
 <InitializeComponent {id} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.mapcomponent}
+	/>
+{/each}
 
 {#if render}
 	<div class="relative h-full w-full">

@@ -3,9 +3,10 @@
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -25,10 +26,20 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 </script>
 
 <InitializeComponent {id} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.containercomponent}
+	/>
+{/each}
 
 <div class="w-full h-full">
 	{#if $app.subgrids?.[`${id}-0`]}

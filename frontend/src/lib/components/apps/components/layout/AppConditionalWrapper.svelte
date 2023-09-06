@@ -3,10 +3,11 @@
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -29,7 +30,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 
 	let resolvedConditions: boolean[] = []
 	let selectedConditionIndex = 0
@@ -68,6 +69,16 @@
 
 {#each conditions ?? [] as condition, index}
 	<InputValue key="conditions" {id} input={condition} bind:value={resolvedConditions[index]} />
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.conditionalwrapper}
+	/>
 {/each}
 
 <InitializeComponent {id} />

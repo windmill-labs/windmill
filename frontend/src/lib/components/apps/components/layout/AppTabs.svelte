@@ -10,10 +10,11 @@
 		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -82,12 +83,22 @@
 
 	$: selected != undefined && handleTabSelection()
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
+	let css = initCss($app.css?.tabscomponent, customCss)
 
 	let resolvedDisabledTabs: boolean[] = []
 </script>
 
 <InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tabscomponent}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 

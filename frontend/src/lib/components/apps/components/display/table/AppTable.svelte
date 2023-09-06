@@ -26,13 +26,14 @@
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { components, type ButtonComponent } from '../../../editor/component'
-	import { concatCustomCss } from '../../../utils'
+	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
+	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -199,7 +200,7 @@
 
 	$: filteredResult && rerender()
 
-	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
+	let css = initCss($app.css?.tablecomponent, customCss)
 
 	$componentControl[id] = {
 		right: (skipActions: boolean | undefined) => {
@@ -249,6 +250,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tablecomponent}
 	/>
 {/each}
 

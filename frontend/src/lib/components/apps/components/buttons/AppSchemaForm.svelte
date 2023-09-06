@@ -12,10 +12,11 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -64,7 +65,7 @@
 
 	$: outputs.valid.set(valid)
 
-	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
+	let css = initCss($app.css?.schemaformcomponent, customCss)
 
 	const resolvedConfig = initConfig(
 		components['schemaformcomponent'].initialData.configuration,
@@ -80,6 +81,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.schemaformcomponent}
 	/>
 {/each}
 
