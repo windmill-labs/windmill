@@ -1,6 +1,39 @@
 # Changelog
 
 
+## [1.168.2](https://github.com/windmill-labs/windmill/compare/v1.168.1...v1.168.2) (2023-09-06)
+
+
+### Bug Fixes
+
+* fix sqlx build ([64e7fb5](https://github.com/windmill-labs/windmill/commit/64e7fb56e41b45bc2476d0e98fa99dcbc355cfe0))
+
+## [1.168.1](https://github.com/windmill-labs/windmill/compare/v1.168.0...v1.168.1) (2023-09-06)
+
+
+### Bug Fixes
+
+* fix sqlx build ([92c8146](https://github.com/windmill-labs/windmill/commit/92c8146a5778290b5a76c2ea5685f95b85be2e38))
+
+## [1.168.0](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.168.0) (2023-09-06)
+
+
+### Features
+
+* dedicated workers for native-throughput performance  (EE only)  ([#2239](https://github.com/windmill-labs/windmill/issues/2239)) ([c80f155](https://github.com/windmill-labs/windmill/commit/c80f155602eca972842be7bd560395a06e4e0ae6))
+
+
+### Bug Fixes
+
+* **frontend:** add virtual list ([#2218](https://github.com/windmill-labs/windmill/issues/2218)) ([e4c896b](https://github.com/windmill-labs/windmill/commit/e4c896b4b9f28b2fa219be249a2794faf3f1b7d0))
+
+## [1.167.1](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.167.1) (2023-09-05)
+
+
+### Bug Fixes
+
+* **frontend:** add virtual list ([#2218](https://github.com/windmill-labs/windmill/issues/2218)) ([e4c896b](https://github.com/windmill-labs/windmill/commit/e4c896b4b9f28b2fa219be249a2794faf3f1b7d0))
+
 ## [1.167.0](https://github.com/windmill-labs/windmill/compare/v1.166.1...v1.167.0) (2023-09-04)
 
 

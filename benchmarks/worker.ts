@@ -43,10 +43,8 @@ const outstanding: string[] = [];
 let cont = true;
 let total_spawned = 0;
 
-let start_time: number;
+const start_time: number = Date.now();
 let complete_timeout = Infinity;
-
-start_time = Date.now();
 
 self.onmessage = (evt) => {
   cont = false;
@@ -301,11 +299,26 @@ async function getQueueCount() {
   ).database_length;
 }
 
-while (outstanding.length > 0 && Date.now() < end_time) {
+let last_queue_length = await getQueueCount();
+console.log(`waiting for ${last_queue_length} jobs to complete...`);
+
+while (
+  outstanding.length > 0 &&
+  last_queue_length > 0 &&
+  Date.now() < end_time
+) {
   try {
     await Deno.stdout.write(
-      enc("\rwaiting for jobs to complete: " + outstanding.length + "\n")
+      enc(
+        "\rwaiting for jobs to complete: outstanding " +
+          outstanding.length +
+          " - queue" +
+          last_queue_length +
+          "\n"
+      )
     );
+    last_queue_length = await getQueueCount();
+
     const uuid = outstanding.shift()!;
 
     let r: Job;
@@ -321,7 +334,7 @@ while (outstanding.length > 0 && Date.now() < end_time) {
     if (r.type == "QueuedJob") {
       outstanding.push(uuid);
       await Deno.stdout.write(
-        enc(`uuid: ${uuid}, queue length: ${await getQueueCount()}\r`)
+        enc(`uuid: ${uuid}, queue length: ${last_queue_length}\r`)
       );
     } else {
       r = r as api.CompletedJob;

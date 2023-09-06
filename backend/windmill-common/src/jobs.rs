@@ -185,6 +185,8 @@ pub enum JobPayload {
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
+        dedicated_worker: Option<bool>,
+        language: ScriptLang,
     },
     Code(RawCode),
     Dependencies {
@@ -232,8 +234,15 @@ pub async fn script_path_to_payload(
     let (job_payload, tag) = if script_path.starts_with("hub/") {
         (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
     } else {
-        let (script_hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl) =
-            get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        let (
+            script_hash,
+            tag,
+            concurrent_limit,
+            concurrency_time_window_s,
+            cache_ttl,
+            language,
+            dedicated_worker,
+        ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
                 hash: script_hash,
@@ -241,6 +250,8 @@ pub async fn script_path_to_payload(
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl: cache_ttl,
+                language,
+                dedicated_worker,
             },
             tag,
         )
@@ -252,9 +263,16 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     script_hash: &ScriptHash,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
-) -> error::Result<(Option<Tag>, Option<i32>, Option<i32>, Option<i32>)> {
+) -> error::Result<(
+    Option<Tag>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    ScriptLang,
+    Option<bool>,
+)> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker  from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -270,6 +288,8 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
     ))
 }
 
