@@ -478,7 +478,8 @@
 			<h2 class="border-b pb-1 mt-10 mb-4 items-center flex gap-1"
 				>Dedicated Workers<Tooltip
 					>In this mode, the script is meant to be run on dedicated workers that run the script at
-					native speed. Can reach 400rps per dedicated worker. Only available on enterprise edition</Tooltip
+					native speed. Can reach >400rps per dedicated worker. Only available on enterprise edition
+					and for the Bun language.</Tooltip
 				>
 				<Toggle
 					disabled={!$enterpriseLicense ||

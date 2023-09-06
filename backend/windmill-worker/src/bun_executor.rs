@@ -689,8 +689,8 @@ plugin(p)
                 if let Some(job) = job {
                     tracing::debug!("received job");
                     jobs.push_back(job.clone());
-                    write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
-                    // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({}))).expect("serialize")).await?;
+                    // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
+                    write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({}))).expect("serialize")).await?;
                     stdin.flush().await.context("stdin flush")?;
                 } else {
                     tracing::debug!("job channel closed");
