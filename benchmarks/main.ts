@@ -223,7 +223,7 @@ export async function main({
       },
     });
 
-    await sleep(0.5); // make sure script is created
+    await sleep(5); // make sure script is created
   }
 
   let workers: Worker[] = new Array(num_workers);
