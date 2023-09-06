@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.168.1](https://github.com/windmill-labs/windmill/compare/v1.168.0...v1.168.1) (2023-09-06)
+
+
+### Bug Fixes
+
+* fix sqlx build ([92c8146](https://github.com/windmill-labs/windmill/commit/92c8146a5778290b5a76c2ea5685f95b85be2e38))
+
 ## [1.168.0](https://github.com/windmill-labs/windmill/compare/v1.167.0...v1.168.0) (2023-09-06)
 
 
