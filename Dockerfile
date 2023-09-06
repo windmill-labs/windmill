@@ -164,6 +164,9 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+# go build is slower the first time it is ran, so we prewarm it in the build
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
+
 ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools

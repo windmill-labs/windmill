@@ -204,6 +204,7 @@
 			}
 		}
 	}
+	let showEmbeddeds = -20
 </script>
 
 {#if job}
@@ -212,6 +213,17 @@
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{/if}
 		{#if isListJob}
+			{#if (flowJobIds?.flowJobs.length ?? 0) > 20}
+				<p class="text-tertiary italic">
+					For performance reasons, only the last 20 items are shown. <button
+						class="text-primary underline"
+						on:click={() => {
+							showEmbeddeds -= 20
+						}}
+						>Load 20 prior
+					</button>
+				</p>
+			{/if}
 			{#if render}
 				<div class="w-full h-full border border-gray-600 bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
@@ -277,7 +289,18 @@
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
-				{#each flowJobIds?.flowJobs ?? [] as loopJobId, j}
+				{#if (flowJobIds?.flowJobs.length ?? 0) > 20}
+					<p class="text-tertiary italic">
+						For performance reasons, only the last 20 items are shown. <button
+							class="text-primary underline"
+							on:click={() => {
+								showEmbeddeds -= 20
+							}}
+							>Load 20 prior
+						</button>
+					</p>
+				{/if}
+				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice(showEmbeddeds) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -296,7 +319,9 @@
 							}}
 						>
 							<span class="truncate">
-								#{j + 1}: {loopJobId}
+								#{(flowJobIds?.flowJobs.length ?? 0) > 20
+									? (flowJobIds?.flowJobs.length ?? 0) + showEmbeddeds + j + 1
+									: j + 1}: {loopJobId}
 							</span>
 
 							<Icon

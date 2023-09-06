@@ -6,6 +6,7 @@ use windmill_api_client::{types::CreateResource, Client};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
+    variables::ContextualVariable,
 };
 use windmill_queue::CLOUD_HOSTED;
 
@@ -189,10 +190,12 @@ pub async fn get_reserved_variables(
     )
     .to_vec();
 
-    let mut r: HashMap<String, String> = variables
-        .into_iter()
-        .map(|rv| (rv.name, rv.value))
-        .collect();
+    Ok(build_envs_map(variables))
+}
+
+pub fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
+    let mut r: HashMap<String, String> =
+        context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
     if let Some(ref envs) = *WHITELIST_ENVS {
         for e in envs {
@@ -200,9 +203,8 @@ pub async fn get_reserved_variables(
         }
     }
 
-    Ok(r)
+    r
 }
-
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -273,12 +275,15 @@ pub async fn handle_child(
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let update_job = async {
+        if job_id == Uuid::nil() {
+            return;
+        }
         let db = db.clone();
 
         let mut interval = interval(update_job_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let mut i = 1;
+        let mut i = 0;
         loop {
             tokio::select!(
                 _ = rx.recv() => break,
@@ -357,7 +362,7 @@ pub async fn handle_child(
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout,
-            _ = update_job => KillReason::Cancelled,
+            _ = update_job, if job_id != Uuid::nil() => KillReason::Cancelled,
         };
         tx.send(()).expect("rx should never be dropped");
         drop(tx);
@@ -538,7 +543,7 @@ fn child_joined_output_stream(
     stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
 }
 
-fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
+pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
