@@ -181,7 +181,7 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 10000;
 
-pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 1;
+pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
 lazy_static::lazy_static! {
 
@@ -604,6 +604,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let (dedicated_worker_tx, dedicated_worker_handle) = if let Some((workspace, script_path)) =
         DEDICATED_WORKER.clone()
     {
+        #[cfg(not(feature = "enterprise"))]
+        panic!("Dedicated worker is an enterprise feature");
+
         let (dedicated_worker_tx, dedicated_worker_rx) =
             mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
         let killpill_rx = killpill_rx.resubscribe();
