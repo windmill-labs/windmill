@@ -1,0 +1,16 @@
+{
+  "benchmarks": [
+    {
+      "name": "base_bench_1000",
+      "graph_title": "Throughput benchmark (1000)",
+      "jobs": 1000,
+      "batches": 1
+    },
+    {
+      "name": "base_bench_500",
+      "graph_title": "Throughput benchmark (500)",
+      "jobs": 500,
+      "batches": 1
+    }
+  ]
+}
