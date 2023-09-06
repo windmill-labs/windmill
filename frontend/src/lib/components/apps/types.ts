@@ -20,8 +20,6 @@ import type {
 	RowAppInput,
 	Runnable,
 	StaticAppInput,
-	StaticInput,
-	TemplateV2Input,
 	UploadAppInput,
 	UserAppInput
 } from './inputType'
