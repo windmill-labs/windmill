@@ -717,7 +717,7 @@ async fn list_users(
                  WHERE workspace_id = $1
                    AND job_kind NOT IN ('flow', 'flowpreview')
                    AND email = usr.email
-                   AND now() - '5 week'::interval < created_at 
+                   AND now() - '1 week'::interval < created_at 
                ) usage
          WHERE workspace_id = $1
          ",
