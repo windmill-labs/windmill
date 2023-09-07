@@ -6,15 +6,25 @@
 	import { Skeleton } from '../common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
+	import type { FlowCopilotContext } from '../copilot/flow'
+	import { classNames } from '$lib/utils'
 
 	export let loading: boolean
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let size = 40
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext>('FlowCopilotContext')
 </script>
 
-<div class="h-full overflow-hidden border-t">
+<div
+	class={classNames(
+		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
+		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+	)}
+>
 	<Splitpanes>
 		<Pane {size} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">

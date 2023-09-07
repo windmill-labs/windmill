@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
@@ -13,7 +14,7 @@
 		Voicemail,
 		X
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 
 	export let selected: boolean = false
@@ -32,6 +33,9 @@
 	export let concurrency: boolean = false
 
 	const dispatch = createEventDispatcher()
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -39,7 +43,8 @@
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
-		'flex relative'
+		'flex relative',
+		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
 	style="width: 275px; height: 34px; background-color: {bgColor};"
 	on:click

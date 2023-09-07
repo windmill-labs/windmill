@@ -19,7 +19,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
@@ -41,7 +41,8 @@ use windmill_common::{
     },
     users::username_to_permissioned_as,
     utils::{
-        list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
+        list_elems_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
+        Pagination, StripPath,
     },
 };
 use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
@@ -80,6 +81,7 @@ pub fn global_service() -> Router {
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route("/hub/query", get(query_hub_scripts))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -204,6 +206,28 @@ async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serd
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchData?approved=true",
         &email,
+    )
+    .await?;
+    Ok(Json(asks))
+}
+
+#[derive(Deserialize)]
+struct HubScriptsQuery {
+    text: String,
+    kind: Option<String>,
+    limit: Option<i64>,
+}
+async fn query_hub_scripts(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Query(query): Query<HubScriptsQuery>,
+) -> JsonResult<serde_json::Value> {
+    let asks = query_elems_from_hub(
+        &HTTP_CLIENT,
+        "https://hub.windmill.dev/scripts/query",
+        &email,
+        &query.text,
+        &query.kind,
+        &query.limit,
     )
     .await?;
     Ok(Json(asks))

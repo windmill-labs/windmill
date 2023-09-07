@@ -188,6 +188,27 @@
 		}
 	}
 
+	export function append(code): void {
+		if (editor) {
+			const lineCount = editor.getModel()?.getLineCount() || 0
+			const lastLineLength = editor.getModel()?.getLineLength(lineCount) || 0
+			const range: IRange = {
+				startLineNumber: lineCount,
+				startColumn: lastLineLength + 1,
+				endLineNumber: lineCount,
+				endColumn: lastLineLength + 1
+			}
+			editor.executeEdits('append', [
+				{
+					range,
+					text: code,
+					forceMoveMarkers: true
+				}
+			])
+			editor.revealLine(lineCount)
+		}
+	}
+
 	export function format() {
 		if (editor) {
 			code = getCode()
