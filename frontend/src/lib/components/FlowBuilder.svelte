@@ -484,9 +484,11 @@
 				value: {
 					input_transforms: {},
 					content: '',
-					language: RawScript.language.DENO,
+					language: RawScript.language.BUN,
 					type: 'rawscript' as const
-				}
+				},
+				summary:
+					$copilotModulesStore[i].selectedCompletion?.summary ?? $copilotModulesStore[i].description
 			}
 
 			if (i === 1 && $copilotModulesStore[i - 1].type === 'trigger') {
@@ -620,7 +622,12 @@
 
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
-								expr: key === 'prev_output' ? 'flow_input.iter.value' : 'flow_input.' + key
+								expr:
+									key === 'prev_output'
+										? $copilotModulesStore[i - 1].type === 'trigger'
+											? 'flow_input.iter.value'
+											: 'results.' + $copilotModulesStore[i - 1].id
+										: 'flow_input.' + key
 							}
 						}
 					}
@@ -658,6 +665,7 @@
 		copilotLoading = true
 		select('Input')
 		$copilotCurrentStepStore = 'Input'
+		copilotStatus = 'Setting flow inputs...'
 
 		// filter out unused flow inputs
 		const flowInputs: Record<string, SchemaProperty> = {}
@@ -698,10 +706,10 @@
 		}
 
 		copilotStatus = "Done! Just check the flow's inputs and you're good to go!"
+		$copilotCurrentStepStore = undefined
 		copilotLoading = false
 		await sleep(3000)
 		copilotStatus = ''
-		$copilotCurrentStepStore = undefined
 	}
 
 	$: {

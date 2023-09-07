@@ -8,6 +8,8 @@
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { existsOpenaiResourcePath } from '$lib/stores'
+	import Popup from '$lib/components/common/popup/Popup.svelte'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -147,15 +149,33 @@
 	</div>
 
 	<div class="w-7 absolute top-12 left-[80%] -translate-x-1/2">
-		<button
-			title="AI Flow Builder"
-			on:click={() => {
-				$copilotDrawerStore?.openDrawer()
-			}}
-			type="button"
-			class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-		>
-			<Icon data={faMagicWandSparkles} scale={0.8} />
-		</button>
+		<Popup let:close>
+			<svelte:fragment slot="button">
+				<button
+					title="AI Flow Builder"
+					on:click={$existsOpenaiResourcePath
+						? (ev) => {
+								ev.preventDefault()
+								ev.stopPropagation()
+								$copilotDrawerStore?.openDrawer()
+						  }
+						: undefined}
+					type="button"
+					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+				>
+					<Icon data={faMagicWandSparkles} scale={0.8} />
+				</button>
+			</svelte:fragment>
+			<div class="block text-primary">
+				<p class="text-sm"
+					>Enable Windmill AI in the <a
+						href="/workspace_settings?tab=openai"
+						on:click={() => {
+							close(null)
+						}}>workspace settings.</a
+					></p
+				>
+			</div>
+		</Popup>
 	</div>
 {/if}

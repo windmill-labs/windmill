@@ -50,18 +50,18 @@ const additionalInformation = `Additional information: We have to export a "main
 You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
 Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`
 
-const triggerPrompt = `I'm building a workflow which is a sequence of script steps. Write the first script in typescript (deno environment) which should check for {description} and return an array.
+const triggerPrompt = `I'm building a workflow which is a sequence of script steps. Write the first script in typescript which should check for {description} and return an array.
 You can use "const {state_name}: {state_type} = getState(...)" and "setState(...)" from "npm:windmill-client@1" to maintain state across runs.
 
 ${additionalInformation}`
 
-const firstActionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in typescript (deno environment) which should {description}.
+const firstActionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in typescript which should {description}.
 Return the script's output.
 
 ${additionalInformation}`
 
-const actionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in typescript (deno environment) which should {description} using as a parameter called "prev_output" the output of the previous script.
-Infer the type of "prev_output" from the previous script: \`\`\`deno\n{prevCode}\n\`\`\`.
+const actionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in typescript which should {description} using as a parameter called "prev_output" the output of the previous script.
+Infer the type of "prev_output" from the previous script: \`\`\`typescript\n{prevCode}\n\`\`\`.
 Return the script's output.
 
 ${additionalInformation}`
@@ -70,7 +70,7 @@ const loopGluePrompt = `I'm building a workflow which is a sequence of script st
 My current step code has the following inputs: {inputs}. 
 Determine what to pass as inputs. You can only use the following:
 - \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties.
-- \`flow_input.iter.value\` (javascript object): it is ONE ELEMENT of the output of the previous step. Infer its type from the previous's step code: \`\`\`deno\n{prevCode}\n\`\`\`
+- \`flow_input.iter.value\` (javascript object): it is ONE ELEMENT of the output of the previous step. Infer its type from the previous's step code: \`\`\`typescript\n{prevCode}\n\`\`\`
 
 Reply in the following format:
 input_name: expr`
@@ -79,7 +79,7 @@ const gluePrompt = `I'm building a workflow which is a sequence of script steps.
 My current step code has the following inputs: {inputs}. 
 Determine what to pass as inputs. You can only use the following:
 - \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties.
-- \`prev_output\` (javascript object): previous output is the output of the previous step. Infer its type from the previous's step code: \`\`\`deno\n{prevCode}\n\`\`\`
+- \`prev_output\` (javascript object): previous output is the output of the previous step. Infer its type from the previous's step code: \`\`\`typescript\n{prevCode}\n\`\`\`
 
 Reply in the following format:
 input_name: expr`
@@ -110,7 +110,7 @@ export async function stepCopilot(
 		prompt = await addResourceTypes(
 			{
 				type: 'gen',
-				language: 'deno' as Script.language,
+				language: 'bun' as Script.language,
 				description: module.description,
 				dbSchema: undefined
 			},
