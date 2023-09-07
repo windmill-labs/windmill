@@ -1,22 +1,23 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
 	import { dbSchemas, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
-	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { tryEvery } from '$lib/utils'
+	import { sendUserToast, tryEvery } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { buildClientSchema, printSchema } from 'graphql'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
+	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
 	let dbSchema: DBSchema | undefined = undefined
+	let loading = false
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined
 
 	const scripts: {
 		[key: string]: {
@@ -186,7 +187,7 @@ GROUP BY
 
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
-		delete $dbSchemas[resourceType]
+		loading = true
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
@@ -226,9 +227,14 @@ GROUP BY
 						}
 					}
 				}
+				loading = false
 			},
 			timeoutCode: async () => {
+				loading = false
 				console.error('Could not query schema within 5s')
+				if (drawer?.isOpen()) {
+					sendUserToast('Could not query schema within 5s', true)
+				}
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
@@ -260,17 +266,12 @@ GROUP BY
 		return printSchema(buildClientSchema(dbSchema.schema))
 	}
 
-	$: resourcePath && Object.keys(scripts).includes(resourceType || '') && getSchema()
-
-	function clearSchema() {
-		if (resourcePath) {
-			delete $dbSchemas[resourcePath]
-		}
-	}
+	$: resourcePath &&
+		Object.keys(scripts).includes(resourceType || '') &&
+		!$dbSchemas[resourcePath] &&
+		getSchema()
 
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
-
-	onDestroy(clearSchema)
 </script>
 
 {#if dbSchema}
@@ -280,12 +281,24 @@ GROUP BY
 		color="blue"
 		spacingSize="xs2"
 		btnClasses="mt-1"
-		on:click={drawer.openDrawer}
+		on:click={drawer?.openDrawer}
 	>
 		Explore schema
 	</Button>
-	<Drawer bind:this={drawer} size="800px">
+	<Drawer bind:this={drawer}>
 		<DrawerContent title="Schema Explorer" on:close={drawer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={getSchema}
+					startIcon={{
+						icon: faRefresh
+					}}
+					{loading}
+					size="xs"
+					color="light"
+					>Refresh
+				</Button>
+			</svelte:fragment>
 			{#if dbSchema.lang === 'postgresql'}
 				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
