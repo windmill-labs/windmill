@@ -712,29 +712,29 @@
 		copilotStatus = ''
 	}
 
-	$: {
-		if ($copilotCurrentStepStore !== undefined) {
-			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-				el.classList.add('hidden')
-			})
-			setTimeout(() => {
-				document.querySelectorAll('#flow-graph *').forEach((el) => {
-					if (el instanceof HTMLElement) {
-						el.style.pointerEvents = 'none'
-					}
-				})
-			}, 250)
-		} else {
-			document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-				el.classList.remove('hidden')
-			})
-			document.querySelectorAll('#flow-graph *').forEach((el) => {
-				if (el instanceof HTMLElement) {
-					el.style.pointerEvents = ''
-				}
-			})
-		}
+	function focusCopilot() {
+		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
+			el.classList.add('hidden')
+		})
+		document.querySelectorAll('#flow-graph *').forEach((el) => {
+			if (el instanceof HTMLElement) {
+				el.style.pointerEvents = 'none'
+			}
+		})
 	}
+
+	function blurCopilot() {
+		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
+			el.classList.remove('hidden')
+		})
+		document.querySelectorAll('#flow-graph *').forEach((el) => {
+			if (el instanceof HTMLElement) {
+				el.style.pointerEvents = ''
+			}
+		})
+	}
+
+	$: $copilotCurrentStepStore !== undefined ? focusCopilot() : blurCopilot()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
