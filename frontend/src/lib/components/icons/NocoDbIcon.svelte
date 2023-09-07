@@ -8,10 +8,10 @@ y="0px"
 {width}
 {height}
 viewBox="0 0 200.000000 200.000000"
- preserveAspectRatio="xMidYMid meet">
+ preserveAspectRatio="xMidYMid meet"
+ style="fill:currentcolor;">
 
-<g transform="translate(0.000000,200.000000) scale(0.100000,-0.100000)"
-fill="#000000" stroke="none">
+<g transform="translate(0.000000,200.000000) scale(0.100000,-0.100000)" stroke="none">
 <path d="M138 1990 c-42 -12 -84 -46 -110 -88 l-23 -37 -3 -843 c-2 -575 1
 -855 8 -883 6 -21 24 -55 41 -73 61 -70 19 -67 970 -64 l855 3 41 27 c24 16
 49 44 62 70 21 44 21 49 21 896 0 577 -3 860 -11 879 -15 40 -57 82 -104 104
