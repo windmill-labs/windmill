@@ -12,6 +12,7 @@
 	export let wrapperClasses = ''
 	export let popupClasses = ''
 	export let transitionDuration = 25
+	export let pointerDown = false
 	let menu: HTMLDivElement
 
 	type Alignment = 'start' | 'end' | 'center'
@@ -60,12 +61,23 @@
 <div class="relative {wrapperClasses}" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
-		on:click|stopPropagation={() => {
-			if (!show) {
-				current && current()
-				current = close
+		on:click={() => {
+			if (!pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
 			}
-			show = !show
+		}}
+		on:pointerdown={() => {
+			if (pointerDown) {
+				if (!show) {
+					current && current()
+					current = close
+				}
+				show = !show
+			}
 		}}
 		class="relative"
 	>

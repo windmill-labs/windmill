@@ -17,7 +17,14 @@
 	export let open: boolean | undefined = undefined
 </script>
 
-<Menu bind:show={open} noMinW placement="bottom-center" let:close>
+<Menu
+	transitionDuration={0}
+	pointerDown
+	bind:show={open}
+	noMinW
+	placement="bottom-center"
+	let:close
+>
 	<button
 		title="Add step"
 		slot="trigger"
@@ -29,7 +36,7 @@
 	<div class="font-mono divide-y text-xs w-40 text-secondary">
 		<button
 			class="w-full text-left p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'script')
 			}}
@@ -42,7 +49,7 @@
 		{#if trigger}
 			<button
 				class="w-full text-left p-2 hover:bg-surface-hover"
-				on:click={() => {
+				on:pointerdown={() => {
 					close()
 					dispatch('new', 'trigger')
 				}}
@@ -55,7 +62,7 @@
 		{/if}
 		<button
 			class="w-full text-left gap-1 p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'approval')
 			}}
@@ -67,7 +74,7 @@
 		</button>
 		<button
 			class="w-full inline-flex text-left p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'forloop')
 			}}
@@ -82,7 +89,7 @@
 
 		<button
 			class="w-full text-left p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'branchone')
 			}}
@@ -94,7 +101,7 @@
 
 		<button
 			class="w-full text-left p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'branchall')
 			}}
@@ -106,7 +113,7 @@
 
 		<button
 			class="w-full text-left p-2 hover:bg-surface-hover"
-			on:click={() => {
+			on:pointerdown={() => {
 				close()
 				dispatch('new', 'flow')
 			}}
@@ -118,7 +125,7 @@
 		{#if stop}
 			<button
 				class="w-full text-left p-2 hover:bg-surface-hover inline-flex gap-2.5"
-				on:click={() => {
+				on:pointerdown={() => {
 					close()
 					dispatch('new', 'end')
 				}}
