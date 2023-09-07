@@ -46,6 +46,7 @@ export async function main({
   continous,
   max,
   custom,
+  hideProgress,
 }: {
   host: string;
   workers: number;
@@ -68,6 +69,7 @@ export async function main({
   continous?: boolean;
   max?: number;
   custom?: string;
+  hideProgress?: boolean;
 }) {
   windmill.setClient("", host);
   const versionResp = await fetch(`${host}/api/version`);
@@ -128,6 +130,7 @@ export async function main({
         scriptPattern,
         zombieTimeout,
         continous,
+        hideProgress,
       },
       null,
       4
@@ -172,6 +175,7 @@ export async function main({
     scriptPattern,
     continous,
     custom: custom_content,
+    hideProgress,
   };
 
   if (
@@ -516,6 +520,7 @@ if (import.meta.main) {
         ],
       }
     )
+    .option("--hide-progress", "Hide worker progress logs")
     .action(main)
     .command(
       "upgrade",

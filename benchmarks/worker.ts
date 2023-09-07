@@ -17,6 +17,7 @@ const promise = new Promise<{
   custom: Action | undefined;
   server: string;
   token: string;
+  hideProgress: boolean;
 }>((resolve, _reject) => {
   self.onmessage = (evt) => {
     const sharedConfig = evt.data;
@@ -32,6 +33,7 @@ const promise = new Promise<{
       custom: sharedConfig.custom,
       server: sharedConfig.server,
       token: sharedConfig.token,
+      hideProgress: sharedConfig.hideProgress,
     };
     self.name = "Worker " + sharedConfig.i;
     resolve(config);
@@ -238,7 +240,7 @@ while (cont) {
         } else {
           uuid = await windmill.JobService.runScriptByPath({
             workspace: config.workspace_id,
-            path: "f/benchmarks/" + config.scriptPattern,
+            path: "f/benchmarks/" + (config.scriptPattern || "deno"),
             requestBody: {},
           });
         }
@@ -284,15 +286,17 @@ while (
   Date.now() < end_time
 ) {
   try {
-    // await Deno.stdout.write(
-    //   enc(
-    //     "\rwaiting for jobs to complete: outstanding " +
-    //       outstanding.length +
-    //       " - queue" +
-    //       last_queue_length +
-    //       "\n"
-    //   )
-    // );
+    if (!config.hideProgress) {
+      await Deno.stdout.write(
+        enc(
+          "\rwaiting for jobs to complete: outstanding " +
+            outstanding.length +
+            " - queue" +
+            last_queue_length +
+            "\n"
+        )
+      );
+    }
     last_queue_length = await getQueueCount();
 
     const uuid = outstanding.shift()!;
@@ -309,9 +313,12 @@ while (
     }
     if (r.type == "QueuedJob") {
       outstanding.push(uuid);
-      await Deno.stdout.write(
-        enc(`uuid: ${uuid}, queue length: ${last_queue_length}\r`)
-      );
+
+      if (!config.hideProgress) {
+        await Deno.stdout.write(
+          enc(`uuid: ${uuid}, queue length: ${last_queue_length}\r`)
+        );
+      }
     } else {
       r = r as api.CompletedJob;
       try {

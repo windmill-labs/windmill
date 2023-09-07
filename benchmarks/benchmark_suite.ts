@@ -106,6 +106,7 @@ async function main({
               ? benchmark.type
               : "deno",
             useFlows: benchmark.type === "flow",
+            hideProgress: true,
           });
         }
 
