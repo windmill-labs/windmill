@@ -20,7 +20,7 @@ use crate::{
         set_logs, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -233,6 +233,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
@@ -246,6 +247,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str());

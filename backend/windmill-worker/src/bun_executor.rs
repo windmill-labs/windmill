@@ -19,7 +19,7 @@ use crate::{
         write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV,
+    NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 #[cfg(feature = "enterprise")]
@@ -418,6 +418,7 @@ plugin(p)
 pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
     let mut deno_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("TZ"), TZ_ENV.clone()),
         (String::from("DISABLE_COLORS"), "0".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
         (
