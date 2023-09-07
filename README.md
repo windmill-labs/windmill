@@ -3,4 +3,20 @@ Open-source developer platform to turn scripts into workflows and UIs. Open-sour
 
 ## benchmarks
 
-![bash benchmark](https://raw.githubusercontent.com/windmill-labs/windmill/benchmarks/bash_benchmark.svg?sanitize=true)
+![noop benchmark](./noop_benchmark.svg)
+
+
+![flow benchmark](./flow_benchmark.svg)
+
+
+![deno benchmark](./deno_benchmark.svg)
+
+
+![go benchmark](./go_benchmark.svg)
+
+
+![python benchmark](./python_benchmark.svg)
+
+
+![bash benchmark](./bash_benchmark.svg)
+<br />(bash benchmark includes a 20 ms sleep to process stdout)
