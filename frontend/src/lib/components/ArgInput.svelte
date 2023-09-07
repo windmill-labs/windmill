@@ -64,6 +64,7 @@
 	export let prettifyHeader = false
 	export let resourceTypes: string[] | undefined
 	export let disablePortal = false
+	export let showSchemaExplorer = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -351,7 +352,7 @@
 					</div>
 				</div>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput {disablePortal} {format} bind:value />
+				<ObjectResourceInput {disablePortal} {format} bind:value {showSchemaExplorer} />
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
@@ -407,6 +408,7 @@
 					resourceType={format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
+					{showSchemaExplorer}
 				/>
 			{:else if inputCat == 'string'}
 				<div class="flex flex-col w-full">

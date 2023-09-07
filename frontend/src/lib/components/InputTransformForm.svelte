@@ -294,6 +294,7 @@
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField
+				showSchemaExplorer
 			/>
 		{:else if arg.expr != undefined}
 			<div class="border rounded mt-2 border-gray-300">

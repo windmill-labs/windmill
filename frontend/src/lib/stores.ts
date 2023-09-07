@@ -81,8 +81,8 @@ type SQLBaseSchema = {
 	}
 }
 
-export interface MysqlSchema {
-	lang: 'mysql'
+export interface SQLSchema {
+	lang: 'mysql' | 'bigquery'
 	schema: SQLBaseSchema
 }
 
@@ -97,7 +97,7 @@ export interface GraphqlSchema {
 	schema: IntrospectionQuery
 }
 
-export type DBSchema = MysqlSchema | PostgresqlSchema | GraphqlSchema
+export type DBSchema = SQLSchema | PostgresqlSchema | GraphqlSchema
 
 interface DBSchemas {
 	[resourcePath: string]: DBSchema

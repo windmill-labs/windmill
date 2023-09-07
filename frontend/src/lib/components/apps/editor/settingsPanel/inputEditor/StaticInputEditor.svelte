@@ -73,6 +73,7 @@
 							}
 						}
 					}}
+					showSchemaExplorer
 				/>
 			</div>
 		{:else}
@@ -97,6 +98,7 @@
 				resourceType={format.split('-').length > 1
 					? format.substring('resource-'.length)
 					: undefined}
+				showSchemaExplorer
 			/>
 		{:else}
 			<div class="flex w-full flex-col">
