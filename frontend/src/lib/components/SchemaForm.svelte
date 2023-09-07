@@ -29,6 +29,7 @@
 	export let noDelete = false
 	export let prettifyHeader = false
 	export let disablePortal = false
+	export let showSchemaExplorer = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -133,6 +134,7 @@
 								bind:pickForField
 								password={linkedSecret == argName}
 								extra={schema.properties[argName]}
+								{showSchemaExplorer}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}
