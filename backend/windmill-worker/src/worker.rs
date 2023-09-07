@@ -218,6 +218,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    pub static ref TZ_ENV: String = std::env::var("TZ").unwrap_or_else(|_| String::new());
     pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
