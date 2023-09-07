@@ -14,6 +14,7 @@ use crate::{
         transform_json_value, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -226,6 +227,7 @@ pub async fn handle_powershell_job(
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -239,6 +241,7 @@ pub async fn handle_powershell_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())

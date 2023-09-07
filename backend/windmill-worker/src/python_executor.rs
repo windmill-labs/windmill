@@ -62,7 +62,7 @@ use crate::{
         write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR,
+    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, TZ_ENV,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -439,6 +439,7 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec![
                 "--config",
@@ -459,6 +460,7 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())

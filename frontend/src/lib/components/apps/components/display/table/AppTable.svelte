@@ -89,17 +89,20 @@
 
 	let selectedRowIndex = -1
 
-	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
+	function toggleRow(row: Record<string, any>, force: boolean = false) {
+		let data = { ...row.original }
+		let index = data['__index']
+		delete data['__index']
 		if (
-			selectedRowIndex !== rowIndex ||
-			JSON.stringify(row.original) !== JSON.stringify(result?.[rowIndex]) ||
+			selectedRowIndex !== index ||
+			JSON.stringify(data) !== JSON.stringify(result?.[index]) ||
 			force
 		) {
-			selectedRowIndex = rowIndex
-			outputs?.selectedRow.set(row.original, force)
-			outputs?.selectedRowIndex.set(rowIndex, force)
+			selectedRowIndex = index
+			outputs?.selectedRow.set(data, force)
+			outputs?.selectedRowIndex.set(index, force)
 			if (iterContext && listInputs) {
-				listInputs(id, { selectedRow: row.original, selectedRowIndex: rowIndex })
+				listInputs(id, { selectedRow: data, selectedRowIndex: index })
 			}
 		}
 	}
@@ -115,7 +118,7 @@
 		// We need to wait until the component is mounted so the world is created
 		mounted &&
 		outputs &&
-		toggleRow({ original: result[0] }, 0)
+		toggleRow({ original: { ...result[0], __index: 0 } })
 
 	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
@@ -141,10 +144,14 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	function setFilteredResult() {
+		const wIndex = Array.isArray(result)
+			? (result as any[]).map((x, i) => ({ ...x, __index: i }))
+			: [{ error: 'input was not an array' }]
+
 		if (resolvedConfig.search === 'By Runnable' || resolvedConfig.search === 'Disabled') {
-			filteredResult = result ?? []
+			filteredResult = wIndex ?? []
 		} else {
-			filteredResult = searchInResult(result ?? [], searchValue)
+			filteredResult = searchInResult(wIndex ?? [], searchValue)
 		}
 	}
 	$: (result || resolvedConfig.search || searchValue || resolvedConfig.pagination) &&
@@ -190,7 +197,7 @@
 
 		if (result) {
 			//console.log('rerendering table', result[0])
-			toggleRow({ original: filteredResult[0] }, 0, true)
+			toggleRow({ original: filteredResult[0] }, true)
 		}
 
 		if (outputs.page.peak()) {
@@ -198,7 +205,7 @@
 		}
 	}
 
-	$: filteredResult && rerender()
+	$: filteredResult != undefined && rerender()
 
 	let css = initCss($app.css?.tablecomponent, customCss)
 
@@ -218,7 +225,7 @@
 		},
 		setSelectedIndex: (index: number) => {
 			if (filteredResult) {
-				toggleRow({ original: filteredResult[index] }, index, true)
+				toggleRow({ original: filteredResult[index] }, true)
 			}
 		}
 	}
@@ -332,7 +339,8 @@
 						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '', 'wm-table-body')}
 						style={css?.tableBody?.style ?? ''}
 					>
-						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
+						{#each $table.getRowModel().rows as row (row.id)}
+							{@const rowIndex = row.original['__index']}
 							<tr
 								class={classNames(
 									'last-of-type:!border-b-0 divide-x w-full',
@@ -347,8 +355,8 @@
 										{#if context}
 											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
-												on:keydown={() => toggleRow(row, rowIndex)}
-												on:click={() => toggleRow(row, rowIndex)}
+												on:keydown={() => toggleRow(row)}
+												on:click={() => toggleRow(row)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
 												style={'width: ' + cell.column.getSize() + 'px'}
 											>
@@ -365,8 +373,8 @@
 								{#if actionButtons.length > 0}
 									<td
 										class="p-2"
-										on:keypress={() => toggleRow(row, rowIndex)}
-										on:click={() => toggleRow(row, rowIndex)}
+										on:keypress={() => toggleRow(row)}
+										on:click={() => toggleRow(row)}
 									>
 										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
@@ -445,7 +453,7 @@
 																	{render}
 																	noWFull
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																	id={actionButton.id}
 																	customCss={actionButton.customCss}
@@ -464,7 +472,7 @@
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																	{controls}
 																/>
@@ -478,7 +486,7 @@
 																		configuration={actionButton.configuration}
 																		recomputeIds={actionButton.recomputeIds}
 																		preclickAction={async () => {
-																			toggleRow(row, rowIndex)
+																			toggleRow(row)
 																		}}
 																		{controls}
 																	/>
@@ -494,7 +502,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row)
 																}}
 																extraQueryParams={{ row: row.original }}
 																componentInput={actionButton.componentInput}
@@ -508,7 +516,7 @@
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
 																preclickAction={async () => {
-																	toggleRow(row, rowIndex)
+																	toggleRow(row)
 																}}
 															/>
 														{:else if actionButton.type == 'selectcomponent'}
@@ -522,7 +530,7 @@
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
 																	preclickAction={async () => {
-																		toggleRow(row, rowIndex)
+																		toggleRow(row)
 																	}}
 																/>
 															</div>

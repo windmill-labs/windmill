@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.168.2
+  version: 1.168.3
   title: Windmill API
 
   contact:
@@ -2003,6 +2003,33 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ListableResource"
+
+  /w/{workspace}/resources/list_names/{name}:
+    get:
+      summary: list resource names
+      operationId: listResourceNames
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: resource list names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    path:
+                      type: string
+                  required:
+                    - name
+                    - path
 
   /w/{workspace}/resources/type/create:
     post:

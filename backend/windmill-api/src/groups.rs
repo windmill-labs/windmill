@@ -201,12 +201,12 @@ pub async fn require_is_owner(
 }
 
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
-    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack'",)
         .fetch_one(db)
         .await?;
     if nb_groups.unwrap_or(0) >= 5 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of groups without an enterprise license"
+            "You have reached the maximum number of groups (5 outside of native groups 'all', 'slack' and 'error_handler') without an enterprise license"
                 .to_string(),
         ));
     }
@@ -536,8 +536,7 @@ struct IGroup {
     name: String,
     emails: Option<Vec<String>>,
 }
-async fn list_igroups(authed: ApiAuthed, Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
-    require_super_admin(&db, &authed.email).await?;
+async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let groups = sqlx::query_as!(

@@ -257,7 +257,7 @@
 	}
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' | 'cache' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = 'workspace'
 
 	let inferrer: Drawer | undefined = undefined
 	let inferrerJson = ''
@@ -469,6 +469,15 @@
 				<Tooltip>
 					Cached results are actually resources (but excluded from the Workspace tab for clarity).
 					Cache are used by flows's step to cache result to avoid recomputing unnecessarily
+				</Tooltip>
+			</div>
+		</Tab>
+		<Tab size="md" value="theme">
+			<div class="flex gap-2 items-center my-1">
+				Theme
+				<Tooltip>
+					Theme are actually resources (but excluded from the Workspace tab for clarity). Theme are
+					used by the apps to customize their look and feel.
 				</Tooltip>
 			</div>
 		</Tab>
