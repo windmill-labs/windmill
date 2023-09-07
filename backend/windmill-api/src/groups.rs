@@ -206,7 +206,7 @@ async fn _check_nb_of_groups(db: &DB) -> Result<()> {
         .await?;
     if nb_groups.unwrap_or(0) >= 5 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of groups (5) without an enterprise license"
+            "You have reached the maximum number of groups (5 outside of native groups 'all', 'slack' and 'error_handler') without an enterprise license"
                 .to_string(),
         ));
     }
