@@ -201,12 +201,12 @@ pub async fn require_is_owner(
 }
 
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
-    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all'",)
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack'",)
         .fetch_one(db)
         .await?;
     if nb_groups.unwrap_or(0) >= 5 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of groups without an enterprise license"
+            "You have reached the maximum number of groups (5) without an enterprise license"
                 .to_string(),
         ));
     }
