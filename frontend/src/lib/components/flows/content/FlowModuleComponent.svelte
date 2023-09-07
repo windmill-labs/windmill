@@ -38,6 +38,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -70,6 +71,20 @@
 	let totalTopGap = 0
 	let validCode = true
 	let width = 1200
+
+	const { modulesStore: copilotModulesStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	function setCopilotModuleEditor() {
+		copilotModulesStore?.update((modules) => {
+			const module = modules.find((m) => m.id === flowModule.id)
+			if (module) {
+				module.editor = editor
+			}
+			return modules
+		})
+	}
+	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker = failureModule
 		? {

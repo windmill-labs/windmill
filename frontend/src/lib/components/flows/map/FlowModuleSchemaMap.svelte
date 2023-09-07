@@ -20,6 +20,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from 'svelte-portal'
 	import { getDependentComponents } from '../flowExplorer'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { fade } from 'svelte/transition'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -129,6 +131,9 @@
 
 	let deleteCallback: (() => void) | undefined = undefined
 	let dependents: Record<string, string[]> = {}
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 <Portal>
@@ -163,8 +168,13 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center border-b"
+		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b ${
+			$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
+		}`}
 	>
+		{#if $copilotCurrentStepStore !== undefined}
+			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+		{/if}
 		<FlowSettingsItem />
 		<FlowConstantsItem />
 	</div>

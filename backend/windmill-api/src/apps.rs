@@ -508,6 +508,7 @@ pub async fn get_hub_app_by_id(
         &format!("https://hub.windmill.dev/apps/{id}/json"),
         &email,
         false,
+        None,
     )
     .await?
     .json()

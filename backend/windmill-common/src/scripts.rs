@@ -274,6 +274,7 @@ pub async fn get_hub_script_by_path(
         &format!("https://hub.windmill.dev/raw/{path}.ts"),
         email,
         true,
+        None,
     )
     .await?
     .text()
@@ -303,6 +304,7 @@ pub async fn get_full_hub_script_by_path(
         &format!("https://hub.windmill.dev/raw2/{path}"),
         email,
         true,
+        None,
     )
     .await?
     .json::<HubScript>()

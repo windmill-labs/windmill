@@ -18,7 +18,7 @@
 	import { buildExtraLib } from '../../utils'
 	import RunButton from './RunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import ScriptGen from '$lib/components/codeGen/ScriptGen.svelte'
+	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'

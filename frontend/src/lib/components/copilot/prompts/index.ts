@@ -1,7 +1,3 @@
-// import editObj from './edit.yaml'
-// import fixObj from './fix.yaml'
-// import genObj from './gen.yaml'
-
 import { EDIT_PROMPT } from './editPrompt'
 import { FIX_PROMPT } from './fixPrompt'
 import { GEN_PROMPT } from './genPrompt'

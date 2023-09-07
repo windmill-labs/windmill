@@ -173,7 +173,7 @@
 								width="20px"
 								spin="veryfast"
 							/>
-							Cancel
+							Stop
 						{:else}
 							AI Fix
 						{/if}

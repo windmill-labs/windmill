@@ -766,7 +766,11 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
+<div
+	bind:clientWidth={width}
+	class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}
+	id="flow-graph"
+>
 	{#if !error}
 		{#if width && height}
 			{#key renderCount}

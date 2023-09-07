@@ -7,6 +7,8 @@
 	import type { FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
+	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { fade } from 'svelte/transition'
 
 	const { selectedId, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -32,11 +34,15 @@
 			$flowStore = $flowStore
 		}
 	}
+
+	const { currentStepStore: copilotCurrentStepStore } =
+		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	on:click={() => {
+		if ($copilotCurrentStepStore !== undefined) return
 		if ($flowStore?.value?.failure_module) {
 			$selectedId = 'failure'
 		} else {
@@ -44,11 +50,15 @@
 		}
 	}}
 	class={classNames(
-		'border mx-auto rounded-sm px-2 py-1 bg-surface text-sm cursor-pointer flex justify-between items-center flex-row overflow-x-hidden ',
+		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
+		'border transition-colors duration-[400ms] ease-linear mx-auto rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row overflow-x-hidden relative',
 		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 	style="min-width: 275px"
 >
+	{#if $copilotCurrentStepStore !== undefined}
+		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]" />
+	{/if}
 	<div class=" flex justify-between items-center flex-wrap">
 		<div>
 			<Icon data={faBug} class="mr-2" />

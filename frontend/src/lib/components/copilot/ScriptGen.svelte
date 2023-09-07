@@ -242,7 +242,7 @@
 							width="20px"
 							spin="veryfast"
 						/>
-						Cancel
+						Stop
 					{:else}
 						{isEdit ? 'AI Edit' : 'AI Gen'}
 					{/if}
