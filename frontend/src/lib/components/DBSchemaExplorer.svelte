@@ -1,25 +1,33 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
 	import { dbSchemas, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
-	import { onDestroy } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { tryEvery } from '$lib/utils'
+	import { sendUserToast, tryEvery } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { buildClientSchema, printSchema } from 'graphql'
 	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
+	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 
 	export let resourceType: string | undefined
 	export let resourcePath: string | undefined = undefined
 	let dbSchema: DBSchema | undefined = undefined
+	let loading = false
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined
 
-	const content = {
-		postgresql: `import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
+	const scripts: {
+		[key: string]: {
+			code: string
+			lang: string
+		}
+	} = {
+		postgresql: {
+			lang: 'deno',
+			code: `import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 export async function main(args: any) {
   // Create a new client with the provided connection details
   const u = new URL("postgres://")
@@ -69,8 +77,10 @@ export async function main(args: any) {
     }, {});
   }
   return data;
-}`,
-		mysql: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
+}`
+		},
+		mysql: {
+			code: `import { Client } from "https://deno.land/x/mysql@v2.11.0/mod.ts";
 export async function main(args: any) {
   const conn = await new Client().connect({
     hostname: args.host,
@@ -108,7 +118,10 @@ export async function main(args: any) {
   }
   return data;
 }`,
-		graphql: `import { getIntrospectionQuery } from "npm:graphql@16.7.1";
+			lang: 'deno'
+		},
+		graphql: {
+			code: `import { getIntrospectionQuery } from "npm:graphql@16.7.1";
 export async function main(args: any) {
   const headers: { [key: string]: string } = {
     "Content-Type": "application/json",
@@ -128,18 +141,59 @@ export async function main(args: any) {
   }
   const schema = (await response.json()).data;
   return schema;
-}`
+}`,
+			lang: 'deno'
+		},
+		bigquery: {
+			code: `
+#requirements:
+#google-cloud-bigquery==3.11.4
+from google.cloud import bigquery as bq
+from google.oauth2 import service_account
+def main(args):
+    credentials = service_account.Credentials.from_service_account_info(args)
+    client = bq.Client(credentials=credentials)
+    datasets = list(client.list_datasets())  # Make an API request.
+    schema = dict()
+    for dataset in datasets:
+        schema[dataset.dataset_id] = dict()
+        query = f"""
+SELECT 
+  table_name, ARRAY_AGG(STRUCT( 
+      if(is_nullable = 'YES', true, false) AS required,
+      column_name AS name,
+      data_type AS type,
+      if(column_default = 'NULL', null, column_default) AS \`default\`)
+    ORDER BY ordinal_position) AS schema
+FROM
+  \`{dataset.dataset_id}\`.INFORMATION_SCHEMA.COLUMNS
+GROUP BY
+  table_name
+"""
+        query_job = client.query(query)  # API request
+        rows = query_job.result()
+        for row in rows:
+            cols = []
+            for col in row[1]:
+                if col['default'] is None:
+                    del col['default']
+                cols.append(col)
+            schema[dataset.dataset_id][row[0]] = cols
+    return schema
+`,
+			lang: 'python3'
+		}
 	}
 
 	async function getSchema() {
 		if (!resourceType || !resourcePath) return
-		delete $dbSchemas[resourceType]
+		loading = true
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
 			requestBody: {
-				language: 'deno' as Preview.language,
-				content: content[resourceType],
+				language: scripts[resourceType].lang as Preview.language,
+				content: scripts[resourceType].code,
 				args: {
 					args: '$res:' + resourcePath
 				}
@@ -162,22 +216,25 @@ export async function main(args: any) {
 								schema: testResult.result,
 								publicOnly: true
 							}
-						} else if (resourceType === 'mysql') {
+						} else if (
+							resourceType !== undefined &&
+							['mysql', 'graphql', 'bigquery'].includes(resourceType)
+						) {
 							$dbSchemas[resourcePath] = {
-								lang: 'mysql',
-								schema: testResult.result
-							}
-						} else if (resourceType === 'graphql') {
-							$dbSchemas[resourcePath] = {
-								lang: 'graphql',
+								lang: resourceType as 'mysql' | 'graphql' | 'bigquery',
 								schema: testResult.result
 							}
 						}
 					}
 				}
+				loading = false
 			},
 			timeoutCode: async () => {
+				loading = false
 				console.error('Could not query schema within 5s')
+				if (drawer?.isOpen()) {
+					sendUserToast('Could not query schema within 5s', true)
+				}
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
@@ -209,17 +266,12 @@ export async function main(args: any) {
 		return printSchema(buildClientSchema(dbSchema.schema))
 	}
 
-	$: resourcePath && ['postgresql', 'mysql', 'graphql'].includes(resourceType || '') && getSchema()
-
-	function clearSchema() {
-		if (resourcePath) {
-			delete $dbSchemas[resourcePath]
-		}
-	}
+	$: resourcePath &&
+		Object.keys(scripts).includes(resourceType || '') &&
+		!$dbSchemas[resourcePath] &&
+		getSchema()
 
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
-
-	onDestroy(clearSchema)
 </script>
 
 {#if dbSchema}
@@ -229,12 +281,24 @@ export async function main(args: any) {
 		color="blue"
 		spacingSize="xs2"
 		btnClasses="mt-1"
-		on:click={drawer.openDrawer}
+		on:click={drawer?.openDrawer}
 	>
 		Explore schema
 	</Button>
-	<Drawer bind:this={drawer} size="800px">
+	<Drawer bind:this={drawer}>
 		<DrawerContent title="Schema Explorer" on:close={drawer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={getSchema}
+					startIcon={{
+						icon: faRefresh
+					}}
+					{loading}
+					size="xs"
+					color="light"
+					>Refresh
+				</Button>
+			</svelte:fragment>
 			{#if dbSchema.lang === 'postgresql'}
 				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
