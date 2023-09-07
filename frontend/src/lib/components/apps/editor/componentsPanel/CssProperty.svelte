@@ -173,6 +173,8 @@
 						connections: [],
 						fieldType: 'text'
 					}
+				} else {
+					value.evalClass = undefined
 				}
 			}}
 		/>

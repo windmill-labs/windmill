@@ -23,11 +23,18 @@
 		css.style = [componentStyleValue, customStyleValue].filter(Boolean).join(';')
 	}
 
+	// When any of the values change, update the css
 	$: updateCss(componentStyle, customCss, evalClassValue)
+
+	// We need to clear the evalClassValue if the user has disabled the evalClass
+	$: if (customCss?.[key].evalClass === undefined && evalClassValue !== undefined) {
+		evalClassValue = undefined
+	}
 </script>
 
-{#each Object.keys(css ?? {}) as key (key)}
-	{#if css.evalClass}
-		<InputValue {id} bind:value={evalClassValue} input={css.evalClass} />
+{#if customCss}
+	{@const property = customCss[key]}
+	{#if property.evalClass}
+		<InputValue {id} bind:value={evalClassValue} input={property.evalClass} />
 	{/if}
-{/each}
+{/if}

@@ -260,7 +260,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
-			customCss: {},
+			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
