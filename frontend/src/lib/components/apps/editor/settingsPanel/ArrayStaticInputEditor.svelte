@@ -62,12 +62,12 @@
 		if (componentInput.value) {
 			componentInput.value.splice(index, 1)
 			items.splice(index, 1) // Add this
-			redraw = redraw + 1
+			items = items
+			componentInput.value = componentInput.value
 			dispatch('deleteArrayItem', { index })
 		}
 	}
 
-	let redraw = 0
 	let dragDisabled = true
 
 	function handleConsider(e) {
@@ -115,7 +115,7 @@
 		}
 	)
 
-	$: items && handleItemsChange()
+	$: items != undefined && handleItemsChange()
 
 	function handleItemsChange() {
 		componentInput.value = items.map((item) => item.value)
@@ -123,51 +123,49 @@
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
-	{#key redraw}
-		{#if Array.isArray(items) && componentInput.value}
-			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
-			<section
-				use:dndzone={{
-					items,
-					dragDisabled,
-					flipDurationMs,
-					dropTargetStyle: {}
-				}}
-				on:consider={handleConsider}
-				on:finalize={handleFinalize}
-			>
-				{#each items as item, index (item.id)}
-					<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none w-full">
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+	{#if Array.isArray(items) && componentInput.value}
+		<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
+		<section
+			use:dndzone={{
+				items,
+				dragDisabled,
+				flipDurationMs,
+				dropTargetStyle: {}
+			}}
+			on:consider={handleConsider}
+			on:finalize={handleFinalize}
+		>
+			{#each items as item, index (item.id)}
+				<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none w-full">
+					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
-						<div class="flex flex-row gap-2 items-center relative my-1 w-full">
-							<div class="grow min-w-0">
-								<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
+					<div class="flex flex-row gap-2 items-center relative my-1 w-full">
+						<div class="grow min-w-0">
+							<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
+						</div>
+						<div class="flex justify-between flex-col items-center">
+							<div
+								tabindex={dragDisabled ? 0 : -1}
+								class="w-4 h-4 cursor-move"
+								on:mousedown={startDrag}
+								on:touchstart={startDrag}
+								on:keydown={handleKeyDown}
+							>
+								<GripVertical size={16} />
 							</div>
-							<div class="flex justify-between flex-col items-center">
-								<div
-									tabindex={dragDisabled ? 0 : -1}
-									class="w-4 h-4"
-									on:mousedown={startDrag}
-									on:touchstart={startDrag}
-									on:keydown={handleKeyDown}
-								>
-									<GripVertical size={16} />
-								</div>
-								<button
-									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-									aria-label="Remove item"
-									on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
-								>
-									<X size={14} />
-								</button>
-							</div>
+							<button
+								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+								aria-label="Remove item"
+								on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+							>
+								<X size={14} />
+							</button>
 						</div>
 					</div>
-				{/each}
-			</section>
-		{/if}
-	{/key}
+				</div>
+			{/each}
+		</section>
+	{/if}
 	<Button size="xs" color="light" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
 		Add
 	</Button>

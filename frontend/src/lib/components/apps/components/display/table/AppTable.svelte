@@ -204,7 +204,7 @@
 		}
 	}
 
-	$: filteredResult && rerender()
+	$: filteredResult != undefined && rerender()
 
 	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
 
