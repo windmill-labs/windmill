@@ -22,10 +22,19 @@ export function drawGraph(data: DataPoint[], title: string) {
   const marginBottom = 30;
   const marginLeft = 60;
 
-  const svg = body
+  let svg = body
     .append("svg")
+    .attr("xmlns", "http://www.w3.org/2000/svg")
     .attr("width", width + marginLeft + marginRight)
-    .attr("height", height + marginTop + marginBottom)
+    .attr("height", height + marginTop + marginBottom);
+
+  svg
+    .append("rect")
+    .attr("width", "100%")
+    .attr("height", "100%")
+    .attr("fill", "white");
+
+  svg = svg
     .append("g")
     .attr("transform", "translate(" + marginLeft + "," + marginTop + ")");
 
