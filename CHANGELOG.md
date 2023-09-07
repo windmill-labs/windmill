@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.168.3](https://github.com/windmill-labs/windmill/compare/v1.168.2...v1.168.3) (2023-09-07)
+
+
+### Bug Fixes
+
+* add list resource types names ([fbbab5c](https://github.com/windmill-labs/windmill/commit/fbbab5c874748547a9ff3e58c1b7b22c90766f4f))
+* add stable ids to rows in AppTable ([0c91581](https://github.com/windmill-labs/windmill/commit/0c91581fcdf3a141f36e34610935aa100fcfee52))
+* reduce aggregate period to list users in workspace ([6bc0e37](https://github.com/windmill-labs/windmill/commit/6bc0e373fc6088636f09d217e8800a32337291ea))
+
 ## [1.168.2](https://github.com/windmill-labs/windmill/compare/v1.168.1...v1.168.2) (2023-09-06)
 
 
