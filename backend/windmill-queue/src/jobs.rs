@@ -19,6 +19,7 @@ use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
+use tokio::sync::RwLock;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -87,6 +88,12 @@ lazy_static::lazy_static! {
         "hub".to_string(),
         "other".to_string()];
 
+    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
+
+    pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
+        worker_tags: DEFAULT_TAGS.clone(),
+        dedicated_worker: None,
+    }));
     pub static ref DEDICATED_WORKER: Option<(String, String)> = std::env::var("DEDICATED_WORKER")
         .ok()
         .map(|x| {
@@ -122,6 +129,12 @@ lazy_static::lazy_static! {
     // and make it possible to disable to current active workers (such that they don't pull any)
     // jobs from the queue
     pub static ref IDLE_WORKERS: AtomicBool = AtomicBool::new(false);
+}
+
+#[derive(Serialize, Deserialize)]
+struct WorkerConfig {
+    pub worker_tags: Vec<String>,
+    pub dedicated_worker: Option<(String, String)>,
 }
 
 #[cfg(feature = "enterprise")]

@@ -28,7 +28,7 @@ use std::sync::atomic::Ordering;
 #[cfg(feature = "benchmark")]
 use windmill_queue::IDLE_WORKERS;
 
-use crate::db::ApiAuthed;
+use crate::{db::ApiAuthed, utils::require_super_admin};
 
 #[cfg(not(feature = "benchmark"))]
 pub fn global_service() -> Router {
@@ -43,6 +43,8 @@ pub fn global_service() -> Router {
         .route("/toggle", get(toggle))
         .route("/list", get(list_worker_pings))
         .route("/custom_tags", get(get_custom_tags))
+        .route("/list_worker_groups", get(get_worker_groups))
+        .route("/updated_worker_groups/:name", post(update_worker_group))
 }
 
 lazy_static::lazy_static! {
@@ -122,4 +124,25 @@ async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
 
 async fn get_custom_tags() -> Json<Vec<String>> {
     Json(ALL_TAGS.clone())
+}
+
+#[derive(Serialize, Deserialize)]
+struct WorkerGroup {
+    name: String,
+    config: serde_json::Value,
+}
+
+async fn get_worker_groups(
+    Extension(user_db): Extension<UserDB>,
+    authed: Authed,
+) -> Json<Vec<WorkerGroup>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    require_super_admin(user_db, authed.email)?;
+
+    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM worker_group")
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
 }
