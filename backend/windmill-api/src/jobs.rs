@@ -712,64 +712,10 @@ async fn list_jobs(
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
     check_scopes(&authed, || format!("listjobs"))?;
-    // TODO: todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
+
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
-    let sqlq = list_queue_jobs_query(
-        &w_id,
-        &ListQueueQuery {
-            script_path_start: lq.script_path_start,
-            script_path_exact: lq.script_path_exact,
-            script_hash: lq.script_hash,
-            created_by: lq.created_by,
-            started_before: lq.started_before,
-            started_after: lq.started_after,
-            created_before: lq.created_before,
-            created_after: lq.created_after,
-            created_or_started_before: lq.created_or_started_before,
-            created_or_started_after: lq.created_or_started_after,
-            running: None,
-            parent_job: lq.parent_job,
-            order_desc: Some(true),
-            job_kinds: lq.job_kinds,
-            suspended: lq.suspended,
-            args: lq.args,
-            tag: lq.tag,
-            schedule_path: lq.schedule_path,
-        },
-        &[
-            "'QueuedJob' as typ",
-            "id",
-            "workspace_id",
-            "parent_job",
-            "created_by",
-            "created_at",
-            "started_at",
-            "scheduled_for",
-            "running",
-            "script_hash",
-            "script_path",
-            "null as args",
-            "null as duration_ms",
-            "null as success",
-            "false as deleted",
-            "canceled",
-            "canceled_by",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
-            "is_flow_step",
-            "language",
-            "false as is_skipped",
-            "email",
-            "visible_to_owner",
-            "suspend",
-            "mem_peak",
-            "tag",
-            "concurrent_limit",
-            "concurrency_time_window_s",
-        ],
-    );
+
     let sqlc = list_completed_jobs_query(
         &w_id,
         per_page + offset,
@@ -808,13 +754,74 @@ async fn list_jobs(
             "null as concurrency_time_window_s",
         ],
     );
-    let sql = format!(
-        "{} UNION ALL {} ORDER BY created_at DESC LIMIT {} OFFSET {};",
-        &sqlq.subquery()?,
-        &sqlc.subquery()?,
-        per_page,
-        offset
-    );
+
+    let sql = if lq.success.is_none() {
+        let sqlq = list_queue_jobs_query(
+            &w_id,
+            &ListQueueQuery {
+                script_path_start: lq.script_path_start,
+                script_path_exact: lq.script_path_exact,
+                script_hash: lq.script_hash,
+                created_by: lq.created_by,
+                started_before: lq.started_before,
+                started_after: lq.started_after,
+                created_before: lq.created_before,
+                created_after: lq.created_after,
+                created_or_started_before: lq.created_or_started_before,
+                created_or_started_after: lq.created_or_started_after,
+                running: None,
+                parent_job: lq.parent_job,
+                order_desc: Some(true),
+                job_kinds: lq.job_kinds,
+                suspended: lq.suspended,
+                args: lq.args,
+                tag: lq.tag,
+                schedule_path: lq.schedule_path,
+            },
+            &[
+                "'QueuedJob' as typ",
+                "id",
+                "workspace_id",
+                "parent_job",
+                "created_by",
+                "created_at",
+                "started_at",
+                "scheduled_for",
+                "running",
+                "script_hash",
+                "script_path",
+                "null as args",
+                "null as duration_ms",
+                "null as success",
+                "false as deleted",
+                "canceled",
+                "canceled_by",
+                "job_kind",
+                "schedule_path",
+                "permissioned_as",
+                "is_flow_step",
+                "language",
+                "false as is_skipped",
+                "email",
+                "visible_to_owner",
+                "suspend",
+                "mem_peak",
+                "tag",
+                "concurrent_limit",
+                "concurrency_time_window_s",
+            ],
+        );
+
+        format!(
+            "{} UNION ALL {} LIMIT {} OFFSET {};",
+            &sqlq.subquery()?,
+            &sqlc.subquery()?,
+            per_page,
+            offset
+        )
+    } else {
+        sqlc.query()?
+    };
     let mut tx = user_db.begin(&authed).await?;
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
