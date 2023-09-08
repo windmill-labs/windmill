@@ -6,7 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+    vec,
+};
 
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
