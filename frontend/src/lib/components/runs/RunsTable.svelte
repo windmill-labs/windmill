@@ -3,12 +3,11 @@
 	import RunRow from './RunRow.svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import { onMount } from 'svelte'
-	import InfiniteLoading from 'svelte-infinite-loading'
+	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] = []
 	export let selectedId: string | undefined = undefined
-	export let nbOfJobs: number = 30
-	const loadMoreQuantity: number = 100
+	// const loadMoreQuantity: number = 100
 
 	function getTime(job: Job): string | undefined {
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
@@ -57,7 +56,7 @@
 		return sortedLogs
 	}
 
-	$: groupedJobs = groupJobsByDay(jobs.slice(0, nbOfJobs))
+	$: groupedJobs = groupJobsByDay(jobs)
 
 	type FlatJobs =
 		| {
@@ -96,11 +95,13 @@
 			index++
 		}
 	}
+
 	let tableHeight: number = 0
 	let header: number = 0
 	let containerWidth: number = 0
-	const MAX_ITEMS = 1000
+	// const MAX_ITEMS = 1000
 
+	/*
 	function infiniteHandler({ detail: { loaded, error, complete } }) {
 		try {
 			nbOfJobs += loadMoreQuantity
@@ -114,6 +115,7 @@
 			error()
 		}
 	}
+	*/
 
 	onMount(() => {
 		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
@@ -131,13 +133,19 @@
 		<div class="w-3/12 text-xs font-semibold">Triggered by</div>
 	</div>
 
-	<VirtualList width="100%" height={tableHeight - header} itemCount={flatJobs.length} itemSize={42}>
+	<VirtualList
+		width="100%"
+		height={tableHeight - header}
+		itemCount={flatJobs.length}
+		itemSize={42}
+		{stickyIndices}
+	>
 		<div slot="item" let:index let:style {style} class="w-full">
 			{@const jobOrDate = flatJobs[index]}
 
 			{#if jobOrDate}
 				{#if jobOrDate?.type === 'date'}
-					<div class="bg-surface-secondary/30 py-2 border-b font-semibold text-xs pl-5">
+					<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
 						{jobOrDate.date}
 					</div>
 				{:else}
@@ -157,7 +165,7 @@
 				{JSON.stringify(jobOrDate)}
 			{/if}
 		</div>
-		<div slot="footer">
+		<!-- <div slot="footer">
 			<InfiniteLoading on:infinite={infiniteHandler}>
 				<div slot="noMore">
 					<div class="text-center text-xs text-secondary p-2">
@@ -165,10 +173,10 @@
 					</div>
 				</div>
 			</InfiniteLoading>
-		</div>
+		</div> -->
 	</VirtualList>
 </div>
-{#if jobs.length == 0}
+{#if jobs?.length == 0}
 	<tr>
 		<td colspan="4" class="text-center py-8">
 			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
