@@ -62,6 +62,7 @@
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
+	export let args: Record<string, any>
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -530,7 +531,7 @@
 				</div>
 			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} />
+			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 
 			<!-- <Popover
 				notClickable

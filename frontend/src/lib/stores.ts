@@ -82,14 +82,9 @@ type SQLBaseSchema = {
 }
 
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery'
+	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake'
 	schema: SQLBaseSchema
-}
-
-export interface PostgresqlSchema {
-	lang: 'postgresql'
-	schema: SQLBaseSchema
-	publicOnly: boolean
+	publicOnly: boolean | undefined
 }
 
 export interface GraphqlSchema {
@@ -97,7 +92,7 @@ export interface GraphqlSchema {
 	schema: IntrospectionQuery
 }
 
-export type DBSchema = SQLSchema | PostgresqlSchema | GraphqlSchema
+export type DBSchema = SQLSchema | GraphqlSchema
 
 interface DBSchemas {
 	[resourcePath: string]: DBSchema

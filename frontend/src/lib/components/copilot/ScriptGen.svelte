@@ -34,6 +34,7 @@
 	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
+	export let args: Record<string, any>
 
 	// state
 	let funcDesc: string = ''
@@ -143,7 +144,8 @@
 	$: !$generatedCode && hideDiff()
 	$: editor && setSelectionHandler()
 	$: selection && (isEdit = !selection.isEmpty())
-	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+
+	$: dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')]
 </script>
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -297,7 +299,7 @@
 								In order to better generate the script, we pass the selected DB schema to GPT-4.
 							</Tooltip>
 						</p>
-						{#if dbSchema.lang === 'postgresql'}
+						{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
 							<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
 								<ToggleButton value={true} label="Public schema" />
 								<ToggleButton value={false} label="All schemas" />

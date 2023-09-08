@@ -195,6 +195,10 @@
 					editor={inlineScript?.language === 'frontend' ? simpleEditor : editor}
 					{diffEditor}
 					inlineScript
+					args={Object.entries(fields).reduce((acc, [key, obj]) => {
+						acc[key] = obj.type === 'static' ? obj.value : undefined
+						return acc
+					}, {})}
 				/>
 
 				<Button
@@ -281,6 +285,10 @@
 							}
 							$app = $app
 						}}
+						args={Object.entries(fields).reduce((acc, [key, obj]) => {
+							acc[key] = obj.type === 'static' ? obj.value : undefined
+							return acc
+						}, {})}
 					/>
 				{:else}
 					<SimpleEditor

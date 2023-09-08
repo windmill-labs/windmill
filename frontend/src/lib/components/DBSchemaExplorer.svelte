@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { JobService, Preview } from '$lib/gen'
-	import { dbSchemas, workspaceStore, type DBSchema, type GraphqlSchema } from '$lib/stores'
+	import {
+		dbSchemas,
+		workspaceStore,
+		type DBSchema,
+		type GraphqlSchema,
+		type SQLSchema
+	} from '$lib/stores'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -182,6 +188,51 @@ GROUP BY
     return schema
 `,
 			lang: 'python3'
+		},
+		snowflake: {
+			code: `# requirements:
+# snowflake-connector-python==3.2.0
+from typing import Any
+import snowflake.connector as sf
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+def main(args):
+    if not args["database"]:
+        raise Exception("a selected database is required for the schema explorer")
+    p_key = serialization.load_pem_private_key(
+        args["private_key"].encode(), password=None, backend=default_backend()
+    )
+    pkb = p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    ctx = sf.connect(
+        user=args["username"],
+        account=args["account_identifier"],
+        private_key=pkb,
+        warehouse=args["warehouse"],
+        database=args["database"],
+        schema=args["schema"],
+        role=args["role"],
+    )
+    cs = ctx.cursor()
+    rows = cs.execute("select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE from information_schema.columns where table_schema != 'INFORMATION_SCHEMA'")
+    schema = dict()
+    for row in rows:
+        if row[0] not in schema:
+            schema[row[0]] = dict()
+        if row[1] not in schema[row[0]]:
+            schema[row[0]][row[1]] = dict()
+        schema[row[0]][row[1]][row[3]] = {
+            "type": row[2],
+            "required": row[5] == "YES",
+        }
+        if row[4] is not None:
+            schema[row[0]][row[1]][row[3]]["default"] = row[4]
+    return schema
+`,
+			lang: 'python3'
 		}
 	}
 
@@ -210,19 +261,18 @@ GROUP BY
 					if (!testResult.success) {
 						console.error(testResult.result?.['error']?.['message'])
 					} else {
-						if (resourceType === 'postgresql') {
-							$dbSchemas[resourcePath] = {
-								lang: 'postgresql',
-								schema: testResult.result,
-								publicOnly: true
-							}
-						} else if (
-							resourceType !== undefined &&
-							['mysql', 'graphql', 'bigquery'].includes(resourceType)
-						) {
-							$dbSchemas[resourcePath] = {
-								lang: resourceType as 'mysql' | 'graphql' | 'bigquery',
-								schema: testResult.result
+						if (resourceType !== undefined) {
+							if (resourceType !== 'graphql') {
+								$dbSchemas[resourcePath] = {
+									lang: resourceType as SQLSchema['lang'],
+									schema: testResult.result,
+									publicOnly: !!testResult.result.public || !!testResult.result.PUBLIC
+								}
+							} else {
+								$dbSchemas[resourcePath] = {
+									lang: 'graphql',
+									schema: testResult.result
+								}
 							}
 						}
 					}
@@ -253,8 +303,8 @@ GROUP BY
 	}
 
 	function formatSchema(dbSchema: DBSchema) {
-		if (dbSchema.lang === 'postgresql' && dbSchema.publicOnly) {
-			return dbSchema.schema.public || dbSchema
+		if (dbSchema.lang !== 'graphql' && dbSchema.publicOnly) {
+			return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema
 		} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
 			return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
 		} else {
@@ -299,7 +349,7 @@ GROUP BY
 					>Refresh
 				</Button>
 			</svelte:fragment>
-			{#if dbSchema.lang === 'postgresql'}
+			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC)}
 				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
 					<ToggleButton value={true} label="Public" />
 					<ToggleButton value={false} label="All" />
