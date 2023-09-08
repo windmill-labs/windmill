@@ -631,6 +631,7 @@ struct ListableQueuedJob {
     pub language: Option<ScriptLang>,
     pub email: String,
     pub suspend: Option<i32>,
+    pub tag: String,
 }
 
 async fn list_queue_jobs(
@@ -658,6 +659,7 @@ async fn list_queue_jobs(
             "same_worker",
             "email",
             "suspend",
+            "tag",
         ],
     )
     .sql()?;
