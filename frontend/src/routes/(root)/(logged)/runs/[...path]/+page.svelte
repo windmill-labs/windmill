@@ -95,7 +95,6 @@
 		goto(newUrl)
 	}
 
-	let nbOfJobs = 30
 	let queue_count: Tweened<number> | undefined = undefined
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
@@ -568,7 +567,6 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbOfJobs
 						on:filterByPath={(e) => {
 							user = null
 							folder = null
@@ -787,7 +785,6 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbOfJobs
 						on:select={() => {
 							runDrawer.openDrawer()
 						}}
