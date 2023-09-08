@@ -1,4 +1,5 @@
 import type { ReadFileAs } from '../common/fileInput/model'
+import type { TypedComponent } from './editor/component'
 import type { InlineScript } from './types'
 
 export type InputType =
@@ -25,6 +26,7 @@ export type InputType =
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
 export type InputConnection = {
+	componentType?: TypedComponent['type']
 	componentId: string
 	path: string
 }

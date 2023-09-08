@@ -163,6 +163,8 @@ export type ListContext = Writable<{
 
 export type ListInputs = (id: string, value: any) => void
 
+export type GroupContext = Writable<Record<string, any>>
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>

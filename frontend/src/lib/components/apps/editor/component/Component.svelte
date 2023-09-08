@@ -480,6 +480,7 @@
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
+				groupFields={component.groupFields}
 				id={component.id}
 				customCss={component.customCss}
 				{componentContainerHeight}

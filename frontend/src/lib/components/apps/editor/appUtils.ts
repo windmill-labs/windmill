@@ -13,7 +13,8 @@ import {
 	getRecommendedDimensionsByComponent,
 	type AppComponent,
 	type BaseComponent,
-	type InitialAppComponent
+	type InitialAppComponent,
+	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -598,7 +599,8 @@ export function sortGridItemsPosition<T>(
 export function connectInput(
 	connectingInput: ConnectingInput,
 	componentId: string,
-	path: string
+	path: string,
+	componentType?: TypedComponent['type']
 ): ConnectingInput {
 	if (connectingInput) {
 		if (connectingInput.onConnect) {
@@ -610,7 +612,8 @@ export function connectInput(
 			input: {
 				connection: {
 					componentId,
-					path
+					path,
+					componentType
 				},
 				type: 'connected'
 			},
