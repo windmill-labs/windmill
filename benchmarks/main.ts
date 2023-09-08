@@ -22,7 +22,7 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
-export const VERSION = "v1.168.3";
+export const VERSION = "v1.169.0";
 
 export async function main({
   host,
