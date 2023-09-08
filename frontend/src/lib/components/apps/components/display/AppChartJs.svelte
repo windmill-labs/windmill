@@ -70,7 +70,9 @@
 	>
 		{#if result && resolvedConfig.type}
 			{#key resolvedConfig.type}
-				<Chart type={resolvedConfig.type} data={result} {options} />
+				{#key options}
+					<Chart type={resolvedConfig.type} data={result} {options} />
+				{/key}
 			{/key}
 		{/if}
 	</div>

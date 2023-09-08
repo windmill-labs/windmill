@@ -6,10 +6,11 @@
 	export let headers: string[] | undefined
 	export let data: any[] | undefined // Object containing the data
 	export let keys: string[]
+	export let size: 'sm' | 'md' | 'lg' = 'md'
 </script>
 
 <div class="mt-2">
-	<DataTable>
+	<DataTable {size}>
 		<Head>
 			<tr>
 				{#if headers}
