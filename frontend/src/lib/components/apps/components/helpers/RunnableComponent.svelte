@@ -10,7 +10,13 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, CancelablePromise, InlineScript, ListContext } from '../../types'
+	import type {
+		AppViewerContext,
+		CancelablePromise,
+		GroupContext,
+		InlineScript,
+		ListContext
+	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -65,6 +71,7 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -179,7 +186,8 @@
 					runnable.inlineScript?.content,
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
-						row: rowContext ? $rowContext : undefined
+						row: rowContext ? $rowContext : undefined,
+						group: groupContext ? $groupContext : undefined
 					}),
 					false,
 					$state,

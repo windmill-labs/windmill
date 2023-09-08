@@ -21,7 +21,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
-	import ScriptFix from '../codeGen/ScriptFix.svelte'
+	import ScriptFix from '../copilot/ScriptFix.svelte'
 
 	export let lang: Preview.language | undefined
 	export let previewIsLoading = false

@@ -185,7 +185,9 @@ declare function closeModal(id: string): void;
 }
 declare const state: ${JSON.stringify(state)};
 declare const iter: {index: number, value: any};
-declare const row: {index: number, value: any};
+declare const row: Record<string, any>;
+declare const group: Record<string, any>;
+
 `
 }
 

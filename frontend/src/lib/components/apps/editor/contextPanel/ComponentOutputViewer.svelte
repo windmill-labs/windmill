@@ -17,6 +17,7 @@
 		if (observableOutputs) {
 			Object.entries(observableOutputs).forEach(([k, output]) => {
 				object[k] = undefined
+				console.log('subscribing to', k, output)
 				output?.subscribe(
 					{
 						id: 'alloutputs' + componentId + '-' + k,

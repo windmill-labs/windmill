@@ -19,7 +19,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
-	import ScriptFix from './codeGen/ScriptFix.svelte'
+	import ScriptFix from './copilot/ScriptFix.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
