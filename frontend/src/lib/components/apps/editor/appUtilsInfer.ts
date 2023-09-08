@@ -15,7 +15,10 @@ export async function inferDeps(
 		const noutputs = outputs
 			.filter(
 				([componentId, id]) =>
-					componentId == 'row' || componentId == 'iter' || id in (worldOutputs[componentId] ?? {})
+					componentId == 'row' ||
+					componentId == 'iter' ||
+					componentId == 'group' ||
+					id in (worldOutputs[componentId] ?? {})
 			)
 			.map(([componentId, id]) => ({
 				componentId: componentId,

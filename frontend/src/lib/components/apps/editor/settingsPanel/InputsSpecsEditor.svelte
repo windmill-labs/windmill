@@ -1,4 +1,6 @@
 <script lang="ts">
+	import CloseButton from '$lib/components/common/CloseButton.svelte'
+	import { createEventDispatcher } from 'svelte'
 	import type { RichConfigurations } from '../../types'
 
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
@@ -11,8 +13,11 @@
 	export let shouldCapitalize: boolean = true
 	export let resourceOnly = false
 	export let displayType = false
+	export let deletable = false
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if inputSpecs}
@@ -48,6 +53,10 @@
 					customTitle={meta?.['customTitle']}
 					{displayType}
 				/>
+				{#if deletable}
+					<div class="flex flex-row-reverse -mt-4">
+						<CloseButton noBg on:close={() => dispatch('delete', k)} />
+					</div>{/if}
 			{/if}
 		{/each}
 	</div>

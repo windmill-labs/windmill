@@ -7,7 +7,7 @@
 		TemplateV2Input,
 		UploadAppInput
 	} from '../../inputType'
-	import type { AppViewerContext, ListContext, RichConfiguration } from '../../types'
+	import type { AppViewerContext, GroupContext, ListContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
@@ -26,6 +26,7 @@
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
+	const groupContext = getContext<GroupContext>('GroupContext')
 
 	let previousConnectedValue: any | undefined = undefined
 
@@ -33,19 +34,28 @@
 
 	$: fullContext = {
 		iter: iterContext ? $iterContext : undefined,
-		row: rowContext ? $rowContext : undefined
+		row: rowContext ? $rowContext : undefined,
+		group: groupContext ? $groupContext : undefined
 	}
 
 	$: lastInput?.type == 'evalv2' &&
-		(fullContext.iter != undefined || fullContext.row != undefined) &&
-		lastInput.connections.some((x) => x.componentId == 'row' || x.componentId == 'iter') &&
+		(fullContext.iter != undefined ||
+			fullContext.row != undefined ||
+			fullContext.group != undefined) &&
+		lastInput.connections.some(
+			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
+		) &&
 		debounceEval()
 
 	$: lastInput &&
 		lastInput.type == 'templatev2' &&
 		isCodeInjection(lastInput.eval) &&
-		(fullContext.iter != undefined || fullContext.row != undefined) &&
-		lastInput.connections.some((x) => x.componentId == 'row' || x.componentId == 'iter') &&
+		(fullContext.iter != undefined ||
+			fullContext.row != undefined ||
+			fullContext.group != undefined) &&
+		lastInput.connections.some(
+			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
+		) &&
 		debounceTemplate()
 
 	const dispatch = createEventDispatcher()

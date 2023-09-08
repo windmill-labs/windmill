@@ -48,6 +48,7 @@ import type {
 	ComponentCustomCSS,
 	GridItem,
 	RichConfiguration,
+	RichConfigurations,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
@@ -115,7 +116,9 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	disabledTabs: RichConfiguration[]
 }
 export type ListComponent = BaseComponent<'listcomponent'>
-export type ContainerComponent = BaseComponent<'containercomponent'>
+export type ContainerComponent = BaseComponent<'containercomponent'> & {
+	groupFields: RichConfigurations
+}
 export type DrawerComponent = BaseComponent<'drawercomponent'>
 export type MapComponent = BaseComponent<'mapcomponent'>
 export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'> & {

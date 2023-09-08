@@ -39,7 +39,11 @@
 		componentId={gridItem.id}
 		on:select={({ detail }) => {
 			if ($connectingInput.opened) {
-				$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+				let typ = gridItem?.data?.type
+				let splitted = detail?.split('.')
+				let componentId = typ == 'containercomponent' ? splitted?.[0] : gridItem.id
+				let path = typ == 'containercomponent' ? splitted?.[1] : detail
+				$connectingInput = connectInput($connectingInput, componentId, path, typ)
 			}
 		}}
 	/>

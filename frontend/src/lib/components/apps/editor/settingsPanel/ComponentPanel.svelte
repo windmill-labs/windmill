@@ -32,6 +32,7 @@
 	import { inferDeps } from '../appUtilsInfer'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import type { ResultAppInput } from '../../inputType'
+	import GridGroup from './GridGroup.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -310,6 +311,11 @@
 				bind:component={componentSettings.item.data}
 				word="Step"
 			/>
+		{:else if componentSettings.item.data.type === 'containercomponent'}
+			<GridGroup
+				bind:groupFields={componentSettings.item.data.groupFields}
+				bind:component={componentSettings.item.data}
+			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
 			<GridCondition
 				bind:conditions={componentSettings.item.data.conditions}
@@ -333,7 +339,7 @@
 					userInputEnabled={false}
 				/>
 			</PanelSection>
-		{:else}
+		{:else if componentSettings.item.data.type != 'containercomponent'}
 			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2"
 				>{ccomponents[component.type].name} has no configuration</div
 			>
