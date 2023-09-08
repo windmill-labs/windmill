@@ -35,6 +35,7 @@
 					>{job.id} <ExternalLink size={10} />
 				</a>
 				<div class="w-32">{displayDate(job.created_at)}</div>
+				<div class="text-2xs text-tertiary">tag: {job.tag}</div>
 			</div>
 		{/each}
 	</div>
