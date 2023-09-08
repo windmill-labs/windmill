@@ -3954,6 +3954,27 @@ paths:
                 required:
                   - database_length
 
+  /w/{workspace}/jobs/completed/count:
+    get:
+      summary: get completed count
+      operationId: getCompletedCount
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: completed count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_length:
+                    type: integer
+                required:
+                  - database_length
+
   /w/{workspace}/jobs/queue/cancel_all:
     post:
       summary: cancel all jobs

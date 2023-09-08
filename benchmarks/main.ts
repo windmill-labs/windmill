@@ -242,20 +242,28 @@ export async function main({
   const jobsSent = Array(num_workers).fill(0);
   const enc = (s: string) => new TextEncoder().encode(s);
 
+  async function getQueueCount() {
+    return (
+      await (
+        await fetch(
+          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+  }
+
+  const initial_queue_length = await getQueueCount();
+
+  console.log("Initial queue length:", initial_queue_length);
+
   const updateState = setInterval(async () => {
     const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
     const sum = jobsSent.reduce((a, b) => a + b, 0);
     let queue_length = -1;
     while (queue_length === -1) {
       try {
-        queue_length = (
-          await (
-            await fetch(
-              host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-              { headers: { ["Authorization"]: "Bearer " + config.token } }
-            )
-          ).json()
-        ).database_length;
+        queue_length = await getQueueCount();
       } catch (e) {
         console.log(
           `queue count not reachable. waiting...                                                           `
@@ -268,7 +276,9 @@ export async function main({
       enc(
         `elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(
           jobsSent
-        )} (sum: ${sum} thr: ${(sum / elapsed).toFixed(
+        )} (sum: ${sum} thr: ${(sum / elapsed).toFixed(2)}) - processed (sum: ${
+          sum - queue_length
+        } thr: ${((sum - queue_length) / elapsed).toFixed(
           2
         )}) | queue: ${queue_length}                          \r`
       )
