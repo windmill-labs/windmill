@@ -23,6 +23,7 @@
 	export let editor: Editor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let error: string
+	export let args: Record<string, any>
 
 	// state
 	let genLoading: boolean = false
@@ -103,7 +104,7 @@
 
 	$: !$generatedCode && hideDiff()
 
-	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+	$: dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')]
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}

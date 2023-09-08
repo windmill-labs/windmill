@@ -29,6 +29,7 @@
 	export let pastPreviews: CompletedJob[] = []
 	export let editor: Editor | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
+	export let args: Record<string, any> | undefined = undefined
 
 	type DrawerContent = {
 		mode: 'json' | Preview.language | 'plain'
@@ -99,12 +100,13 @@
 									result={previewJob.result}
 								>
 									<svelte:fragment slot="copilot-fix">
-										{#if lang && editor && diffEditor && previewJob?.result?.error}
+										{#if lang && editor && diffEditor && args && previewJob?.result?.error}
 											<ScriptFix
 												error={JSON.stringify(previewJob.result.error)}
 												{lang}
 												{editor}
 												{diffEditor}
+												{args}
 											/>
 										{/if}
 									</svelte:fragment>
@@ -137,7 +139,9 @@
 					{#each pastPreviews as { id, created_at, success, result }}
 						<tr class="">
 							<td class="text-xs">
-								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank">{id.substring(30)}</a>
+								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
+									>{id.substring(30)}</a
+								>
 							</td>
 							<td class="text-xs">{displayDate(created_at)}</td>
 							<td class="text-xs">

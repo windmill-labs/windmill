@@ -135,12 +135,13 @@
 							jobId={testJob?.id}
 							result={testJob.result}>
 							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && testJob?.result?.error}
+								{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
 									<ScriptFix
 										error={JSON.stringify(testJob.result.error)}
 										{lang}
 										{editor}
 										{diffEditor}
+										args={stepArgs}
 									/>
 								{/if}
 							</svelte:fragment>

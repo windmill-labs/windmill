@@ -27,7 +27,7 @@
 	<ManualPopover bind:this={copilotPopover}>
 		<Button
 			size="xs"
-			btnClasses="mr-2 z-[901]"
+			btnClasses={'mr-2 ' + ($currentStepStore !== undefined ? 'z-[901]' : '')}
 			on:click={() => {
 				if (copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')) {
 					abortController?.abort()
