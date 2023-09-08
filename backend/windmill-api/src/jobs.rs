@@ -110,6 +110,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel_all", post(cancel_all))
+        .route("/completed/count", get(count_completed_jobs))
         .route(
             "/completed/list",
             get(list_completed_jobs).layer(cors.clone()),
@@ -699,6 +700,21 @@ async fn count_queue_jobs(
         sqlx::query_as!(
             QueueStats,
             "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1 AND scheduled_for <= now() AND running = false",
+            w_id
+        )
+        .fetch_one(&db)
+        .await?,
+    ))
+}
+
+async fn count_completed_jobs(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<QueueStats> {
+    Ok(Json(
+        sqlx::query_as!(
+            QueueStats,
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM completed_job WHERE workspace_id = $1",
             w_id
         )
         .fetch_one(&db)

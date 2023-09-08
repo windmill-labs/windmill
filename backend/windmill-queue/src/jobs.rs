@@ -1353,12 +1353,21 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
         w_id,
         job_id
     )
-    .fetch_one(&mut tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
-    .unwrap_or(0)
-        == 1;
-    tracing::debug!("Job {job_id} deleted: {job_removed}");
+    .fetch_optional(&mut tx)
+    .await;
+
+    if let Err(job_removed) = job_removed {
+        tracing::error!(
+            "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
+        );
+    } else {
+        let job_removed = job_removed.unwrap().flatten().unwrap_or(0);
+        if job_removed != 1 {
+            tracing::error!("Job {job_id} could not be deleted, returned not 1: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
+        }
+    }
+
+    tracing::debug!("Job {job_id} deleted");
     Ok(tx)
 }
 
