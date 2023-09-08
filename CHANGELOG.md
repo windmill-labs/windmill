@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.169.0](https://github.com/windmill-labs/windmill/compare/v1.168.3...v1.169.0) (2023-09-08)
+
+
+### Features
+
+* benchmarks graph ([#2244](https://github.com/windmill-labs/windmill/issues/2244)) ([c496602](https://github.com/windmill-labs/windmill/commit/c496602e9e2e0dfecaaffe731e58e551d039d02f))
+* big query schema explorer ([#2247](https://github.com/windmill-labs/windmill/issues/2247)) ([ec7d923](https://github.com/windmill-labs/windmill/commit/ec7d923cca0f6050855473ababd1bb27d668711b))
+* flow copilot ([#2219](https://github.com/windmill-labs/windmill/issues/2219)) ([2f3138c](https://github.com/windmill-labs/windmill/commit/2f3138c65d9d3f0161bf3e069c6eec0c32ac3b86))
+* **frontend:** fix runs page when the row has a parent ([#2255](https://github.com/windmill-labs/windmill/issues/2255)) ([2271263](https://github.com/windmill-labs/windmill/commit/22712632f683fb63ad6d4b475a01c63800a9559d))
+* introduce container groups ([49c5553](https://github.com/windmill-labs/windmill/commit/49c5553f3b496c2aaf03376689ee0fd42ecbd2bf))
+
+
+### Bug Fixes
+
+* benchmark svg ([#2249](https://github.com/windmill-labs/windmill/issues/2249)) ([24c5802](https://github.com/windmill-labs/windmill/commit/24c580211572d6447ca502db141e90c5e084d790))
+* pass TZ from env to runtimes ([75a1490](https://github.com/windmill-labs/windmill/commit/75a149009a5a13230b4d6de6eac8bba0618629d6))
+
 ## [1.168.3](https://github.com/windmill-labs/windmill/compare/v1.168.2...v1.168.3) (2023-09-07)
 
 
