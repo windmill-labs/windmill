@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.170.0](https://github.com/windmill-labs/windmill/compare/v1.169.0...v1.170.0) (2023-09-08)
+
+
+### Features
+
+* display jobs currently waiting for a worker ([3c950c0](https://github.com/windmill-labs/windmill/commit/3c950c03de0bc71974eb29985381adba8c098660))
+* snowflake schema explorer + refactoring ([#2260](https://github.com/windmill-labs/windmill/issues/2260)) ([5cca583](https://github.com/windmill-labs/windmill/commit/5cca5833e94fc4c8a80e210164da09f2a1ceb677))
+
+
+### Bug Fixes
+
+* fix get_result for python-client ([fe41f4f](https://github.com/windmill-labs/windmill/commit/fe41f4ff4ce596cf394bd69a0ba48e88db8d2328))
+
 ## [1.169.0](https://github.com/windmill-labs/windmill/compare/v1.168.3...v1.169.0) (2023-09-08)
 
 
