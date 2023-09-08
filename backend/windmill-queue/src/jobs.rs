@@ -21,6 +21,7 @@ use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
 use tokio::sync::RwLock;
@@ -136,7 +137,7 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Serialize, Deserialize)]
-struct WorkerConfig {
+pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub dedicated_worker: Option<(String, String)>,
 }

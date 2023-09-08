@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    extract::{Extension, Query},
+    extract::{Extension, Path, Query},
     routing::get,
     Json, Router,
 };
@@ -18,8 +18,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
-    error::JsonResult,
+    error::{self, JsonResult},
     utils::{paginate, Pagination},
+    DB,
 };
 
 use std::collections::HashMap;
@@ -39,6 +40,8 @@ pub fn global_service() -> Router {
 
 #[cfg(feature = "benchmark")]
 pub fn global_service() -> Router {
+    use axum::routing::post;
+
     Router::new()
         .route("/toggle", get(toggle))
         .route("/list", get(list_worker_pings))
@@ -126,23 +129,47 @@ async fn get_custom_tags() -> Json<Vec<String>> {
     Json(ALL_TAGS.clone())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, FromRow)]
 struct WorkerGroup {
     name: String,
     config: serde_json::Value,
 }
 
 async fn get_worker_groups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    authed: Authed,
-) -> Json<Vec<WorkerGroup>> {
+) -> error::JsonResult<Vec<WorkerGroup>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    require_super_admin(user_db, authed.email)?;
+    require_super_admin(&db, &authed.email).await?;
 
-    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM worker_group")
+    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM worker_group_config")
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+async fn update_worker_group(
+    Path(path): Path<String>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    authed: ApiAuthed,
+    Json(config): Json<serde_json::Value>,
+) -> error::JsonResult<()> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    require_super_admin(&db, &authed.email).await?;
+
+    sqlx::query!(
+        "INSERT INTO worker_group_config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
+        path.as_str(),
+        config
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(()))
 }
