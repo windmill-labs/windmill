@@ -2690,7 +2690,18 @@ async fn get_completed_job(
 async fn get_completed_job_result(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Option<serde_json::Value>> {
+) -> error::Result<String> {
+    // let result_o = sqlx::query_scalar!(
+    //     "SELECT result::text FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    //     id,
+    //     w_id,
+    // )
+    // .fetch_optional(&db)
+    // .await?;
+
+    // let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
+    // Ok(Json(result))
+
     let result_o = sqlx::query_scalar!(
         "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         id,
@@ -2698,6 +2709,32 @@ async fn get_completed_job_result(
     )
     .fetch_optional(&db)
     .await?;
+
+    let result = serde_json::to_string(&result_o).expect("FOO");
+    Ok(result)
+    // let mut v = Vec::new();
+    // let mut i = 0;
+    // while i < 1000000 {
+    //     v.push(serde_json::json!({"a": format!("b{}", i)}));
+    //     i += 1;
+    // }
+    // let result_o = Some(Some(serde_json::json! {{"test": v}}));
+
+    // let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
+    // Ok(Json(result))
+}
+
+pub async fn bench(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Option<serde_json::Value>> {
+    let mut v = Vec::new();
+    let mut i = 0;
+    while i < 1000000 {
+        v.push(serde_json::json!({"a": format!("b{}", i)}));
+        i += 1;
+    }
+    let result_o = Some(Some(serde_json::json! {{"test": v}}));
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
     Ok(Json(result))

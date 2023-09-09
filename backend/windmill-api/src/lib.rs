@@ -278,6 +278,7 @@ pub async fn run_server(
                     oauth2::global_service().layer(Extension(Arc::new(sp_extension.1))),
                 )
                 .route("/version", get(git_v))
+                .route("/bench/:workspace/:uuid", get(jobs::bench))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi)),
