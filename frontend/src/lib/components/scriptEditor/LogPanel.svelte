@@ -157,9 +157,9 @@
 							</td>
 							<td class="text-xs">
 								<a
-									href="#result"
+									href=""
 									class="text-xs"
-									on:click={() => {
+									on:click|preventDefault={() => {
 										openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 										JobService.getCompletedJobResult({
 											workspace: $workspaceStore ?? 'NO_W',
@@ -174,9 +174,9 @@
 							</td>
 							<td class="text-xs">
 								<a
-									href="#code"
+									href=""
 									class="text-xs"
-									on:click={async () => {
+									on:click|preventDefault={async () => {
 										const code = (
 											await JobService.getCompletedJob({
 												workspace: $workspaceStore ?? 'NO_W',
@@ -196,9 +196,9 @@
 							</td>
 							<td>
 								<a
-									href="#logs"
+									href=""
 									class="text-xs"
-									on:click={async () => {
+									on:click|preventDefault={async () => {
 										const logs = (
 											await JobService.getCompletedJob({
 												workspace: $workspaceStore ?? 'NO_W',
