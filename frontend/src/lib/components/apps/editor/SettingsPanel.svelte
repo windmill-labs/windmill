@@ -81,23 +81,25 @@
 	{/key}
 {:else if hiddenInlineScript}
 	{@const id = BG_PREFIX + hiddenInlineScript.index}
-	<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
+	{#key id}
+		<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
 
-	{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
-		<div class="mb-8">
-			<PanelSection title={`Inputs`}>
-				{#key $stateId}
-					<InputsSpecsEditor
-						displayType
-						{id}
-						shouldCapitalize={false}
-						bind:inputSpecs={hiddenInlineScript.script.fields}
-						userInputEnabled={false}
-					/>
-				{/key}
-			</PanelSection>
-		</div>
-	{/if}
-	<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
-	<div class="grow shrink" />
+		{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
+			<div class="mb-8">
+				<PanelSection title={`Inputs`}>
+					{#key $stateId}
+						<InputsSpecsEditor
+							displayType
+							{id}
+							shouldCapitalize={false}
+							bind:inputSpecs={hiddenInlineScript.script.fields}
+							userInputEnabled={false}
+						/>
+					{/key}
+				</PanelSection>
+			</div>
+		{/if}
+		<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
+		<div class="grow shrink" />
+	{/key}
 {/if}
