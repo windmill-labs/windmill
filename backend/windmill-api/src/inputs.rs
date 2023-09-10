@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{db::ApiAuthed, jobs::CompletedJob};
+use crate::db::ApiAuthed;
 use axum::{
     extract::{Path, Query},
     routing::{get, post},
@@ -15,7 +15,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::types::Uuid;
+use sqlx::{types::Uuid, FromRow};
 use std::{
     fmt::{Display, Formatter},
     vec,
@@ -102,6 +102,15 @@ pub struct Input {
     success: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct CompletedJobMini {
+    id: Uuid,
+    created_at: chrono::DateTime<chrono::Utc>,
+    args: Option<serde_json::Value>,
+    created_by: String,
+    success: bool,
+}
+
 async fn get_input_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -114,13 +123,13 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select * from completed_job \
+        "select id, created_at, created_by, args, success from completed_job \
         where {} = $1 and job_kind = $2 and workspace_id = $3 \
         order by created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
     );
 
-    let query = sqlx::query_as::<_, CompletedJob>(sql);
+    let query = sqlx::query_as::<_, CompletedJobMini>(sql);
 
     let query = match r.runnable_type {
         RunnableType::ScriptHash => query.bind(to_i64(&r.runnable_id)?),
