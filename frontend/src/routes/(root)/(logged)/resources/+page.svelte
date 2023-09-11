@@ -137,6 +137,7 @@
 				...x
 			}
 		})
+
 		loading.resources = false
 	}
 

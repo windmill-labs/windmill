@@ -46,10 +46,21 @@ export function deleteTheme(workspace: string, themeName: string): Promise<strin
 	return ResourceService.deleteResource(deleteThemeRequest)
 }
 
-export function listThemes(workspace: string): Promise<Theme[]> {
+export async function listThemes(workspace: string): Promise<Theme[]> {
 	const listThemesRequest = {
 		workspace,
 		resourceType: 'theme'
 	}
-	return ResourceService.listResource(listThemesRequest)
+	const resources = await ResourceService.listResource(listThemesRequest)
+
+	// use ResourceService.getResource to get the theme value for each theme
+
+	await Promise.all(
+		resources.map(async (resource) => {
+			const theme = await ResourceService.getResource({ workspace, path: resource.path })
+			resource.value = theme.value
+		})
+	)
+
+	return resources
 }

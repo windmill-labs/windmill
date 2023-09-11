@@ -231,6 +231,7 @@ export type AppViewerContext = {
 	allIdsInPath: Writable<string[]>
 	darkMode: Writable<boolean>
 	cssEditorOpen: Writable<boolean>
+	previewTheme: Writable<string | undefined>
 }
 
 export type AppEditorContext = {

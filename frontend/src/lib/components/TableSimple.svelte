@@ -9,7 +9,7 @@
 	export let size: 'sm' | 'md' | 'lg' = 'md'
 </script>
 
-<div class="mt-2">
+<div class="mt-2 w-full">
 	<DataTable {size}>
 		<Head>
 			<tr>

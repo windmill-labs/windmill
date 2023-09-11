@@ -86,6 +86,8 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const worldStore = buildWorld(context)
+	const previewTheme: Writable<string | undefined> = writable(undefined)
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
 		app: appStore,
@@ -113,7 +115,8 @@
 		hoverStore: writable(undefined),
 		allIdsInPath: writable([]),
 		darkMode,
-		cssEditorOpen
+		cssEditorOpen,
+		previewTheme
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -308,7 +311,7 @@
 	const cssId = 'wm-global-style'
 
 	$: addOrRemoveCss($premiumStore.premium, $mode === 'preview')
-	$: updateCssContent($appStore.cssString)
+	$: updateCssContent($appStore.cssString, $previewTheme)
 
 	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
 		const existingElement = document.getElementById(cssId)
@@ -328,10 +331,11 @@
 		}
 	}
 
-	function updateCssContent(cssString: string | undefined) {
+	function updateCssContent(cssString: string | undefined, previewTheme: string | undefined) {
+		const theme = previewTheme ?? cssString ?? ''
 		const existingElement = document.getElementById(cssId)
-		if (existingElement && $appStore.cssString !== existingElement.innerHTML) {
-			existingElement.innerHTML = cssString ?? ''
+		if (existingElement && theme !== existingElement.innerHTML) {
+			existingElement.innerHTML = theme
 		}
 	}
 </script>
