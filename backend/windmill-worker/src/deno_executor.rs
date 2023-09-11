@@ -112,6 +112,7 @@ pub async fn generate_deno_lock(
         w_id,
         "deno cache",
         None,
+        false,
     )
     .await?;
 
@@ -315,6 +316,7 @@ run().catch(async (e) => {{
         &job.workspace_id,
         "deno run",
         job.timeout,
+        false,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

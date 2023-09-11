@@ -123,6 +123,7 @@ pub async fn handle_bash_job(
         &job.workspace_id,
         "bash run",
         job.timeout,
+        true,
     )
     .await?;
 
@@ -260,6 +261,7 @@ pub async fn handle_powershell_job(
         &job.workspace_id,
         "bash/powershell run",
         job.timeout,
+        false,
     )
     .await?;
 
