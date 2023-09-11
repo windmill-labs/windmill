@@ -210,6 +210,10 @@
 						iconOnly={width < 850}
 						kind={scriptKind}
 						template={scriptTemplate}
+						args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
+							acc[key] = obj.type === 'static' ? obj.value : undefined
+							return acc
+						}, {})}
 					/>
 				</div>
 			{/if}
@@ -254,6 +258,13 @@
 										saveDraft()
 									}}
 									fixedOverflowWidgets={true}
+									args={Object.entries(flowModule.value.input_transforms).reduce(
+										(acc, [key, obj]) => {
+											acc[key] = obj.type === 'static' ? obj.value : undefined
+											return acc
+										},
+										{}
+									)}
 								/>
 								<DiffEditor
 									bind:this={diffEditor}

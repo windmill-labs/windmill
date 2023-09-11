@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.168.3
+  version: 1.170.0
   title: Windmill API
 
   contact:
@@ -3944,6 +3944,27 @@ paths:
       responses:
         "200":
           description: queue count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_length:
+                    type: integer
+                required:
+                  - database_length
+
+  /w/{workspace}/jobs/completed/count:
+    get:
+      summary: get completed count
+      operationId: getCompletedCount
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: completed count
           content:
             application/json:
               schema:

@@ -115,7 +115,7 @@
 		</div>
 	</div>
 
-	<div class="w-4/12 flex justify-star">
+	<div class="w-4/12 flex justify-start flex-col">
 		<div class="flex flex-row text-sm">
 			{#if job === undefined}
 				No job found
@@ -167,19 +167,23 @@
 
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} />
-				<span class="mx-1">
-					Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
-						>{truncateRev(job.parent_job, 6)}
-					</a>
-				</span>
+				<div class="flex flex-row gap-1 items-center">
+					<Icon class="text-secondary" data={faBarsStaggered} scale={SMALL_ICON_SCALE} />
+					<span class="mx-1 text-xs">
+						Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+							{truncateRev(job.parent_job, 6)}
+						</a>
+					</span>
+				</div>
 			{:else}
-				<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
-				<span class="mx-1">
-					Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}
-						>{job.parent_job}</a
-					>
-				</span>
+				<div class="flex flex-row gap-1 items-center">
+					<Icon class="text-secondary" data={faRobot} scale={SMALL_ICON_SCALE} />
+					<span class="mx-1 text-xs">
+						Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+							{job.parent_job}
+						</a>
+					</span>
+				</div>
 			{/if}
 		{/if}
 	</div>

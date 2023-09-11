@@ -30,6 +30,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { tweened, type Tweened } from 'svelte/motion'
 	import { goto } from '$app/navigation'
+	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 
 	let jobs: Job[] | undefined
 	let intervalId: NodeJS.Timer | undefined
@@ -95,7 +96,6 @@
 		goto(newUrl)
 	}
 
-	let nbOfJobs = 30
 	let queue_count: Tweened<number> | undefined = undefined
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
@@ -463,10 +463,7 @@
 	</div>
 	<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 		<div class="flex gap-2 grow mb-2">
-			<div class="flex gap-1 relative max-w-36 min-w-[50px]">
-				<div class="text-xs absolute -top-4 truncate">Jobs waiting for a worker</div>
-				<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
-			</div>
+			<RunsQueue {queue_count} />
 			<div class="flex"
 				><Button
 					size="xs"
@@ -568,7 +565,6 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbOfJobs
 						on:filterByPath={(e) => {
 							user = null
 							folder = null
@@ -680,10 +676,9 @@
 				</div>
 				<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 					<div class="flex gap-2 grow mb-2">
-						<div class="flex gap-1 relative max-w-36 min-w-[50px]">
-							<div class="text-xs absolute -top-4 truncate">Jobs waiting for a worker</div>
-							<div class="mt-1">{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div>
-						</div>
+						{#if queue_count}
+							<RunsQueue {queue_count} />
+						{/if}
 						<div class="flex"
 							><Button
 								size="xs"
@@ -787,7 +782,6 @@
 					<RunsTable
 						{jobs}
 						bind:selectedId
-						bind:nbOfJobs
 						on:select={() => {
 							runDrawer.openDrawer()
 						}}

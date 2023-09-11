@@ -29,6 +29,7 @@ use hmac::Mac;
 use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
+use sqlx::types::JsonRawValue;
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
@@ -44,7 +45,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{get_queued_job, push, PushIsolationLevel};
+use windmill_queue::{job_is_complete, push, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -110,6 +111,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel_all", post(cancel_all))
+        .route("/completed/count", get(count_completed_jobs))
         .route(
             "/completed/list",
             get(list_completed_jobs).layer(cors.clone()),
@@ -230,15 +232,15 @@ async fn cancel_job_api(
         tx.commit().await?;
         Ok(id.to_string())
     } else {
-        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
         tx.commit().await?;
-        let err = match job_o {
-            Some(Job::CompletedJob(_)) => {
-                return Ok(format!("queued job id {} is already completed", id))
-            }
-            _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
-        };
-        Err(err)
+        if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
+            return Ok(format!("queued job id {} is already completed", id));
+        } else {
+            return Err(error::Error::NotFound(format!(
+                "queued job id {} does not exist",
+                id
+            )));
+        }
     }
 }
 
@@ -273,15 +275,15 @@ async fn force_cancel(
         tx.commit().await?;
         Ok(id.to_string())
     } else {
-        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
         tx.commit().await?;
-        let err = match job_o {
-            Some(Job::CompletedJob(_)) => {
-                return Ok(format!("queued job id {} is already completed", id))
-            }
-            _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
-        };
-        Err(err)
+        if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
+            return Ok(format!("queued job id {} is already completed", id));
+        } else {
+            return Err(error::Error::NotFound(format!(
+                "queued job id {} does not exist",
+                id
+            )));
+        }
     }
 }
 
@@ -344,12 +346,29 @@ pub async fn get_path_tag_limits_cache_for_hash(
 async fn get_job(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Job> {
-    let tx = db.begin().await?;
-    let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
-    let job = not_found_if_none(job_o, "Job", id.to_string())?;
-    tx.commit().await?;
-    Ok(Json(job))
+) -> error::Result<Response> {
+    let cjob_option =
+        sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
+            .bind(id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?;
+    if let Some(job) = cjob_option {
+        let job = Job::CompletedJob(CompletedJob::from_row(&job)?);
+        Ok(Json(job).into_response())
+    } else {
+        let job_o = sqlx::query_as::<_, QueuedJob>(
+            "SELECT *
+                FROM queue WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?
+        .map(Job::QueuedJob);
+        let job: Job<'_> = not_found_if_none(job_o, "Job", id.to_string())?;
+        Ok(Json(job).into_response())
+    }
 }
 
 async fn get_job_logs(
@@ -368,39 +387,8 @@ async fn get_job_logs(
     Ok(text)
 }
 
-pub async fn get_job_by_id<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    id: Uuid,
-) -> error::Result<(Option<Job>, Transaction<'c, Postgres>)> {
-    let cjob_option = sqlx::query_as::<_, CompletedJob>(
-        "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    let job_option = match cjob_option {
-        Some(job) => Some(Job::CompletedJob(job)),
-        None => get_queued_job(id, w_id, &mut tx).await?.map(Job::QueuedJob),
-    };
-    if job_option.is_some() {
-        Ok((job_option, tx))
-    } else {
-        // check if a job had been moved in-between queries
-        let cjob_option = sqlx::query_as::<_, CompletedJob>(
-            "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(id)
-        .bind(w_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        Ok((cjob_option.map(Job::CompletedJob), tx))
-    }
-}
-
 #[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct CompletedJob {
+pub struct CompletedJob<'rows> {
     pub workspace_id: String,
     pub id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -415,8 +403,8 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none", borrow)]
+    pub result: Option<&'rows JsonRawValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     pub deleted: bool,
@@ -444,6 +432,64 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
     pub tag: String,
+}
+
+impl<'row> CompletedJob<'row> {
+    pub fn json_result(&self) -> Option<serde_json::Value> {
+        self.result
+            .as_ref()
+            .map(|r| serde_json::from_str(r.get()).ok())
+            .flatten()
+    }
+}
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct ListableCompletedJob {
+    pub r#type: String,
+    pub workspace_id: String,
+    pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job: Option<Uuid>,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub duration_ms: i32,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
+    pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_code: Option<String>,
+    pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_reason: Option<String>,
+    pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_path: Option<String>,
+    pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_status: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_flow: Option<serde_json::Value>,
+    pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<ScriptLang>,
+    pub is_skipped: bool,
+    pub email: String,
+    pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_peak: Option<i32>,
+    pub tag: String,
+}
+
+impl<'a> IntoResponse for CompletedJob<'a> {
+    fn into_response(self) -> Response {
+        Json(self).into_response()
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -631,6 +677,7 @@ struct ListableQueuedJob {
     pub language: Option<ScriptLang>,
     pub email: String,
     pub suspend: Option<i32>,
+    pub tag: String,
 }
 
 async fn list_queue_jobs(
@@ -649,7 +696,7 @@ async fn list_queue_jobs(
             "scheduled_for",
             "script_hash",
             "script_path",
-            "args",
+            "null as args",
             "job_kind",
             "schedule_path",
             "permissioned_as",
@@ -658,6 +705,7 @@ async fn list_queue_jobs(
             "same_worker",
             "email",
             "suspend",
+            "tag",
         ],
     )
     .sql()?;
@@ -704,72 +752,33 @@ async fn count_queue_jobs(
     ))
 }
 
+async fn count_completed_jobs(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<QueueStats> {
+    Ok(Json(
+        sqlx::query_as!(
+            QueueStats,
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM completed_job WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_one(&db)
+        .await?,
+    ))
+}
+
 async fn list_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-) -> error::JsonResult<Vec<Job>> {
+) -> error::JsonResult<Vec<Job<'static>>> {
     check_scopes(&authed, || format!("listjobs"))?;
-    // TODO: todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
+
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
-    let sqlq = list_queue_jobs_query(
-        &w_id,
-        &ListQueueQuery {
-            script_path_start: lq.script_path_start,
-            script_path_exact: lq.script_path_exact,
-            script_hash: lq.script_hash,
-            created_by: lq.created_by,
-            started_before: lq.started_before,
-            started_after: lq.started_after,
-            created_before: lq.created_before,
-            created_after: lq.created_after,
-            created_or_started_before: lq.created_or_started_before,
-            created_or_started_after: lq.created_or_started_after,
-            running: None,
-            parent_job: lq.parent_job,
-            order_desc: Some(true),
-            job_kinds: lq.job_kinds,
-            suspended: lq.suspended,
-            args: lq.args,
-            tag: lq.tag,
-            schedule_path: lq.schedule_path,
-        },
-        &[
-            "'QueuedJob' as typ",
-            "id",
-            "workspace_id",
-            "parent_job",
-            "created_by",
-            "created_at",
-            "started_at",
-            "scheduled_for",
-            "running",
-            "script_hash",
-            "script_path",
-            "null as args",
-            "null as duration_ms",
-            "null as success",
-            "false as deleted",
-            "canceled",
-            "canceled_by",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
-            "is_flow_step",
-            "language",
-            "false as is_skipped",
-            "email",
-            "visible_to_owner",
-            "suspend",
-            "mem_peak",
-            "tag",
-            "concurrent_limit",
-            "concurrency_time_window_s",
-        ],
-    );
+
     let sqlc = list_completed_jobs_query(
         &w_id,
         per_page + offset,
@@ -808,13 +817,74 @@ async fn list_jobs(
             "null as concurrency_time_window_s",
         ],
     );
-    let sql = format!(
-        "{} UNION ALL {} ORDER BY created_at DESC LIMIT {} OFFSET {};",
-        &sqlq.subquery()?,
-        &sqlc.subquery()?,
-        per_page,
-        offset
-    );
+
+    let sql = if lq.success.is_none() {
+        let sqlq = list_queue_jobs_query(
+            &w_id,
+            &ListQueueQuery {
+                script_path_start: lq.script_path_start,
+                script_path_exact: lq.script_path_exact,
+                script_hash: lq.script_hash,
+                created_by: lq.created_by,
+                started_before: lq.started_before,
+                started_after: lq.started_after,
+                created_before: lq.created_before,
+                created_after: lq.created_after,
+                created_or_started_before: lq.created_or_started_before,
+                created_or_started_after: lq.created_or_started_after,
+                running: None,
+                parent_job: lq.parent_job,
+                order_desc: Some(true),
+                job_kinds: lq.job_kinds,
+                suspended: lq.suspended,
+                args: lq.args,
+                tag: lq.tag,
+                schedule_path: lq.schedule_path,
+            },
+            &[
+                "'QueuedJob' as typ",
+                "id",
+                "workspace_id",
+                "parent_job",
+                "created_by",
+                "created_at",
+                "started_at",
+                "scheduled_for",
+                "running",
+                "script_hash",
+                "script_path",
+                "null as args",
+                "null as duration_ms",
+                "null as success",
+                "false as deleted",
+                "canceled",
+                "canceled_by",
+                "job_kind",
+                "schedule_path",
+                "permissioned_as",
+                "is_flow_step",
+                "language",
+                "false as is_skipped",
+                "email",
+                "visible_to_owner",
+                "suspend",
+                "mem_peak",
+                "tag",
+                "concurrent_limit",
+                "concurrency_time_window_s",
+            ],
+        );
+
+        format!(
+            "{} UNION ALL {} LIMIT {} OFFSET {};",
+            &sqlq.subquery()?,
+            &sqlc.subquery()?,
+            per_page,
+            offset
+        )
+    } else {
+        sqlc.query()?
+    };
     let mut tx = user_db.begin(&authed).await?;
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
@@ -1061,8 +1131,8 @@ pub async fn cancel_suspended_job(
 }
 
 #[derive(Serialize)]
-pub struct SuspendedJobFlow {
-    pub job: Job,
+pub struct SuspendedJobFlow<'a> {
+    pub job: Job<'a>,
     pub approvers: Vec<Approval>,
 }
 
@@ -1076,7 +1146,7 @@ pub async fn get_suspended_job_flow(
     Extension(db): Extension<DB>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-) -> error::JsonResult<SuspendedJobFlow> {
+) -> error::Result<Response> {
     let mut tx = db.begin().await?;
     let key = get_workspace_key(&w_id, &mut tx).await?;
     let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
@@ -1104,7 +1174,29 @@ pub async fn get_suspended_job_flow(
     .await?
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    let (flow_o, mut tx) = get_job_by_id(tx, &w_id, flow_id).await?;
+    let cjob_option =
+        sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
+            .bind(flow_id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?;
+    let mut _rows = None;
+    let flow_o = if let Some(job) = cjob_option {
+        _rows = Some(job);
+        Some(Job::CompletedJob(CompletedJob::from_row(
+            _rows.as_ref().unwrap(),
+        )?))
+    } else {
+        sqlx::query_as::<_, QueuedJob>(
+            "SELECT *
+        FROM queue WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(flow_id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?
+        .map(Job::QueuedJob)
+    };
     let flow = not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
 
     let flow_status = flow
@@ -1141,7 +1233,7 @@ pub async fn get_suspended_job_flow(
         approvers_from_status
     };
 
-    Ok(Json(SuspendedJobFlow { job: flow, approvers }))
+    Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
 }
 
 pub async fn create_job_signature(
@@ -1221,12 +1313,12 @@ pub async fn get_resume_urls(
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "type")]
-pub enum Job {
+pub enum Job<'a> {
     QueuedJob(QueuedJob),
-    CompletedJob(CompletedJob),
+    CompletedJob(CompletedJob<'a>),
 }
 
-impl Job {
+impl<'a> Job<'a> {
     pub fn raw_flow(&self) -> Option<FlowValue> {
         let value = match self {
             Job::QueuedJob(job) => job.raw_flow.clone(),
@@ -1256,7 +1348,6 @@ struct UnifiedJob {
     running: Option<bool>,
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
-    args: Option<serde_json::Value>,
     duration_ms: Option<i32>,
     success: Option<bool>,
     deleted: bool,
@@ -1277,7 +1368,7 @@ struct UnifiedJob {
     concurrency_time_window_s: Option<i32>,
 }
 
-impl From<UnifiedJob> for Job {
+impl<'a> From<UnifiedJob> for Job<'a> {
     fn from(uj: UnifiedJob) -> Self {
         match uj.typ.as_ref() {
             "CompletedJob" => Job::CompletedJob(CompletedJob {
@@ -1291,7 +1382,7 @@ impl From<UnifiedJob> for Job {
                 success: uj.success.unwrap(),
                 script_hash: uj.script_hash,
                 script_path: uj.script_path,
-                args: uj.args,
+                args: None,
                 result: None,
                 logs: None,
                 flow_status: None,
@@ -1321,7 +1412,7 @@ impl From<UnifiedJob> for Job {
                 started_at: uj.started_at,
                 script_hash: uj.script_hash,
                 script_path: uj.script_path,
-                args: uj.args,
+                args: None,
                 running: uj.running.unwrap(),
                 scheduled_for: uj.scheduled_for.unwrap(),
                 logs: None,
@@ -2596,7 +2687,7 @@ async fn list_completed_jobs(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
-) -> error::JsonResult<Vec<CompletedJob>> {
+) -> error::JsonResult<Vec<ListableCompletedJob>> {
     check_scopes(&authed, || format!("listjobs"))?;
 
     let (per_page, offset) = paginate(pagination);
@@ -2617,9 +2708,6 @@ async fn list_completed_jobs(
             "success",
             "script_hash",
             "script_path",
-            "args",
-            "result",
-            "null as logs",
             "deleted",
             "canceled",
             "canceled_by",
@@ -2637,83 +2725,92 @@ async fn list_completed_jobs(
             "visible_to_owner",
             "mem_peak",
             "tag",
+            "'CompletedJob' as type",
         ],
     )
     .sql()?;
-    let jobs = sqlx::query_as::<_, CompletedJob>(&sql)
+    let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql)
         .fetch_all(&db)
         .await?;
     Ok(Json(jobs))
 }
 
-async fn get_completed_job(
+async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<CompletedJob> {
-    let job_o = sqlx::query_as::<_, CompletedJob>(
-        "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&db)
-    .await?;
+) -> error::Result<Response> {
+    let job_o = sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
+        .bind(id)
+        .bind(w_id)
+        .fetch_optional(&db)
+        .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
-    Ok(Json(job))
+    Ok(CompletedJob::from_row(&job)?.into_response())
+}
+
+#[derive(FromRow)]
+pub struct RawResult<'a> {
+    pub result: &'a JsonRawValue,
+}
+
+impl<'a> IntoResponse for RawResult<'a> {
+    fn into_response(self) -> Response {
+        Json(self.result).into_response()
+    }
 }
 
 async fn get_completed_job_result(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Option<serde_json::Value>> {
-    let result_o = sqlx::query_scalar!(
-        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        id,
-        w_id,
-    )
-    .fetch_optional(&db)
-    .await?;
+) -> error::Result<Response> {
+    let result_o =
+        sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+            .bind(id)
+            .bind(w_id)
+            .fetch_optional(&db)
+            .await?;
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
-    Ok(Json(result))
+    Ok(RawResult::from_row(&result)?.into_response())
 }
 
 #[derive(Serialize)]
-struct CompletedJobResult {
+struct CompletedJobResult<'c> {
     completed: bool,
-    result: Option<serde_json::Value>,
+    result: Option<&'c JsonRawValue>,
 }
 
 async fn get_completed_job_result_maybe(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<CompletedJobResult> {
-    let result_o = sqlx::query_scalar!(
-        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        id,
-        w_id,
-    )
-    .fetch_optional(&db)
-    .await?;
+) -> error::Result<Response> {
+    let result_o =
+        sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+            .bind(id)
+            .bind(w_id)
+            .fetch_optional(&db)
+            .await?;
 
     if let Some(result) = result_o {
-        Ok(Json(CompletedJobResult { completed: true, result }))
+        let res = RawResult::from_row(&result)?;
+        Ok(Json(CompletedJobResult { completed: true, result: Some(res.result) }).into_response())
     } else {
-        Ok(Json(CompletedJobResult { completed: false, result: None }))
+        Ok(Json(CompletedJobResult { completed: false, result: None }).into_response())
     }
 }
 
-async fn delete_completed_job(
+async fn delete_completed_job<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<CompletedJob> {
+) -> error::Result<Response> {
     check_scopes(&authed, || format!("deletejob"))?;
 
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;
-    let job_o = sqlx::query_as::<_, CompletedJob>(
+    let job_o = sqlx::query(
         "UPDATE completed_job SET logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 \
          RETURNING *",
     )
@@ -2736,5 +2833,5 @@ async fn delete_completed_job(
     .await?;
 
     tx.commit().await?;
-    Ok(Json(job))
+    Ok(CompletedJob::from_row(&job)?.into_response())
 }

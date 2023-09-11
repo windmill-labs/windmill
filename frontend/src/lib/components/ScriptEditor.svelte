@@ -249,6 +249,7 @@
 			kind={asKind(kind)}
 			{template}
 			{diffEditor}
+			{args}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -302,6 +303,7 @@
 						deno={lang == 'deno'}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
+						{args}
 					/>
 					<DiffEditor
 						bind:this={diffEditor}
@@ -364,6 +366,7 @@
 							previewIsLoading={testIsLoading}
 							{editor}
 							{diffEditor}
+							{args}
 						/>
 					</Pane>
 				</Splitpanes>

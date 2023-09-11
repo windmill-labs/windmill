@@ -80,6 +80,7 @@
 	export let yContent: Text | undefined = undefined
 	export let awareness: any | undefined = undefined
 	export let folding = false
+	export let args: Record<string, any> | undefined = undefined
 
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
@@ -234,7 +235,8 @@
 	let command: Disposable | undefined = undefined
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
-	$: dbSchema = $dbSchemas[Object.keys($dbSchemas)[0]]
+	$: args &&
+		(dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')])
 	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
@@ -252,7 +254,7 @@
 					introspectionJSON: schema
 				}
 			])
-		} else if (schemaLang === 'mysql' || schemaLang === 'postgresql') {
+		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
 			}
