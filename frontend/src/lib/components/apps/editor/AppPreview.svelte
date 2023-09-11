@@ -94,7 +94,8 @@
 		hoverStore: writable(undefined),
 		allIdsInPath,
 		darkMode,
-		cssEditorOpen: writable(false)
+		cssEditorOpen: writable(false),
+		previewTheme: writable(undefined)
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -112,9 +113,9 @@
 	}
 	const cssId = 'wm-global-style'
 
-	$: addOrRemoveCss($premiumStore.premium)
+	$: addOrRemoveCss($premiumStore.premium, $appStore.cssString)
 
-	function addOrRemoveCss(isPremium: boolean) {
+	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)
 
 		if (!isPremium) {
@@ -122,11 +123,11 @@
 				existingElement.remove()
 			}
 		} else {
-			if (!existingElement) {
+			if (!existingElement && cssString) {
 				const head = document.head
 				const link = document.createElement('style')
 				link.id = cssId
-				link.innerHTML = $appStore.cssString!
+				link.innerHTML = cssString
 				head.appendChild(link)
 			}
 		}
