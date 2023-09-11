@@ -1,4 +1,6 @@
 use async_recursion::async_recursion;
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
@@ -37,7 +39,9 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::{AuthedClient, MAX_RESULT_SIZE, TIMEOUT_DURATION, WHITELIST_ENVS};
+use crate::{
+    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, TIMEOUT_DURATION, WHITELIST_ENVS,
+};
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
@@ -250,6 +254,7 @@ pub async fn handle_child(
     _w_id: &str,
     child_name: &str,
     custom_timeout: Option<i32>,
+    sigterm: bool,
 ) -> error::Result<()> {
     let start = Instant::now();
     let update_job_interval = Duration::from_millis(500);
@@ -388,6 +393,21 @@ pub async fn handle_child(
             }
         };
 
+        if sigterm {
+            if let Some(id) = child.id() {
+                signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+                for _ in 0..*MAX_WAIT_FOR_SIGTERM {
+                    if child.try_wait().is_ok_and(|x| x.is_some()) {
+                        break;
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                }
+                if child.try_wait().is_ok_and(|x| x.is_some()) {
+                    set_reason.await;
+                    return Ok(Err(kill_reason));
+                }
+            }
+        }
         /* send SIGKILL and reap child process */
         let (_, kill) = future::join(set_reason, child.kill()).await;
         kill.map(|()| Err(kill_reason))
