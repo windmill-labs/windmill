@@ -4,13 +4,14 @@
 	import { buildWorld } from '../rx'
 	import type {
 		App,
+		AppTheme,
 		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
 	import { classNames } from '$lib/utils'
-	import type { Policy } from '$lib/gen'
+	import { ResourceService, type Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -113,7 +114,31 @@
 	}
 	const cssId = 'wm-global-style'
 
-	$: addOrRemoveCss($premiumStore.premium, $appStore.cssString)
+	let css: string | undefined = undefined
+	let previousTheme: AppTheme | undefined = undefined
+
+	appStore.subscribe(async (currentAppStore) => {
+		if (
+			!currentAppStore.theme ||
+			JSON.stringify(currentAppStore.theme) === JSON.stringify(previousTheme)
+		) {
+			return
+		}
+
+		previousTheme = currentAppStore.theme
+
+		if (currentAppStore.theme.type === 'inlined') {
+			css = currentAppStore.theme.css
+		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
+			let loadedCss = await ResourceService.getResource({
+				workspace: $workspaceStore!,
+				path: currentAppStore.theme.path
+			})
+			css = loadedCss.value
+		}
+	})
+
+	$: addOrRemoveCss($premiumStore.premium, css)
 
 	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)

@@ -9,6 +9,7 @@
 	import type {
 		App,
 		AppEditorContext,
+		AppTheme,
 		AppViewerContext,
 		ConnectingInput,
 		ContextPanelContext,
@@ -34,7 +35,7 @@
 	import { page } from '$app/stores'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
+	import { VariableService, type Policy, ResourceService } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
@@ -311,7 +312,32 @@
 	const cssId = 'wm-global-style'
 
 	$: addOrRemoveCss($premiumStore.premium, $mode === 'preview')
-	$: updateCssContent($appStore.cssString, $previewTheme)
+
+	let css: string | undefined = undefined
+	let previousTheme: AppTheme | undefined = undefined
+
+	appStore.subscribe(async (currentAppStore) => {
+		if (
+			!currentAppStore.theme ||
+			JSON.stringify(currentAppStore.theme) === JSON.stringify(previousTheme)
+		) {
+			return
+		}
+
+		previousTheme = currentAppStore.theme
+
+		if (currentAppStore.theme.type === 'inlined') {
+			css = currentAppStore.theme.css
+		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
+			let loadedCss = await ResourceService.getResource({
+				workspace: $workspaceStore!,
+				path: currentAppStore.theme.path
+			})
+			css = loadedCss.value
+		}
+	})
+
+	$: updateCssContent(css, $previewTheme)
 
 	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
 		const existingElement = document.getElementById(cssId)
@@ -325,7 +351,7 @@
 				const head = document.head
 				const link = document.createElement('style')
 				link.id = cssId
-				link.innerHTML = $appStore.cssString!
+				link.innerHTML = css ?? ''
 				head.appendChild(link)
 			}
 		}

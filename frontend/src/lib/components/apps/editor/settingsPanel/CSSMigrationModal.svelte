@@ -12,6 +12,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { MoveRight } from 'lucide-svelte'
 	import { customisationByComponent } from '../componentsPanel/cssUtils'
+	import { sendUserToast } from '$lib/toast'
 	export let component: AppComponent | undefined
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -67,36 +68,43 @@
 	}
 
 	function appendMigrationsToCss(migrations: Map<string, string[]>) {
-		let cssString = $app.cssString
+		const theme = $app.theme
 
-		if (!cssString) {
-			cssString = ''
-		}
+		if (theme?.type === 'path') {
+			sendUserToast('Cannot migrate to CSS editor when using a theme by path', true)
+			return
+		} else if (theme?.type === 'inlined') {
+			let cssString = theme.css
 
-		for (const [key, value] of migrations) {
-			if (cssString.includes(`${key} {` || `${key}{`)) {
-				// append value to existing value
-				const regex = new RegExp(`\\${key}\\s*{\\s*([\\s\\S]*?)\\s*}`, 'g')
-
-				const match = regex.exec(cssString)
-
-				if (match) {
-					const existingValue = match[1]
-
-					cssString = cssString.replace(
-						regex,
-						`${key} {\n\t${existingValue}\n\t${value.join('\n\t')}\n}`
-					)
-				}
-			} else {
-				const firstBreakline = cssString === '' ? '' : '\n\n'
-
-				// append key and value
-				cssString += `${firstBreakline}${key} {\n\t${value.join('\n\t')}\n}\n\n`
+			if (!cssString) {
+				cssString = ''
 			}
-		}
 
-		$app.cssString = cssString
+			for (const [key, value] of migrations) {
+				if (cssString.includes(`${key} {` || `${key}{`)) {
+					// append value to existing value
+					const regex = new RegExp(`\\${key}\\s*{\\s*([\\s\\S]*?)\\s*}`, 'g')
+
+					const match = regex.exec(cssString)
+
+					if (match) {
+						const existingValue = match[1]
+
+						cssString = cssString.replace(
+							regex,
+							`${key} {\n\t${existingValue}\n\t${value.join('\n\t')}\n}`
+						)
+					}
+				} else {
+					const firstBreakline = cssString === '' ? '' : '\n\n'
+
+					// append key and value
+					cssString += `${firstBreakline}${key} {\n\t${value.join('\n\t')}\n}\n\n`
+				}
+			}
+
+			$app.theme = theme
+		}
 	}
 
 	function hasStyles(customCss: Record<string, ComponentCssProperty> | undefined) {

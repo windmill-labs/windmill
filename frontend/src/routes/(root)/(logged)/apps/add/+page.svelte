@@ -29,7 +29,7 @@
 		fullscreen: false,
 		unusedInlineScripts: [],
 		hiddenInlineScripts: [],
-		css: {}
+		theme: undefined
 	}
 
 	if (nodraft) {
@@ -93,7 +93,7 @@
 							fullscreen: false,
 							unusedInlineScripts: [],
 							hiddenInlineScripts: [],
-							css: {}
+							theme: undefined
 						}
 					}
 				}
