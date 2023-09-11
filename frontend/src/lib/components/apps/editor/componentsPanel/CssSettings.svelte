@@ -67,7 +67,7 @@
 					</div>
 				</TabContent>
 				<TabContent value="theme">
-					<ThemeList />
+					<ThemeList cssString={$app.cssString} />
 				</TabContent>
 			</svelte:fragment>
 		</Tabs>

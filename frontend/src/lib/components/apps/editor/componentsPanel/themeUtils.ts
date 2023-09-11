@@ -49,7 +49,7 @@ export function deleteTheme(workspace: string, themeName: string): Promise<strin
 export function listThemes(workspace: string): Promise<Theme[]> {
 	const listThemesRequest = {
 		workspace,
-		resourceType: 'themes'
+		resourceType: 'theme'
 	}
 	return ResourceService.listResource(listThemesRequest)
 }

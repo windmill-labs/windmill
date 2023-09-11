@@ -29,7 +29,15 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Folder, User } from 'lucide-svelte'
 
-	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
+	type PathKind =
+		| 'resource'
+		| 'script'
+		| 'variable'
+		| 'flow'
+		| 'schedule'
+		| 'app'
+		| 'raw_app'
+		| 'theme'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
