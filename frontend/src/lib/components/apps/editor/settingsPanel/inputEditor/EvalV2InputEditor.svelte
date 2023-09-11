@@ -58,6 +58,15 @@
 			}}
 		/>
 	</div>
+	{#if componentInput?.expr && componentInput.expr != '' && componentInput.expr
+			.trim()
+			.startsWith('{')}
+		<div class="text-2xs text-red-500"
+			><pre class="font-mono inline">{'{...}'}</pre> are not valid js expressions, prefix with
+			<pre class="font-mono inline text-2xs">{'return '}</pre>
+			or surround with <pre class="font-mono text-2xs inline">{'()'}</pre></div
+		>
+	{/if}
 	{#if componentInput.connections?.length > 0}
 		<div class="flex flex-wrap gap-2 items-center">
 			<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
