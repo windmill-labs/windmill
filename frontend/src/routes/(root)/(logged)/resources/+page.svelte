@@ -109,20 +109,22 @@
 	$: preFilteredType =
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
-					tab == 'states'
-						? x.resource_type == 'state'
-						: tab == 'cache'
-						? x.resource_type == 'cache'
-						: x.resource_type != 'state' && x.resource_type != 'cache'
+					tab === 'workspace'
+						? x.resource_type !== 'theme' && x.resource_type !== 'state'
+						: tab === 'states'
+						? x.resource_type === 'state'
+						: tab === 'cache'
+						? x.resource_type === 'cache'
+						: tab === 'theme'
+						? x.resource_type === 'theme'
+						: true
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
-						x.resource_type == typeFilter &&
-						(tab == 'states'
-							? x.resource_type == 'state'
-							: tab == 'cache'
-							? x.resource_type == 'cache'
-							: x.resource_type != 'state' && x.resource_type != 'cache')
+						x.resource_type === typeFilter &&
+						(tab === 'workspace'
+							? x.resource_type !== 'theme' && x.resource_type !== 'state'
+							: true)
 			  )
 
 	async function loadResources(): Promise<void> {
@@ -483,7 +485,7 @@
 			</div>
 		</Tab>
 	</Tabs>
-	{#if tab == 'workspace' || tab == 'states' || tab == 'cache'}
+	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>

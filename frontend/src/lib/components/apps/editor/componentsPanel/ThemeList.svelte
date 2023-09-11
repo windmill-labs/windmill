@@ -11,10 +11,11 @@
 	import css from 'svelte-highlight/languages/css'
 	import { Eye, EyeOff } from 'lucide-svelte'
 	import type { AppViewerContext } from '../../types'
+	import { sendUserToast } from '$lib/toast'
 
 	export let cssString: string | undefined = undefined
 
-	const { previewTheme } = getContext<AppViewerContext>('AppViewerContext')
+	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let path: string = ''
 	let themes: Theme[] = []
@@ -32,6 +33,8 @@
 		await createTheme($workspaceStore!, theme)
 
 		getThemes()
+
+		sendUserToast('Theme created')
 	}
 
 	onMount(() => {
@@ -41,7 +44,6 @@
 
 <div class="p-4 flex flex-col items-start w-auto gap-2">
 	<div class="text-sm leading-6 font-semibold">Create theme</div>
-	<Highlight class="!text-xs border p-2 rounded-sm w-full  " language={css} code={cssString} />
 
 	<Path bind:path initialPath="" namePlaceholder={'theme'} kind="theme" />
 	<Button on:click={() => addTheme()} color="dark" size="xs">Create theme</Button>
@@ -95,7 +97,15 @@
 											</div>
 										</Button>
 
-										<Button color="dark" size="xs">Apply</Button>
+										<Button
+											color="dark"
+											size="xs"
+											on:click={() => {
+												$app.cssString = row.value
+											}}
+										>
+											Apply</Button
+										>
 									</div>
 								</Cell>
 							</tr>
