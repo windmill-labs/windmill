@@ -27,6 +27,7 @@ pub mod scripts;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod worker;
 
 #[cfg(feature = "tracing_init")]
 pub mod tracing_init;

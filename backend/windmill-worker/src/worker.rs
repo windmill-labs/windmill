@@ -28,6 +28,7 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
+    worker::WORKER_GROUP,
     DB, IS_READY, METRICS_ENABLED,
 };
 use windmill_queue::{
@@ -383,7 +384,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    insert_initial_ping(worker_instance, &worker_name, ip, db).await;
+    update_ping(worker_instance, &worker_name, ip, db).await;
 
     let uptime_metric =
         prometheus::register_counter!(WORKER_UPTIME_OPTS.clone().const_label("name", &worker_name))
@@ -1264,19 +1265,15 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
-async fn insert_initial_ping(
-    worker_instance: &str,
-    worker_name: &str,
-    ip: &str,
-    db: &Pool<Postgres>,
-) {
+async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &Pool<Postgres>) {
     let tags = ACCEPTED_TAGS.clone();
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags) VALUES ($1, $2, $3, $4) ON CONFLICT (worker) DO NOTHING",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
         worker_instance,
         worker_name,
         ip,
-        if *IS_WORKER_TAGS_DEFINED { Some(tags.as_slice()) } else { None }
+        if *IS_WORKER_TAGS_DEFINED { Some(tags.as_slice()) } else { None },
+        *WORKER_GROUP
     )
     .execute(db)
     .await

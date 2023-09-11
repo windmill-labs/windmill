@@ -31,23 +31,20 @@ use windmill_queue::IDLE_WORKERS;
 
 use crate::{db::ApiAuthed, utils::require_super_admin};
 
-#[cfg(not(feature = "benchmark"))]
-pub fn global_service() -> Router {
-    Router::new()
-        .route("/list", get(list_worker_pings))
-        .route("/custom_tags", get(get_custom_tags))
-}
-
-#[cfg(feature = "benchmark")]
 pub fn global_service() -> Router {
     use axum::routing::post;
 
-    Router::new()
-        .route("/toggle", get(toggle))
+    let router = Router::new()
         .route("/list", get(list_worker_pings))
         .route("/custom_tags", get(get_custom_tags))
         .route("/list_worker_groups", get(get_worker_groups))
-        .route("/updated_worker_groups/:name", post(update_worker_group))
+        .route("/updated_worker_groups/:name", post(update_worker_group));
+
+    #[cfg(feature = "benchmark")]
+    return router.route("/toggle", get(toggle));
+
+    #[cfg(not(feature = "benchmark"))]
+    return router;
 }
 
 lazy_static::lazy_static! {

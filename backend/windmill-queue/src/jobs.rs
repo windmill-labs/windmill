@@ -93,7 +93,6 @@ lazy_static::lazy_static! {
         "hub".to_string(),
         "other".to_string()];
 
-    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
         worker_tags: DEFAULT_TAGS.clone(),
