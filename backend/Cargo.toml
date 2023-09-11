@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.169.0"
+version = "1.170.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.169.0"
+version = "1.170.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -96,7 +96,7 @@ tower = "^0"
 tower-http = { version = "^0", features = ["trace", "cors"] }
 tower-cookies = "^0"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order"] }
+serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^1"
 anyhow = "^1"

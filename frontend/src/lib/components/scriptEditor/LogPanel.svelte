@@ -11,8 +11,6 @@
 	import DisplayResult from '../DisplayResult.svelte'
 	import TableCustom from '../TableCustom.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LogViewer from '../LogViewer.svelte'
@@ -34,7 +32,7 @@
 	type DrawerContent = {
 		mode: 'json' | Preview.language | 'plain'
 		title: string
-		content: string
+		content: any
 	}
 
 	let selectedTab = 'logs'
@@ -57,12 +55,18 @@
 
 <Drawer bind:open={drawerOpen} size="800px">
 	<DrawerContent title={drawerContent?.title} on:close={() => closeDrawer()}>
-		{#if drawerContent?.mode === 'json'}
-			<Highlight language={json} code={JSON.stringify(drawerContent.content, null, 4)} />
+		{#if drawerContent?.content == undefined}
+			<div class="p-2"> <Loader2 class="animate-spin" /> </div>
+		{:else if drawerContent?.mode === 'json'}
+			<DisplayResult
+				workspaceId={previewJob?.workspace_id}
+				jobId={previewJob?.id}
+				result={drawerContent.content}
+			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
-				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-surface shadow-inner p-2">
-				{drawerContent?.content}
+				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-surface shadow-inner p-2"
+				>{drawerContent?.content}
 			</pre>
 		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash' || drawerContent?.mode === 'nativets'}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
@@ -136,7 +140,7 @@
 					<th class="text-xs">Logs</th>
 				</tr>
 				<tbody slot="body">
-					{#each pastPreviews as { id, created_at, success, result }}
+					{#each pastPreviews as { id, created_at, success }}
 						<tr class="">
 							<td class="text-xs">
 								<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
@@ -153,20 +157,26 @@
 							</td>
 							<td class="text-xs">
 								<a
-									href="#result"
+									href=""
 									class="text-xs"
-									on:click={() => {
-										openDrawer({ mode: 'json', content: result, title: 'Result' })
+									on:click|preventDefault={() => {
+										openDrawer({ mode: 'json', content: undefined, title: 'Result' })
+										JobService.getCompletedJobResult({
+											workspace: $workspaceStore ?? 'NO_W',
+											id
+										}).then((res) => {
+											drawerContent && (drawerContent.content = res)
+										})
 									}}
 								>
-									{JSON.stringify(result).substring(0, 30)}...
+									See Result
 								</a>
 							</td>
 							<td class="text-xs">
 								<a
-									href="#code"
+									href=""
 									class="text-xs"
-									on:click={async () => {
+									on:click|preventDefault={async () => {
 										const code = (
 											await JobService.getCompletedJob({
 												workspace: $workspaceStore ?? 'NO_W',
@@ -186,16 +196,16 @@
 							</td>
 							<td>
 								<a
-									href="#logs"
+									href=""
 									class="text-xs"
-									on:click={async () => {
+									on:click|preventDefault={async () => {
 										const logs = (
 											await JobService.getCompletedJob({
 												workspace: $workspaceStore ?? 'NO_W',
 												id
 											})
 										).logs
-										openDrawer({ mode: 'plain', content: String(logs), title: `Code ${lang}` })
+										openDrawer({ mode: 'plain', content: String(logs), title: `Logs for ${id}` })
 									}}
 								>
 									View logs

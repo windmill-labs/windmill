@@ -1389,6 +1389,17 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     Ok(tx)
 }
 
+pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM completed_job WHERE id = $1 AND workspace_id = $2)",
+        id,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
 pub async fn get_queued_job<'c>(
     id: Uuid,
     w_id: &str,

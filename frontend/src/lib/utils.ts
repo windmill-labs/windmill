@@ -170,7 +170,12 @@ export function encodeState(state: any): string {
 }
 
 export function decodeState(query: string): any {
-	return JSON.parse(decodeURIComponent(atob(query)))
+	try {
+		return JSON.parse(decodeURIComponent(atob(query)))
+	} catch (e) {
+		sendUserToast('Impossible to parse state', true)
+		return {}
+	}
 }
 
 export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
