@@ -8,14 +8,18 @@
 	import { charsToNumber } from '../flows/idUtils'
 	import { existsOpenaiResourcePath } from '$lib/stores'
 	import Popup from '../common/popup/Popup.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import type { FlowEditorContext } from '../flows/types'
 
 	export let copilotLoading: boolean
 	export let copilotStatus: string
 	export let abortController: AbortController | undefined
-	export let genFlow: (index: number) => void
+	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
 	export let handleFlowGenInputs: () => void
 
 	let copilotPopover: ManualPopover | undefined = undefined
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { modulesStore, drawerStore, currentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
@@ -62,8 +66,8 @@
 				? 'Exit'
 				: 'AI Flow Builder'}
 		</Button>
-		<div slot="content" class="text-sm flex flex-row items-center z-[901]"
-			><span class="font-semibold">
+		<div slot="content" class="text-sm flex flex-row items-center z-[901]">
+			<span class="font-semibold">
 				{copilotStatus}
 			</span>
 			{#if !copilotLoading && $currentStepStore !== undefined && $currentStepStore !== 'Input'}
@@ -87,7 +91,7 @@
 						if (stepNb >= $modulesStore.length - 1) {
 							handleFlowGenInputs()
 						} else {
-							genFlow(stepNb + 1)
+							genFlow(stepNb + 1, $flowStore.value.modules)
 						}
 					}}
 				>
@@ -95,8 +99,8 @@
 						? 'Flow inputs'
 						: 'Next step'}
 				</Button>
-			{/if}</div
-		>
+			{/if}
+		</div>
 	</ManualPopover>
 {:else}
 	<Popup>

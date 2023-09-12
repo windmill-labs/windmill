@@ -9,10 +9,15 @@
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { charsToNumber, numberToChars } from '../flows/idUtils'
 	import type { FlowCopilotContext } from './flow'
+	import Alert from '../common/alert/Alert.svelte'
+	import type { FlowEditorContext } from '../flows/types'
+	import type { FlowModule } from '$lib/gen'
 
-	export let hubCompletions: (text: string, idx: number, type: 'trigger' | 'script') => void
-	export let genFlow: (index: number) => void
+	export let getHubCompletions: (text: string, idx: number, type: 'trigger' | 'script') => void
+	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
 	export let flowCopilotMode: 'trigger' | 'sequence'
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { drawerStore, modulesStore, currentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
@@ -21,7 +26,17 @@
 <Drawer bind:this={$drawerStore}>
 	<DrawerContent on:close={$drawerStore.closeDrawer} title="AI Flow Builder">
 		<div class="flex flex-col gap-6">
-			<ToggleButtonGroup bind:selected={flowCopilotMode}>
+			{#if $flowStore.value.modules.length > 0 && $currentStepStore === undefined}
+				<Alert type="error" title="Flow not empty">All flow steps will be overriden</Alert>
+			{/if}
+			<ToggleButtonGroup
+				bind:selected={flowCopilotMode}
+				on:selected={() => {
+					if ($currentStepStore !== undefined) {
+						$currentStepStore = numberToChars(0)
+					}
+				}}
+			>
 				<ToggleButton value="trigger" label="Trigger" />
 				<ToggleButton value="sequence" label="Sequence" />
 			</ToggleButtonGroup>
@@ -30,7 +45,7 @@
 					{#if i === 1 && $modulesStore[i - 1].type === 'trigger'}
 						<div class="flex flex-row items-center mb-4 gap-1">
 							<p class="text-sm font-semibold">For loop</p>
-							<Badge color="indigo">{numberToChars(i)}_loop</Badge>
+							<Badge color="indigo">{copilotModule.id}_loop</Badge>
 						</div>
 					{/if}
 					<div class={i === 1 && $modulesStore[i - 1].type === 'trigger' ? 'pl-4' : ''}>
@@ -40,13 +55,19 @@
 									<p class="text-sm font-semibold"
 										>{copilotModule.type === 'trigger' ? 'Trigger' : 'Action'}</p
 									>
-									<Badge color="indigo">{numberToChars(i)}</Badge>
+									<Badge color="indigo">{copilotModule.id}</Badge>
 								</div>
 								{#if flowCopilotMode === 'sequence' && i >= 1}
 									<button
 										on:click={() => {
+											if ($currentStepStore !== undefined) {
+												$currentStepStore = numberToChars(i < $modulesStore.length - 1 ? i : i - 1)
+											}
 											modulesStore.update((prev) => {
 												prev.splice(i, 1)
+												prev.forEach((m, idx) => {
+													m.id = numberToChars(idx)
+												})
 												return prev
 											})
 										}}
@@ -60,9 +81,7 @@
 							<div
 								class={classNames(
 									'p-4 gap-4 flex flex-row grow  transition-all items-center rounded-md justify-between border',
-									$currentStepStore !== undefined &&
-										$currentStepStore !== 'Input' &&
-										i < charsToNumber($currentStepStore)
+									$currentStepStore !== undefined && i < charsToNumber($currentStepStore)
 										? 'bg-gray-700/10'
 										: 'bg-surface'
 								)}
@@ -84,7 +103,9 @@
 										<div class="text-primary flex-wrap text-sm font-medium">
 											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
 												? copilotModule.selectedCompletion.summary
-												: copilotModule.description}
+												: `Generate "${copilotModule.description}" in ${
+														copilotModule.lang === 'bun' ? 'TypeScript' : 'Python'
+												  }`}
 										</div>
 									</div>
 								</div>
@@ -98,11 +119,7 @@
 									on:click={() => {
 										copilotModule.selectedCompletion = undefined
 										copilotModule.source = undefined
-										if (
-											$currentStepStore !== undefined &&
-											$currentStepStore !== 'Input' &&
-											i < charsToNumber($currentStepStore)
-										) {
+										if ($currentStepStore !== undefined && i < charsToNumber($currentStepStore)) {
 											$currentStepStore = numberToChars(i)
 										}
 									}}
@@ -110,7 +127,7 @@
 									<Icon data={faClose} />
 								</button>
 							</div>
-							{#if $currentStepStore !== undefined && $currentStepStore !== 'Input' && i < charsToNumber($currentStepStore)}
+							{#if $currentStepStore !== undefined && i < charsToNumber($currentStepStore)}
 								<p class="font-semibold text-sm text-green-600"
 									>Already generated, edit step to regenerate from this point</p
 								>
@@ -125,7 +142,7 @@
 								bind:value={copilotModule.description}
 								on:input={() => {
 									if (copilotModule.description.length > 2) {
-										hubCompletions(copilotModule.description, i, copilotModule.type)
+										getHubCompletions(copilotModule.description, i, copilotModule.type)
 									} else {
 										copilotModule.hubCompletions = []
 									}
@@ -133,27 +150,52 @@
 							/>
 						{/if}
 						{#if copilotModule.description.length > 2 && copilotModule.source === undefined}
-							<button
-								class="mt-2 p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full border"
-								on:click={() => {
-									copilotModule.source = 'custom'
-									copilotModule.selectedCompletion = undefined
-								}}
-							>
-								<div class="flex items-center gap-4">
-									<div
-										class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
-									>
-										<Icon data={faMagicWandSparkles} />
-									</div>
+							<div class="divide-y border rounded-md transition-all mt-2">
+								<button
+									class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
+									on:click={() => {
+										copilotModule.source = 'custom'
+										copilotModule.selectedCompletion = undefined
+										copilotModule.lang = 'bun'
+									}}
+								>
+									<div class="flex items-center gap-4">
+										<div
+											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
+										>
+											<Icon data={faMagicWandSparkles} />
+										</div>
 
-									<div class="w-full text-left text-sm">
-										<div class="text-primary flex-wrap font-medium">
-											Generate step from scratch using AI
+										<div class="w-full text-left text-sm">
+											<div class="text-primary flex-wrap font-medium">
+												Generate "{copilotModule.description}" in TypeScript
+											</div>
 										</div>
 									</div>
-								</div>
-							</button>
+								</button>
+								<button
+									class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
+									on:click={() => {
+										copilotModule.source = 'custom'
+										copilotModule.selectedCompletion = undefined
+										copilotModule.lang = 'python3'
+									}}
+								>
+									<div class="flex items-center gap-4">
+										<div
+											class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
+										>
+											<Icon data={faMagicWandSparkles} />
+										</div>
+
+										<div class="w-full text-left text-sm">
+											<div class="text-primary flex-wrap font-medium">
+												Generate "{copilotModule.description}" in Python
+											</div>
+										</div>
+									</div>
+								</button>
+							</div>
 							{#if copilotModule.hubCompletions.length > 0}
 								<p class="mt-2 font-semibold text-sm">Hub scripts</p>
 								<ul class="divide-y border rounded-md transition-all mt-1">
@@ -207,7 +249,8 @@
 									code: '',
 									source: undefined,
 									hubCompletions: [],
-									selectedCompletion: undefined
+									selectedCompletion: undefined,
+									lang: undefined
 								}
 							])}>Add step</Button
 					>
@@ -216,14 +259,14 @@
 
 			<Button
 				on:click={() =>
-					$currentStepStore !== undefined && $currentStepStore !== 'Input'
-						? genFlow(charsToNumber($currentStepStore))
-						: genFlow(0)}
+					$currentStepStore !== undefined
+						? genFlow(charsToNumber($currentStepStore), $flowStore.value.modules)
+						: genFlow(0, $flowStore.value.modules)}
 				spacingSize="md"
 				startIcon={{ icon: faMagicWandSparkles }}
 				disabled={$modulesStore.find((m) => m.source === undefined) !== undefined}
 			>
-				{$currentStepStore !== undefined && $currentStepStore !== 'Input'
+				{$currentStepStore !== undefined
 					? `Regenerate flow from step '${$currentStepStore}'`
 					: 'Build flow'}
 			</Button>
