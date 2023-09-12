@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.171.0](https://github.com/windmill-labs/windmill/compare/v1.170.0...v1.171.0) (2023-09-12)
+
+
+### Features
+
+* attempt to SIGTERM before SIGKILL for bash ([f40bbba](https://github.com/windmill-labs/windmill/commit/f40bbba519a97cbb1ec142c335f038dbebcd4e7c))
+* zero copy result for job result ([#2263](https://github.com/windmill-labs/windmill/issues/2263)) ([22a7da5](https://github.com/windmill-labs/windmill/commit/22a7da58b1d20721892906cba2dee6fbeb1cc1fd))
+
+
+### Bug Fixes
+
+* 2257 TIME  convertion in pg_executor.rs ([#2267](https://github.com/windmill-labs/windmill/issues/2267)) ([3d71253](https://github.com/windmill-labs/windmill/commit/3d71253abdb0dff1670a796d07a53ecd0a98414e))
+* fix field duplicate in app background settings ([164cdaf](https://github.com/windmill-labs/windmill/commit/164cdaf09464646dee4e70a699222a454eb0d898))
+* improve bun lockfile resolution ([9103ec4](https://github.com/windmill-labs/windmill/commit/9103ec445db81395a5851202eecb87301d0b4987))
+* remove result and args from list completed and list queue jobs ([e7e63e1](https://github.com/windmill-labs/windmill/commit/e7e63e111a73e0986050a8fe7fdc18784ba902b0))
+
 ## [1.170.0](https://github.com/windmill-labs/windmill/compare/v1.169.0...v1.170.0) (2023-09-08)
 
 
