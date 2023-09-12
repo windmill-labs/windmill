@@ -117,7 +117,7 @@
 		</div>
 	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		{#if $premiumStore.premium || true}
+		{#if $premiumStore.premium}
 			<Button
 				color="dark"
 				size="xs2"
