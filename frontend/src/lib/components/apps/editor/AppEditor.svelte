@@ -22,7 +22,7 @@
 	import { Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { premiumStore, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { classNames, encodeState } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import AppPreview from './AppPreview.svelte'
@@ -310,7 +310,7 @@
 
 	const cssId = 'wm-global-style'
 
-	$: addOrRemoveCss($premiumStore.premium, $mode === 'preview')
+	$: addOrRemoveCss(true, $mode === 'preview')
 
 	let css: string | undefined = undefined
 

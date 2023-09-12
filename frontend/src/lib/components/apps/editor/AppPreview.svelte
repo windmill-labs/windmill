@@ -4,7 +4,6 @@
 	import { buildWorld } from '../rx'
 	import type {
 		App,
-		AppTheme,
 		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
@@ -115,17 +114,11 @@
 	const cssId = 'wm-global-style'
 
 	let css: string | undefined = undefined
-	let previousTheme: AppTheme | undefined = undefined
 
 	appStore.subscribe(async (currentAppStore) => {
-		if (
-			!currentAppStore.theme ||
-			JSON.stringify(currentAppStore.theme) === JSON.stringify(previousTheme)
-		) {
+		if (!currentAppStore.theme) {
 			return
 		}
-
-		previousTheme = currentAppStore.theme
 
 		if (currentAppStore.theme.type === 'inlined') {
 			css = currentAppStore.theme.css
@@ -138,7 +131,7 @@
 		}
 	})
 
-	$: addOrRemoveCss($premiumStore.premium, css)
+	$: addOrRemoveCss($premiumStore.premium || isEditor, css)
 
 	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)
