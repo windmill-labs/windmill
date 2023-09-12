@@ -43,6 +43,7 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
+    worker::WORKER_GROUP,
     DB, METRICS_ENABLED,
 };
 
@@ -135,10 +136,33 @@ lazy_static::lazy_static! {
     pub static ref IDLE_WORKERS: AtomicBool = AtomicBool::new(false);
 }
 
+async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
+    let config = sqlx::query_scalar!(
+        "SELECT config FROM worker_group_config WHERE name = $1",
+        *WORKER_GROUP
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .map(|x| );
+    Ok(WorkerConfig {
+        worker_tags: ACCEPTED_TAGS.clone(),
+        dedicated_worker: DEDICATED_WORKER.clone(),
+    })
+}
+struct WorkspacedPath {
+    workspace_id: String,
+    path: String,
+}
 #[derive(Serialize, Deserialize)]
+pub struct WorkerConfigOpt {
+    pub worker_tags: Option<Vec<String>>,
+    pub dedicated_worker: Option<String>,
+}
+
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
-    pub dedicated_worker: Option<(String, String)>,
+    pub dedicated_worker: Option<WorkspacedPath>,
 }
 
 #[cfg(feature = "enterprise")]
