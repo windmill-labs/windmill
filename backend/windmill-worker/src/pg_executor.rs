@@ -218,15 +218,15 @@ pub fn pg_cell_to_json_value(
         Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
             Ok(JSONValue::String(a.to_string()))
         })?,
+        Type::TIME => get_basic(row, column, column_i, |a: chrono::NaiveTime| {
+            Ok(JSONValue::String(a.to_string()))
+        })?,
         Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
             Ok(JSONValue::String(a.to_string()))
         })?,
         Type::UUID => get_basic(row, column, column_i, |a: uuid::Uuid| {
             Ok(JSONValue::String(a.to_string()))
         })?,
-        // Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
-        //     Ok(JSONValue::String(a.to_string()))
-        // })?,
         Type::JSON | Type::JSONB => get_basic(row, column, column_i, |a: JSONValue| Ok(a))?,
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
