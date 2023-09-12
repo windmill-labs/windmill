@@ -12,6 +12,7 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -98,6 +99,14 @@
 					<Pane size={40}>
 						<CssHelperPanel
 							on:insertSelector={(e) => {
+								if ($app?.theme?.type === 'path') {
+									sendUserToast(
+										'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
+										true
+									)
+									return
+								}
+
 								const code = cssEditor?.getCode()
 								cssEditor?.setCode(code + '\n' + e.detail)
 								$app = $app
