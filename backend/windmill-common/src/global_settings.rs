@@ -1,6 +1,6 @@
 pub const WORKER_S3_BUCKET_SYNC: &str = "worker_s3_bucket_sync";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "DISABLE_SERVER",
     "NUM_WORKERS",
@@ -55,4 +55,5 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "SMTP_TLS_IMPLICIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
+    "MAX_WAIT_FOR_SIGTERM",
 ];

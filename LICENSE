@@ -6,8 +6,9 @@ Every file is under copyright (c) Windmill Labs, Inc 2022 unless otherwise speci
 Every file is under License AGPL unless otherwise specified 
 or belonging to one of the below cases:
 
-The files under backend/ are AGPLv3 Licensed.
-The files under frontend/ are AGPLv3 Licensed.
+The files under backend/ are AGPLv3 Licensed, except any snippets of code under the compile flag "enterprise". Those snippets and files are under a proprietary and commerccial license.
+The files under frontend/ are AGPLv3 Licensed, except any snippers of code that require a positive license check to be activated. Those snippets and files are under a proprietary and commercial license.
+Private and public forks MUST not include any of the above proprietary and commercial code. Windmill Labs, Inc. provide tools to clean the codebase from those snippets upon demand.
 The files under python-client/ deno-client/ go-client/ are Apache 2.0 Licensed.
 
 The openapi files, including the OpenFlow spec is Apache 2.0 Licensed.

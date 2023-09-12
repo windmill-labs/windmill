@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.170.0"
+version = "1.171.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.170.0"
+version = "1.171.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -187,6 +187,7 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 samael = { version = "0.0.12", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
-rust_decimal = {version = "1.31.0", features = ["db-postgres"]}
+rust_decimal = { version = "1.31.0", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
+nix = { version = "0.27.1", features = ["process", "signal"] }
