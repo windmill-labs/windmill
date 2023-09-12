@@ -15,15 +15,21 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 
-	import { Eye, EyeOff, GitBranch, Pin, Trash } from 'lucide-svelte'
+	import { Eye, EyeOff, GitBranch, Pin, Save, Trash } from 'lucide-svelte'
 	import type { AppViewerContext } from '../../types'
 	import { sendUserToast } from '$lib/toast'
 	import { ResourceService } from '$lib/gen'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-
-	export let cssString: string | undefined = undefined
+	import { twMerge } from 'tailwind-merge'
+	import { createEventDispatcher } from 'svelte'
+	import ThemeNameEditor from './ThemeNameEditor.svelte'
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
+	$: type = $app?.theme?.type
+
+	const dispatch = createEventDispatcher()
 
 	let themes: Array<{
 		name: string
@@ -55,6 +61,11 @@
 		nameField = ''
 
 		sendUserToast('Theme created:' + message)
+
+		$app.theme = {
+			type: 'path',
+			path: theme.path
+		}
 	}
 
 	let nameField: string = ''
@@ -70,6 +81,8 @@
 		updateTheme($workspaceStore!, path, {
 			value: defaultTheme.value
 		})
+
+		getThemes()
 	}
 
 	onMount(() => {
@@ -78,15 +91,17 @@
 </script>
 
 <div class="p-4 flex flex-col items-start w-auto gap-2">
-	<div class="text-xs leading-6 font-bold">Name</div>
+	{#if type === 'inlined'}
+		<div class="text-xs leading-6 font-bold">Name</div>
 
-	<div class="w-full flex flex-row gap-2 items-center">
-		<input bind:value={nameField} />
-		<Button on:click={() => addTheme(nameField)} color="dark" size="xs">Create theme</Button>
-	</div>
+		<div class="w-full flex flex-row gap-2 items-center">
+			<input bind:value={nameField} />
+			<Button on:click={() => addTheme(nameField)} color="dark" size="xs">Create theme</Button>
+		</div>
+	{/if}
 
 	{#if Array.isArray(themes) && themes.length > 0}
-		<div class="flex flex-row justify-between items-center w-full mt-8 h-10">
+		<div class="flex flex-row justify-between items-center w-full h-10">
 			<div class="text-sm leading-6 font-semibold"> List of themes </div>
 			{#if $previewTheme}
 				<Button color="red" size="xs" on:click={() => previewTheme.set(undefined)}>
@@ -108,17 +123,32 @@
 				<tbody class="divide-y">
 					{#if themes && themes.length > 0}
 						{#each themes as row}
-							<tr>
-								<Cell first>{row.name}</Cell>
+							<tr
+								class={twMerge(
+									$app?.theme?.type === 'path' && $app.theme.path === row.path
+										? 'bg-surface-selected'
+										: ''
+								)}
+							>
+								<Cell first>
+									<div class="flex flex-row gap-1 items-center">
+										<ThemeNameEditor
+											on:reloadThemes={() => {
+												getThemes()
+											}}
+											{row}
+										/>
+										{row.name}
+									</div>
+								</Cell>
 
 								<Cell last>
-									<div class="flex flex-row gap-1 justify-end">
+									<div class={twMerge('flex flex-row gap-1 justify-end ')}>
 										{#if row.path !== 'f/themes/theme_0'}
 											<Button
 												color="light"
 												size="xs"
 												on:click={() => {
-													//previewTheme.set(row.value)
 													makeDefaultTheme(row.path)
 												}}
 											>
@@ -127,33 +157,68 @@
 													Make default
 												</div>
 											</Button>
+
 											<Button
 												color="light"
 												size="xs"
-												on:click={() => {
+												on:click={async () => {
 													if ($workspaceStore) {
-														deleteTheme($workspaceStore, row.path)
+														await deleteTheme($workspaceStore, row.path)
 													}
+													await getThemes()
 												}}
 											>
 												<div class="flex flex-row gap-1 items-center">
 													<Trash size={16} />
-													Delete
 												</div>
 											</Button>
 										{:else}
 											<Badge color="blue">Default theme</Badge>
 										{/if}
+
+										{#if type === 'inlined'}
+											<Button
+												color="light"
+												size="xs"
+												on:click={async () => {
+													if (!$workspaceStore) return
+
+													await updateTheme($workspaceStore, row.path, {
+														value: {
+															name: row.name,
+															value: cssString ?? ''
+														}
+													})
+
+													$app.theme = {
+														type: 'path',
+														path: row.path
+													}
+												}}
+											>
+												<div class="flex flex-row gap-1 items-center">
+													<Save size={16} />
+													Update
+												</div>
+											</Button>
+										{/if}
+
 										<Button
 											color="light"
 											size="xs"
 											on:click={async () => {
-												$previewTheme = await resolveTheme($app.theme, $workspaceStore)
+												const theme = await resolveTheme(
+													{
+														type: 'path',
+														path: row.path ?? ''
+													},
+													$workspaceStore
+												)
+												$previewTheme = theme
 											}}
 										>
 											<div class="flex flex-row gap-1 items-center">
 												<Eye size={16} />
-												Preview
 											</div>
 										</Button>
 										<Button
@@ -165,6 +230,7 @@
 													type: 'inlined',
 													css: theme
 												}
+												dispatch('setCodeTab')
 											}}
 										>
 											<div class="flex flex-row gap-1 items-center">

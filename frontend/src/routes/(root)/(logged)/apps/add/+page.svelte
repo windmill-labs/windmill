@@ -29,7 +29,10 @@
 		fullscreen: false,
 		unusedInlineScripts: [],
 		hiddenInlineScripts: [],
-		theme: undefined
+		theme: {
+			type: 'path',
+			path: 'f/themes/theme_0'
+		}
 	}
 
 	if (nodraft) {

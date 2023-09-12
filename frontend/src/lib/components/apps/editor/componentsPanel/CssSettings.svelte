@@ -70,24 +70,26 @@
 								/>
 							{/if}
 
-							{#if $app.theme?.type === 'path'}
-								<Button
-									variant="border"
-									color="light"
-									on:click={async () => {
-										const theme = await resolveTheme($app.theme, $workspaceStore)
-										$app.theme = {
-											type: 'inlined',
-											css: theme
-										}
-									}}
-								>
-									<div class="flex flex-row gap-2 items-center">
-										<GitBranch size={16} />
-										Fork theme
-									</div>
-								</Button>
-							{/if}
+							<div class="p-2">
+								{#if $app.theme?.type === 'path'}
+									<Button
+										size="xs"
+										color="dark"
+										on:click={async () => {
+											const theme = await resolveTheme($app.theme, $workspaceStore)
+											$app.theme = {
+												type: 'inlined',
+												css: theme
+											}
+										}}
+									>
+										<div class="flex flex-row gap-2 items-center">
+											<GitBranch size={16} />
+											Fork theme
+										</div>
+									</Button>
+								{/if}
+							</div>
 						</div>
 					</Pane>
 					<Pane size={40}>
@@ -103,7 +105,11 @@
 			</SplitPanesWrapper>
 		{/if}
 		{#if selectedTab === 'theme'}
-			<ThemeList cssString={$app?.theme?.type === 'inlined' ? $app.theme.css : undefined} />
+			<ThemeList
+				on:setCodeTab={() => {
+					selectedTab = 'css'
+				}}
+			/>
 		{/if}
 	</svelte:fragment>
 </Tabs>

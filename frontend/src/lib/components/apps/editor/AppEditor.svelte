@@ -9,7 +9,6 @@
 	import type {
 		App,
 		AppEditorContext,
-		AppTheme,
 		AppViewerContext,
 		ConnectingInput,
 		ContextPanelContext,
@@ -314,17 +313,11 @@
 	$: addOrRemoveCss($premiumStore.premium, $mode === 'preview')
 
 	let css: string | undefined = undefined
-	let previousTheme: AppTheme | undefined = undefined
 
 	appStore.subscribe(async (currentAppStore) => {
-		if (
-			!currentAppStore.theme ||
-			JSON.stringify(currentAppStore.theme) === JSON.stringify(previousTheme)
-		) {
+		if (!currentAppStore.theme) {
 			return
 		}
-
-		previousTheme = currentAppStore.theme
 
 		if (currentAppStore.theme.type === 'inlined') {
 			css = currentAppStore.theme.css
@@ -333,7 +326,7 @@
 				workspace: $workspaceStore!,
 				path: currentAppStore.theme.path
 			})
-			css = loadedCss.value
+			css = loadedCss.value.value
 		}
 	})
 
