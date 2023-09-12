@@ -78,6 +78,10 @@
 	}
 
 	function initGlobalCss() {
+		if (!$app.css) {
+			$app.css = {}
+		}
+
 		if (
 			$app.css &&
 			component &&
