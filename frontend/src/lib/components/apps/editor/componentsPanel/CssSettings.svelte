@@ -11,6 +11,7 @@
 	import ThemeList from './ThemeList.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { resolveTheme } from './themeUtils'
+	import ThemeCodePreview from './ThemeCodePreview.svelte'
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -68,6 +69,8 @@
 									bind:this={cssEditor}
 									deno={false}
 								/>
+							{:else}
+								<ThemeCodePreview theme={$app.theme} />
 							{/if}
 
 							<div class="p-2">
@@ -85,7 +88,7 @@
 									>
 										<div class="flex flex-row gap-2 items-center">
 											<GitBranch size={16} />
-											Fork theme
+											Fork theme to edit
 										</div>
 									</Button>
 								{/if}
