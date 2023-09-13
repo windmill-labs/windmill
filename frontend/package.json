@@ -129,7 +129,7 @@
 	},
 	"peerDependencies": {
 		"@sveltejs/kit": "^1.25.0",
-		"svelte": "^3.59.2"
+		"svelte": "^4.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",
