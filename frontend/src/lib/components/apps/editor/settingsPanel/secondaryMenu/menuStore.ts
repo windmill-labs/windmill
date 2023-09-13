@@ -1,11 +1,10 @@
-import type { SvelteComponent } from 'svelte'
 import { writable } from 'svelte/store'
 
 export const SECONDARY_MENU_ID = 'app-secondary-menu' as const
 
 export interface SecondaryMenuStore {
 	isOpen: boolean
-	component?: typeof SvelteComponent | string
+	component?: any | string
 	props: Record<string, any>
 	onClose?: (() => void) | undefined
 }

@@ -100,7 +100,7 @@ export type TopColors = [] | [string] | [string, string] | [string, string, stri
 
 export type StylePropertyOption = {
 	text: string
-	icon: string | typeof SvelteComponent
+	icon: string | any
 }
 
 export type BaseStylePropertyValue<T extends StylePropertyType> = {
