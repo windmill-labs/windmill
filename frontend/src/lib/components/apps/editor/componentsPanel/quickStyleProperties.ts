@@ -21,7 +21,6 @@ import {
 	Underline
 } from 'lucide-svelte'
 import type { components } from '../component'
-import type { SvelteComponent } from 'svelte'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
