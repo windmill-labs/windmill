@@ -118,7 +118,7 @@
 		>
 			{#each tabs ?? [] as res}
 				<button
-					class="rounded-sm !truncate text-sm hover:bg-gray-100 hover:border hover:text-black px-1 py-2 {selected ==
+					class="rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2 {selected ==
 					res
 						? 'outline outline-gray-500 outline-1 bg-surface text-black'
 						: ''}"
