@@ -242,13 +242,21 @@
 				</Tooltip></h2
 			>
 			<div />
-			<div class="flex flex-row items-center">
-				<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
-				<Button size="sm" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-					New worker group config
-				</Button>
-				<Tooltip>Worker Group configs are propagated to every workers in the worker group</Tooltip>
-			</div></div
+			{#if $superadmin}
+				<div class="flex flex-row items-center">
+					<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
+					<Button
+						size="sm"
+						startIcon={{ icon: faPlus }}
+						disabled={!newGroupName}
+						on:click={addGroup}
+					>
+						New worker group config
+					</Button>
+					<Tooltip>Worker Group configs are propagated to every workers in the worker group</Tooltip
+					>
+				</div>
+			{/if}</div
 		>
 		{#each groupedWorkers as worker_group}
 			<WorkspaceGroup
