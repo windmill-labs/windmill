@@ -3,13 +3,13 @@
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { faBolt, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { ClipboardCopy, X } from 'lucide-svelte'
+	import { ClipboardCopy, ExternalLink, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { existsOpenaiResourcePath } from '$lib/stores'
-	import Popup from '$lib/components/common/popup/Popup.svelte'
+	import Menu from '$lib/components/common/menu/Menu.svelte'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -34,6 +34,7 @@
 		deleteBranch: { module: FlowModule; index: number }
 	}>()
 	let openMenu = false
+	let openNoCopilot = false
 
 	const { drawerStore: copilotDrawerStore, currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -127,12 +128,53 @@
 						})
 					}
 				}}
+				index={whereInsert == 'after' ? index : index - 1}
+				modules={modules ?? []}
 			/>
 		{/if}
 	</div>
 {/if}
 
 {#if insertable && modules && label == 'Input'}
+	<div
+		class="{openNoCopilot
+			? 'z-10'
+			: ''} w-9 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2"
+	>
+		<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
+			<button
+				title="AI Flow Builder"
+				on:pointerdown={$existsOpenaiResourcePath
+					? (ev) => {
+							ev.preventDefault()
+							ev.stopPropagation()
+							$copilotDrawerStore?.openDrawer()
+					  }
+					: undefined}
+				slot="trigger"
+				type="button"
+				class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+			>
+				<Icon data={faMagicWandSparkles} scale={1} />
+			</button>
+			{#if !$existsOpenaiResourcePath}
+				<div class="text-primary p-4">
+					<p class="text-sm w-80"
+						>Enable Windmill AI in the <a
+							href="/workspace_settings?tab=openai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+							on:click={() => {
+								close()
+							}}
+							>workspace settings
+							<ExternalLink size={16} /></a
+						></p
+					>
+				</div>
+			{/if}
+		</Menu>
+	</div>
 	<div class="w-7 absolute top-12 left-[65%] right-[35%] -translate-x-1/2">
 		<button
 			title="Add a Trigger"
@@ -146,36 +188,5 @@
 		>
 			<Icon data={faBolt} scale={0.8} />
 		</button>
-	</div>
-
-	<div class="w-7 absolute top-12 left-[80%] -translate-x-1/2">
-		<Popup let:close>
-			<svelte:fragment slot="button">
-				<button
-					title="AI Flow Builder"
-					on:click={$existsOpenaiResourcePath
-						? (ev) => {
-								ev.preventDefault()
-								ev.stopPropagation()
-								$copilotDrawerStore?.openDrawer()
-						  }
-						: undefined}
-					type="button"
-					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-				>
-					<Icon data={faMagicWandSparkles} scale={0.8} />
-				</button>
-			</svelte:fragment>
-			<div class="block text-primary">
-				<p class="text-sm"
-					>Enable Windmill AI in the <a
-						href="/workspace_settings?tab=openai"
-						on:click={() => {
-							close(null)
-						}}>workspace settings.</a
-					></p
-				>
-			</div>
-		</Popup>
 	</div>
 {/if}
