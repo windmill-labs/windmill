@@ -3,7 +3,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { faBolt, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { ClipboardCopy, X } from 'lucide-svelte'
+	import { ClipboardCopy, ExternalLink, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
@@ -159,12 +159,16 @@
 			</button>
 			{#if !$existsOpenaiResourcePath}
 				<div class="text-primary p-4">
-					<p class="text-sm w-72"
+					<p class="text-sm w-80"
 						>Enable Windmill AI in the <a
 							href="/workspace_settings?tab=openai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
 							on:click={() => {
 								close()
-							}}>workspace settings.</a
+							}}
+							>workspace settings
+							<ExternalLink size={16} /></a
 						></p
 					>
 				</div>

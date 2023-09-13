@@ -53,6 +53,7 @@
 	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
+	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -422,6 +423,9 @@
 	let copilotLoading = false
 	let flowCopilotMode: 'trigger' | 'sequence' = 'trigger'
 	let copilotStatus: string = ''
+	let copilotFlowInputs: Record<string, SchemaProperty> = {}
+	let copilotFlowRequiredInputs: string[] = []
+	let openCopilotInputsModal = false
 
 	function setInitCopilotModules(mode: typeof flowCopilotMode) {
 		$copilotModulesStore = [
@@ -449,6 +453,25 @@
 	}
 
 	$: setInitCopilotModules(flowCopilotMode)
+
+	function applyCopilotFlowInputs() {
+		const properties = {
+			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...copilotFlowInputs
+		}
+		const required = [
+			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...copilotFlowRequiredInputs
+		]
+		$flowStore.schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties,
+			required,
+			type: 'object'
+		}
+		copilotFlowInputs = {}
+		copilotFlowRequiredInputs = []
+	}
 
 	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
 		try {
@@ -599,29 +622,24 @@
 						)
 
 						// create flow inputs used by AI for autocompletion
-						Object.entries(inputs)
-							.filter(
-								([key, expr]) =>
-									key in stepSchema.properties &&
-									expr.startsWith('flow_input.') &&
-									!expr.startsWith('flow_input.iter')
-							)
-							.forEach(([key, _]) => {
-								console.log('key', key)
-								const inputSchemaProperty = stepSchema.properties[key]
-								const isRequired = stepSchema.required.includes(key)
-								$flowStore.schema = {
-									$schema: 'https://json-schema.org/draft/2020-12/schema',
-									properties: {
-										...$flowStore.schema?.properties,
-										[key]: inputSchemaProperty
-									},
-									required: isRequired
-										? Array.from(new Set([...$flowStore.schema?.required, key]))
-										: $flowStore.schema?.required || [],
-									type: 'object'
+						copilotFlowInputs = {}
+						copilotFlowRequiredInputs = []
+						Object.entries(inputs).forEach(([key, expr]) => {
+							if (
+								key in stepSchema.properties &&
+								expr.startsWith('flow_input.') &&
+								!expr.startsWith('flow_input.iter') &&
+								(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
+							) {
+								copilotFlowInputs[key] = stepSchema.properties[key]
+								if (stepSchema.required.includes(key)) {
+									copilotFlowRequiredInputs.push(key)
 								}
-							})
+							}
+						})
+						if (!stepOnly) {
+							applyCopilotFlowInputs()
+						}
 
 						// set step inputs
 						Object.entries(inputs).forEach(([key, expr]) => {
@@ -638,8 +656,10 @@
 							)
 						}
 
-						for (const key of Object.keys(flowModule.value.input_transforms)) {
-							// create possible flow inputs for autocompletion
+						// create possible flow inputs for autocompletion
+						copilotFlowInputs = {}
+						copilotFlowRequiredInputs = []
+						Object.keys(flowModule.value.input_transforms).forEach((key) => {
 							if (key !== 'prev_output') {
 								const schema = $flowStateStore[module.id].schema
 								const schemaProperty = Object.entries(schema.properties).find(
@@ -649,21 +669,19 @@
 									schemaProperty &&
 									(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
 								) {
-									$flowStore.schema = {
-										$schema: 'https://json-schema.org/draft/2020-12/schema',
-										properties: {
-											...$flowStore.schema?.properties,
-											[key]: schemaProperty
-										},
-										required: schemaProperty.required
-											? Array.from(new Set([...$flowStore.schema?.required, key]))
-											: $flowStore.schema?.required || [],
-										type: 'object'
+									copilotFlowInputs[key] = schemaProperty
+									if (schema.required.includes(key)) {
+										copilotFlowRequiredInputs.push(key)
 									}
 								}
 							}
+						})
+						if (!stepOnly) {
+							applyCopilotFlowInputs()
+						}
 
-							// programatically set step inputs
+						// programatically set step inputs
+						for (const key of Object.keys(flowModule.value.input_transforms)) {
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
 								expr:
@@ -685,11 +703,10 @@
 			}
 
 			if (stepOnly) {
-				copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+				openCopilotInputsModal = true
 				$copilotCurrentStepStore = undefined
 				copilotLoading = false
 				setInitCopilotModules(flowCopilotMode)
-				await sleep(3000)
 				copilotStatus = ''
 			} else {
 				copilotStatus =
@@ -714,7 +731,7 @@
 
 	flowCopilotContext.genFlow = genFlow
 
-	async function handleFlowGenInputs() {
+	async function handleFlowCopilotInputs() {
 		copilotLoading = true
 		select('Input')
 		$copilotCurrentStepStore = 'Input'
@@ -792,9 +809,25 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
-
 {#if !$userStore?.operator}
+	<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
+	<FlowCopilotInputsModal
+		on:confirmed={async () => {
+			applyCopilotFlowInputs()
+			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+			await sleep(3000)
+			copilotStatus = ''
+		}}
+		on:canceled={async () => {
+			copilotFlowInputs = {}
+			copilotFlowRequiredInputs = []
+			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+			await sleep(3000)
+			copilotStatus = ''
+		}}
+		bind:open={openCopilotInputsModal}
+		inputs={Object.keys(copilotFlowInputs)}
+	/>
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 
 	<div class="flex flex-col flex-1 h-screen">
@@ -878,7 +911,7 @@
 					{copilotLoading}
 					bind:copilotStatus
 					{genFlow}
-					{handleFlowGenInputs}
+					{handleFlowCopilotInputs}
 					{abortController}
 				/>
 

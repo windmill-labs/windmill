@@ -20,6 +20,8 @@
 	export let index: number
 	export let funcDesc = ''
 	export let modules: FlowModule[]
+
+	$: !open && (funcDesc = '')
 </script>
 
 <svelte:head>
