@@ -352,6 +352,7 @@
 
 	function updateCssContent(cssString: string | undefined, previewTheme: string | undefined) {
 		const theme = previewTheme ?? cssString ?? ''
+
 		const existingElement = document.getElementById(cssId)
 		if (existingElement && theme !== existingElement.innerHTML) {
 			existingElement.innerHTML = theme

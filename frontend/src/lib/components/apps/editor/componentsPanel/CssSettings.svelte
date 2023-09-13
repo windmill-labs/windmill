@@ -71,29 +71,27 @@
 									deno={false}
 								/>
 							{:else}
-								<ThemeCodePreview theme={$app.theme} />
+								<ThemeCodePreview theme={$app.theme}>
+									<div class="p-2">
+										<Button
+											size="xs"
+											color="dark"
+											on:click={async () => {
+												const theme = await resolveTheme($app.theme, $workspaceStore)
+												$app.theme = {
+													type: 'inlined',
+													css: theme
+												}
+											}}
+										>
+											<div class="flex flex-row gap-2 items-center">
+												<GitBranch size={16} />
+												Fork theme to edit
+											</div>
+										</Button>
+									</div>
+								</ThemeCodePreview>
 							{/if}
-
-							<div class="p-2">
-								{#if $app.theme?.type === 'path'}
-									<Button
-										size="xs"
-										color="dark"
-										on:click={async () => {
-											const theme = await resolveTheme($app.theme, $workspaceStore)
-											$app.theme = {
-												type: 'inlined',
-												css: theme
-											}
-										}}
-									>
-										<div class="flex flex-row gap-2 items-center">
-											<GitBranch size={16} />
-											Fork theme to edit
-										</div>
-									</Button>
-								{/if}
-							</div>
 						</div>
 					</Pane>
 					<Pane size={40}>

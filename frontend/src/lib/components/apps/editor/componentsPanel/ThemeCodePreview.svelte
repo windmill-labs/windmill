@@ -1,20 +1,32 @@
 <script lang="ts">
-	import { Highlight } from 'svelte-highlight'
 	import type { AppTheme } from '../../types'
-	import css from 'svelte-highlight/languages/css'
 	import { resolveTheme } from './themeUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	export let theme: AppTheme | undefined = undefined
 
 	let code: string | undefined = undefined
+	let cssEditor: SimpleEditor | undefined = undefined
 
 	onMount(async () => {
 		code = await resolveTheme(theme, $workspaceStore)
+		cssEditor?.setCode(code)
 	})
 </script>
 
-<div class="p-2 border m-2 rounded-sm">
-	<Highlight code={code ?? ''} language={css} />
+<slot />
+<div class="relative h-full">
+	<div class="absolute top-0 left-0 right-0 bottom-0 bg-gray-100 bg-opacity-50 z-50" />
+	<SimpleEditor
+		class="h-full"
+		lang="css"
+		{code}
+		fixedOverflowWidgets={false}
+		small
+		automaticLayout
+		bind:this={cssEditor}
+		deno={false}
+	/>
 </div>

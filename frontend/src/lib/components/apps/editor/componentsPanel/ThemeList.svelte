@@ -88,7 +88,7 @@
 	{#if Array.isArray(themes) && themes.length > 0}
 		<div class="flex flex-row justify-end items-center w-full h-10">
 			<Button
-				disabled={!Boolean($previewTheme)}
+				disabled={$previewTheme === undefined}
 				color="dark"
 				variant="border"
 				size="xs"

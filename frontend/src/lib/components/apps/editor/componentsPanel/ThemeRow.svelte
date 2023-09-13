@@ -88,7 +88,8 @@
 			},
 			$workspaceStore
 		)
-		$previewTheme = theme
+		console.log(theme)
+		$previewTheme = theme ?? ''
 	}
 
 	async function fork() {
