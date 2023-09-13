@@ -16,7 +16,7 @@
 	export let copilotStatus: string
 	export let abortController: AbortController | undefined
 	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
-	export let handleFlowCopilotInputs: () => void
+	export let finishCopilotFlowBuilder: () => void
 
 	let copilotPopover: ManualPopover | undefined = undefined
 
@@ -92,7 +92,7 @@
 						}
 						const stepNb = charsToNumber($currentStepStore)
 						if (stepNb >= $modulesStore.length - 1) {
-							handleFlowCopilotInputs()
+							finishCopilotFlowBuilder()
 						} else {
 							genFlow(stepNb + 1, $flowStore.value.modules)
 						}
