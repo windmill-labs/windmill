@@ -6,17 +6,23 @@
 		type FlowModule,
 		DraftService,
 		type PathScript,
-		RawScript,
-		ScriptService
+		ScriptService,
+		Script
 	} from '$lib/gen'
-	import { initHistory, redo, undo } from '$lib/history'
-	import { enterpriseLicense, hubScripts, userStore, workspaceStore } from '$lib/stores'
+	import { initHistory, push, redo, undo } from '$lib/history'
+	import {
+		enterpriseLicense,
+		existsOpenaiResourcePath,
+		hubScripts,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { encodeState, formatCron, sleep } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import type { Drawer } from '$lib/components/common'
 
 	import { faCalendarAlt, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { setContext } from 'svelte'
+	import { setContext, tick } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, Kbd, UndoRedo } from './common'
@@ -24,12 +30,13 @@
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
-	import { dfs } from './flows/flowStore'
+	import { dfs as dfsApply } from './flows/flowStore'
+	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
 	import { loadHubScripts } from '$lib/scripts'
 	import { createEventDispatcher } from 'svelte'
@@ -41,11 +48,12 @@
 		glueCopilot,
 		type FlowCopilotContext
 	} from './copilot/flow'
-	import { numberToChars } from './flows/idUtils'
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
 	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
 	import { fade } from 'svelte/transition'
+	import { loadFlowModuleState } from './flows/flowStateUtils'
+	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -342,7 +350,7 @@
 		return [
 			'settings-metadata',
 			'constants',
-			...dfs($flowStore.value.modules, (module) => module.id)
+			...dfsApply($flowStore.value.modules, (module) => module.id)
 		]
 	}
 
@@ -366,7 +374,8 @@
 	let flowCopilotContext: FlowCopilotContext = {
 		drawerStore: writable<Drawer | undefined>(undefined),
 		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined)
+		currentStepStore: writable<string | undefined>(undefined),
+		genFlow: undefined
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -378,7 +387,7 @@
 	} = flowCopilotContext
 
 	let doneTs = 0
-	async function hubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
+	async function getHubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
 		try {
 			// make sure we display the results of the last request last
 			const ts = Date.now()
@@ -414,9 +423,12 @@
 	let copilotLoading = false
 	let flowCopilotMode: 'trigger' | 'sequence' = 'trigger'
 	let copilotStatus: string = ''
+	let copilotFlowInputs: Record<string, SchemaProperty> = {}
+	let copilotFlowRequiredInputs: string[] = []
+	let openCopilotInputsModal = false
 
-	function getInitCopilotModules(mode: typeof flowCopilotMode): FlowCopilotModule[] {
-		return [
+	function setInitCopilotModules(mode: typeof flowCopilotMode) {
+		$copilotModulesStore = [
 			{
 				id: 'a',
 				type: mode === 'trigger' ? 'trigger' : 'script',
@@ -424,7 +436,8 @@
 				code: '',
 				hubCompletions: [],
 				selectedCompletion: undefined,
-				source: undefined
+				source: undefined,
+				lang: undefined
 			},
 			{
 				id: 'b',
@@ -433,37 +446,59 @@
 				code: '',
 				hubCompletions: [],
 				selectedCompletion: undefined,
-				source: undefined
+				source: undefined,
+				lang: undefined
 			}
 		]
 	}
 
-	$: {
-		copilotModulesStore.set(getInitCopilotModules(flowCopilotMode))
+	$: setInitCopilotModules(flowCopilotMode)
+
+	function applyCopilotFlowInputs() {
+		const properties = {
+			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...copilotFlowInputs
+		}
+		const required = [
+			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...copilotFlowRequiredInputs
+		]
+		$flowStore.schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties,
+			required,
+			type: 'object'
+		}
+		copilotFlowInputs = {}
+		copilotFlowRequiredInputs = []
 	}
 
-	async function genFlow(i: number) {
-		copilotLoading = true
-		copilotStatus = "Generating code for step '" + numberToChars(i) + "'..."
-		$copilotCurrentStepStore = numberToChars(i)
+	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
 		try {
-			abortController = new AbortController()
+			push(history, $flowStore)
+			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
 
-			$flowStore.value.modules = $flowStore.value.modules.slice(0, i)
-			let prevCode = ''
-			if (i === 0) {
-				prevCode = ''
+			copilotLoading = true
+			copilotStatus = "Generating code for step '" + module.id + "'..."
+			$copilotCurrentStepStore = module.id
+			focusCopilot()
+
+			if (!stepOnly && flowModules.length > idx) {
+				select('')
+				await tick()
+				flowModules.splice(idx, flowModules.length - idx)
+				$flowStore = $flowStore
+				focusCopilot()
+			}
+
+			if (idx === 0 && !stepOnly) {
 				$flowStore.schema = {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
 					properties: {},
 					required: [],
 					type: 'object'
 				}
-			} else {
-				prevCode = ($flowStore.value.modules[i - 1].value as RawScript).content
 			}
-
-			let module = $copilotModulesStore[i]
 
 			if (module.type === 'trigger') {
 				if (!$scheduleStore.cron) {
@@ -472,8 +507,24 @@
 				$scheduleStore.enabled = true
 			}
 
+			let hubScript:
+				| {
+						content: string
+						lockfile?: string | undefined
+						schema?: any
+						language: string
+						summary?: string | undefined
+				  }
+				| undefined = undefined
+
+			if (module.source === 'hub' && module.selectedCompletion) {
+				hubScript = await ScriptService.getHubScriptByPath({
+					path: module.selectedCompletion.path
+				})
+			}
+
 			const flowModule = {
-				id: numberToChars(i),
+				id: module.id,
 				stop_after_if:
 					module.type === 'trigger'
 						? {
@@ -484,16 +535,18 @@
 				value: {
 					input_transforms: {},
 					content: '',
-					language: RawScript.language.BUN,
+					language: (hubScript ? hubScript.language : module.lang ?? 'bun') as Script.language,
 					type: 'rawscript' as const
 				},
-				summary:
-					$copilotModulesStore[i].selectedCompletion?.summary ?? $copilotModulesStore[i].description
+				summary: module.selectedCompletion?.summary ?? module.description
 			}
 
-			if (i === 1 && $copilotModulesStore[i - 1].type === 'trigger') {
+			$flowStateStore[module.id] = emptyFlowModuleState()
+			if (stepOnly) {
+				flowModules.splice(idx, 0, flowModule)
+			} else if (idx === 1 && $copilotModulesStore[idx - 1].type === 'trigger') {
 				const loopModule: FlowModule = {
-					id: numberToChars(i) + '_loop',
+					id: module.id + '_loop',
 					value: {
 						type: 'forloopflow',
 						iterator: {
@@ -504,152 +557,167 @@
 						modules: [flowModule]
 					}
 				}
-
-				$flowStore.value.modules.push(loopModule)
+				const loopState = await loadFlowModuleState(loopModule)
+				$flowStateStore[loopModule.id] = loopState
+				flowModules.push(loopModule)
 			} else {
-				$flowStore.value.modules.push(flowModule)
+				flowModules.push(flowModule)
 			}
 
 			$copilotDrawerStore?.closeDrawer()
-			select(numberToChars(i))
-			await sleep(200)
+			select(module.id)
+			await tick()
+			focusCopilot()
 
-			$copilotModulesStore[i].editor?.setCode('')
-			const deltaStore = writable<string>('')
-			const unsubscribe = deltaStore.subscribe(async (delta) => {
-				$copilotModulesStore[i].editor?.append(delta)
-			})
-			await stepCopilot(module, deltaStore, prevCode, abortController)
-			unsubscribe()
+			let isFirstInLoop = false
+			const parents = dfs(module.id, $flowStore).slice(1)
+			if (
+				parents[0]?.value.type === 'forloopflow' &&
+				parents[0].value.modules[0].id === module.id
+			) {
+				isFirstInLoop = true
+			}
+			const prevNodeId = getPreviousIds(module.id, $flowStore, false)[0]
+			const pastModule: FlowModule | undefined = dfs(prevNodeId, $flowStore, false)[0]
 
-			copilotStatus = "Generating inputs for step '" + numberToChars(i) + "'..."
+			if (hubScript) {
+				module.editor?.setCode(hubScript.content)
+			} else if (module.source === 'custom') {
+				module.editor?.setCode('')
+				const deltaStore = writable<string>('')
+				const unsubscribe = deltaStore.subscribe(async (delta) => {
+					module.editor?.append(delta)
+				})
+
+				abortController = new AbortController()
+				await stepCopilot(
+					module,
+					deltaStore,
+					pastModule?.value.type === 'rawscript' ? pastModule.value.content : '',
+					pastModule?.value.type === 'rawscript' ? pastModule.value.language : undefined,
+					pastModule === undefined,
+					isFirstInLoop,
+					abortController
+				)
+				unsubscribe()
+			} else {
+				throw new Error('Invalid copilot module source')
+			}
+
+			copilotStatus = "Generating inputs for step '" + module.id + "'..."
 			await sleep(500) // make sure code was parsed
 
 			try {
-				let currentFlowModule = $flowStore.value.modules[i]
-				if (currentFlowModule.value.type === 'forloopflow') {
-					currentFlowModule = currentFlowModule.value.modules[0]
-				}
-
-				if (currentFlowModule.value.type === 'rawscript') {
+				if (flowModule.value.type === 'rawscript') {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (module.source === 'hub' && i >= 1) {
+					if (module.source === 'hub' && pastModule !== undefined && $existsOpenaiResourcePath) {
 						// ask AI to set step inputs
-						const pastModule = $flowStore.value.modules[i - 1]
+						abortController = new AbortController()
 						const inputs = await glueCopilot(
-							Object.keys(currentFlowModule.value.input_transforms),
+							Object.keys(flowModule.value.input_transforms),
 							pastModule.value.type === 'rawscript' ? pastModule.value.content : '',
-							i === 1 && $copilotModulesStore[i - 1].type === 'trigger',
+							pastModule.value.type === 'rawscript' ? pastModule.value.language : undefined,
+							isFirstInLoop,
 							abortController
 						)
 
 						// create flow inputs used by AI for autocompletion
-						Object.entries(inputs)
-							.filter(
-								([key, expr]) =>
-									key in stepSchema.properties &&
-									expr.startsWith('flow_inputs.') &&
-									!expr.startsWith('flow_inputs.iter')
-							)
-							.map(([key, _]) => {
-								const inputSchemaProperty = stepSchema.properties[key]
-								const isRequired = stepSchema.required.includes(key)
-
-								if ($flowStore.schema) {
-									$flowStore.schema.properties[key] = inputSchemaProperty
-									if (isRequired) {
-										$flowStore.schema.required.push(key)
-									}
-								} else {
-									$flowStore.schema = {
-										$schema: 'https://json-schema.org/draft/2020-12/schema',
-										properties: {
-											[key]: inputSchemaProperty
-										},
-										required: isRequired ? [key] : [],
-										type: 'object'
-									}
+						copilotFlowInputs = {}
+						copilotFlowRequiredInputs = []
+						Object.entries(inputs).forEach(([key, expr]) => {
+							if (
+								key in stepSchema.properties &&
+								expr.startsWith('flow_input.') &&
+								!expr.startsWith('flow_input.iter') &&
+								(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
+							) {
+								copilotFlowInputs[key] = stepSchema.properties[key]
+								if (stepSchema.required.includes(key)) {
+									copilotFlowRequiredInputs.push(key)
 								}
-								$flowStore.schema
-							})
-
-						flowModule.value.input_transforms = Object.entries(inputs).reduce(
-							(acc, [key, expr]) => {
-								acc[key] = {
-									type: 'javascript',
-									expr
-								}
-								return acc
-							},
-							{}
-						)
-					} else {
-						// create possible flow inputs for autocompletion
-						delete stepSchema.properties.prev_output
-						$flowStore.schema = {
-							$schema: 'https://json-schema.org/draft/2020-12/schema',
-							properties: {
-								...$flowStore.schema?.properties,
-								...stepSchema.properties
-							},
-							required: Array.from(
-								new Set([...$flowStore.schema?.required, ...stepSchema.required])
-							),
-							type: 'object'
+							}
+						})
+						if (!stepOnly) {
+							applyCopilotFlowInputs()
 						}
 
-						// programatically set step inputs
-						for (const key of Object.keys(currentFlowModule.value.input_transforms)) {
+						// set step inputs
+						Object.entries(inputs).forEach(([key, expr]) => {
+							flowModule.value.input_transforms[key] = {
+								type: 'javascript',
+								expr
+							}
+						})
+					} else {
+						if (module.source === 'hub' && pastModule !== undefined && !$existsOpenaiResourcePath) {
+							sendUserToast(
+								'For better input generation, enable Windmill AI in the workspace settings',
+								true
+							)
+						}
+
+						// create possible flow inputs for autocompletion
+						copilotFlowInputs = {}
+						copilotFlowRequiredInputs = []
+						Object.keys(flowModule.value.input_transforms).forEach((key) => {
 							if (key !== 'prev_output') {
 								const schema = $flowStateStore[module.id].schema
 								const schemaProperty = Object.entries(schema.properties).find(
 									(x) => x[0] === key
 								)?.[1]
-								if (schemaProperty) {
-									$flowStore.schema = {
-										$schema: 'https://json-schema.org/draft/2020-12/schema',
-										properties: {
-											...$flowStore.schema?.properties,
-											[key]: schemaProperty
-										},
-										required: schemaProperty.required
-											? Array.from(new Set([...$flowStore.schema?.required, key]))
-											: $flowStore.schema?.required,
-										type: 'object'
+								if (
+									schemaProperty &&
+									(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
+								) {
+									copilotFlowInputs[key] = schemaProperty
+									if (schema.required.includes(key)) {
+										copilotFlowRequiredInputs.push(key)
 									}
 								}
 							}
+						})
+						if (!stepOnly) {
+							applyCopilotFlowInputs()
+						}
 
+						// programatically set step inputs
+						for (const key of Object.keys(flowModule.value.input_transforms)) {
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
 								expr:
 									key === 'prev_output'
-										? $copilotModulesStore[i - 1].type === 'trigger'
+										? isFirstInLoop
 											? 'flow_input.iter.value'
-											: 'results.' + $copilotModulesStore[i - 1].id
+											: pastModule
+											? 'results.' + pastModule.id
+											: 'flow_input.' + key
 										: 'flow_input.' + key
 							}
 						}
 					}
 
-					const wrappingFlowModule = $flowStore.value.modules[i]
-					if (wrappingFlowModule.value.type === 'forloopflow') {
-						wrappingFlowModule.value = {
-							...wrappingFlowModule.value,
-							modules: [flowModule]
-						}
-						$flowStore.value.modules[i] = wrappingFlowModule
-					} else {
-						$flowStore.value.modules[i] = flowModule
-					}
+					$flowStore = $flowStore // force rerendering
 				}
 			} catch (err) {
 				console.error(err)
 			}
 
-			copilotStatus =
-				"Waiting for the user to validate code and inputs of step '" + numberToChars(i) + "'"
+			if (stepOnly) {
+				openCopilotInputsModal = true
+				$copilotCurrentStepStore = undefined
+				copilotLoading = false
+				setInitCopilotModules(flowCopilotMode)
+				copilotStatus = ''
+			} else {
+				copilotStatus =
+					"Waiting for the user to validate code and inputs of step '" + module.id + "'"
+			}
 		} catch (err) {
+			if (stepOnly) {
+				copilotStatus = ''
+				$copilotCurrentStepStore = undefined
+				setInitCopilotModules(flowCopilotMode)
+			}
 			if (err?.message) {
 				sendUserToast('Failed to generate code: ' + err.message, true)
 			} else {
@@ -661,7 +729,9 @@
 		}
 	}
 
-	async function handleFlowGenInputs() {
+	flowCopilotContext.genFlow = genFlow
+
+	async function handleFlowCopilotInputs() {
 		copilotLoading = true
 		select('Input')
 		$copilotCurrentStepStore = 'Input'
@@ -734,14 +804,30 @@
 		})
 	}
 
-	$: $copilotCurrentStepStore !== undefined ? focusCopilot() : blurCopilot()
+	$: $copilotCurrentStepStore === undefined && blurCopilot()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<FlowCopilotDrawer {hubCompletions} {genFlow} bind:flowCopilotMode />
-
 {#if !$userStore?.operator}
+	<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
+	<FlowCopilotInputsModal
+		on:confirmed={async () => {
+			applyCopilotFlowInputs()
+			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+			await sleep(3000)
+			copilotStatus = ''
+		}}
+		on:canceled={async () => {
+			copilotFlowInputs = {}
+			copilotFlowRequiredInputs = []
+			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+			await sleep(3000)
+			copilotStatus = ''
+		}}
+		bind:open={openCopilotInputsModal}
+		inputs={Object.keys(copilotFlowInputs)}
+	/>
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 
 	<div class="flex flex-col flex-1 h-screen">
@@ -825,7 +911,7 @@
 					{copilotLoading}
 					bind:copilotStatus
 					{genFlow}
-					{handleFlowGenInputs}
+					{handleFlowCopilotInputs}
 					{abortController}
 				/>
 

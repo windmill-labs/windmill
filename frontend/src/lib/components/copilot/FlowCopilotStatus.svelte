@@ -8,19 +8,26 @@
 	import { charsToNumber } from '../flows/idUtils'
 	import { existsOpenaiResourcePath } from '$lib/stores'
 	import Popup from '../common/popup/Popup.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import type { FlowEditorContext } from '../flows/types'
+	import { ExternalLink } from 'lucide-svelte'
 
 	export let copilotLoading: boolean
 	export let copilotStatus: string
 	export let abortController: AbortController | undefined
-	export let genFlow: (index: number) => void
-	export let handleFlowGenInputs: () => void
+	export let genFlow: (index: number, modules: FlowModule[], stepOnly?: boolean) => void
+	export let handleFlowCopilotInputs: () => void
 
 	let copilotPopover: ManualPopover | undefined = undefined
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { modulesStore, drawerStore, currentStepStore } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
 	$: copilotStatus.length > 0 ? copilotPopover?.open() : copilotPopover?.close()
+
+	$: copilotStatus && copilotPopover?.refresh()
 </script>
 
 {#if $existsOpenaiResourcePath}
@@ -62,8 +69,8 @@
 				? 'Exit'
 				: 'AI Flow Builder'}
 		</Button>
-		<div slot="content" class="text-sm flex flex-row items-center z-[901]"
-			><span class="font-semibold">
+		<div slot="content" class="text-sm flex flex-row items-center z-[901]">
+			<span class="font-semibold">
 				{copilotStatus}
 			</span>
 			{#if !copilotLoading && $currentStepStore !== undefined && $currentStepStore !== 'Input'}
@@ -85,9 +92,9 @@
 						}
 						const stepNb = charsToNumber($currentStepStore)
 						if (stepNb >= $modulesStore.length - 1) {
-							handleFlowGenInputs()
+							handleFlowCopilotInputs()
 						} else {
-							genFlow(stepNb + 1)
+							genFlow(stepNb + 1, $flowStore.value.modules)
 						}
 					}}
 				>
@@ -95,11 +102,16 @@
 						? 'Flow inputs'
 						: 'Next step'}
 				</Button>
-			{/if}</div
-		>
+			{/if}
+		</div>
 	</ManualPopover>
 {:else}
-	<Popup>
+	<Popup
+		floatingConfig={{
+			strategy: 'absolute',
+			placement: 'bottom'
+		}}
+	>
 		<svelte:fragment slot="button">
 			<Button
 				size="xs"
@@ -116,7 +128,11 @@
 		</svelte:fragment>
 		<div class="block text-primary">
 			<p class="text-sm"
-				>Enable Windmill AI in the <a href="/workspace_settings?tab=openai">workspace settings.</a
+				>Enable Windmill AI in the <a
+					href="/workspace_settings?tab=openai"
+					target="_blank"
+					class="inline-flex flex-row items-center gap-1"
+					>workspace settings <ExternalLink size={16} /></a
 				></p
 			>
 		</div>

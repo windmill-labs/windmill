@@ -181,28 +181,35 @@
 					</Button>
 				</svelte:fragment>
 				{@const fixAction = (_) => {
-					onFix(() => close(null))
+					if ($existsOpenaiResourcePath) {
+						onFix(() => close(null))
+					}
 				}}
 				<div use:fixAction>
-					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
-						{#if $generatedCode.length > 0}
-							<div class="overflow-x-scroll">
-								<HighlightCode language={lang} code={$generatedCode} />
-							</div>
-							{#if $generatedExplanation.length > 0}
-								<p class="text-sm mt-2"
-									><span class="font-bold">Explanation:</span> {$generatedExplanation}</p
-								>
+					{#if $existsOpenaiResourcePath}
+						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
+							{#if $generatedCode.length > 0}
+								<div class="overflow-x-scroll">
+									<HighlightCode language={lang} code={$generatedCode} />
+								</div>
+								{#if $generatedExplanation.length > 0}
+									<p class="text-sm mt-2"
+										><span class="font-bold">Explanation:</span> {$generatedExplanation}</p
+									>
+								{/if}
+							{:else}
+								<LoadingIcon />
 							{/if}
-						{:else}
-							<LoadingIcon />
-						{/if}
-					</div>
-					{#if !$existsOpenaiResourcePath}
-						<p class="text-sm"
-							>Enable Windmill AI in the <a href="/workspace_settings?tab=openai"
-								>workspace settings.</a
-							></p
+						</div>
+					{:else}
+						<div class="w-80">
+							<p class="text-sm"
+								>Enable Windmill AI in the <a
+									class="inline-flex flex-row items-center gap-1"
+									href="/workspace_settings?tab=openai"
+									target="_blank">workspace settings</a
+								></p
+							></div
 						>
 					{/if}
 				</div>
