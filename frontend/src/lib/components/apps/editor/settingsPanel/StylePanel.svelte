@@ -10,7 +10,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { premiumStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { secondaryMenu } from './secondaryMenu'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { customisationByComponent, hasStyleValue } from '../componentsPanel/cssUtils'
@@ -114,14 +114,14 @@
 		}}
 	>
 		<div class="flex flex-row gap-1 text-xs items-center">
-			Open CSS editor{$premiumStore.premium ? '  (EE only)' : ''}
+			Open CSS editor{$enterpriseLicense !== undefined ? '  (EE only)' : ''}
 			<Tooltip light>
 				You can also use the App CSS Editor to customise the CSS of all components.
 			</Tooltip>
 		</div>
 	</Button>
 	<div class="flex flex-row gap-2 items-center justify-between">
-		{#if $premiumStore.premium}
+		{#if $enterpriseLicense !== undefined}
 			<Button
 				color="dark"
 				size="xs2"

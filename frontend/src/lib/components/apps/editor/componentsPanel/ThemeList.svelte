@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { listThemes, type Theme, createTheme } from './themeUtils'
-	import { premiumStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { getContext, onMount } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -65,7 +65,7 @@
 </script>
 
 <div class="p-4 flex flex-col items-start w-auto gap-2 relative">
-	{#if !$premiumStore.premium}
+	{#if $enterpriseLicense === undefined}
 		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0" />
 		<Alert
 			type="warning"

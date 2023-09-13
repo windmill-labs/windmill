@@ -5,7 +5,7 @@
 	import type { AppViewerContext } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import CssHelperPanel from './CssHelperPanel.svelte'
-	import { premiumStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import ThemeList from './ThemeList.svelte'
@@ -38,7 +38,7 @@
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60}>
-						{#if !$premiumStore.premium}
+						{#if $enterpriseLicense !== undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row gap-2 items-center text-yellow-500 text-xs">
 									<AlertTriangle size={16} />

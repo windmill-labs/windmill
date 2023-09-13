@@ -22,7 +22,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { dfs } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
-	import { workspaceStore, premiumStore } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let app: App
@@ -131,7 +131,7 @@
 		}
 	})
 
-	$: addOrRemoveCss($premiumStore.premium || isEditor, css)
+	$: addOrRemoveCss($enterpriseLicense !== undefined || isEditor, css)
 
 	function addOrRemoveCss(isPremium: boolean, cssString: string | undefined) {
 		const existingElement = document.getElementById(cssId)
