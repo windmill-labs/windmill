@@ -175,8 +175,8 @@
 			class={twMerge(
 				buttonClass,
 				disabled
-					? '!bg-surface-disabled !text-tertiary border border-disabled !cursor-not-allowed'
-					: ''
+					? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed'
+					: 'border border-transparent'
 			)}
 			{id}
 			tabindex={disabled ? -1 : 0}

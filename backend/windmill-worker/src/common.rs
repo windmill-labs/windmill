@@ -5,12 +5,12 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
 use windmill_api_client::{types::CreateResource, Client};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     variables::ContextualVariable,
 };
-use windmill_queue::CLOUD_HOSTED;
 
 use anyhow::Result;
 use std::{

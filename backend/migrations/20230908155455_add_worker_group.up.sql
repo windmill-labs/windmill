@@ -4,4 +4,4 @@ CREATE TABLE worker_group_config (
     config JSONB DEFAULT '{}'::jsonb
 );
 
-ALTER TABLE worker_ping ADD COLUMN worker_group VARCHAR(255) DEFAULT 'default';;
+ALTER TABLE worker_ping ADD COLUMN IF NOT EXISTS worker_group VARCHAR(255) NOT NULL DEFAULT 'default';;

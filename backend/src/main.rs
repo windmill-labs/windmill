@@ -8,15 +8,14 @@
 
 use gethostname::gethostname;
 use git_version::git_version;
-use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 use tokio::{
     fs::{metadata, DirBuilder},
-    join,
     sync::RwLock,
 };
 use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
@@ -27,6 +26,8 @@ use windmill_worker::{
     GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR,
     PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
+
+use crate::monitor::monitor_db;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;
@@ -135,7 +136,10 @@ Windmill Community Edition {GIT_VERSION}
             tracing::info!("Smtp client connected.");
         }
     }
-    if server_mode || num_workers > 0 {
+
+    let worker_mode = num_workers > 0;
+
+    if server_mode || worker_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
         let port = if server_mode {
@@ -143,6 +147,19 @@ Windmill Community Edition {GIT_VERSION}
         } else {
             port_var.unwrap_or(0)
         };
+
+        // since it's only on server mode, the port is statically defined
+        let base_internal_url: String = format!("http://localhost:{}", port.to_string());
+
+        monitor_db(
+            &db,
+            tx.clone(),
+            &base_internal_url,
+            rsmq.clone(),
+            worker_mode,
+            server_mode,
+        )
+        .await;
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -161,7 +178,7 @@ Windmill Community Edition {GIT_VERSION}
         let workers_f = async {
             let port = port_rx.await?;
             let base_internal_url: String = format!("http://localhost:{}", port.to_string());
-            if num_workers > 0 {
+            if worker_mode {
                 run_workers(
                     db.clone(),
                     rx.resubscribe(),
@@ -176,29 +193,48 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
-        let rsmq2 = rsmq.clone();
         let monitor_f = async {
-            if server_mode {
-                // since it's only on server mode, the port is statically defined
-                let base_internal_url: String = format!("http://localhost:{}", port.to_string());
-                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2).await;
-            }
+            let db = db.clone();
+            let tx = tx.clone();
+            let rsmq = rsmq.clone();
+
+            let mut rx = rx.resubscribe();
+            let base_internal_url = base_internal_url.to_string();
+            tokio::spawn(async move {
+                //monitor_db is applied at start, no need to apply it twice
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                loop {
+                    monitor_db(
+                        &db,
+                        tx.clone(),
+                        &base_internal_url,
+                        rsmq.clone(),
+                        worker_mode,
+                        server_mode,
+                    )
+                    .await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(30))    => (),
+                        _ = rx.recv() => {
+                                println!("received killpill for monitor job");
+                                break;
+                        }
+                    }
+                }
+            });
+
             Ok(()) as anyhow::Result<()>
         };
 
         let metrics_f = async {
-            match metrics_addr {
-                Some(_addr) => {
-                    #[cfg(not(feature = "enterprise"))]
-                    panic!("Metrics are only available in the Enterprise Edition");
+            if let Some(_addr) = metrics_addr {
+                #[cfg(not(feature = "enterprise"))]
+                panic!("Metrics are only available in the Enterprise Edition");
 
-                    #[cfg(feature = "enterprise")]
-                    windmill_common::serve_metrics(_addr, rx.resubscribe(), num_workers > 0)
-                        .await
-                        .map_err(anyhow::Error::from)
-                }
-                None => Ok(()),
+                #[cfg(feature = "enterprise")]
+                windmill_common::serve_metrics(_addr, rx.resubscribe(), num_workers > 0).await;
             }
+            Ok(()) as anyhow::Result<()>
         };
 
         futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
@@ -223,25 +259,6 @@ fn display_config(envs: &[&str]) {
             .collect::<Vec<String>>()
             .join(", ")
     )
-}
-
-pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
-    db: &Pool<Postgres>,
-    rx: tokio::sync::broadcast::Receiver<()>,
-    base_internal_url: &str,
-    rsmq: Option<R>,
-) -> tokio::task::JoinHandle<()> {
-    let db1 = db.clone();
-    let db2 = db.clone();
-
-    let rx2 = rx.resubscribe();
-    let base_internal_url = base_internal_url.to_string();
-    tokio::spawn(async move {
-        join!(
-            handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq),
-            windmill_api::delete_expired_items_perdiodically(&db2, rx2)
-        );
-    })
 }
 
 pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(

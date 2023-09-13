@@ -15,6 +15,7 @@ use axum::{
     Json, Router,
 };
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -23,7 +24,6 @@ use windmill_common::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{query_scalar, FromRow, Postgres, Transaction};
-use windmill_queue::CLOUD_HOSTED;
 
 pub fn workspaced_service() -> Router {
     Router::new()

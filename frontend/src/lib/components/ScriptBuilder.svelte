@@ -680,7 +680,7 @@
 							>
 								{title}
 								{#if desc}
-									<Tooltip {documentationLink} class="mb-0.5 ml-1">
+									<Tooltip {documentationLink}>
 										{desc}
 									</Tooltip>
 								{/if}

@@ -1,4 +1,5 @@
 pub const WORKER_S3_BUCKET_SYNC: &str = "worker_s3_bucket_sync";
+pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 
 pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",

@@ -28,13 +28,10 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
-    worker::WORKER_GROUP,
+    worker::{update_ping, CLOUD_HOSTED, WORKER_CONFIG},
     DB, IS_READY, METRICS_ENABLED,
 };
-use windmill_queue::{
-    canceled_job_to_result, get_queued_job, pull, ACCEPTED_TAGS, CLOUD_HOSTED, DEDICATED_WORKER,
-    HTTP_CLIENT, IS_WORKER_TAGS_DEFINED,
-};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, HTTP_CLIENT};
 
 use serde_json::{json, Value};
 
@@ -612,8 +609,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(worker = %worker_name, "listening for jobs");
 
-    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some((_workspace, _script_path)) =
-        DEDICATED_WORKER.clone()
+    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(wp) =
+        WORKER_CONFIG.read().await.dedicated_worker.clone()
     {
         #[cfg(not(feature = "enterprise"))]
         panic!("Dedicated worker is an enterprise feature");
@@ -654,11 +651,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                 )
-                .bind(&_script_path)
-                .bind(&_workspace)
+                .bind(&wp.path)
+                .bind(&wp.workspace_id)
                 .fetch_optional(&db)
                 .await.expect("Failed to fetch script for dedicated worker")
-                .expect(&format!("Failed to fetch script `{_script_path}` in workspace {_workspace} for dedicated worker"));
+                .expect(&format!("Failed to fetch script `{}` in workspace {} for dedicated worker", wp.path, wp.workspace_id));
 
                 let worker_envs = build_envs(envs).expect("failed to build envs");
                 if let Err(e) = start_worker(
@@ -669,8 +666,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     &job_dir,
                     &worker_name,
                     worker_envs,
-                    &_workspace,
-                    &_script_path,
+                    &wp.workspace_id,
+                    &wp.path,
                     &token,
                     job_completed_tx,
                     dedicated_worker_rx,
@@ -707,9 +704,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         let copy_tx = _copy_to_bucket_tx.clone();
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
+            let wc = WORKER_CONFIG.read().await;
+            let tags = wc.worker_tags.as_slice();
+
             sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
                 jobs_executed,
+                tags,
                 &worker_name
             )
             .execute(db)
@@ -1268,21 +1269,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         let _ = f().await;
     }
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
-}
-
-async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &Pool<Postgres>) {
-    let tags = ACCEPTED_TAGS.clone();
-    sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
-        worker_instance,
-        worker_name,
-        ip,
-        if *IS_WORKER_TAGS_DEFINED { Some(tags.as_slice()) } else { None },
-        *WORKER_GROUP
-    )
-    .execute(db)
-    .await
-    .expect("insert worker_ping initial value");
 }
 
 fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {

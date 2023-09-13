@@ -12,18 +12,16 @@ use axum::{
     Json, Router,
 };
 
-use itertools::Itertools;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     utils::{paginate, Pagination},
+    worker::ALL_TAGS,
     DB,
 };
 
-use std::collections::HashMap;
 #[cfg(feature = "benchmark")]
 use std::sync::atomic::Ordering;
 #[cfg(feature = "benchmark")]
@@ -38,45 +36,15 @@ pub fn global_service() -> Router {
         .route("/list", get(list_worker_pings))
         .route("/custom_tags", get(get_custom_tags))
         .route("/list_worker_groups", get(get_worker_groups))
-        .route("/updated_worker_groups/:name", post(update_worker_group));
-
+        .route(
+            "/worker_group/:name",
+            post(update_worker_group).delete(delete_worker_group),
+        );
     #[cfg(feature = "benchmark")]
     return router.route("/toggle", get(toggle));
 
     #[cfg(not(feature = "benchmark"))]
     return router;
-}
-
-lazy_static::lazy_static! {
-    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
-
-    pub static ref CUSTOM_TAGS_PER_WORKSPACE: (Vec<String>, HashMap<String, Vec<String>>) =  process_custom_tags(std::env::var("CUSTOM_TAGS")
-        .ok());
-
-    pub static ref ALL_TAGS: Vec<String> = [CUSTOM_TAGS_PER_WORKSPACE.0.clone(), CUSTOM_TAGS_PER_WORKSPACE.1.keys().map(|x| x.to_string()).collect_vec()].concat();
-
-}
-
-fn process_custom_tags(o: Option<String>) -> (Vec<String>, HashMap<String, Vec<String>>) {
-    let regex = Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
-    if let Some(s) = o {
-        let mut global = vec![];
-        let mut specific: HashMap<String, Vec<String>> = HashMap::new();
-        for e in s.split(",") {
-            if let Some(cap) = regex.captures(e) {
-                let tag = cap.get(1).unwrap().as_str().to_string();
-                let workspaces = cap.get(2).unwrap().as_str().split("+");
-                specific.insert(tag, workspaces.map(|x| x.to_string()).collect_vec());
-            } else {
-                global.push(e.to_string());
-            }
-        }
-        (global, specific)
-    } else {
-        (vec![], HashMap::new())
-    }
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -88,6 +56,7 @@ struct WorkerPing {
     ip: String,
     jobs_executed: i32,
     custom_tags: Option<Vec<String>>,
+    worker_group: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,7 +75,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
         per_page as i64,
         offset as i64
     )
@@ -123,7 +92,7 @@ async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
 }
 
 async fn get_custom_tags() -> Json<Vec<String>> {
-    Json(ALL_TAGS.clone())
+    Json(ALL_TAGS.read().await.clone().into())
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -149,24 +118,51 @@ async fn get_worker_groups(
 }
 
 async fn update_worker_group(
-    Path(path): Path<String>,
+    Path(name): Path<String>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
-) -> error::JsonResult<()> {
-    let mut tx = user_db.begin(&authed).await?;
+) -> error::Result<String> {
+    let tx = user_db.begin(&authed).await?;
 
     require_super_admin(&db, &authed.email).await?;
+    tx.commit().await?;
 
     sqlx::query!(
         "INSERT INTO worker_group_config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
-        path.as_str(),
+        &name,
         config
     )
-    .execute(&mut *tx)
+    .execute(&db)
     .await?;
 
+    Ok(format!("Updated worker group {name}"))
+}
+
+async fn delete_worker_group(
+    Path(name): Path<String>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    authed: ApiAuthed,
+) -> error::Result<String> {
+    let tx = user_db.begin(&authed).await?;
+
+    require_super_admin(&db, &authed.email).await?;
     tx.commit().await?;
-    Ok(Json(()))
+
+    let deleted = sqlx::query!(
+        "DELETE FROM worker_group_config WHERE name = $1 RETURNING name",
+        name,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    if deleted.len() == 0 {
+        return Err(error::Error::NotFound(format!(
+            "Worker group {name} not found",
+            name = name
+        )));
+    }
+    Ok(format!("Deleted worker group {name}"))
 }
