@@ -610,7 +610,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(worker = %worker_name, "listening for jobs");
 
-    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(wp) =
+    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
         WORKER_CONFIG.read().await.dedicated_worker.clone()
     {
         #[cfg(not(feature = "enterprise"))]
@@ -660,8 +660,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                 )
-                .bind(&wp.path)
-                .bind(&wp.workspace_id)
+                .bind(&_wp.path)
+                .bind(&_wp.workspace_id)
                 .fetch_optional(&db)
                 .await;
                         if let Ok(q) = q {
@@ -671,8 +671,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             } else {
                                 tracing::error!(
                                 "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
-                                wp.path,
-                                wp.workspace_id
+                                _wp.path,
+                                _wp.workspace_id
                             );
                                 tokio::select! {
                                     biased;
@@ -704,8 +704,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     &job_dir,
                     &worker_name,
                     worker_envs,
-                    &wp.workspace_id,
-                    &wp.path,
+                    &_wp.workspace_id,
+                    &_wp.path,
                     &token,
                     job_completed_tx,
                     dedicated_worker_rx,
