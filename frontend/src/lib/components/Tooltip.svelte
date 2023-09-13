@@ -1,25 +1,22 @@
 <script lang="ts">
-	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, InfoIcon } from 'lucide-svelte'
 
 	export let light = false
-	export let scale = 0.8
 	export let wrapperClass = ''
 	export let placement: PopoverPlacement | undefined = undefined
 	export let documentationLink: string | undefined = undefined
 </script>
 
 <Popover notClickable {placement} class={wrapperClass}>
-	<Icon
-		class="{light
-			? 'text-gray-400 dark:text-gray-200 hover:text-tertiary dark:hover:text-gray-300'
-			: ' text-tertiary dark:text-gray-300 hover:text-tertiary dark:hover:text-gray-400'}  cursor-pointer transition-all font-thin flex h-4 p-0.5 w-4 justify-center items-center {$$props.class}"
-		data={faInfoCircle}
-		{scale}
-	/>
+	<div
+		class="inline-flex w-3 mx-0.5 {light
+			? 'text-tertiary-inverse'
+			: 'text-tertiary'} {$$props.class} relative"
+	>
+		<InfoIcon class="-bottom-0.5 absolute" size={16} />
+	</div>
 	<svelte:fragment slot="text">
 		<slot />
 		{#if documentationLink}

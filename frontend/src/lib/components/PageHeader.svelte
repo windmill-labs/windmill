@@ -12,7 +12,7 @@
 		<span class="flex items-center space-x-2">
 			<h1 class="!text-2xl font-semibold leading-6 tracking-tight">{title}</h1>
 			{#if tooltip != '' || documentationLink}
-				<Tooltip light {documentationLink} scale={0.9} wrapperClass="flex items-center">
+				<Tooltip {documentationLink}>
 					{tooltip}
 				</Tooltip>
 			{/if}
@@ -21,7 +21,7 @@
 		<span class="flex items-center space-x-2">
 			<h2 class="!text-sm font-semibold">{title}</h2>
 			{#if tooltip != '' || documentationLink}
-				<Tooltip light {documentationLink} scale={0.9} wrapperClass="flex items-center">
+				<Tooltip {documentationLink}>
 					{tooltip}
 				</Tooltip>
 			{/if}
