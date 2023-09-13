@@ -616,7 +616,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         #[cfg(not(feature = "enterprise"))]
         {
             tracing::error!("Dedicated worker is an enterprise feature");
-            killpill_tx.send(()).await.expect("send");
+            killpill_tx.send(()).expect("send");
+            return;
         }
 
         #[cfg(feature = "enterprise")]
