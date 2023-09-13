@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
+	import { Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals, copyToClipboard } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import type { ComponentCssProperty } from '../../types'
@@ -76,7 +76,20 @@
 			{/if}
 		</div>
 		{#if wmClass}
-			<Badge small>{wmClass}</Badge>
+			<Badge small>
+				<div class="flex flex-row gap-1 items-center">
+					{wmClass}
+					<Button
+						color="light"
+						size="xs2"
+						on:click={() => {
+							copyToClipboard(wmClass)
+						}}
+					>
+						<Copy size={14} />
+					</Button>
+				</div>
+			</Badge>
 		{/if}
 	</div>
 </div>

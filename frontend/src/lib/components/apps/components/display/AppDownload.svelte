@@ -82,10 +82,12 @@
 				on:pointerdown={(e) => e.stopPropagation()}
 				btnClasses={twMerge(
 					css?.button?.class,
+					'wm-button',
 					'wm-download-button',
 					resolvedConfig.fillContainer ? 'w-full h-full' : ''
 				)}
 				wrapperClasses={twMerge(
+					'wm-button-container',
 					'wm-download-button-container',
 					resolvedConfig.fillContainer ? 'w-full h-full' : ''
 				)}

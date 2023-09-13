@@ -145,7 +145,7 @@
 		disabled={resolvedConfig.disabled ?? false}
 		size={resolvedConfig.size ?? 'md'}
 		color={resolvedConfig.color}
-		btnClasses={twMerge(css?.button?.class, 'wm-modal-form-button')}
+		btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
 			modal?.open()

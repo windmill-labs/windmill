@@ -88,7 +88,6 @@
 			},
 			$workspaceStore
 		)
-		console.log(theme)
 		$previewTheme = theme ?? ''
 	}
 

@@ -16,6 +16,7 @@
 	import { customisationByComponent, hasStyleValue } from '../componentsPanel/cssUtils'
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
+	import { onMount } from 'svelte'
 	export let component: AppComponent | undefined
 
 	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
@@ -78,10 +79,14 @@
 	}
 
 	function initGlobalCss() {
+		// If the global css is not initialised, we initialise it.
+		// Should only happen once per app
 		if (!$app.css) {
 			$app.css = {}
 		}
 
+		// If the global css for this component type is not initialised, we initialise it.
+		// Should only happen once per component type
 		if (
 			$app.css &&
 			component &&
@@ -101,6 +106,10 @@
 				return s.customCssKey === key
 			})?.selector
 	}
+
+	onMount(() => {
+		initGlobalCss()
+	})
 </script>
 
 <div class="p-2 flex items-center gap-2 flex-row justify-between">
@@ -149,7 +158,7 @@
 			</Tooltip>
 		</div>
 	</Tab>
-	<Tab value="global" size="xs" on:pointerdown={() => initGlobalCss()}>
+	<Tab value="global" size="xs">
 		<div class="flex flex-row gap-2 items-center">
 			Global: {type ? ccomponents[type].name : ''}
 
@@ -179,7 +188,8 @@
 								copyLocalToGlobal(name, component?.customCss?.[name])
 								tab = 'global'
 							}}
-							overridding={hasStyleValue(component.customCss[name])}
+							overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+								hasStyleValue(component.customCss[name])}
 						/>
 					</div>
 				{/each}

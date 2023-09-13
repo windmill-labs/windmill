@@ -236,13 +236,17 @@
 		tmpRunnablePanelSize = runnablePanelSize
 		tmpGridPanelSize = gridPanelSize
 
-		animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue) => (gridPanelSize = newValue))
+		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
 
 		toggled = true
 	} else if (!$connectingInput.opened && toggled) {
-		animateTo(runnablePanelSize, tmpRunnablePanelSize, (newValue) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue) => (gridPanelSize = newValue))
+		animateTo(
+			runnablePanelSize,
+			tmpRunnablePanelSize,
+			(newValue: number) => (runnablePanelSize = newValue)
+		)
+		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
 
 		tmpRunnablePanelSize = -1
 		tmpGridPanelSize = -1
@@ -256,28 +260,36 @@
 		tmpCenterPanelSize = centerPanelSize
 		tmpRightPanelSize = rightPanelSize
 
-		animateTo(leftPanelSize, 0, (newValue) => (leftPanelSize = newValue))
-		animateTo(centerPanelSize, 60, (newValue) => (centerPanelSize = newValue))
-		animateTo(rightPanelSize, 40, (newValue) => (rightPanelSize = newValue))
+		animateTo(leftPanelSize, 0, (newValue: number) => (leftPanelSize = newValue))
+		animateTo(centerPanelSize, 60, (newValue: number) => (centerPanelSize = newValue))
+		animateTo(rightPanelSize, 40, (newValue: number) => (rightPanelSize = newValue))
 
 		tmpRunnablePanelSize = runnablePanelSize
 		tmpGridPanelSize = gridPanelSize
 
-		animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue) => (gridPanelSize = newValue))
+		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
 
 		cssToggled = true
 	} else if (!$cssEditorOpen && cssToggled) {
-		animateTo(leftPanelSize, tmpLeftPanelSize, (newValue) => (leftPanelSize = newValue))
-		animateTo(centerPanelSize, tmpCenterPanelSize, (newValue) => (centerPanelSize = newValue))
-		animateTo(rightPanelSize, tmpRightPanelSize, (newValue) => (rightPanelSize = newValue))
+		animateTo(leftPanelSize, tmpLeftPanelSize, (newValue: number) => (leftPanelSize = newValue))
+		animateTo(
+			centerPanelSize,
+			tmpCenterPanelSize,
+			(newValue: number) => (centerPanelSize = newValue)
+		)
+		animateTo(rightPanelSize, tmpRightPanelSize, (newValue: number) => (rightPanelSize = newValue))
 
 		tmpLeftPanelSize = -1
 		tmpCenterPanelSize = -1
 		tmpRightPanelSize = -1
 
-		animateTo(runnablePanelSize, tmpRunnablePanelSize, (newValue) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue) => (gridPanelSize = newValue))
+		animateTo(
+			runnablePanelSize,
+			tmpRunnablePanelSize,
+			(newValue: number) => (runnablePanelSize = newValue)
+		)
+		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
 
 		tmpRunnablePanelSize = -1
 		tmpGridPanelSize = -1
@@ -285,11 +297,11 @@
 		cssToggled = false
 	}
 
-	function animateTo(start, end, onUpdate) {
+	function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
 		const duration = 400
 		const startTime = performance.now()
 
-		function animate(time) {
+		function animate(time: number) {
 			const elapsed = time - startTime
 			const progress = Math.min(elapsed / duration, 1)
 			const currentValue = start + (end - start) * easeInOut(progress)
@@ -477,7 +489,16 @@
 								</Popover>
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Global styling</svelte:fragment>
-									<Tab value="css" size="xs" class="h-full">
+									<Tab
+										value="css"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											if (!$cssEditorOpen) {
+												$cssEditorOpen = true
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Paintbrush size={18} />
 										</div>

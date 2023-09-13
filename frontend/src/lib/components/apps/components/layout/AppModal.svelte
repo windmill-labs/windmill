@@ -95,10 +95,11 @@
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 			<Button
-				btnClasses={twMerge(css?.button?.class, 'wm-modal-button')}
+				btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-button')}
 				wrapperClasses={twMerge(
 					resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
 					css?.buttonContainer?.class,
+					'wm-button-container',
 					'wm-modal-button-container'
 				)}
 				style={css?.button?.style}

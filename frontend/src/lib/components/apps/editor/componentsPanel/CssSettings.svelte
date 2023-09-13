@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { AlertTriangle, GitBranch, Info } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
@@ -14,16 +14,26 @@
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	const { app, cssEditorOpen } = getContext<AppViewerContext>('AppViewerContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssEditor: SimpleEditor | undefined = undefined
 	let alertHeight: number | undefined = undefined
 	let themeViewer: any = undefined
-
 	let selectedTab: 'css' | 'theme' = 'css'
-	onMount(() => {
-		$cssEditorOpen = true
-	})
+
+	function insertSelector(selector: string) {
+		if ($app?.theme?.type === 'path') {
+			sendUserToast(
+				'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
+				true
+			)
+			return
+		}
+
+		const code = cssEditor?.getCode()
+		cssEditor?.setCode(code + '\n' + selector)
+		$app = $app
+	}
 </script>
 
 <Drawer bind:this={themeViewer} size="800px">
@@ -95,21 +105,7 @@
 						</div>
 					</Pane>
 					<Pane size={40}>
-						<CssHelperPanel
-							on:insertSelector={(e) => {
-								if ($app?.theme?.type === 'path') {
-									sendUserToast(
-										'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
-										true
-									)
-									return
-								}
-
-								const code = cssEditor?.getCode()
-								cssEditor?.setCode(code + '\n' + e.detail)
-								$app = $app
-							}}
-						/>
+						<CssHelperPanel on:insertSelector={(e) => insertSelector(e.detail)} />
 					</Pane>
 				</Splitpanes>
 			</SplitPanesWrapper>

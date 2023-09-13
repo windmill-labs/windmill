@@ -11,6 +11,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -40,6 +41,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.drawercomponent}
 	/>
 {/each}
 

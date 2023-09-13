@@ -13,6 +13,8 @@
 	import { ResourceService } from '$lib/gen'
 	import { Alert } from '$lib/components/common'
 	import ThemeRow from './ThemeRow.svelte'
+	import { onDestroy } from 'svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -24,8 +26,12 @@
 		path: string
 	}> = []
 
+	let loading: boolean = false
+
 	async function getThemes() {
+		loading = true
 		themes = await listThemes($workspaceStore!)
+		loading = false
 	}
 
 	async function addTheme(nameField: string) {
@@ -62,6 +68,11 @@
 	onMount(() => {
 		getThemes()
 	})
+
+	onDestroy(() => {
+		previewTheme.set(undefined)
+		previewThemePath = undefined
+	})
 </script>
 
 <div class="p-4 flex flex-col items-start w-auto gap-2 relative">
@@ -85,7 +96,13 @@
 		</div>
 	{/if}
 
-	{#if Array.isArray(themes) && themes.length > 0}
+	{#if loading}
+		<div class="flex flex-col w-full">
+			{#each new Array(6) as _}
+				<Skeleton layout={[[2], 0.5]} />
+			{/each}
+		</div>
+	{:else if Array.isArray(themes) && themes.length > 0}
 		<div class="flex flex-row justify-end items-center w-full h-10">
 			<Button
 				disabled={$previewTheme === undefined}
