@@ -38,7 +38,7 @@
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60}>
-						{#if $enterpriseLicense !== undefined}
+						{#if $enterpriseLicense === undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row gap-2 items-center text-yellow-500 text-xs">
 									<AlertTriangle size={16} />

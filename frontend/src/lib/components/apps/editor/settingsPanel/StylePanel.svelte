@@ -114,7 +114,7 @@
 		}}
 	>
 		<div class="flex flex-row gap-1 text-xs items-center">
-			Open CSS editor{$enterpriseLicense !== undefined ? '  (EE only)' : ''}
+			Open CSS editor{$enterpriseLicense === undefined ? '  (EE only)' : ''}
 			<Tooltip light>
 				You can also use the App CSS Editor to customise the CSS of all components.
 			</Tooltip>
