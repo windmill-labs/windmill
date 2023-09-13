@@ -117,8 +117,12 @@
 
 								<button
 									on:click={() => {
-										copilotModule.selectedCompletion = undefined
-										copilotModule.source = undefined
+										copilotModule = {
+											...copilotModule,
+											selectedCompletion: undefined,
+											source: undefined,
+											lang: undefined
+										}
 										if ($currentStepStore !== undefined && i < charsToNumber($currentStepStore)) {
 											$currentStepStore = numberToChars(i)
 										}
@@ -154,9 +158,12 @@
 								<button
 									class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
 									on:click={() => {
-										copilotModule.source = 'custom'
-										copilotModule.selectedCompletion = undefined
-										copilotModule.lang = 'bun'
+										copilotModule = {
+											...copilotModule,
+											source: 'custom',
+											selectedCompletion: undefined,
+											lang: 'bun'
+										}
 									}}
 								>
 									<div class="flex items-center gap-4">
@@ -176,9 +183,12 @@
 								<button
 									class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
 									on:click={() => {
-										copilotModule.source = 'custom'
-										copilotModule.selectedCompletion = undefined
-										copilotModule.lang = 'python3'
+										copilotModule = {
+											...copilotModule,
+											source: 'custom',
+											selectedCompletion: undefined,
+											lang: 'python3'
+										}
 									}}
 								>
 									<div class="flex items-center gap-4">
@@ -204,8 +214,12 @@
 											<button
 												class="p-4 gap-4 flex flex-row hover:bg-surface-hover bg-surface transition-all items-center rounded-md justify-between w-full"
 												on:click={() => {
-													copilotModule.source = 'hub'
-													copilotModule.selectedCompletion = item
+													copilotModule = {
+														...copilotModule,
+														source: 'hub',
+														selectedCompletion: item,
+														lang: undefined
+													}
 												}}
 											>
 												<div class="flex items-center gap-4">
