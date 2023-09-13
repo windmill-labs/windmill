@@ -18,7 +18,7 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
+export function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -80,22 +80,7 @@ function getFlowInput(
 	}
 }
 
-export function getStepPropPicker(
-	flowState: FlowState,
-	parentModule: FlowModule | undefined,
-	previousModule: FlowModule | undefined,
-	id: string,
-	flow: Flow,
-	args: any,
-	include_node: boolean
-): StepPropPicker {
-	const flowInput = getFlowInput(
-		dfs(parentModule?.id, flow),
-		flowState,
-		args,
-		flow.schema as Schema
-	)
-
+export function getPreviousIds(id: string, flow: Flow, include_node: boolean): string[] {
 	const previousIds = dfs(id, flow, false)
 		.map((x) => {
 			let submodules = getAllSubmodules(x)
@@ -112,6 +97,26 @@ export function getStepPropPicker(
 	if (!include_node) {
 		previousIds.shift()
 	}
+	return previousIds
+}
+
+export function getStepPropPicker(
+	flowState: FlowState,
+	parentModule: FlowModule | undefined,
+	previousModule: FlowModule | undefined,
+	id: string,
+	flow: Flow,
+	args: any,
+	include_node: boolean
+): StepPropPicker {
+	const flowInput = getFlowInput(
+		dfs(parentModule?.id, flow),
+		flowState,
+		args,
+		flow.schema as Schema
+	)
+
+	const previousIds = getPreviousIds(id, flow, include_node)
 
 	let priorIds = Object.fromEntries(
 		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
