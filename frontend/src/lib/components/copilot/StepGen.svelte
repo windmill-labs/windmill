@@ -21,7 +21,6 @@
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
 	let lang: FlowCopilotModule['lang'] = undefined
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	//
 	const { modulesStore: copilotModulesStore, genFlow } =
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
@@ -85,7 +84,7 @@
 
 <div class="text-primary transition-all {funcDesc.length > 0 ? 'w-96' : 'w-60'}">
 	<div>
-		<div class="flex p-2">
+		<div class="flex p-2 relative">
 			<input
 				type="text"
 				bind:this={input}
@@ -97,9 +96,14 @@
 						hubCompletions = []
 					}
 				}}
-				placeholder="AI Gen &#xf0d0; or search hub scripts"
-				style="font-family:Inter, FontAwesome"
+				placeholder="AI Gen       or search hub scripts"
 			/>
+			{#if funcDesc.length === 0}
+				<Icon
+					data={faMagicWandSparkles}
+					class="absolute left-[65px] qhd:left-[75px] top-[18px] qhd:top-[20px] fill-current opacity-70"
+				/>
+			{/if}
 		</div>
 		{#if funcDesc.length > 0}
 			<ul class="transition-all divide-y">

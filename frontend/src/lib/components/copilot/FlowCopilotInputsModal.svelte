@@ -11,7 +11,7 @@
 </script>
 
 <Modal
-	{open}
+	bind:open
 	on:confirmed={() => {
 		open = false
 		dispatch('confirmed')
