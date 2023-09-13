@@ -6,7 +6,11 @@
 
 	export let placement: PopoverPlacement = 'bottom'
 
-	const [popperRef, popperContent] = createPopperActions({ placement })
+	const [popperRef, popperContent, getInstance] = createPopperActions({ placement })
+
+	export async function refresh() {
+		await getInstance()?.update()
+	}
 
 	let showTooltip = false
 	export function open() {

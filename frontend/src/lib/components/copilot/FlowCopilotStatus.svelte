@@ -25,6 +25,8 @@
 		getContext<FlowCopilotContext>('FlowCopilotContext')
 
 	$: copilotStatus.length > 0 ? copilotPopover?.open() : copilotPopover?.close()
+
+	$: copilotStatus && copilotPopover?.refresh()
 </script>
 
 {#if $existsOpenaiResourcePath}
