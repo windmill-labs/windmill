@@ -122,12 +122,13 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
     let wc = WORKER_CONFIG.read().await;
     let tags = wc.worker_tags.as_slice();
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
         worker_instance,
         worker_name,
         ip,
         tags,
-        *WORKER_GROUP
+        *WORKER_GROUP,
+        wc.dedicated_worker.as_ref().map(|x| format!("{}:{}", x.workspace_id, x.path))
     )
     .execute(db)
     .await
@@ -145,10 +146,10 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     .map(|x| serde_json::from_value(x).ok())
     .flatten()
     .unwrap_or_default();
-    let dedicated_worker = std::env::var("DEDICATED_WORKER").ok().map(|x| {
+    let dedicated_worker = config.dedicated_worker.map(|x| {
         let splitted = x.split(':').to_owned().collect_vec();
         if splitted.len() != 2 {
-            panic!("DEDICATED_WORKER should be in the form of <workspace>:<script_path>")
+            panic!("DEDICATED_WORKER setting should be in the form of <workspace>:<script_path>")
         } else {
             let workspace = splitted[0];
             let script_path = splitted[1];

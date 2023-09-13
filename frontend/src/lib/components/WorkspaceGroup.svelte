@@ -7,6 +7,8 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { enterpriseLicense } from '$lib/stores'
+	import Tooltip from './Tooltip.svelte'
 
 	export let name: string
 	export let config:
@@ -114,7 +116,7 @@
 				<div class="flex flex-col gap-1 pb-2">
 					{#each nconfig.worker_tags as tag}
 						<div class="flex gap-1 items-center"
-							><div>- {tag}</div>
+							><div class="text-sm">- {tag}</div>
 							<button
 								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 								aria-label="Remove item"
@@ -146,35 +148,88 @@
 				>
 					Add tag
 				</Button>
+				<div class="flex flex-wrap mt-2 items-center gap-1">
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = defaultTags.concat(nativeTags)
+								dirty = true
+							}
+						}}
+					>
+						Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
+					</Button>
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = nativeTags
+								dirty = true
+							}
+						}}
+					>
+						Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
+					</Button>
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = nativeTags
+								dirty = true
+							}
+						}}
+					>
+						Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
+					</Button>
+				</div>
 			{/if}
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
-					placeholder="Script path"
+					placeholder="<workspace>:<script path>"
 					type="text"
 					on:change={() => {
 						dirty = true
 					}}
 					bind:value={nconfig.dedicated_worker}
 				/>
+				<p class="text-2xs text-tertiary max-w-md mt-2"
+					>Workers will get killed upon detecting this setting change. It is assumed they are in an
+					environment where the supervisor will restart them. Upon restart, they will pick the new
+					dedicated worker config.</p
+				>
 			{/if}
 		{/if}
 		<div class="mt-4" />
-		<Button
-			variant="contained"
-			color="dark"
-			size="xs"
-			on:click={async () => {
-				await WorkerService.updateWorkerGroup({ name, requestBody: nconfig })
-				sendUserToast(
-					'Setting configuration, it can take up to 30s to get propagated to all workers'
-				)
-				dispatch('reload')
-			}}
-			disabled={!dirty}
-		>
-			Set configuration
-		</Button>
+		<div class="flex gap-1 items-center">
+			<Button
+				variant="contained"
+				color="dark"
+				size="xs"
+				on:click={async () => {
+					await WorkerService.updateWorkerGroup({ name, requestBody: nconfig })
+					sendUserToast(
+						'Setting configuration, it can take up to 30s to get propagated to all workers'
+					)
+					dispatch('reload')
+				}}
+				disabled={!dirty || !$enterpriseLicense}
+			>
+				Apply changes {#if !$enterpriseLicense}(ee only){/if}
+			</Button>
+			{#if !$enterpriseLicense}<Tooltip
+					>{selected == 'dedicated'
+						? 'Dedicated workers are an enterprise only feature'
+						: 'The Worker Group Manager UI is an enterprise only feature. However, workers can still have their WORKER_TAGS passed as env'}</Tooltip
+				>{/if}
+		</div>
 	</Popup>
 	{#if config}
 		<Button color="light" size="xs" on:click={() => (open = true)} btnClasses="text-red-400">

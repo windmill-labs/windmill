@@ -956,6 +956,7 @@ fn spawn_test_worker(
     let worker_name: String = next_worker_name();
     let ip: &str = Default::default();
 
+    let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
@@ -966,6 +967,7 @@ fn spawn_test_worker(
             1,
             ip,
             rx,
+            tx2,
             &base_internal_url,
             None,
             Arc::new(RwLock::new(None)),

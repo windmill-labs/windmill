@@ -89,9 +89,9 @@
 		},
 		light: {
 			border:
-				'border bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected',
+				'border  bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary hover:text-secondary focus:text-secondary focus:ring-surface-selected',
 			contained:
-				'bg-surface hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-surface-selected',
+				'bg-surface border-transparent hover:bg-surface-hover focus:bg-surface-hover text-primary focus:ring-surface-selected',
 			divider: 'divide-x divide-gray-200 dark:divide-gray-700'
 		}
 	}
@@ -174,9 +174,7 @@
 			on:blur
 			class={twMerge(
 				buttonClass,
-				disabled
-					? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed'
-					: 'border border-transparent'
+				disabled ? '!bg-surface-disabled !text-tertiary border !cursor-not-allowed' : 'border'
 			)}
 			{id}
 			tabindex={disabled ? -1 : 0}

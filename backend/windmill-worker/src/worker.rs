@@ -348,6 +348,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     _num_workers: u32,
     ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
     _sync_barrier: Arc<RwLock<Option<Barrier>>>,
@@ -613,13 +614,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         WORKER_CONFIG.read().await.dedicated_worker.clone()
     {
         #[cfg(not(feature = "enterprise"))]
-        panic!("Dedicated worker is an enterprise feature");
+        {
+            tracing::error!("Dedicated worker is an enterprise feature");
+            killpill_tx.send(()).await.expect("send");
+        }
 
         #[cfg(feature = "enterprise")]
         {
             let (dedicated_worker_tx, dedicated_worker_rx) =
                 mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
-            let killpill_rx = killpill_rx.resubscribe();
+            let mut killpill_rx = killpill_rx.resubscribe();
             let db = db.clone();
             let worker_dir = worker_dir.clone();
             let base_internal_url = base_internal_url.to_string();
@@ -643,10 +647,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 .execute(&db)
                 .await
                 {
-                    panic!("failed to create token for dedicated worker: {:?}", e)
+                    tracing::error!("failed to create token for dedicated worker: {:?}", e);
+                    killpill_tx.send(()).expect("send");
                 };
 
-                let (content, lock, _language, envs) = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+                let (content, lock, _language, envs) = {
+                    let r;
+                    loop {
+                        let q = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
                     "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
                     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
@@ -654,8 +662,37 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 .bind(&wp.path)
                 .bind(&wp.workspace_id)
                 .fetch_optional(&db)
-                .await.expect("Failed to fetch script for dedicated worker")
-                .expect(&format!("Failed to fetch script `{}` in workspace {} for dedicated worker", wp.path, wp.workspace_id));
+                .await;
+                        if let Ok(q) = q {
+                            if let Some(wp) = q {
+                                r = wp;
+                                break;
+                            } else {
+                                tracing::error!(
+                                "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
+                                wp.path,
+                                wp.workspace_id
+                            );
+                                tokio::select! {
+                                    biased;
+                                    _ = killpill_rx.recv() => {
+                                        tracing::info!("Killing dedicated worker while it was attempting to fetch script");
+                                        return;
+                                    }
+                                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                        continue;
+                                    }
+
+                                }
+                            }
+                        } else {
+                            tracing::error!("Failed to fetch script for dedicated worker");
+                            killpill_tx.send(()).expect("send");
+                            return;
+                        }
+                    }
+                    r
+                };
 
                 let worker_envs = build_envs(envs).expect("failed to build envs");
                 if let Err(e) = start_worker(

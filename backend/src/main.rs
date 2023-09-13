@@ -182,6 +182,7 @@ Windmill Community Edition {GIT_VERSION}
                 run_workers(
                     db.clone(),
                     rx.resubscribe(),
+                    tx.clone(),
                     num_workers,
                     base_internal_url.clone(),
                     rsmq.clone(),
@@ -264,6 +265,7 @@ fn display_config(envs: &[&str]) {
 pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
+    tx: tokio::sync::broadcast::Sender<()>,
     num_workers: i32,
     base_internal_url: String,
     rsmq: Option<R>,
@@ -337,6 +339,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let worker_name = format!("wk-{}-{}", &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
+        let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
         let sync_barrier = sync_barrier.clone();
@@ -350,6 +353,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 num_workers as u32,
                 &ip,
                 rx,
+                tx,
                 &base_internal_url,
                 rsmq2,
                 sync_barrier,

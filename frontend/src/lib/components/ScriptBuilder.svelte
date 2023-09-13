@@ -483,7 +483,7 @@
 				>
 				<Toggle
 					disabled={!$enterpriseLicense ||
-						!isCloudHosted() ||
+						isCloudHosted() ||
 						script.language != Script.language.BUN}
 					size="xs"
 					checked={Boolean(script.dedicated_worker)}

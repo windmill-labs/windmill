@@ -36,9 +36,12 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
-    worker::{CLOUD_HOSTED, WORKER_CONFIG},
+    worker::WORKER_CONFIG,
     DB, METRICS_ENABLED,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::worker::CLOUD_HOSTED;
 
 use crate::{
     schedule::{get_schedule_opt, push_scheduled_job},

@@ -14,7 +14,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Loader2, X } from 'lucide-svelte'
+	import { Loader2, Pen, X } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -113,8 +113,7 @@
 <CenteredPage>
 	<PageHeader
 		title="Workers"
-		tooltip="The workers are the dutiful servants that execute your scripts.
-		 This page enables you to know their IP in case you need whitelisting and also display liveness information"
+		tooltip="The workers are the dutiful servants that execute the jobs."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 	>
 		{#if $superadmin}
@@ -155,7 +154,7 @@
 						<svelte:fragment slot="button">
 							<Button color="dark" size="xs" nonCaptureEvent={true}>
 								<div class="flex flex-row gap-1 items-center"
-									>Tags editor&nbsp;<Tooltip light
+									><Pen size={14} /> Assignable tags&nbsp;<Tooltip light
 										>Tags are assigned to scripts and flows. Workers only accept jobs that
 										correspond to their worker tags. Scripts have a default tag based on the
 										language they are in but users can choose to override their tags with custom
@@ -234,7 +233,14 @@
 		{/if}
 
 		<div class="py-4 w-full flex justify-between"
-			><h2>Worker Groups ({groupedWorkers?.length})</h2>
+			><h2
+				>Worker Groups <Tooltip
+					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+					>Worker groups are groups of workers that share a config and are meant to be identical.
+					Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows
+					and can be seen as dedicated queues. Only the corresponding
+				</Tooltip></h2
+			>
 			<div />
 			<div class="flex flex-row items-center">
 				<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
@@ -282,7 +288,7 @@
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
-								Instance: <Badge color="gray">{section}</Badge>
+								Instance: <Badge color="gray">{section[0]}</Badge>
 								IP: <Badge color="gray">{workers[0].ip}</Badge>
 							</Cell>
 						</tr>
@@ -326,6 +332,7 @@
 				name={worker_group[0]}
 				config={worker_group[1]}
 			/>
+			<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
 		{/each}
 	{:else}
 		<div class="flex flex-col">
