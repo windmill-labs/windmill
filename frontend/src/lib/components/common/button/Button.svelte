@@ -56,7 +56,7 @@
 
 		blue: {
 			border:
-				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus:bg-frost-100 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
+				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus:bg-frost-100 focus:dark:text-frost-100 dark:focus:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
 			contained:
 				'bg-frost-500 hover:bg-frost-700 focus:bg-frost-700 text-white focus:ring-frost-300',
 			divider: 'divide-x divide-frost-600'

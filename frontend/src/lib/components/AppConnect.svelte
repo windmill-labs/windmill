@@ -369,7 +369,7 @@
 							size="sm"
 							variant="border"
 							color={key === resource_type ? 'blue' : 'light'}
-							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							btnClasses={key === resource_type ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
 								manual = false
 								resource_type = key
