@@ -57,7 +57,7 @@
 		}
 	}
 
-	let sumedup = [50, 50]
+	let sumedup = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 	$: {
 		let ns = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 		if (!deepEqual(ns, sumedup)) {
@@ -69,41 +69,43 @@
 <InitializeComponent {id} />
 
 <div class="h-full w-full border" on:pointerdown={onFocus}>
-	<Splitpanes {horizontal}>
-		{#each sumedup as paneSize, index (index)}
-			<Pane size={paneSize} minSize={20}>
-				<div
-					class="w-full h-full"
-					on:pointerdown|stopPropagation={() => {
-						$selectedComponent = [id]
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: index
-						}
-					}}
-				>
-					{#if $app.subgrids?.[`${id}-${index}`]}
-						<SubGridEditor
-							visible={render}
-							{id}
-							shouldHighlight={$focusedGrid?.subGridIndex === index}
-							class={css?.container?.class}
-							style={css?.container?.style}
-							subGridId={`${id}-${index}`}
-							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
-							on:focus={() => {
-								if (!$connectingInput.opened) {
-									$selectedComponent = [id]
-									$focusedGrid = {
-										parentComponentId: id,
-										subGridIndex: index
+	{#key sumedup}
+		<Splitpanes {horizontal}>
+			{#each sumedup as paneSize, index (index)}
+				<Pane size={paneSize} minSize={20}>
+					<div
+						class="w-full h-full"
+						on:pointerdown|stopPropagation={() => {
+							$selectedComponent = [id]
+							$focusedGrid = {
+								parentComponentId: id,
+								subGridIndex: index
+							}
+						}}
+					>
+						{#if $app.subgrids?.[`${id}-${index}`]}
+							<SubGridEditor
+								visible={render}
+								{id}
+								shouldHighlight={$focusedGrid?.subGridIndex === index}
+								class={css?.container?.class}
+								style={css?.container?.style}
+								subGridId={`${id}-${index}`}
+								containerHeight={horizontal ? undefined : componentContainerHeight - 8}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										$focusedGrid = {
+											parentComponentId: id,
+											subGridIndex: index
+										}
 									}
-								}
-							}}
-						/>
-					{/if}
-				</div>
-			</Pane>
-		{/each}
-	</Splitpanes>
+								}}
+							/>
+						{/if}
+					</div>
+				</Pane>
+			{/each}
+		</Splitpanes>
+	{/key}
 </div>
