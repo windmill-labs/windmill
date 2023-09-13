@@ -19,7 +19,7 @@
 		"@floating-ui/core": "^1.3.1",
 		"@playwright/test": "^1.34.3",
 		"@rgossiaux/svelte-headlessui": "^2.0.0",
-		"@sveltejs/adapter-static": "^2.0.2",
+		"@sveltejs/adapter-static": "^2.0.3",
 		"@sveltejs/kit": "^1.25.0",
 		"@sveltejs/package": "^2.2.2",
 		"@tailwindcss/forms": "^0.5.3",
