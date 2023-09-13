@@ -1,7 +1,7 @@
 pub const WORKER_S3_BUCKET_SYNC: &str = "worker_s3_bucket_sync";
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 
-pub const ENV_SETTINGS: [&str; 55] = [
+pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",
     "DISABLE_SERVER",
     "NUM_WORKERS",
@@ -42,8 +42,6 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "INSTANCE_EVENTS_WEBHOOK",
     "CLOUD_HOSTED",
     "GLOBAL_CACHE_INTERVAL",
-    "WORKER_TAGS",
-    "CUSTOM_TAGS",
     "JOB_RETENTION_SECS",
     "WAIT_RESULT_FAST_POLL_DURATION_SECS",
     "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
@@ -57,4 +55,5 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     "MAX_WAIT_FOR_SIGTERM",
+    "WORKER_GROUP",
 ];
