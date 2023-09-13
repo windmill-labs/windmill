@@ -74,13 +74,19 @@ pub fn workspaced_service() -> Router {
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
-    tracing::info!("stripe enabled");
+    { 
+        if std::env::var("STRIPE_KEY").is_err() {
+            return router;
+        } else {
+            tracing::info!("stripe enabled");
+            
+            return router
+            .route("/checkout", get(stripe_checkout))
+            .route("/billing_portal", get(stripe_portal));
+        }
+    }
 
-    #[cfg(feature = "enterprise")]
-    let router = router
-        .route("/checkout", get(stripe_checkout))
-        .route("/billing_portal", get(stripe_portal));
-
+    #[cfg(not(feature = "enterprise"))]
     router
 }
 pub fn global_service() -> Router {
