@@ -36,7 +36,7 @@
 			size="sm"
 			variant="border"
 			color={isPicked ? 'blue' : 'dark'}
-			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+			btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
 			disabled={notPickable}
 			on:click={() => onClick(undefined)}
 		>
@@ -48,8 +48,8 @@
 		<Button
 			size="sm"
 			variant="border"
-			color={isPicked ? 'blue' : 'dark'}
-			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+			color={isPicked ? 'blue' : 'light'}
+			btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
 			disabled={notPickable}
 			on:click={() => onClick(r)}
 		>
