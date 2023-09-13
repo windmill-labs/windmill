@@ -6,8 +6,8 @@
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { AppService, AppWithLastVersion } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import { AppService, AppWithLastVersion, SettingsService } from '$lib/gen'
+	import { userStore, enterpriseLicense } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
 	import { setContext } from 'svelte'
@@ -21,6 +21,7 @@
 
 	async function loadApp() {
 		try {
+			setLicense()
 			app = await AppService.getPublicAppBySecret({
 				workspace: $page.params.workspace,
 				path: $page.params.secret
@@ -35,6 +36,13 @@
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	async function setLicense() {
+		const license = await SettingsService.getLicenseId()
+		if (license) {
+			$enterpriseLicense = license
+		}
+	}
 </script>
 
 <svelte:head>
