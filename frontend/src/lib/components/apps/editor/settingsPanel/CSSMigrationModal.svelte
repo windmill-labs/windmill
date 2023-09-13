@@ -146,6 +146,7 @@
 					)}
 				>
 					<div class="leading-6 font-semibold text-sm"> Migrate to CSS editor </div>
+
 					<div class="">
 						<div class="">
 							{#if hasStyles(component?.customCss)}
@@ -167,7 +168,7 @@
 														</Badge>
 													</div>
 													<Button
-														color="light"
+														color="dark"
 														size="xs"
 														on:click={() => {
 															if (component?.customCss?.[cssKey]?.style != undefined) {
@@ -223,7 +224,7 @@
 														</Badge>
 													</div>
 													<Button
-														color="light"
+														color="dark"
 														size="xs"
 														on:click={() => {
 															if (type && $app.css?.[type]) {
@@ -279,6 +280,7 @@
 								appendMigrationsToCss(migrations)
 								migrationModalOpen = false
 							}}
+							disabled={migrations.size === 0}
 						>
 							<div class="flex flex-row gap-2 items-center">
 								Apply migration
