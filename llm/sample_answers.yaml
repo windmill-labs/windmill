@@ -3,7 +3,6 @@
     import psycopg2
     from typing import TypedDict
 
-    # Define the TypedDict for postgresql
     class postgresql(TypedDict):
         host: str
         port: int
@@ -13,11 +12,15 @@
         password: str
 
     def main(postgres: postgresql):
-        # Create connection string
-        conn_string = f"host={postgres['host']} dbname={postgres['dbname']} user={postgres['user']} password={postgres['password']}"
-
-        # Connect to the PostgreSQL server
-        conn = psycopg2.connect(conn_string)
+        # Create a connection to the database
+        conn = psycopg2.connect(
+            host=postgres['host'],
+            port=postgres['port'],
+            user=postgres['user'],
+            password=postgres['password'],
+            dbname=postgres['dbname'],
+            sslmode=postgres['sslmode']
+        )
 
         # Create a cursor object
         cur = conn.cursor()
@@ -32,62 +35,40 @@
         cur.close()
         conn.close()
 
+        # Return the rows
         return rows
     ```
-  description: Connect to postgres and list the rows in the orders table
-  example_answer: |-
-    ```python
-    import random
-
-    def main(name: str):
-        print("hello", name) # print hello name to the console
-        return random.randint(0, 100) # return a random number between 0 and 100
-    ```
-  example_prompt: |-
-    Write a function in python called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. Do not call the main function.
-    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  description: connect to postgres and list the rows in the orders table
   lang: python3
   template_prompt: |-
     Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
     You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
     Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```python
     def main(num: int) -> int:
-        if num == 0:
-            return "Error: Division by zero is not allowed."
-        else:
-            return 3 / num
+      # The error is caused by a division by zero.
+      # To fix it, we need to check if the number is zero before performing the division.
+      if num == 0:
+        return 0
+      else:
+        return 3 / num
     ```
-    explanation: "The error occurs when the function tries to divide by zero, which is not allowed in mathematics. To fix this, we can add a condition to check if the number is zero before performing the division. If the number is zero, we can return an error message instead."
+    explanation: "The error 'division by zero' occurs when you try to divide a number by zero, which is not allowed in mathematics. To fix this error, I added a condition to check if the number is zero before performing the division. If the number is zero, the function will return 0, otherwise it will perform the division."
   code: |-
     def main(num: int) -> int:
       return 3 / num
   error: division by zero
-  example_answer: |-
-    ```python
-    def main():
-        print("Hello world")
-    ```
-    explanation: "The code should be wrapped it in a function called "main"."
-  example_prompt: |-
-    Here's my python3 code:
-    ```python
-    print("Hello world")
-    ```
-    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
-    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
-    I get the following error: {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\nNo main function found"}}`
-    Fix my code.
   lang: python3
   template_prompt: |-
     Here's my python3 code:
@@ -100,46 +81,28 @@
     I get the following error: {error}
     Fix my code.
   template_system: |-
-    You fix the code shared by the user. Only output code. Wrap the code like that:
-    ```language
+    You fix the code shared by the user. Only output code. Wrap the code in a code block.
+    Explain the error and the fix.
+    Also put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Explain the error and the fix in the following format:
-    explanation: "Here's the explanation"
-    Also put the explanations in the code as comments.
+    explanation: "{explanation}"
   type: fix
 - answer: |-
     ```python
+    # This is a Python function named "main" that takes an integer as an argument.
+    # The function returns the input integer divided by 16.
     def main(num: int) -> int:
-      # The function takes an integer as input,
-      # divides it by 16, and returns the result
       return num / 16
     ```
   code: |-
     def main(num: int) -> int:
       return num / 16
-  description: Comment my code
-  example_answer: |-
-    ```python
-    import random
-
-    def main(name: str):
-        print("hello", name) # print hello name to the console
-        return random.randint(0, 100) # return a random number between 0 and 100
-    ```
-  example_prompt: |-
-    Here's my python3 code:
-    ```python
-    import random
-
-    def main(name: str):
-        print("hello", name)
-        return random.randint(0, 100)
-    ```
-    Additional information: We have to export a "main" function and specify the parameter types but do not call it.
-    You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
-    My instructions: add comments
+  description: comment my code
   lang: python3
   template_prompt: |-
     Here's my python3 code:
@@ -151,90 +114,88 @@
     Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
     My instructions: {description}
   template_system: |-
-    You write code as instructed by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: edit
 - answer: |-
     ```go
+    // Importing necessary packages
     package inner
-
-    import "errors" // import errors package for error handling
-
-    func main(number float64) (float64, error) {
-      if number == 0 { // check if the number is zero to avoid division by zero error
-        return 0, errors.New("division by zero") // return error if number is zero
-      }
-      result := number / 16 // divide the number by 16
-      return result, nil // return the result and nil error
-    }
-    ```
-  description: Divide a number by 16
-  example_answer: |-
-    ```go
-    package inner
-
     import (
-      "fmt"
-      "math/rand"
+        "errors"
+        "fmt"
     )
 
-    func main(name string) (int, error) {
-      fmt.Println("hello", name) // print hello name to the console
-      return rand.Intn(100), nil // return a random number between 0 and 100
+    // Main function that divides a number by 16
+    func main(num float64) (float64, error) {
+        // Check if the number is not zero to avoid division by zero error
+        if num == 0 {
+            return 0, errors.New("Cannot divide by zero")
+        }
+
+        // Perform the division
+        result := num / 16
+
+        // Return the result and nil error
+        return result, nil
     }
     ```
-  example_prompt: |-
-    Write a function in go called "main". The function should say hello to the passed name and return a random number between 0 and 100. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
+  description: civide a number by 16
   lang: go
   template_prompt: |-
     Write a function in go called "main". The function should {description}. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner".
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
-    import { toWords } from "npm:lodash"; // import the toWords function from lodash
+    // Importing the required npm library
+    import { toWords } from "npm:number-to-words";
 
+    // Defining the main function
     export async function main(number: number): Promise<string> {
-      return toWords(number); // convert the number to words and return it
+      // Converting the number to a word using the toWords function from the number-to-words library
+      const word = toWords(number);
+
+      // Returning the word
+      return word;
     }
     ```
-  description: Convert a number to a word
-  example_answer: |-
-    ```typescript
-    export async function main(name: string) {
-      console.log("hello", name) // print hello name to the console
-      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
-    }
-    ```
-  example_prompt: |-
-    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
-    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  description: convert a number to a word
   lang: deno
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
     You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
     Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
     // Importing the required libraries
-    import { Client } from "https://deno.land/x/postgres/mod.ts";
+    import { Client } from "npm:https://deno.land/x/postgres/mod.ts";
 
+    // Defining the Postgresql type
     type Postgresql = {
       host: string,
       port: number,
@@ -244,8 +205,9 @@
       password: string
     }
 
+    // Exporting the main function
     export async function main(postgres: Postgresql) {
-      // Create a new client using the provided Postgres details
+      // Creating a new client instance
       const client = new Client({
         hostname: postgres.host,
         port: postgres.port,
@@ -254,74 +216,66 @@
         database: postgres.dbname,
       });
 
-      // Connect to the Postgres server
+      // Connecting to the database
       await client.connect();
 
-      // Query the "orders" table and get all rows
-      const result = await client.queryArray("SELECT * FROM orders;");
+      // Querying the orders table
+      const result = await client.query("SELECT * FROM orders");
 
-      // Disconnect from the Postgres server
+      // Logging the rows from the orders table
+      for (const row of result.rows) {
+        console.log(row);
+      }
+
+      // Closing the connection
       await client.end();
-
-      // Return the result of the query
-      return result.rows
     }
     ```
-  description: Connect to postgres and list the rows in the orders table
-  example_answer: |-
-    ```typescript
-    export async function main(name: string) {
-      console.log("hello", name) // print hello name to the console
-      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
-    }
-    ```
-  example_prompt: |-
-    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
-    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  description: connect to postgres and list the rows in the orders table
   lang: deno
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
     You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
     Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
-    import { toWords } from 'number-to-words'; // npm library to convert numbers to words
+    // Importing the necessary npm library
+    import * as numberToWords from 'number-to-words';
 
+    // Defining the main function
     export async function main(number: number): Promise<string> {
-      return toWords(number); // convert the number to a word and return it
+      // Converting the number to words using the number-to-words library
+      const numberInWords: string = numberToWords.toWords(number);
+
+      // Returning the converted number
+      return numberInWords;
     }
     ```
-  description: Convert a number to a word
-  example_answer: |-
-    ```typescript
-    export async function main(name: string) {
-      console.log("hello", name) // print hello name to the console
-      return Math.floor(Math.random() * 100) // return a random number between 0 and 100
-    }
-    ```
-  example_prompt: |-
-    Write a function in TypeScript called "main". The function should say hello to the passed name and return a random number between 0 and 100. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
-    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  description: convert a number to a word
   lang: bun
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Node.js environment. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
     You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
     Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
@@ -334,116 +288,201 @@
     -- $7 created_at
     -- $8 workspace_id
     INSERT INTO usr (role, email, disabled, is_admin, operator, username, created_at, workspace_id)
-    VALUES ($1::varchar, $2::varchar, $3::boolean, $4::boolean, $5::boolean, $6::varchar, $7::timestamptz, $8::varchar)
+    VALUES ($1::varchar, $2::varchar, $3::bool, $4::bool, $5::bool, $6::varchar, $7::timestamptz, $8::varchar);
     ```
-  description: Insert an a new user
-  example_answer: |-
-    ```sql
-    -- $1 name
-    -- $2 price
-    INSERT INTO products (name, price) VALUES ($1::text, $2::numeric)
-    ```
-  example_prompt: |-
-    Write SQL code for a PostgreSQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    This SQL statement will insert a new user into the "usr" table. The parameters are expected to be provided in the same order as the comments above the statement. The "::type" syntax is used to cast the parameters to the appropriate data types.
+  description: insert an a new user
   lang: postgresql
   template_prompt: |-
-    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
-    -- ? email (text)
-    -- ? name (text)
-    INSERT INTO users (email, name) VALUES (?, ?)
+    -- ? email (VARCHAR)
+    -- ? name (VARCHAR)
+    INSERT INTO users (email, name) VALUES (?, ?);
     ```
-  description: Insert an email and a name in the users table
-  example_answer: |-
-    ```sql
-    -- ? name (text)
-    -- ? price (float)
-    INSERT INTO products (name, price) VALUES (?, ?)
-    ```
-  example_prompt: |-
-    Write SQL code for MySQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
+  description: insert an email and a name in the users table
   lang: mysql
   template_prompt: |-
-    Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the command like that: -- ? name1 ({type}) (one per row)
+    Write SQL code for MySQL that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
+  type: gen
+- answer: |-
+    ```sql
+    -- @email (STRING)
+    -- @name (STRING)
+
+    INSERT INTO users (email, name)
+    VALUES (@email, @name)
+    ```
+  description: insert an email and a name in the users table
+  lang: bigquery
+  template_prompt: |-
+    Write SQL code for BigQuery that should {description}. You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....
+  template_system: |-
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
     Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
+    {code}
+    ```
+  type: gen
+- answer: |-
+    ```sql
+    -- ? email (VARCHAR)
+    -- ? name (VARCHAR)
+    INSERT INTO users (email, name)
+    VALUES (?, ?);
+    ```
+  description: insert an email and a name in the users table
+  lang: snowflake
+  template_prompt: |-
+    Write SQL code for snowflake that should {description}. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+  template_system: |-
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
+    {code}
+    ```
+  type: gen
+- answer: |-
+    ```graphql
+    mutation {
+      createUser(input: { email: "example@example.com", name: "John Doe" }) {
+        user {
+          id
+          email
+          name
+        }
+      }
+    }
+    ```
+    In this mutation, we are creating a new user with the email "example@example.com" and the name "John Doe". The server will return the newly created user's id, email, and name.
+  description: create a new user with an email and a name
+  lang: graphql
+  template_prompt: |-
+    Write a GraphQL query that should {description}.
+  template_system: |-
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
+    {code}
+    ```
   type: gen
 - answer: |-
     ```bash
-    # shellcheck shell=bash
-    num="$1" # get the number argument
-    divided_num=$(echo "scale=2; $num / 16" | bc) # divide the number by 16 with 2 decimal places
-    echo $divided_num # print the result
+    # Assign the first command line argument to a variable
+    var1="$1"
+
+    # Divide the number by 16 using bc command
+    result=$(echo "scale=2; $var1 / 16" | bc)
+
+    # Print the result
+    echo $result
     ```
-  description: Divide a number by 16
-  example_answer: |-
-    ```shell
-    # shellcheck shell=bash
-    name="$1" # get the name argument
-    echo "hello $name" # print hello name
-    ```
-  example_prompt: |-
-    Write bash code that should say hello to the passed name. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+  description: divide a number by 16
   lang: bash
   template_prompt: |-
     Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
+  type: gen
+- answer: |-
+    ```powershell
+    # Define the function with the parameter
+    param($number)
+
+    # Divide the number by 16
+    $result = $number / 16
+
+    # Output the result
+    $result
+    ```
+  description: divide a number by 16
+  lang: powershell
+  template_prompt: |-
+    Write powershell code that should {description}. Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`
+  template_system: |-
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
     Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
+    {code}
+    ```
   type: gen
 - answer: |-
     ```bash
-    # shellcheck shell=bash
-    app_path="$1"  # Get the path to the python app
-    image_name="$2" # Get the name of the docker image
+    # Assigning arguments to variables
+    app_name="$1"
+    python_version="$2"
 
-    # Create a Dockerfile content for a Python app
-    dockerfile_content="FROM python:3.7
-    WORKDIR /app
-    COPY . /app
-    RUN pip install --no-cache-dir -r requirements.txt
-    CMD [\"python\", \"./your-daemon-or-script.py\"]"
+    # Writing the Dockerfile
+    echo "FROM python:$python_version" > Dockerfile
+    echo "WORKDIR /usr/src/app" >> Dockerfile
 
-    # Write the Dockerfile content into a Dockerfile
-    echo "$dockerfile_content" > "$app_path/Dockerfile"
+    # Copying the requirements file and installing dependencies
+    echo "COPY requirements.txt ./" >> Dockerfile
+    echo "RUN pip install --no-cache-dir -r requirements.txt" >> Dockerfile
 
-    # Build the Docker image
-    docker build -t "$image_name" "$app_path"
+    # Copying the rest of the application
+    echo "COPY . ." >> Dockerfile
+
+    # Exposing the port and running the application
+    echo "EXPOSE 5000" >> Dockerfile
+    echo "CMD [ \"python\", \"./$app_name\" ]" >> Dockerfile
+
+    # Building the Docker image
+    docker build -t $app_name .
     ```
-    This script will create a Dockerfile in the directory of the Python app, then it will build a Docker image with the specified image name. Please replace "your-daemon-or-script.py" with your actual python script name.
-  description: Write a docker image for a python app
-  example_answer: |-
-    ```shell
-    # shellcheck shell=bash
-    name="$1" # get the name argument
-    echo "hello $name" # print hello name
-    ```
-  example_prompt: |-
-    Write bash code that should say hello to the passed name. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+    This script creates a Dockerfile for a Python application and builds a Docker image from it. The Python version and the application name are passed as arguments. The Dockerfile is written to the current directory. The Docker image is named after the application.
+  description: write a docker image for a python app
   lang: bash
   template_prompt: |-
     Write bash code that should {description}. Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```typescript
@@ -451,79 +490,55 @@
       token: string
     }
 
-    // Here we define our function
+    // Define the type for the response from the Github API
+    type GithubRepoResponse = {
+      stargazers_count: number
+    }
+
     export async function main(github: Github, owner: string, repo: string): Promise<number> {
-      // We will fetch the data from the GitHub API
-      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      // Construct the URL for the Github API
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
+
+      // Make the request to the Github API
+      const response = await fetch(url, {
         headers: {
-          'Authorization': `token ${github.token}`,
-          'Accept': 'application/vnd.github.v3+json'
+          'Authorization': `token ${github.token}`
         }
       });
 
-      // We will then parse the response as JSON
-      const data = await response.json();
+      // Parse the response as JSON
+      const data: GithubRepoResponse = await response.json();
 
-      // And finally return the number of stars
+      // Return the number of stars
       return data.stargazers_count;
     }
     ```
-    This function will take in three parameters: a `Github` object (which contains the GitHub token), and two strings representing the owner of the repository and the repository name, respectively. The function will then fetch the data for the given repository from the GitHub API, parse the response as JSON, and return the number of stars the repository has.
-  description: Query the github api and return the number of stars of a repo
-  example_answer: |-
-    ```typescript
-    export async function main() {
-      // fetch the data from jsonplaceholder
-      const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {
-        headers: { "Content-Type": "application/json" },
-      });
-      return res.json();
-    }
-    ```
-  example_prompt: |-
-    Write a function in TypeScript called "main". The function should query sample data from jsonplaceholder. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
-    You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-    Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+  description: query the github api and return the number of stars of a repo
   lang: nativets
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
     You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
     Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```javascript
-    // Access the email from the context object
-    var email = ctx.email;
+    // Access the 'email' from the context object
+    let email = ctx.email;
 
-    // Use the setValue function to set the value of the input field with id 'my_field' to the email
+    // Use the 'setValue' function to set the value of the input with id 'my_field' to the email
     setValue('my_field', email);
     ```
-  description:
-    set the value of the input with id 'my_field' to the context variable
+  description: set the value of the input with id 'my_field' to the context variable
     email
-  example_answer: |-
-    ```javascript
-    // Access the email from the context object
-    var email = ctx.email;
-
-    // Use the setValue function to set the value of the input field with id 'my_field' to the email
-    setValue('my_field', email);
-    ```
-  example_prompt: |-
-    Write client-side javascript code that should set the value of the input with id 'my_field' to the context variable email. You have access to a few helpers:
-    You can access the context object with the ctx global variable.
-    The app state is a store that can be used to store data. You can access and update the state object with the state global variable like this: state.foo = 'bar'
-    You can use the goto function to navigate to a specific URL: goto(path: string, newTab?: boolean)
-    Use the setTab function to manually set the tab of a Tab component: setTab(id: string, index: string)
-    Use the recompute function to recompute a component: recompute(id: string)
-    Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
-    The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
   lang: frontend
   template_prompt: |-
     Write client-side javascript code that should {description}. You have access to a few helpers:
@@ -535,84 +550,76 @@
     Use the getAgGrid function to get the ag-grid instance of a table: getAgGrid(id: string)
     The setValue function is meant to set or force the value of a component: setValue(id: string, value: any).
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
     -- $1 username
     SELECT
-        DATE_TRUNC('month', created_at) AS month,
-        COUNT(*)::float / COUNT(DISTINCT DATE_TRUNC('month', created_at)) AS avg_jobs_per_month
+      EXTRACT(YEAR FROM completed_job.created_at) AS year,
+      EXTRACT(MONTH FROM completed_job.created_at) AS month,
+      COUNT(*)::float / COUNT(DISTINCT completed_job.created_at::date) AS average_completed_jobs
     FROM
-        completed_job
+      completed_job
     WHERE
-        created_by = $1::varchar
+      completed_job.created_by = $1::varchar
     GROUP BY
-        month
+      year,
+      month
     ORDER BY
-        month;
+      year,
+      month;
     ```
-  description:
-    compute the average number of completed jobs per month for the given
+    This SQL query will calculate the average number of completed jobs per month for a given username. The `EXTRACT` function is used to get the year and month from the `created_at` timestamp. The `COUNT(*)` function is used to get the total number of completed jobs, and this is divided by the number of distinct days in each month to get the average. The `WHERE` clause filters the results by the given username. The results are grouped by year and month, and ordered by year and month.
+  description: compute the average number of completed jobs per month for the given
     username
-  example_answer: |-
-    ```sql
-    -- $1 name
-    -- $2 price
-    INSERT INTO products (name, price) VALUES ($1::text, $2::numeric)
-    ```
-  example_prompt: |-
-    Write SQL code for a PostgreSQL that should insert a name and a price into the products table. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   lang: postgresql
   template_prompt: |-
-    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    Write SQL code for a PostgreSQL that should {description}. Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
   template_system: |-
-    You write code as queried by the user. Only output code. Wrap the code like that:
-    ```language
+    You write code as instructed by the user. Only output code. Wrap the code in a code block.
+    Put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Put explanations directly in the code as comments.
   type: gen
 - answer: |-
     ```sql
-    SELECT is_secret FROM variable
+    -- $1::varchar workspace_id
+    SELECT is_secret FROM variable WHERE workspace_id = $1
     ```
-    explanation: "The `is_secret` column does not exist in the `account` table. Looking at your schema, it seems like the `is_secret` column is in the `variable` table, not the `account` table. So, you should select from the `variable` table instead."
+    explanation: "The error occurred because the column 'is_secret' does not exist in the 'account' table. From the schema provided, it is evident that the 'is_secret' column exists in the 'variable' table. Therefore, the query should be selecting from the 'variable' table, not the 'account' table. Also, it seems like you want to select the 'is_secret' column for a specific workspace. Hence, I added a WHERE clause to filter the results by workspace_id."
   code: |-
     SELECT is_secret FROM account
   error: 'ExecutionError: db error: ERROR: column "is_secret" does not exist'
-  example_answer: |-
-    ```sql
-    select * from demo
-    ```
-    explanation: "You're missing a "t" in "select"."
-  example_prompt: |-
-    Here's my PostgreSQL code:
-    ```sql
-    selec * from demo
-    ```
-    Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
-    I get the following error: {"error":{"name":"ExecutionErr","message":"error during execution of the script:\\ndb error: ERROR: syntax error at or near \\"selec\\""}}
-    Fix my code.
   lang: postgresql
   template_prompt: |-
     Here's my PostgreSQL code:
     ```sql
     {code}
     ```
-    Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the command like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+    Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
     I get the following error: {error}
     Fix my code.
   template_system: |-
-    You fix the code shared by the user. Only output code. Wrap the code like that:
-    ```language
+    You fix the code shared by the user. Only output code. Wrap the code in a code block.
+    Explain the error and the fix.
+    Also put explanations directly in the code as comments.
+
+    Here's how interactions have to look like:
+    user: {sample_question}
+    assistant: ```language
     {code}
     ```
-    Explain the error and the fix in the following format:
-    explanation: "Here's the explanation"
-    Also put the explanations in the code as comments.
+    explanation: "{explanation}"
   type: fix

@@ -94,9 +94,7 @@ export interface GraphqlSchema {
 
 export type DBSchema = SQLSchema | GraphqlSchema
 
-interface DBSchemas {
-	[resourcePath: string]: DBSchema
-}
+type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
 

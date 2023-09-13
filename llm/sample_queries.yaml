@@ -1,6 +1,6 @@
 - lang: python3
   type: gen
-  description: Connect to postgres and list the rows in the orders table
+  description: connect to postgres and list the rows in the orders table
 - lang: python3
   type: fix
   code: |-
@@ -12,34 +12,46 @@
   code: |-
     def main(num: int) -> int:
       return num / 16
-  description: Comment my code
+  description: comment my code
 - lang: go
   type: gen
-  description: Divide a number by 16
+  description: civide a number by 16
 - lang: deno
   type: gen
-  description: Convert a number to a word
+  description: convert a number to a word
 - lang: deno
   type: gen
-  description: Connect to postgres and list the rows in the orders table
+  description: connect to postgres and list the rows in the orders table
 - lang: bun
   type: gen
-  description: Convert a number to a word
+  description: convert a number to a word
 - lang: postgresql
   type: gen
-  description: Insert an a new user
+  description: insert an a new user
 - lang: mysql
   type: gen
-  description: Insert an email and a name in the users table
+  description: insert an email and a name in the users table
+- lang: bigquery
+  type: gen
+  description: insert an email and a name in the users table
+- lang: snowflake
+  type: gen
+  description: insert an email and a name in the users table
+- lang: graphql
+  type: gen
+  description: create a new user with an email and a name
 - lang: bash
   type: gen
-  description: Divide a number by 16
+  description: divide a number by 16
+- lang: powershell
+  type: gen
+  description: divide a number by 16
 - lang: bash
   type: gen
-  description: Write a docker image for a python app
+  description: write a docker image for a python app
 - lang: nativets
   type: gen
-  description: Query the github api and return the number of stars of a repo
+  description: query the github api and return the number of stars of a repo
 - lang: frontend
   type: gen
   description: set the value of the input with id 'my_field' to the context variable email
