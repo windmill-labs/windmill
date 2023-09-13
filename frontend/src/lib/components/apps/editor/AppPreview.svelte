@@ -127,7 +127,7 @@
 				workspace: $workspaceStore!,
 				path: currentAppStore.theme.path
 			})
-			css = loadedCss.value
+			css = loadedCss.value.value
 		}
 	})
 
@@ -147,6 +147,8 @@
 				link.id = cssId
 				link.innerHTML = cssString
 				head.appendChild(link)
+			} else if (existingElement && cssString) {
+				existingElement.innerHTML = cssString
 			}
 		}
 	}
