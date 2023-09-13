@@ -103,6 +103,8 @@
 				}
 			}
 
+			theme.css = cssString
+
 			$app.theme = theme
 		}
 	}
