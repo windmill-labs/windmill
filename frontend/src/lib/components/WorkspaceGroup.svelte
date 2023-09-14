@@ -17,6 +17,7 @@
 				dedicated_worker?: string
 				worker_tags?: string[]
 		  }
+	export let top: boolean
 
 	let nconfig: any = config
 		? config.worker_tags != undefined || config.dedicated_worker != undefined
@@ -76,7 +77,7 @@
 	><h4 class="py-4 truncate w-40">{name}</h4>
 	{#if $superadmin}
 		<Popup
-			floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+			floatingConfig={{ strategy: 'absolute', placement: top ? 'top-start' : 'bottom-start' }}
 			containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 		>
 			<svelte:fragment slot="button">

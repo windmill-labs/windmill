@@ -258,8 +258,9 @@
 				</div>
 			{/if}</div
 		>
-		{#each groupedWorkers as worker_group}
+		{#each groupedWorkers as worker_group, i}
 			<WorkspaceGroup
+				top={i != 0}
 				name={worker_group[0]}
 				config={(workerGroups ?? {})[worker_group[0]]}
 				on:reload={() => {
@@ -332,8 +333,11 @@
 			<div class="pb-4" />
 		{/each}
 
-		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group}
+		<div class="pb-4" />
+
+		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group, i}
 			<WorkspaceGroup
+				top={i != 0 || groupedWorkers?.length > 0}
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
