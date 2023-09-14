@@ -2240,7 +2240,6 @@ pub struct LoginUserInfo {
     pub displayName: Option<String>,
 }
 
-#[cfg(not(feature = "enterprise"))]
 async fn _check_nb_of_user(db: &DB) -> Result<()> {
     let nb_groups =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
