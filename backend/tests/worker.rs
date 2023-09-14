@@ -31,7 +31,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
@@ -927,7 +927,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    drop(quit);
+    quit.send(()).expect("send");
 
     let _: () = worker
         .await
