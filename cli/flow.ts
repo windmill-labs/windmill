@@ -74,9 +74,9 @@ export async function pushFlow(
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
-      path: remotePath,
+      path: remotePath.replaceAll("\\", "/"),
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...localFlow,
       },
     });
@@ -85,7 +85,7 @@ export async function pushFlow(
     await FlowService.createFlow({
       workspace: workspace,
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...localFlow,
       },
     });

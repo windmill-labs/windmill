@@ -83,7 +83,9 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = path.substring(0, path.indexOf("."));
+    const remotePath = path
+      .substring(0, path.indexOf("."))
+      .replaceAll("\\", "/");
     const metaPath = remotePath + ".script.json";
     let typed = undefined;
     try {
@@ -105,7 +107,7 @@ export async function handleFile(
     try {
       remote = await ScriptService.getScriptByPath({
         workspace,
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
       });
       log.debug(`Script ${remotePath} exists on remote`);
     } catch {
@@ -142,7 +144,7 @@ export async function handleFile(
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
-          path: remotePath,
+          path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
@@ -162,7 +164,7 @@ export async function handleFile(
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
-          path: remotePath,
+          path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           is_template: typed?.is_template,
           kind: typed?.kind,
