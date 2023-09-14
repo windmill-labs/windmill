@@ -1026,8 +1026,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
-        let avg_script_duration: Option<i32> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS INT) AS avg_duration_s FROM
+        let avg_script_duration: Option<i64> = sqlx::query_scalar!(
+            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
                 (SELECT duration_ms FROM completed_job WHERE script_path = $1
                 ORDER BY started_at
                 DESC LIMIT 10) AS t",

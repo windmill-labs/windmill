@@ -396,7 +396,7 @@ pub struct CompletedJob<'rows> {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
@@ -453,7 +453,7 @@ pub struct ListableCompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
@@ -1348,7 +1348,7 @@ struct UnifiedJob {
     running: Option<bool>,
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
-    duration_ms: Option<i32>,
+    duration_ms: Option<i64>,
     success: Option<bool>,
     deleted: bool,
     canceled: bool,
