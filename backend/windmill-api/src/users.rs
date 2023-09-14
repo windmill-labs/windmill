@@ -2240,6 +2240,21 @@ pub struct LoginUserInfo {
     pub displayName: Option<String>,
 }
 
+#[cfg(not(feature = "enterprise"))]
+async fn _check_nb_of_user(db: &DB) -> Result<()> {
+    let nb_groups =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
+            .fetch_one(db)
+            .await?;
+    if nb_groups.unwrap_or(0) >= 50 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of oauth users accounts (50) without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 pub async fn login_externally(
     db: DB,
     email: &String,
@@ -2292,6 +2307,10 @@ pub async fn login_externally(
         if (name.is_none() || name == Some(String::new())) && user.is_some() {
             name = user.clone().unwrap().displayName;
         }
+
+        #[cfg(not(feature = "enterprise"))]
+        _check_nb_of_user(&db).await?;
+
         sqlx::query(&format!(
             "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
                  $2, $3, '{}', true)",

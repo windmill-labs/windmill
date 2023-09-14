@@ -200,6 +200,7 @@ pub async fn require_is_owner(
     }
 }
 
+#[cfg(not(feature = "enterprise"))]
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
     let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack'",)
         .fetch_one(db)
@@ -212,6 +213,7 @@ async fn _check_nb_of_groups(db: &DB) -> Result<()> {
     }
     return Ok(());
 }
+
 async fn create_group(
     authed: ApiAuthed,
     Extension(_db): Extension<DB>,
