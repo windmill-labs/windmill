@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
-	import { onDestroy } from 'svelte/internal'
+	import { onDestroy } from 'svelte'
 	import { dirtyStore } from './dirtyStore'
 
 	let navigationState: { from: URL | undefined; to: URL | null; cancel: () => void } | undefined =

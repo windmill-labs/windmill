@@ -1,6 +1,27 @@
 # Changelog
 
 
+## [1.172.1](https://github.com/windmill-labs/windmill/compare/v1.172.0...v1.172.1) (2023-09-14)
+
+
+### Bug Fixes
+
+* improve splitpane + improve deleting conditional tab ([1629008](https://github.com/windmill-labs/windmill/commit/1629008eb2eb48ff9cc2cf6b3a351efcf682244d))
+* update to svelte 4 ([#2280](https://github.com/windmill-labs/windmill/issues/2280)) ([90c10d8](https://github.com/windmill-labs/windmill/commit/90c10d803b4c47a9e1ac5b9e49e2a614344299a9))
+
+## [1.172.0](https://github.com/windmill-labs/windmill/compare/v1.171.0...v1.172.0) (2023-09-13)
+
+
+### Features
+
+* improve ai flow ([#2270](https://github.com/windmill-labs/windmill/issues/2270)) ([b23417a](https://github.com/windmill-labs/windmill/commit/b23417ab5b9938bbdf9db6449102760ff8c80152))
+* worker groups admin panel ([#2277](https://github.com/windmill-labs/windmill/issues/2277)) ([070b162](https://github.com/windmill-labs/windmill/commit/070b16222bc666866284180b3878f4d4f27bfa85))
+
+
+### Bug Fixes
+
+* ai flow nits ([#2272](https://github.com/windmill-labs/windmill/issues/2272)) ([8f6f46d](https://github.com/windmill-labs/windmill/commit/8f6f46de199d58133b9faa77cdbcbcfd6cb962f7))
+
 ## [1.171.0](https://github.com/windmill-labs/windmill/compare/v1.170.0...v1.171.0) (2023-09-12)
 
 

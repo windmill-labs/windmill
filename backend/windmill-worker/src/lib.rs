@@ -6,6 +6,7 @@ mod snowflake_executor;
 mod bash_executor;
 mod bun_executor;
 mod common;
+mod config;
 mod dedicated_worker;
 mod deno_executor;
 mod global_cache;
@@ -17,5 +18,4 @@ mod pg_executor;
 mod python_executor;
 mod worker;
 mod worker_flow;
-
 pub use worker::*;

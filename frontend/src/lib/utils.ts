@@ -228,28 +228,29 @@ export function setQueryWithoutLoad(
 	}, bounceTime ?? 200)
 }
 
-export function groupBy<T>(
-	items: T[],
-	toGroup: (t: T) => string,
-	toSort: (t: T) => string,
-	dflts: string[] = []
-): [string, T[]][] {
-	let r: Record<string, T[]> = {}
+export function groupBy<K, V>(
+	items: V[],
+	toGroup: (t: V) => K,
+	toSort: (t: V) => string,
+	dflts: K[] = []
+): [K, V[]][] {
+	let r: Map<K, V[]> = new Map()
 	for (const dflt of dflts) {
-		r[dflt] = []
+		r.set(dflt as K, [])
 	}
 
 	items.forEach((sc) => {
 		let section = toGroup(sc)
-		if (section in r) {
-			r[section].push(sc)
-			r[section].sort((a, b) => toSort(a).localeCompare(toSort(b)))
+		if (r.has(section)) {
+			let arr = r.get(section)!
+			arr.push(sc)
+			arr.sort((a, b) => toSort(a).localeCompare(toSort(b)))
 		} else {
-			r[section] = [sc]
+			r.set(section, [sc])
 		}
 	})
 
-	return Object.entries(r).sort((s1, s2) => {
+	return [...r.entries()].sort((s1, s2) => {
 		let n1 = s1[0]
 		let n2 = s2[0]
 

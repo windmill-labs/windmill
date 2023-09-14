@@ -160,19 +160,19 @@
 						<Button
 							size="sm"
 							variant="border"
-							color={isSelected ? 'blue' : 'dark'}
-							btnClasses={isSelected ? '!bg-blue-50/75 dark:!bg-frost-900/50 ' : ''}
+							color={isSelected ? 'blue' : 'light'}
+							btnClasses={isSelected ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
-								property.selectedType = argType
-								property.format = undefined
-								property.contentEncoding = undefined
-								property.enum_ = undefined
-								property.pattern = undefined
-								property.default = undefined
+								property.selectedType = argType;
+								property.format = undefined;
+								property.contentEncoding = undefined;
+								property.enum_ = undefined;
+								property.pattern = undefined;
+								property.default = undefined;
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
-									property.items = undefined
+									property.items = undefined;
 								}
 							}}
 						>
@@ -182,14 +182,15 @@
 					<Button
 						size="sm"
 						variant="border"
-						color={!property.selectedType ? 'blue' : 'dark'}
-						btnClasses={!property.selectedType ? '!bg-blue-50/75 dark:!bg-frost-900/50' : ']'}
+						color={!property.selectedType ? 'blue' : 'light'}
+						btnClasses={!property.selectedType ? '!border-2' : 'm-[1px]'}
 						on:click={() => {
-							property.selectedType = undefined
+							property.selectedType = undefined;
 						}}
 					>
 						any
 					</Button>
+
 				</div>
 			</div>
 			<div>

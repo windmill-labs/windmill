@@ -44,3 +44,5 @@ reqwest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 lazy_static.workspace = true
 tracing-flame = { version = "^0", optional = true }
+itertools.workspace = true
+regex.workspace = true

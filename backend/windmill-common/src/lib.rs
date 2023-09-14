@@ -27,6 +27,7 @@ pub mod scripts;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod worker;
 
 #[cfg(feature = "tracing_init")]
 pub mod tracing_init;
@@ -78,11 +79,14 @@ pub async fn shutdown_signal(
 }
 
 #[cfg(feature = "prometheus")]
+use tokio::task::JoinHandle;
+
+#[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     ready_worker_endpoint: bool,
-) -> Result<(), hyper::Error> {
+) -> JoinHandle<()> {
     use std::sync::atomic::Ordering;
 
     use axum::{routing::get, Router};
@@ -104,13 +108,18 @@ pub async fn serve_metrics(
         router
     };
 
-    axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .with_graceful_shutdown(async {
-            rx.recv().await.ok();
-            println!("Graceful shutdown of metrics");
-        })
-        .await
+    tokio::spawn(async move {
+        if let Err(e) = axum::Server::bind(&addr)
+            .serve(router.into_make_service())
+            .with_graceful_shutdown(async {
+                rx.recv().await.ok();
+                println!("Graceful shutdown of metrics");
+            })
+            .await
+        {
+            tracing::error!("Error serving metrics: {}", e);
+        }
+    })
 }
 
 async fn metrics() -> Result<String, Error> {

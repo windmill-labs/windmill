@@ -196,7 +196,7 @@
 
 			<div class="flex flex-row gap-1 items-center">
 				<Toggle size="xs" bind:checked={isSkipped} />
-				<Tooltip light>Skipped flows are flows that did an early break</Tooltip>
+				<Tooltip>Skipped flows are flows that did an early break</Tooltip>
 			</div>
 		</div>
 	</div>

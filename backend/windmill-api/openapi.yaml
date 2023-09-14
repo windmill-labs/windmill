@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.171.0
+  version: 1.172.1
   title: Windmill API
 
   contact:
@@ -5252,6 +5252,65 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
+  /workers/list_worker_groups:
+    get:
+      summary: list workers
+      operationId: listWorkerGroups
+      tags:
+        - worker
+      responses:
+        "200":
+          description: a list of workers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    config: {}
+                  required:
+                    - name
+                    - config
+
+  /workers/worker_group/{name}:
+    post:
+      summary: Update Worker Group
+      operationId: updateWorkerGroup
+      tags:
+        - worker
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: worker group
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: Update a worker group
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: Delete Worker Group
+      operationId: deleteWorkerGroup
+      tags:
+        - worker
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Delete a worker group
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -7172,6 +7231,8 @@ components:
           type: array
           items:
             type: string
+        worker_group:
+          type: string
       required:
         - worker
         - worker_instance
@@ -7179,6 +7240,7 @@ components:
         - started_at
         - ip
         - jobs_executed
+        - worker_group
 
     UserWorkspaceList:
       type: object

@@ -22,7 +22,8 @@
 		if (items) {
 		}
 		loading = true
-		const data = await import('lucide-svelte/dist/svelte/icons')
+		// @ts-ignore
+		const data = await import('lucide-svelte/icons')
 
 		filteredItems = items = Object.entries(data)
 			.filter(([key]) => !(key.endsWith('Icon') || key.startsWith('Lucide')))

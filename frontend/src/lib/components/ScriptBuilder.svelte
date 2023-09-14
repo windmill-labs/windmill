@@ -483,7 +483,7 @@
 				>
 				<Toggle
 					disabled={!$enterpriseLicense ||
-						!isCloudHosted() ||
+						isCloudHosted() ||
 						script.language != Script.language.BUN}
 					size="xs"
 					checked={Boolean(script.dedicated_worker)}
@@ -680,7 +680,7 @@
 							>
 								{title}
 								{#if desc}
-									<Tooltip {documentationLink} class="mb-0.5 ml-1">
+									<Tooltip {documentationLink}>
 										{desc}
 									</Tooltip>
 								{/if}

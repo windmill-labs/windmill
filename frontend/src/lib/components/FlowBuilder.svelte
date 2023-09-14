@@ -469,8 +469,36 @@
 			required,
 			type: 'object'
 		}
+	}
+
+	function clearFlowInputsFromStep(id: string | undefined) {
+		const module: FlowModule | undefined = dfs(id, $flowStore)[0]
+		if (module?.value.type === 'rawscript') {
+			// clear step inputs that start with flow_input. but not flow_input.iter
+			for (const key in module.value.input_transforms) {
+				const input = module.value.input_transforms[key]
+				if (
+					input.type === 'javascript' &&
+					input.expr.includes('flow_input.') &&
+					!input.expr.includes('flow_input.iter')
+				) {
+					module.value.input_transforms[key] = {
+						type: 'static',
+						value: undefined
+					}
+				}
+			}
+		}
+		$flowStore = $flowStore
+	}
+
+	async function finishStepGen() {
 		copilotFlowInputs = {}
 		copilotFlowRequiredInputs = []
+		setInitCopilotModules(flowCopilotMode)
+		copilotStatus = "Done! Just check the step's inputs and you're good to go!"
+		await sleep(3000)
+		copilotStatus = ''
 	}
 
 	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
@@ -627,8 +655,8 @@
 						Object.entries(inputs).forEach(([key, expr]) => {
 							if (
 								key in stepSchema.properties &&
-								expr.startsWith('flow_input.') &&
-								!expr.startsWith('flow_input.iter') &&
+								expr.includes('flow_input.') &&
+								!expr.includes('flow_input.iter') &&
 								(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
 							) {
 								copilotFlowInputs[key] = stepSchema.properties[key]
@@ -703,11 +731,14 @@
 			}
 
 			if (stepOnly) {
-				openCopilotInputsModal = true
 				$copilotCurrentStepStore = undefined
 				copilotLoading = false
-				setInitCopilotModules(flowCopilotMode)
 				copilotStatus = ''
+				if (Object.keys(copilotFlowInputs).length > 0) {
+					openCopilotInputsModal = true
+				} else {
+					finishStepGen()
+				}
 			} else {
 				copilotStatus =
 					"Waiting for the user to validate code and inputs of step '" + module.id + "'"
@@ -731,7 +762,7 @@
 
 	flowCopilotContext.genFlow = genFlow
 
-	async function handleFlowCopilotInputs() {
+	async function finishCopilotFlowBuilder() {
 		copilotLoading = true
 		select('Input')
 		$copilotCurrentStepStore = 'Input'
@@ -747,8 +778,8 @@
 						const input = module.value.input_transforms[moduleAttr]
 						if (
 							input.type === 'javascript' &&
-							input.expr.startsWith('flow_input.') &&
-							!input.expr.startsWith('flow_input.iter')
+							input.expr.includes('flow_input.') &&
+							!input.expr.includes('flow_input.iter')
 						) {
 							const flowAttr = input.expr.split('.')[1]
 							const schema = $flowStateStore[module.id].schema
@@ -814,16 +845,11 @@
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			applyCopilotFlowInputs()
-			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
-			await sleep(3000)
-			copilotStatus = ''
+			finishStepGen()
 		}}
 		on:canceled={async () => {
-			copilotFlowInputs = {}
-			copilotFlowRequiredInputs = []
-			copilotStatus = "Done! Just check the step's inputs and you're good to go!"
-			await sleep(3000)
-			copilotStatus = ''
+			clearFlowInputsFromStep($copilotModulesStore[0]?.id)
+			finishStepGen()
 		}}
 		bind:open={openCopilotInputsModal}
 		inputs={Object.keys(copilotFlowInputs)}
@@ -911,7 +937,7 @@
 					{copilotLoading}
 					bind:copilotStatus
 					{genFlow}
-					{handleFlowCopilotInputs}
+					{finishCopilotFlowBuilder}
 					{abortController}
 				/>
 
