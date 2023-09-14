@@ -2602,6 +2602,7 @@ async fn test_rust_client(db: Pool<Postgres>) {
     .unwrap();
 }
 
+
 #[sqlx::test(fixtures("base"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
