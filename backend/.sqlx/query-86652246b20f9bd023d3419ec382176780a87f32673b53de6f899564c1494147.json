@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_counter VALUES ($1, 1)\n        ON CONFLICT (concurrency_id) \n        DO UPDATE SET counter = concurrency_counter.counter + 1\n        RETURNING concurrency_counter.counter",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "counter",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "86652246b20f9bd023d3419ec382176780a87f32673b53de6f899564c1494147"
+}
