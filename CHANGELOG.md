@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.173.0](https://github.com/windmill-labs/windmill/compare/v1.172.1...v1.173.0) (2023-09-14)
+
+
+### Features
+
+* cli sync on windows ([#2283](https://github.com/windmill-labs/windmill/issues/2283)) ([c371cb3](https://github.com/windmill-labs/windmill/commit/c371cb397ab3d0c534e2c553d1dfb1ad5176d2a6))
+
+
+### Bug Fixes
+
+* accept jobs whose duration &gt; 24 days ([2c00894](https://github.com/windmill-labs/windmill/commit/2c00894122aa8caee59b20625935284de6902950))
+
 ## [1.172.1](https://github.com/windmill-labs/windmill/compare/v1.172.0...v1.172.1) (2023-09-14)
 
 
