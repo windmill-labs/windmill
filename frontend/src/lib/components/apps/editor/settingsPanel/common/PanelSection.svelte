@@ -22,7 +22,7 @@
 				{title}
 			</span>
 			{#if tooltip}
-				<Tooltip light {documentationLink}>
+				<Tooltip {documentationLink}>
 					{tooltip}
 				</Tooltip>
 			{/if}
