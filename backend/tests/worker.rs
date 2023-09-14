@@ -13,6 +13,7 @@ use tokio::{
 use windmill_api_client::types::{
     CreateFlowBody, EditSchedule, NewSchedule, RawScript, ScriptArgs,
 };
+use windmill_common::worker::{WORKER_CONFIG, load_worker_config};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -959,6 +960,9 @@ fn spawn_test_worker(
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
+        let mut wc = WORKER_CONFIG.write().await;
+        *wc = load_worker_config(&db).await.unwrap();
+        drop(wc);
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,

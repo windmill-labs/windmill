@@ -608,7 +608,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs");
+    tracing::info!(worker = %worker_name, "listening for jobs, config: {:#?}", WORKER_CONFIG.read().await);
 
     let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
         WORKER_CONFIG.read().await.dedicated_worker.clone()

@@ -176,7 +176,7 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     })
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct WorkspacedPath {
     pub workspace_id: String,
     pub path: String,
@@ -193,7 +193,7 @@ impl Default for WorkerConfigOpt {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub dedicated_worker: Option<WorkspacedPath>,
