@@ -874,7 +874,7 @@ async fn create_workspace(
     }
 
     #[cfg(not(feature = "enterprise"))]
-    _check_nb_of_workspace(&db).await?;
+    _check_nb_of_workspaces(&db).await?;
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
