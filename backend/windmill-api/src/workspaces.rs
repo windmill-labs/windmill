@@ -849,7 +849,6 @@ lazy_static::lazy_static! {
 
 }
 
-#[cfg(not(feature = "enterprise"))]
 async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
     let nb_workspaces = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = false",)
         .fetch_one(db)
