@@ -1,7 +1,7 @@
 // windmill
 export { setClient } from "https://deno.land/x/windmill@v1.95.1/mod.ts";
 export * from "https://deno.land/x/windmill@v1.95.1/windmill-api/index.ts";
-
+export { SEP } from "https://deno.land/std@0.201.0/path/separator.ts";
 // cliffy
 export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/mod.ts";
 export { Table } from "https://deno.land/x/cliffy@v1.0.0-rc.2/table/table.ts";

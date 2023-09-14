@@ -33,7 +33,10 @@ export async function pushApp(
   if (raw) {
     // deleting old app if it exists in raw mode
     try {
-      app = await AppService.getAppByPath({ workspace, path: remotePath });
+      app = await AppService.getAppByPath({
+        workspace,
+        path: remotePath.replaceAll("\\", "/"),
+      });
     } catch {
       //ignore
     }
@@ -45,7 +48,7 @@ export async function pushApp(
     }
     await AppService.updateApp({
       workspace,
-      path: remotePath,
+      path: remotePath.replaceAll("\\", "/"),
       requestBody: {
         ...newApp,
       },
@@ -56,7 +59,7 @@ export async function pushApp(
     await AppService.createApp({
       workspace,
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...newApp,
       },
     });
