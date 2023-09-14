@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.172.1](https://github.com/windmill-labs/windmill/compare/v1.172.0...v1.172.1) (2023-09-14)
+
+
+### Bug Fixes
+
+* improve splitpane + improve deleting conditional tab ([1629008](https://github.com/windmill-labs/windmill/commit/1629008eb2eb48ff9cc2cf6b3a351efcf682244d))
+* update to svelte 4 ([#2280](https://github.com/windmill-labs/windmill/issues/2280)) ([90c10d8](https://github.com/windmill-labs/windmill/commit/90c10d803b4c47a9e1ac5b9e49e2a614344299a9))
+
 ## [1.172.0](https://github.com/windmill-labs/windmill/compare/v1.171.0...v1.172.0) (2023-09-13)
 
 
