@@ -341,6 +341,7 @@ struct CreateAccount {
     refresh_token: Option<String>,
     expires_in: i64,
 }
+
 async fn create_account(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
