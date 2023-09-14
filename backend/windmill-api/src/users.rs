@@ -712,7 +712,7 @@ async fn list_users(
         SELECT usr.*, usage.*
           FROM usr
              , LATERAL (
-                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0) executions
+                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
                   FROM completed_job
                  WHERE workspace_id = $1
                    AND job_kind NOT IN ('flow', 'flowpreview')
