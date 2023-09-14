@@ -155,6 +155,7 @@ sqlx = { version = "^0", features = [
     "chrono",
     "postgres",
     "runtime-tokio-rustls",
+    "bigdecimal"
 ] }
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }

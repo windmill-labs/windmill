@@ -252,7 +252,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id.clone();
-    let _duration = sqlx::query_scalar!(
+    let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -388,7 +388,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $3",
                 if premium_workspace { w_id } else { &queued_job.email },
                 premium_workspace,
-                additional_usage)
+                additional_usage as i32)
                 .execute(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
