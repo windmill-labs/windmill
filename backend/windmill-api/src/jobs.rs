@@ -1480,8 +1480,8 @@ struct PreviewFlow {
 }
 
 pub struct JsonOrForm(
-    Option<serde_json::Map<String, serde_json::Value>>,
-    Option<String>,
+    pub Option<serde_json::Map<String, serde_json::Value>>,
+    pub Option<String>,
 );
 
 #[axum::async_trait]
@@ -1594,7 +1594,7 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
     serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
 
-fn add_raw_string(
+pub fn add_raw_string(
     raw_string: Option<String>,
     mut args: serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
