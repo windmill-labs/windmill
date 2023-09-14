@@ -157,6 +157,7 @@ sqlx = { version = "^0", features = [
     "runtime-tokio-rustls",
     "bigdecimal"
 ] }
+bigdecimal = "^0"
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"

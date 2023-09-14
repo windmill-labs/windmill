@@ -8,16 +8,16 @@
 
 use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
 
-#[cfg(feature = "benchmark")]
-use std::time::Instant;
-
 use anyhow::Context;
 use async_recursion::async_recursion;
+use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
+#[cfg(feature = "benchmark")]
+use std::time::Instant;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -235,6 +235,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             .fetch_one(db)
             .await
             .ok()
+            .flatten()
+            .map(|x| x.to_i64())
             .flatten()
         } else {
             tracing::warn!("Could not parse flow status");
