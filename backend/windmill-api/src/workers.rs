@@ -104,30 +104,23 @@ struct WorkerGroup {
 async fn get_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
 ) -> error::JsonResult<Vec<WorkerGroup>> {
-    let mut tx = user_db.begin(&authed).await?;
-
     require_super_admin(&db, &authed.email).await?;
 
     let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM worker_group_config")
-        .fetch_all(&mut *tx)
+        .fetch_all(&db)
         .await?;
-    tx.commit().await?;
     Ok(Json(rows))
 }
 
+#[cfg(feature = "enterprise")]
 async fn update_worker_group(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
 ) -> error::Result<String> {
-    let tx = user_db.begin(&authed).await?;
-
     require_super_admin(&db, &authed.email).await?;
-    tx.commit().await?;
 
     sqlx::query!(
         "INSERT INTO worker_group_config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
@@ -138,6 +131,11 @@ async fn update_worker_group(
     .await?;
 
     Ok(format!("Updated worker group {name}"))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn update_worker_group() -> String {
+    "Worker groups available only in enterprise version".to_string()
 }
 
 async fn delete_worker_group(
