@@ -42,4 +42,4 @@ jobs:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml &&
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo
-          --features enterprise test --all -- --nocapture
+          test --features enterprise --all -- --nocapture 

@@ -8,14 +8,22 @@ use futures::StreamExt;
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, query};
-use tokio::{
-    sync::RwLock,
-    time::{timeout, Duration},
-};
+use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
+use tokio::sync::RwLock;
+
+#[cfg(feature = "enterprise")]
+use tokio::time::{timeout, Duration};
+
 use windmill_api_client::types::{
-    CreateFlowBody, EditSchedule, NewSchedule, RawScript, ScriptArgs,
+    CreateFlowBody, RawScript
 };
+
+#[cfg(feature = "enterprise")]
+use sqlx::query;
+
+#[cfg(feature = "enterprise")]
+use windmill_api_client::types::{EditSchedule, NewSchedule,  ScriptArgs};
+
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
