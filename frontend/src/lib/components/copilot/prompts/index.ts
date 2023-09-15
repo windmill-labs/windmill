@@ -7,10 +7,6 @@ export interface PromptsConfig {
 	prompts: {
 		[lang: string]: {
 			prompt: string
-			example_description?: string
-			example_answer: string
-			example_code?: string
-			example_error?: string
 		}
 	}
 }

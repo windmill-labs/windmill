@@ -11,6 +11,7 @@ import type {
 	CompletionCreateParamsStreaming,
 	CreateChatCompletionRequestMessage
 } from 'openai/resources/chat'
+import { buildClientSchema, printSchema } from 'graphql'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -93,44 +94,49 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 	const { dbSchema, language } = scriptOptions
 	if (
 		dbSchema &&
-		['postgresql', 'mysql'].includes(language) && // make sure we are using a SQL language
-		(dbSchema.lang === 'postgresql' || dbSchema.lang === 'mysql') // make sure we have a SQL schema
+		['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(language) && // make sure we are using a SQL/query language
+		language === dbSchema.lang // make sure we are using the same language as the schema
 	) {
 		const { schema, lang } = dbSchema
-		let smallerSchema: {
-			[schemaKey: string]: {
-				[tableKey: string]: Array<[string, string, boolean, string?]>
-			}
-		} = {}
-		for (const schemaKey in schema) {
-			smallerSchema[schemaKey] = {}
-			for (const tableKey in schema[schemaKey]) {
-				smallerSchema[schemaKey][tableKey] = []
-				for (const colKey in schema[schemaKey][tableKey]) {
-					const col = schema[schemaKey][tableKey][colKey]
-					const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
-					if (col.default) {
-						p.push(col.default)
+		if (lang === 'graphql') {
+			const graphqlSchema = printSchema(buildClientSchema(schema))
+			prompt = prompt + '\nHere is the GraphQL schema: ' + JSON.stringify(graphqlSchema)
+		} else {
+			let smallerSchema: {
+				[schemaKey: string]: {
+					[tableKey: string]: Array<[string, string, boolean, string?]>
+				}
+			} = {}
+			for (const schemaKey in schema) {
+				smallerSchema[schemaKey] = {}
+				for (const tableKey in schema[schemaKey]) {
+					smallerSchema[schemaKey][tableKey] = []
+					for (const colKey in schema[schemaKey][tableKey]) {
+						const col = schema[schemaKey][tableKey][colKey]
+						const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
+						if (col.default) {
+							p.push(col.default)
+						}
+						smallerSchema[schemaKey][tableKey].push(p)
 					}
-					smallerSchema[schemaKey][tableKey].push(p)
 				}
 			}
-		}
 
-		let finalSchema:
-			| typeof smallerSchema
-			| {
-					[tableKey: string]: Array<[string, string, boolean, string?]>
-			  } = smallerSchema
-		if (lang === 'postgresql' && dbSchema.publicOnly) {
-			finalSchema = smallerSchema.public || smallerSchema
-		} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
-			finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
+			let finalSchema:
+				| typeof smallerSchema
+				| {
+						[tableKey: string]: Array<[string, string, boolean, string?]>
+				  } = smallerSchema
+			if (lang === 'postgresql' && dbSchema.publicOnly) {
+				finalSchema = smallerSchema.public || smallerSchema
+			} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
+				finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
+			}
+			prompt =
+				prompt +
+				"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
+				JSON.stringify(finalSchema)
 		}
-		prompt =
-			prompt +
-			"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
-			JSON.stringify(finalSchema)
 	}
 	return prompt
 }
@@ -158,24 +164,6 @@ async function getPrompts(scriptOptions: CopilotOptions) {
 	prompt = addDBSChema(scriptOptions, prompt)
 
 	return { prompt, systemPrompt: promptsConfig.system }
-}
-
-function getSampleInteraction(scriptOptions: CopilotOptions) {
-	const promptsConfig = PROMPTS_CONFIGS[scriptOptions.type]
-	const prompts = promptsConfig.prompts[scriptOptions.language]
-	let samplePrompt = prompts.prompt
-	if (scriptOptions.type !== 'fix') {
-		samplePrompt = samplePrompt.replace('{description}', prompts.example_description ?? '')
-	}
-
-	if (scriptOptions.type !== 'gen') {
-		samplePrompt = samplePrompt.replace('{code}', prompts.example_code ?? '')
-	}
-
-	if (scriptOptions.type === 'fix') {
-		samplePrompt = samplePrompt.replace('{error}', prompts.example_error ?? '')
-	}
-	return { samplePrompt, sampleAnswer: prompts.example_answer }
 }
 
 const PROMPTS_CONFIGS = {
@@ -235,21 +223,11 @@ export async function copilot(
 ) {
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
 
-	const { samplePrompt, sampleAnswer } = getSampleInteraction(scriptOptions)
-
 	const completion = await getCompletion(
 		[
 			{
 				role: 'system',
 				content: systemPrompt
-			},
-			{
-				role: 'user',
-				content: samplePrompt
-			},
-			{
-				role: 'assistant',
-				content: sampleAnswer
 			},
 			{
 				role: 'user',

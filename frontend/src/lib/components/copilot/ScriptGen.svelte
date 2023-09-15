@@ -292,7 +292,7 @@
 						<Icon data={faMagicWandSparkles} />
 					</Button>
 				</div>
-				{#if ['postgresql', 'mysql'].includes(lang) && dbSchema}
+				{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'graphql'].includes(lang) && dbSchema?.lang === lang}
 					<div class="flex flex-row items-center justify-between w-96 mt-2">
 						<p class="text-sm">
 							Will take into account the DB schema
