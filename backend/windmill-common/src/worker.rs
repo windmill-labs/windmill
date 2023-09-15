@@ -119,16 +119,23 @@ fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, Vec<S
 }
 
 pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
-    let wc = WORKER_CONFIG.read().await;
-    let tags = wc.worker_tags.as_slice();
+    let (tags, dw) = {
+        let wc = WORKER_CONFIG.read().await.clone();
+        (
+            wc.worker_tags,
+            wc.dedicated_worker
+                .as_ref()
+                .map(|x| format!("{}:{}", x.workspace_id, x.path)),
+        )
+    };
     sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
         worker_instance,
         worker_name,
         ip,
-        tags,
+        tags.as_slice(),
         *WORKER_GROUP,
-        wc.dedicated_worker.as_ref().map(|x| format!("{}:{}", x.workspace_id, x.path))
+        dw
     )
     .execute(db)
     .await
@@ -193,7 +200,7 @@ impl Default for WorkerConfigOpt {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub dedicated_worker: Option<WorkspacedPath>,

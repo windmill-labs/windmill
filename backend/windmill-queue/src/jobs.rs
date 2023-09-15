@@ -1164,9 +1164,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        let config = WORKER_CONFIG.read().await;
-        let tags = config.worker_tags.as_slice();
-
+        let config = WORKER_CONFIG.read().await.clone();
+        let tags = config.worker_tags.clone();
+        drop(config);
         let r = if suspend_first {
             sqlx::query_as::<_, QueuedJob>("UPDATE queue
             SET running = true
@@ -1188,14 +1188,12 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         } else {
             None
         };
-        drop(config);
 
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
 
-            let config = WORKER_CONFIG.read().await;
-            let tags = config.worker_tags.as_slice();
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             let r = sqlx::query_as::<_, QueuedJob>(
                 "UPDATE queue
