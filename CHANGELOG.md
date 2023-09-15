@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.174.0](https://github.com/windmill-labs/windmill/compare/v1.173.0...v1.174.0) (2023-09-15)
+
+
+### Features
+
+* ai gen support all langs ([#2276](https://github.com/windmill-labs/windmill/issues/2276)) ([39590b3](https://github.com/windmill-labs/windmill/commit/39590b3d2592b2d08117c0f70829c13f1efb4885))
+* bun absolute/relative imports + tests ([#2286](https://github.com/windmill-labs/windmill/issues/2286)) ([e5ce85b](https://github.com/windmill-labs/windmill/commit/e5ce85b9affe665342f24b1d39ce3d03db09b941))
+* **frontend:** Global CSS editor ([#2178](https://github.com/windmill-labs/windmill/issues/2178)) ([7e9ee39](https://github.com/windmill-labs/windmill/commit/7e9ee39aa69bc31766b5e4f4aab498c8f14067cd))
+
 ## [1.173.0](https://github.com/windmill-labs/windmill/compare/v1.172.1...v1.173.0) (2023-09-14)
 
 
