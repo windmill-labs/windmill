@@ -2925,7 +2925,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
         completed.next().await; // deployed script
 
         let script =
-            query!("SELECT hash, lock FROM script WHERE path = $1", "f/system/test_import".to_string())
+            query!("SELECT hash FROM script WHERE path = $1", "f/system/test_import".to_string())
                 .fetch_one(&db2)
                 .await
                 .unwrap();
