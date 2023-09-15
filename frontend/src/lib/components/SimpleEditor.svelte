@@ -20,7 +20,7 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
-	import { authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
+	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -191,8 +191,6 @@
 	$: lang == 'css' && addCSSClassCompletions()
 
 	function addCSSClassCompletions() {
-		const cssClasses = authorizedClassnames.map((className) => '.' + className)
-
 		languages.registerCompletionItemProvider('css', {
 			provideCompletionItems: function (model, position, context, token) {
 				const word = model.getWordUntilPosition(position)
@@ -206,7 +204,7 @@
 				if (word && word.word) {
 					const currentWord = word.word
 
-					const suggestions = cssClasses
+					const suggestions = allClasses
 						.filter((className) => className.includes(currentWord))
 						.map((className) => ({
 							label: className,

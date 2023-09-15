@@ -10,7 +10,7 @@
 		EditorMode
 	} from '../types'
 	import { classNames } from '$lib/utils'
-	import { ResourceService, type Policy } from '$lib/gen'
+	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -24,6 +24,7 @@
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { getTheme } from './componentsPanel/themeUtils'
 
 	export let app: App
 	export let appPath: string = ''
@@ -115,7 +116,10 @@
 
 	let css: string | undefined = undefined
 
-	appStore.subscribe(async (currentAppStore) => {
+	appStore.subscribe(loadTheme)
+
+	async function loadTheme(currentAppStore: App) {
+		console.log(currentAppStore)
 		if (!currentAppStore.theme) {
 			return
 		}
@@ -123,13 +127,10 @@
 		if (currentAppStore.theme.type === 'inlined') {
 			css = currentAppStore.theme.css
 		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
-			let loadedCss = await ResourceService.getResource({
-				workspace: $workspaceStore!,
-				path: currentAppStore.theme.path
-			})
-			css = loadedCss.value.value
+			let loadedCss = await getTheme(workspace, currentAppStore.theme.path)
+			css = loadedCss.value
 		}
-	})
+	}
 
 	$: addOrRemoveCss($enterpriseLicense !== undefined || isEditor, css)
 

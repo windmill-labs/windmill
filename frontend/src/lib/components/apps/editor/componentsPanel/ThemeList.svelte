@@ -37,11 +37,11 @@
 	async function addTheme(nameField: string) {
 		const themes = await ResourceService.listResourceNames({
 			workspace: $workspaceStore!,
-			name: 'theme'
+			name: 'app_theme'
 		})
 
 		const theme: Theme = {
-			path: 'f/themes/theme_' + themes.length,
+			path: 'f/app_themes/theme_' + themes.length,
 			value: {
 				value: cssString ?? '',
 				name: nameField
@@ -87,38 +87,46 @@
 			Upgrade to the enterprise edition to use themes.
 		</Alert>
 	{/if}
-	{#if type === 'inlined'}
-		<div class="text-xs leading-6 font-bold">Name</div>
-
-		<div class="w-full flex flex-row gap-2 items-center">
-			<input bind:value={nameField} />
-			<Button on:click={() => addTheme(nameField)} color="dark" size="xs">Create theme</Button>
-		</div>
-	{/if}
+	<div class="w-full flex flex-row gap-2 items-center">
+		<input
+			disabled={type != 'inlined'}
+			bind:value={nameField}
+			placeholder={type == 'inlined'
+				? 'Theme name'
+				: 'Fork a theme and edit it to create a new one'}
+		/>
+		<Button
+			disabled={type != 'inlined' || nameField == ''}
+			on:click={() => addTheme(nameField)}
+			color="dark"
+			size="xs">Create theme</Button
+		>
+	</div>
 
 	{#if loading}
-		<div class="flex flex-col w-full">
+		<div class="flex flex-col w-full pt-12">
 			{#each new Array(6) as _}
 				<Skeleton layout={[[2], 0.5]} />
 			{/each}
 		</div>
 	{:else if Array.isArray(themes) && themes.length > 0}
 		<div class="flex flex-row justify-end items-center w-full h-10">
-			<Button
-				disabled={$previewTheme === undefined}
-				color="dark"
-				variant="border"
-				size="xs"
-				on:click={() => {
-					previewTheme.set(undefined)
-					previewThemePath = undefined
-				}}
-			>
-				<div class="flex flex-row gap-1 items-center">
-					<EyeOff size={16} />
-					Clear preview
-				</div>
-			</Button>
+			{#if $previewTheme != undefined}
+				<Button
+					color="dark"
+					variant="border"
+					size="xs"
+					on:click={() => {
+						previewTheme.set(undefined)
+						previewThemePath = undefined
+					}}
+				>
+					<div class="flex flex-row gap-1 items-center">
+						<EyeOff size={16} />
+						Clear preview
+					</div>
+				</Button>
+			{/if}
 		</div>
 		<div class="w-full">
 			<DataTable size="sm">

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { AlertTriangle, GitBranch, Info } from 'lucide-svelte'
+	import { AlertTriangle, GitBranch } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -58,7 +58,7 @@
 									<Tooltip>
 										App CSS editor is an exclusive feature of the Enterprise Edition. You can
 										experiment with this feature in the editor, but please note that the changes
-										will not be visible in the preview.
+										will not be visible once deployed.
 									</Tooltip>
 								</div>
 								<div class="flex flex-row items-center text-blue-500 text-xs">

@@ -7,6 +7,7 @@
 	export let wrapperClass = ''
 	export let placement: PopoverPlacement | undefined = undefined
 	export let documentationLink: string | undefined = undefined
+	export let small = false
 </script>
 
 <Popover notClickable {placement} class={wrapperClass}>
@@ -15,7 +16,7 @@
 			? 'text-tertiary-inverse'
 			: 'text-tertiary'} {$$props.class} relative"
 	>
-		<InfoIcon class="-bottom-0.5 absolute" size={16} />
+		<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 16} />
 	</div>
 	<svelte:fragment slot="text">
 		<slot />

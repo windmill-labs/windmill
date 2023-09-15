@@ -63,18 +63,20 @@
 	<div class={classNames('flex gap-1', 'flex-col')}>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
-				<span class="text-xs font-semibold truncate text-primary">
-					{customTitle
-						? customTitle
-						: shouldCapitalize
-						? capitalize(addWhitespaceBeforeCapitals(key))
-						: key}
+				<div class="flex items-center">
+					<span class="text-xs font-semibold truncate text-primary">
+						{customTitle
+							? customTitle
+							: shouldCapitalize
+							? capitalize(addWhitespaceBeforeCapitals(key))
+							: key}
+					</span>
 					{#if tooltip}
-						<Tooltip>
+						<Tooltip small>
 							{tooltip}
 						</Tooltip>
 					{/if}
-				</span>
+				</div>
 				{#if displayType}
 					<div class="text-xs text-tertiary mr-1">
 						{fieldType === 'array' && subFieldType

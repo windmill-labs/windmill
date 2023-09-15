@@ -57,6 +57,7 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/public_app/:secret", get(get_public_app_by_secret))
+        .route("/public_resource/*path", get(get_public_resource))
 }
 
 pub fn global_service() -> Router {
@@ -339,6 +340,27 @@ async fn get_public_app_by_secret(
     }
 
     Ok(Json(app))
+}
+
+async fn get_public_resource(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    if !path.starts_with("f/app_themes/") {
+        return Err(Error::BadRequest(
+            "Only app themes are public resources".to_string(),
+        ));
+    }
+    let res = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    Ok(Json(res))
 }
 
 async fn get_secret_id(

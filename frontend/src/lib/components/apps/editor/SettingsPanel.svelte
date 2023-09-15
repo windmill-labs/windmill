@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems } from '../utils'
-	import { findGridItem } from './appUtils'
+	import { findComponentSettings, findGridItem } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
@@ -31,27 +31,6 @@
 				}
 			})
 			.find((x) => x)
-	}
-
-	function findComponentSettings(app: App, id: string | undefined) {
-		if (!id) return undefined
-		if (app?.grid) {
-			const gridItem = app.grid.find((x) => x.data?.id === id)
-			if (gridItem) {
-				return { item: gridItem, parent: undefined }
-			}
-		}
-
-		if (app?.subgrids) {
-			for (const key of Object.keys(app.subgrids ?? {})) {
-				const gridItem = app.subgrids[key].find((x) => x.data?.id === id)
-				if (gridItem) {
-					return { item: gridItem, parent: key }
-				}
-			}
-		}
-
-		return undefined
 	}
 </script>
 

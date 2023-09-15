@@ -779,6 +779,10 @@ export const customisationByComponent: Customisation[] = [
 	}
 ]
 
+export const allClasses = customisationByComponent
+	.map((c) => c.selectors.map((x) => x.selector))
+	.flat()
+
 export function hasStyleValue(obj: ComponentCssProperty | undefined) {
 	if (!obj) return false
 

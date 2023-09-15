@@ -110,20 +110,20 @@
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
 					tab === 'workspace'
-						? x.resource_type !== 'theme' && x.resource_type !== 'state'
+						? x.resource_type !== 'app_theme' && x.resource_type !== 'state'
 						: tab === 'states'
 						? x.resource_type === 'state'
 						: tab === 'cache'
 						? x.resource_type === 'cache'
 						: tab === 'theme'
-						? x.resource_type === 'theme'
+						? x.resource_type === 'app_theme'
 						: true
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
 						x.resource_type === typeFilter &&
 						(tab === 'workspace'
-							? x.resource_type !== 'theme' && x.resource_type !== 'state'
+							? x.resource_type !== 'app_theme' && x.resource_type !== 'state'
 							: true)
 			  )
 

@@ -34,7 +34,7 @@
 	import { page } from '$app/stores'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy, ResourceService } from '$lib/gen'
+	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
@@ -42,10 +42,18 @@
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
-	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import {
+		SecondaryMenu,
+		secondaryMenuLeft,
+		secondaryMenuLeftStore,
+		secondaryMenuRight,
+		secondaryMenuRightStore
+	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { getTheme } from './componentsPanel/themeUtils'
+	import StylePanel from './settingsPanel/StylePanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -87,6 +95,9 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
+
+	$secondaryMenuRightStore.isOpen = false
+	$secondaryMenuLeftStore.isOpen = false
 
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
@@ -204,11 +215,12 @@
 	})
 
 	$: if ($connectingInput.opened) {
-		secondaryMenu.open(ConnectionInstructions, {}, () => {
+		secondaryMenuRight.open(ConnectionInstructions, {}, () => {
 			$connectingInput.opened = false
 		})
+		secondaryMenuLeft.close()
 	} else {
-		secondaryMenu.close()
+		secondaryMenuRight.close()
 	}
 
 	function onThemeChange() {
@@ -255,46 +267,55 @@
 	}
 
 	// Animation logic for cssInput
-	$: if ($cssEditorOpen && !cssToggled) {
-		tmpLeftPanelSize = leftPanelSize
-		tmpCenterPanelSize = centerPanelSize
-		tmpRightPanelSize = rightPanelSize
+	$: animateCssInput($cssEditorOpen)
+	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
 
-		animateTo(leftPanelSize, 0, (newValue: number) => (leftPanelSize = newValue))
-		animateTo(centerPanelSize, 60, (newValue: number) => (centerPanelSize = newValue))
-		animateTo(rightPanelSize, 40, (newValue: number) => (rightPanelSize = newValue))
+	function animateCssInput(cssEditorOpen: boolean) {
+		if (cssEditorOpen && !cssToggled) {
+			cssToggled = true
 
-		tmpRunnablePanelSize = runnablePanelSize
-		tmpGridPanelSize = gridPanelSize
+			tmpLeftPanelSize = leftPanelSize
+			tmpCenterPanelSize = centerPanelSize
+			tmpRightPanelSize = rightPanelSize
 
-		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
-		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+			animateTo(leftPanelSize, 20, (newValue: number) => (leftPanelSize = newValue))
+			animateTo(centerPanelSize, 55, (newValue: number) => (centerPanelSize = newValue))
+			animateTo(rightPanelSize, 25, (newValue: number) => (rightPanelSize = newValue))
 
-		cssToggled = true
-	} else if (!$cssEditorOpen && cssToggled) {
-		animateTo(leftPanelSize, tmpLeftPanelSize, (newValue: number) => (leftPanelSize = newValue))
-		animateTo(
-			centerPanelSize,
-			tmpCenterPanelSize,
-			(newValue: number) => (centerPanelSize = newValue)
-		)
-		animateTo(rightPanelSize, tmpRightPanelSize, (newValue: number) => (rightPanelSize = newValue))
+			tmpRunnablePanelSize = runnablePanelSize
+			tmpGridPanelSize = gridPanelSize
 
-		tmpLeftPanelSize = -1
-		tmpCenterPanelSize = -1
-		tmpRightPanelSize = -1
+			animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+			animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+		} else if (!cssEditorOpen && cssToggled) {
+			cssToggled = false
 
-		animateTo(
-			runnablePanelSize,
-			tmpRunnablePanelSize,
-			(newValue: number) => (runnablePanelSize = newValue)
-		)
-		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
+			animateTo(leftPanelSize, tmpLeftPanelSize, (newValue: number) => (leftPanelSize = newValue))
+			animateTo(
+				centerPanelSize,
+				tmpCenterPanelSize,
+				(newValue: number) => (centerPanelSize = newValue)
+			)
+			animateTo(
+				rightPanelSize,
+				tmpRightPanelSize,
+				(newValue: number) => (rightPanelSize = newValue)
+			)
 
-		tmpRunnablePanelSize = -1
-		tmpGridPanelSize = -1
+			tmpLeftPanelSize = -1
+			tmpCenterPanelSize = -1
+			tmpRightPanelSize = -1
 
-		cssToggled = false
+			animateTo(
+				runnablePanelSize,
+				tmpRunnablePanelSize,
+				(newValue: number) => (runnablePanelSize = newValue)
+			)
+			animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
+
+			tmpRunnablePanelSize = -1
+			tmpGridPanelSize = -1
+		}
 	}
 
 	function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
@@ -333,12 +354,9 @@
 
 		if (currentAppStore.theme.type === 'inlined') {
 			css = currentAppStore.theme.css
-		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme.path) {
-			let loadedCss = await ResourceService.getResource({
-				workspace: $workspaceStore!,
-				path: currentAppStore.theme.path
-			})
-			css = loadedCss.value.value
+		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
+			let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
+			css = loadedCss.value
 		}
 	})
 
@@ -407,7 +425,10 @@
 			<SplitPanesWrapper>
 				<Splitpanes class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
-						<ContextPanel />
+						<div class="w-full h-full relative">
+							<SecondaryMenu right={false} />
+							<ContextPanel />
+						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
 						<Splitpanes horizontal class="overflow-hidden">
@@ -459,9 +480,10 @@
 										value="insert"
 										size="xs"
 										class="h-full"
-										on:pointerdown={() => {
+										on:click={() => {
 											if ($cssEditorOpen) {
 												$cssEditorOpen = false
+												selectedTab = 'insert'
 											}
 										}}
 									>
@@ -479,6 +501,7 @@
 										on:pointerdown={() => {
 											if ($cssEditorOpen) {
 												$cssEditorOpen = false
+												selectedTab = 'settings'
 											}
 										}}
 									>
@@ -496,6 +519,7 @@
 										on:pointerdown={() => {
 											if (!$cssEditorOpen) {
 												$cssEditorOpen = true
+												selectedTab = 'css'
 											}
 										}}
 									>
@@ -508,7 +532,7 @@
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />
-											<SecondaryMenu />
+											<SecondaryMenu right />
 										{:else}
 											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it

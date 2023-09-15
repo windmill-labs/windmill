@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { deleteTheme, getTheme, updateTheme, resolveTheme } from './themeUtils'
+	import { deleteTheme, getTheme, updateTheme, resolveTheme, DEFAULT_THEME } from './themeUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -55,10 +55,10 @@
 	}
 
 	async function makeDefaultTheme(path: string) {
-		const defaultTheme = await getTheme($workspaceStore!, 'f/themes/theme_0')
+		const defaultTheme = await getTheme($workspaceStore!, DEFAULT_THEME)
 		const theme = await getTheme($workspaceStore!, path)
 
-		await updateTheme($workspaceStore!, 'f/themes/theme_0', {
+		await updateTheme($workspaceStore!, DEFAULT_THEME, {
 			value: theme.value
 		})
 
@@ -127,7 +127,7 @@
 
 	<Cell last>
 		<div class={twMerge('flex flex-row gap-1 justify-end ')}>
-			{#if row.path === 'f/themes/theme_0'}
+			{#if row.path === DEFAULT_THEME}
 				<Badge color="blue">Default theme</Badge>
 			{/if}
 
@@ -176,7 +176,7 @@
 								Fork
 							</div>
 						</MenuItem>
-						{#if row.path !== 'f/themes/theme_0'}
+						{#if row.path !== DEFAULT_THEME}
 							<MenuItem on:click={() => makeDefaultTheme(row.path)}>
 								<div
 									class={classNames(
