@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "duration_ms",
-        "type_info": "Int4"
+        "type_info": "Int8"
       }
     ],
     "parameters": {

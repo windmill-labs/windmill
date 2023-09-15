@@ -1,18 +1,30 @@
 use std::sync::Arc;
 
+#[cfg(feature = "enterprise")]
 use chrono::Timelike;
+#[cfg(feature = "enterprise")]
 use futures::StreamExt;
+
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, query};
-use tokio::{
-    sync::RwLock,
-    time::{timeout, Duration},
-};
+use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
+use tokio::sync::RwLock;
+
+#[cfg(feature = "enterprise")]
+use tokio::time::{timeout, Duration};
+
 use windmill_api_client::types::{
-    CreateFlowBody, EditSchedule, NewSchedule, RawScript, ScriptArgs,
+    CreateFlowBody, RawScript
 };
+
+#[cfg(feature = "enterprise")]
+use sqlx::query;
+
+#[cfg(feature = "enterprise")]
+use windmill_api_client::types::{EditSchedule, NewSchedule,  ScriptArgs};
+
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -30,7 +42,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
@@ -125,6 +137,7 @@ impl ApiServer {
     }
 
     async fn close(self) -> anyhow::Result<()> {
+        println!("closing api server");
         let Self { tx, task, .. } = self;
         drop(tx);
         task.await.unwrap()
@@ -891,7 +904,8 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        completed_job(uuid, db).await
+        let r = completed_job(uuid, db).await;
+        r
     }
 }
 
@@ -926,13 +940,12 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    drop(quit);
+    quit.send(()).expect("send");
 
     let _: () = worker
         .await
         .expect("worker timed out")
         .expect("worker panicked");
-
     res
 }
 
@@ -959,6 +972,10 @@ fn spawn_test_worker(
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
+        {
+        let mut wc = WORKER_CONFIG.write().await;
+        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
@@ -1666,7 +1683,6 @@ echo "hello $msg"
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
     .await;
-
     assert_eq!(job.json_result(), Some(json!("hello world")));
 }
 
@@ -2598,6 +2614,8 @@ async fn test_rust_client(db: Pool<Postgres>) {
     .unwrap();
 }
 
+
+#[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2731,6 +2749,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
 }
 
 
+#[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;

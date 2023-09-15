@@ -8,16 +8,16 @@
 
 use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
 
-#[cfg(feature = "benchmark")]
-use std::time::Instant;
-
 use anyhow::Context;
 use async_recursion::async_recursion;
+use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
+#[cfg(feature = "benchmark")]
+use std::time::Instant;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -236,6 +236,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             .await
             .ok()
             .flatten()
+            .map(|x| x.to_i64())
+            .flatten()
         } else {
             tracing::warn!("Could not parse flow status");
             None
@@ -252,7 +254,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id.clone();
-    let _duration = sqlx::query_scalar!(
+    let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -388,7 +390,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $3",
                 if premium_workspace { w_id } else { &queued_job.email },
                 premium_workspace,
-                additional_usage)
+                additional_usage as i32)
                 .execute(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
@@ -1024,8 +1026,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
-        let avg_script_duration: Option<i32> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS INT) AS avg_duration_s FROM
+        let avg_script_duration: Option<i64> = sqlx::query_scalar!(
+            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
                 (SELECT duration_ms FROM completed_job WHERE script_path = $1
                 ORDER BY started_at
                 DESC LIMIT 10) AS t",
@@ -1162,9 +1164,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        let config = WORKER_CONFIG.read().await;
-        let tags = config.worker_tags.as_slice();
-
+        let config = WORKER_CONFIG.read().await.clone();
+        let tags = config.worker_tags.clone();
+        drop(config);
         let r = if suspend_first {
             sqlx::query_as::<_, QueuedJob>("UPDATE queue
             SET running = true
@@ -1186,14 +1188,12 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         } else {
             None
         };
-        drop(config);
 
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
 
-            let config = WORKER_CONFIG.read().await;
-            let tags = config.worker_tags.as_slice();
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             let r = sqlx::query_as::<_, QueuedJob>(
                 "UPDATE queue

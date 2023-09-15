@@ -62,7 +62,7 @@ export async function pushVariable(
     try {
       variable = await VariableService.getVariable({
         workspace: workspace,
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         decryptSecret: plainSecrets,
       });
       log.debug(`Variable ${remotePath} exists on remote`);
@@ -80,7 +80,7 @@ export async function pushVariable(
 
     await VariableService.updateVariable({
       workspace,
-      path: remotePath,
+      path: remotePath.replaceAll("\\", "/"),
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
@@ -94,7 +94,7 @@ export async function pushVariable(
       workspace,
       alreadyEncrypted: !plainSecrets,
       requestBody: {
-        path: remotePath,
+        path: remotePath.replaceAll("\\", "/"),
         ...localVariable,
       },
     });

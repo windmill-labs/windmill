@@ -35,6 +35,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "dateutil" => "python-dateutil",
     "mailparser" => "mail-parser",
     "mailparser-reply" => "mail-parser-reply",
+    "gitlab" => "python-gitlab"
 };
 
 fn replace_import(x: String) -> String {

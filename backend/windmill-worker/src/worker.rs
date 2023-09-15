@@ -608,7 +608,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs");
+    tracing::info!(worker = %worker_name, "listening for jobs, config: {:#?}", WORKER_CONFIG.read().await);
 
     let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
         WORKER_CONFIG.read().await.dedicated_worker.clone()
@@ -742,13 +742,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         let copy_tx = _copy_to_bucket_tx.clone();
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
-            let wc = WORKER_CONFIG.read().await;
-            let tags = wc.worker_tags.as_slice();
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
                 jobs_executed,
-                tags,
+                tags.as_slice(),
                 &worker_name
             )
             .execute(db)
