@@ -13,6 +13,7 @@
 	import { MoveRight } from 'lucide-svelte'
 	import { customisationByComponent } from '../componentsPanel/cssUtils'
 	import { sendUserToast } from '$lib/toast'
+	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	export let component: AppComponent | undefined
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -145,7 +146,11 @@
 							: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
 					)}
 				>
-					<div class="leading-6 font-semibold text-sm"> Migrate to CSS editor </div>
+					<div class="leading-6 font-semibold text-sm w-full flex justify-between">
+						<div>Migrate to CSS editor</div><CloseButton
+							on:close={() => (migrationModalOpen = false)}
+						/>
+					</div>
 
 					<div class="">
 						<div class="">

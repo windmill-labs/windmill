@@ -271,6 +271,7 @@
 	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
 
 	function animateCssInput(cssEditorOpen: boolean) {
+		console.log(cssEditorOpen, cssToggled)
 		if (cssEditorOpen && !cssToggled) {
 			cssToggled = true
 
@@ -339,7 +340,11 @@
 		return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 	}
 
-	$: selectedTab !== 'css' && $cssEditorOpen && (selectedTab = 'css')
+	$: $cssEditorOpen && selectCss()
+
+	function selectCss() {
+		selectedTab !== 'css' && (selectedTab = 'css')
+	}
 
 	const cssId = 'wm-global-style'
 
@@ -480,7 +485,8 @@
 										value="insert"
 										size="xs"
 										class="h-full"
-										on:click={() => {
+										on:pointerdown={() => {
+											console.log('click', $cssEditorOpen)
 											if ($cssEditorOpen) {
 												$cssEditorOpen = false
 												selectedTab = 'insert'
