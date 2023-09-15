@@ -1,4 +1,5 @@
 import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 
 interface MonacoEnvironmentEnhanced extends Environment {
 	workerOverrideGlobals: WorkerOverrideGlobals
@@ -67,6 +68,7 @@ export function buildWorkerDefinition(
 			case 'razor':
 				return buildWorker(workerOverrideGlobals, label, 'htmlWorker', 'HTML Worker')
 			case 'css':
+				return new cssWorker()
 			case 'scss':
 			case 'less':
 				return buildWorker(workerOverrideGlobals, label, 'cssWorker', 'CSS Worker')

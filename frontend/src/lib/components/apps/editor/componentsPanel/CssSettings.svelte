@@ -1,147 +1,122 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
+	import { AlertTriangle, GitBranch } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { emptyString } from '$lib/utils'
-	import { ClearableInput, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
-	import ListItem from './ListItem.svelte'
-	import CssProperty from './CssProperty.svelte'
-	import { ccomponents, components } from '../component'
-	import { slide } from 'svelte/transition'
-
-	const STATIC_ELEMENTS = ['app'] as const
-	const TITLE_PREFIX = 'Css.' as const
-
-	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | keyof typeof components
-
-	interface CustomCSSEntry {
-		type: CustomCSSType
-		name: string
-		icon: any
-		ids: { id: string; forceStyle: boolean; forceClass: boolean }[]
-	}
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import CssHelperPanel from './CssHelperPanel.svelte'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import ThemeList from './ThemeList.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import { resolveTheme } from './themeUtils'
+	import ThemeCodePreview from './ThemeCodePreview.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let rawCode = ''
+	let cssEditor: SimpleEditor | undefined = undefined
+	let alertHeight: number | undefined = undefined
+	let themeViewer: any = undefined
+	let selectedTab: 'css' | 'theme' = 'css'
 
-	$: rawCode && parseJson()
-	let jsonError = ''
-	let jsonErrorHeight: number
-
-	function parseJson() {
-		try {
-			$app.css = JSON.parse(rawCode ?? '')
-			jsonError = ''
-		} catch (e) {
-			jsonError = e.message
+	function insertSelector(selector: string) {
+		if ($app?.theme?.type === 'path') {
+			sendUserToast(
+				'You cannot edit the theme because it is a path theme. Fork the theme to edit it.',
+				true
+			)
+			return
 		}
-	}
 
-	function switchTab(asJson: boolean) {
-		if (asJson) {
-			rawCode = JSON.stringify($app.css, null, 2)
-		} else {
-			parseJson()
-		}
+		const code = cssEditor?.getCode()
+		cssEditor?.setCode(code + '\n' + selector)
+		$app = $app
 	}
-
-	const entries: CustomCSSEntry[] = [
-		{
-			type: 'app',
-			name: 'App',
-			icon: LayoutDashboardIcon,
-			ids: ['viewer', 'grid', 'component'].map((id) => ({ id, forceStyle: true, forceClass: true }))
-		},
-		...Object.entries(ccomponents).map(([type, { name, icon, customCss }]) => ({
-			type: type as keyof typeof components,
-			name,
-			icon,
-			ids: Object.entries(customCss).map(([id, v]) => ({
-				id,
-				forceStyle: v?.style != undefined,
-				forceClass: v?.['class'] != undefined
-			}))
-		}))
-	]
-	entries.sort((a, b) => a.name.localeCompare(b.name))
-	let search = ''
 </script>
 
-<!-- <div class="w-full text-lg font-semibold text-center text-tertiary p-2">Global Styling</div> -->
-<Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="h-full">
-	<Tab value="ui" size="xs" class="w-1/2">
-		<div class="m-1 center-center">
-			<MousePointer2 size={16} />
-			<span class="pl-1">UI</span>
-		</div>
-	</Tab>
-	<Tab value="json" size="xs" class="w-1/2">
-		<div class="m-1 center-center">
-			<CurlyBraces size={16} />
-			<span class="pl-1">JSON</span>
-		</div>
-	</Tab>
-	<div slot="content" class="h-[calc(100%-35px)] overflow-auto">
-		<TabContent value="ui" class="h-full">
-			<div class="p-2">
-				<ClearableInput bind:value={search} placeholder="Search..." />
-			</div>
-			<div class="h-[calc(100%-50px)] overflow-auto relative">
-				{#each search != '' ? entries.filter((x) => x.name
-								.toLowerCase()
-								.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name + type)}
-					{#if ids.length > 0}
-						<ListItem
-							title={name}
-							prefix={TITLE_PREFIX}
-							on:open={(e) => {
-								if ($app.css != undefined) {
-									if (e.detail && $app.css[type] == undefined) {
-										$app.css[type] = Object.fromEntries(ids.map(({ id }) => [id, {}]))
-									}
-								}
-							}}
-						>
-							<div slot="title" class="flex items-center">
-								<svelte:component this={icon} size={18} />
-								<span class="ml-1">
-									{name}
-								</span>
-							</div>
-							<div class="pb-2">
-								{#each ids as { id, forceStyle, forceClass }}
-									<div class="mb-3">
-										{#if $app?.css?.[type]}
-											<CssProperty
-												{forceClass}
-												{forceStyle}
-												name={id}
-												bind:value={$app.css[type][id]}
-											/>
-										{/if}
+<Drawer bind:this={themeViewer} size="800px">
+	<DrawerContent title="View themes" on:close={themeViewer.closeDrawer}>sa</DrawerContent>
+</Drawer>
+
+<Tabs bind:selected={selectedTab}>
+	<Tab size="xs" value="css">Code</Tab>
+	<Tab size="xs" value="theme">Theme</Tab>
+	<svelte:fragment slot="content">
+		{#if selectedTab === 'css'}
+			<SplitPanesWrapper>
+				<Splitpanes horizontal>
+					<Pane size={60}>
+						{#if $enterpriseLicense === undefined}
+							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
+								<div class="flex flex-row items-center text-yellow-500 text-xs">
+									<div class="flex">
+										<AlertTriangle size={16} />
+										EE only
 									</div>
-								{/each}
+									<Tooltip>
+										App CSS editor is an exclusive feature of the Enterprise Edition. You can
+										experiment with this feature in the editor, but please note that the changes
+										will not be visible once deployed.
+									</Tooltip>
+								</div>
+								<div class="flex flex-row items-center text-blue-500 text-xs">
+									Component styling is still available in the Community Edition
+									<Tooltip>
+										You can still style components individually in the Community Edition.
+									</Tooltip>
+								</div>
 							</div>
-						</ListItem>
-					{/if}
-				{/each}
-			</div>
-		</TabContent>
-		<TabContent value="json" class="h-full">
-			{#if !emptyString(jsonError)}
-				<div
-					transition:slide={{ duration: 200 }}
-					bind:clientHeight={jsonErrorHeight}
-					class="text-red-500 text-xs p-1"
-				>
-					{jsonError}
-				</div>
-			{/if}
-			<div style="height: calc(100% - {jsonErrorHeight || 0}px);">
-				<SimpleEditor class="h-full" lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
-			</div>
-		</TabContent>
-	</div>
+						{/if}
+						<div style="height: calc(100% - {alertHeight || 0}px);">
+							{#if $app.theme?.type === 'inlined'}
+								<SimpleEditor
+									class="h-full"
+									lang="css"
+									bind:code={$app.theme.css}
+									fixedOverflowWidgets={false}
+									small
+									automaticLayout
+									bind:this={cssEditor}
+									deno={false}
+								/>
+							{:else}
+								<ThemeCodePreview theme={$app.theme}>
+									<div class="p-2 w-min">
+										<Button
+											size="xs"
+											color="dark"
+											on:click={async () => {
+												const theme = await resolveTheme($app.theme, $workspaceStore)
+												$app.theme = {
+													type: 'inlined',
+													css: theme
+												}
+											}}
+										>
+											<div class="flex flex-row gap-2 items-center">
+												<GitBranch size={16} />
+												Fork theme to edit
+											</div>
+										</Button>
+									</div>
+								</ThemeCodePreview>
+							{/if}
+						</div>
+					</Pane>
+					<Pane size={40}>
+						<CssHelperPanel on:insertSelector={(e) => insertSelector(e.detail)} />
+					</Pane>
+				</Splitpanes>
+			</SplitPanesWrapper>
+		{/if}
+		{#if selectedTab === 'theme'}
+			<ThemeList
+				on:setCodeTab={() => {
+					selectedTab = 'css'
+				}}
+			/>
+		{/if}
+	</svelte:fragment>
 </Tabs>

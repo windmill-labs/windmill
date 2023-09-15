@@ -109,20 +109,22 @@
 	$: preFilteredType =
 		typeFilter == undefined
 			? preFilteredItemsOwners?.filter((x) =>
-					tab == 'states'
-						? x.resource_type == 'state'
-						: tab == 'cache'
-						? x.resource_type == 'cache'
-						: x.resource_type != 'state' && x.resource_type != 'cache'
+					tab === 'workspace'
+						? x.resource_type !== 'app_theme' && x.resource_type !== 'state'
+						: tab === 'states'
+						? x.resource_type === 'state'
+						: tab === 'cache'
+						? x.resource_type === 'cache'
+						: tab === 'theme'
+						? x.resource_type === 'app_theme'
+						: true
 			  )
 			: preFilteredItemsOwners?.filter(
 					(x) =>
-						x.resource_type == typeFilter &&
-						(tab == 'states'
-							? x.resource_type == 'state'
-							: tab == 'cache'
-							? x.resource_type == 'cache'
-							: x.resource_type != 'state' && x.resource_type != 'cache')
+						x.resource_type === typeFilter &&
+						(tab === 'workspace'
+							? x.resource_type !== 'app_theme' && x.resource_type !== 'state'
+							: true)
 			  )
 
 	async function loadResources(): Promise<void> {
@@ -137,6 +139,7 @@
 				...x
 			}
 		})
+
 		loading.resources = false
 	}
 
@@ -257,7 +260,7 @@
 	}
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' | 'states' | 'cache' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = 'workspace'
 
 	let inferrer: Drawer | undefined = undefined
 	let inferrerJson = ''
@@ -472,8 +475,17 @@
 				</Tooltip>
 			</div>
 		</Tab>
+		<Tab size="md" value="theme">
+			<div class="flex gap-2 items-center my-1">
+				Theme
+				<Tooltip>
+					Theme are actually resources (but excluded from the Workspace tab for clarity). Theme are
+					used by the apps to customize their look and feel.
+				</Tooltip>
+			</div>
+		</Tab>
 	</Tabs>
-	{#if tab == 'workspace' || tab == 'states' || tab == 'cache'}
+	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>

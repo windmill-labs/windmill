@@ -72,7 +72,11 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
+		class={twMerge(
+			'px-4 pt-4 pb-2 overflow-visible',
+			$app.css?.['app']?.['grid']?.class ?? '',
+			'wm-app-grid'
+		)}
 		on:pointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined

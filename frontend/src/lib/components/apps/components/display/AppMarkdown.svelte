@@ -3,12 +3,13 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { classNames } from '$lib/utils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,7 +32,7 @@
 
 	let result: string | undefined = undefined
 
-	$: css = concatCustomCss($app.css?.mardowncomponent, customCss)
+	let css = initCss($app.css?.mardowncomponent, customCss)
 
 	const proseMapping = {
 		sm: 'prose-sm',
@@ -51,6 +52,16 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.mardowncomponent}
+	/>
+{/each}
+
 <div
 	on:pointerdown={(e) => {
 		e?.preventDefault()
@@ -58,8 +69,10 @@
 	class={classNames(
 		'h-full w-full overflow-y-auto prose',
 		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
-		css?.container?.class
+		css?.container?.class,
+		'wm-markdown'
 	)}
+	style={css?.container?.style}
 >
 	<RunnableWrapper
 		{outputs}

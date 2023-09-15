@@ -2,7 +2,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import { secondaryMenu } from './settingsPanel/secondaryMenu'
+	import { secondaryMenuRight } from './settingsPanel/secondaryMenu'
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -10,7 +10,7 @@
 		$connectingInput.opened = false
 		$connectingInput.input = undefined
 
-		secondaryMenu.close()
+		secondaryMenuRight.close()
 	}
 </script>
 

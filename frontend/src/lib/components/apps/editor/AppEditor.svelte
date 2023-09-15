@@ -42,10 +42,18 @@
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
-	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import {
+		SecondaryMenu,
+		secondaryMenuLeft,
+		secondaryMenuLeftStore,
+		secondaryMenuRight,
+		secondaryMenuRightStore
+	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { getTheme } from './componentsPanel/themeUtils'
+	import StylePanel from './settingsPanel/StylePanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -66,6 +74,9 @@
 		input: undefined,
 		hoveredComponent: undefined
 	})
+
+	const cssEditorOpen = writable<boolean>(false)
+
 	const history = initHistory(app)
 
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
@@ -83,6 +94,11 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const worldStore = buildWorld(context)
+	const previewTheme: Writable<string | undefined> = writable(undefined)
+
+	$secondaryMenuRightStore.isOpen = false
+	$secondaryMenuLeftStore.isOpen = false
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
 		app: appStore,
@@ -109,7 +125,9 @@
 		componentControl: writable({}),
 		hoverStore: writable(undefined),
 		allIdsInPath: writable([]),
-		darkMode
+		darkMode,
+		cssEditorOpen,
+		previewTheme
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -144,7 +162,7 @@
 
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
-	let selectedTab: 'insert' | 'settings' = 'insert'
+	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
 	let befSelected: string | undefined = undefined
 	$: if ($selectedComponent?.[0] != befSelected) {
@@ -197,15 +215,183 @@
 	})
 
 	$: if ($connectingInput.opened) {
-		secondaryMenu.open(ConnectionInstructions, {}, () => {
+		secondaryMenuRight.open(ConnectionInstructions, {}, () => {
 			$connectingInput.opened = false
 		})
+		secondaryMenuLeft.close()
 	} else {
-		secondaryMenu.close()
+		secondaryMenuRight.close()
 	}
 
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')
+	}
+
+	let runnablePanelSize = 30
+	let gridPanelSize = 70
+
+	let leftPanelSize = 22
+	let centerPanelSize = 63
+	let rightPanelSize = 22
+
+	let tmpRunnablePanelSize = -1
+	let tmpGridPanelSize = -1
+
+	let tmpLeftPanelSize = -1
+	let tmpCenterPanelSize = -1
+	let tmpRightPanelSize = -1
+
+	let toggled = false
+	let cssToggled = false
+
+	$: if ($connectingInput.opened && !toggled) {
+		tmpRunnablePanelSize = runnablePanelSize
+		tmpGridPanelSize = gridPanelSize
+
+		animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+		animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+
+		toggled = true
+	} else if (!$connectingInput.opened && toggled) {
+		animateTo(
+			runnablePanelSize,
+			tmpRunnablePanelSize,
+			(newValue: number) => (runnablePanelSize = newValue)
+		)
+		animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
+
+		tmpRunnablePanelSize = -1
+		tmpGridPanelSize = -1
+
+		toggled = false
+	}
+
+	// Animation logic for cssInput
+	$: animateCssInput($cssEditorOpen)
+	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
+
+	function animateCssInput(cssEditorOpen: boolean) {
+		console.log(cssEditorOpen, cssToggled)
+		if (cssEditorOpen && !cssToggled) {
+			cssToggled = true
+
+			tmpLeftPanelSize = leftPanelSize
+			tmpCenterPanelSize = centerPanelSize
+			tmpRightPanelSize = rightPanelSize
+
+			animateTo(leftPanelSize, 20, (newValue: number) => (leftPanelSize = newValue))
+			animateTo(centerPanelSize, 55, (newValue: number) => (centerPanelSize = newValue))
+			animateTo(rightPanelSize, 25, (newValue: number) => (rightPanelSize = newValue))
+
+			tmpRunnablePanelSize = runnablePanelSize
+			tmpGridPanelSize = gridPanelSize
+
+			animateTo(runnablePanelSize, 0, (newValue: number) => (runnablePanelSize = newValue))
+			animateTo(gridPanelSize, 100, (newValue: number) => (gridPanelSize = newValue))
+		} else if (!cssEditorOpen && cssToggled) {
+			cssToggled = false
+
+			animateTo(leftPanelSize, tmpLeftPanelSize, (newValue: number) => (leftPanelSize = newValue))
+			animateTo(
+				centerPanelSize,
+				tmpCenterPanelSize,
+				(newValue: number) => (centerPanelSize = newValue)
+			)
+			animateTo(
+				rightPanelSize,
+				tmpRightPanelSize,
+				(newValue: number) => (rightPanelSize = newValue)
+			)
+
+			tmpLeftPanelSize = -1
+			tmpCenterPanelSize = -1
+			tmpRightPanelSize = -1
+
+			animateTo(
+				runnablePanelSize,
+				tmpRunnablePanelSize,
+				(newValue: number) => (runnablePanelSize = newValue)
+			)
+			animateTo(gridPanelSize, tmpGridPanelSize, (newValue: number) => (gridPanelSize = newValue))
+
+			tmpRunnablePanelSize = -1
+			tmpGridPanelSize = -1
+		}
+	}
+
+	function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
+		const duration = 400
+		const startTime = performance.now()
+
+		function animate(time: number) {
+			const elapsed = time - startTime
+			const progress = Math.min(elapsed / duration, 1)
+			const currentValue = start + (end - start) * easeInOut(progress)
+			onUpdate(currentValue)
+			if (progress < 1) {
+				requestAnimationFrame(animate)
+			}
+		}
+
+		requestAnimationFrame(animate)
+	}
+
+	function easeInOut(t: number) {
+		return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+	}
+
+	$: $cssEditorOpen && selectCss()
+
+	function selectCss() {
+		selectedTab !== 'css' && (selectedTab = 'css')
+	}
+
+	const cssId = 'wm-global-style'
+
+	$: addOrRemoveCss(true, $mode === 'preview')
+
+	let css: string | undefined = undefined
+
+	appStore.subscribe(async (currentAppStore) => {
+		if (!currentAppStore.theme) {
+			return
+		}
+
+		if (currentAppStore.theme.type === 'inlined') {
+			css = currentAppStore.theme.css
+		} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
+			let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
+			css = loadedCss.value
+		}
+	})
+
+	$: updateCssContent(css, $previewTheme)
+
+	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
+		const existingElement = document.getElementById(cssId)
+
+		if (!isPremium && isPreview) {
+			if (existingElement) {
+				existingElement.remove()
+			}
+		} else {
+			if (!existingElement) {
+				const head = document.head
+				const link = document.createElement('style')
+				link.id = cssId
+				link.innerHTML = css ?? ''
+				head.appendChild(link)
+			}
+		}
+	}
+
+	function updateCssContent(cssString: string | undefined, previewTheme: string | undefined) {
+		const theme = previewTheme ?? cssString ?? ''
+
+		const existingElement = document.getElementById(cssId)
+		if (existingElement && theme !== existingElement.innerHTML) {
+			existingElement.innerHTML = theme
+		}
 	}
 </script>
 
@@ -220,7 +406,11 @@
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
-					class={twMerge('h-full w-full relative', $appStore.css?.['app']?.['viewer']?.class)}
+					class={twMerge(
+						'h-full w-full relative',
+						$appStore.css?.['app']?.['viewer']?.class,
+						'wm-app-viewer'
+					)}
 					style={$appStore.css?.['app']?.['viewer']?.style}
 				>
 					<AppPreview
@@ -239,57 +429,70 @@
 		{:else}
 			<SplitPanesWrapper>
 				<Splitpanes class="max-w-full overflow-hidden">
-					<Pane size={15} minSize={5} maxSize={33}>
-						<ContextPanel />
+					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
+						<div class="w-full h-full relative">
+							<SecondaryMenu right={false} />
+							<ContextPanel />
+						</div>
 					</Pane>
-					<Pane size={63}>
-						<SplitPanesWrapper>
-							<Splitpanes horizontal>
-								<Pane size={$connectingInput?.opened ? 100 : 70}>
+					<Pane bind:size={centerPanelSize}>
+						<Splitpanes horizontal class="overflow-hidden">
+							<Pane bind:size={gridPanelSize}>
+								<div
+									on:pointerdown={(e) => {
+										$selectedComponent = undefined
+										$focusedGrid = undefined
+									}}
+									class={twMerge(
+										'bg-surface h-full w-full relative',
+										$appStore.css?.['app']?.['viewer']?.class,
+										'wm-app-viewer'
+									)}
+									style={$appStore.css?.['app']?.['viewer']?.style}
+								>
+									<div id="app-editor-top-level-drawer" />
 									<div
-										on:pointerdown={(e) => {
-											$selectedComponent = undefined
-											$focusedGrid = undefined
-										}}
-										class={twMerge(
-											'bg-surface h-full w-full relative',
-											$appStore.css?.['app']?.['viewer']?.class
+										class={classNames(
+											'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
+											app.fullscreen ? '' : 'max-w-6xl'
 										)}
-										style={$appStore.css?.['app']?.['viewer']?.style}
 									>
-										<div id="app-editor-top-level-drawer" />
-										<div
-											class={classNames(
-												'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
-												app.fullscreen ? '' : 'max-w-6xl'
-											)}
-										>
-											{#if $appStore.grid}
-												<ComponentNavigation />
+										{#if $appStore.grid}
+											<ComponentNavigation />
 
-												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
-													<GridEditor {policy} />
-												</div>
-											{/if}
-										</div>
+											<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
+												<GridEditor {policy} />
+											</div>
+										{/if}
+									</div>
+								</div>
+							</Pane>
+							{#if $connectingInput?.opened == false}
+								<Pane bind:size={runnablePanelSize}>
+									<div class="relative h-full w-full">
+										<InlineScriptsPanel />
 									</div>
 								</Pane>
-								{#if $connectingInput?.opened == false}
-									<Pane size={$connectingInput?.opened ? 0 : 30}>
-										<div class="relative h-full w-full">
-											<InlineScriptsPanel />
-										</div>
-									</Pane>
-								{/if}
-							</Splitpanes>
-						</SplitPanesWrapper>
+							{/if}
+						</Splitpanes>
 					</Pane>
-					<Pane size={22} minSize={15} maxSize={33}>
+					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component library</svelte:fragment>
-									<Tab value="insert" size="xs" class="h-full">
+									<Tab
+										value="insert"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											console.log('click', $cssEditorOpen)
+											if ($cssEditorOpen) {
+												$cssEditorOpen = false
+												selectedTab = 'insert'
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Plus size={18} />
 										</div>
@@ -297,7 +500,17 @@
 								</Popover>
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component settings</svelte:fragment>
-									<Tab value="settings" size="xs" class="h-full">
+									<Tab
+										value="settings"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											if ($cssEditorOpen) {
+												$cssEditorOpen = false
+												selectedTab = 'settings'
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Component size={18} />
 										</div>
@@ -305,7 +518,17 @@
 								</Popover>
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Global styling</svelte:fragment>
-									<Tab value="css" size="xs" class="h-full">
+									<Tab
+										value="css"
+										size="xs"
+										class="h-full"
+										on:pointerdown={() => {
+											if (!$cssEditorOpen) {
+												$cssEditorOpen = true
+												selectedTab = 'css'
+											}
+										}}
+									>
 										<div class="m-1 center-center">
 											<Paintbrush size={18} />
 										</div>
@@ -315,7 +538,7 @@
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />
-											<SecondaryMenu />
+											<SecondaryMenu right />
 										{:else}
 											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it

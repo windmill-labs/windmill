@@ -10,9 +10,11 @@
 		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -81,12 +83,22 @@
 
 	$: selected != undefined && handleTabSelection()
 	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
+	let css = initCss($app.css?.tabscomponent, customCss)
 
 	let resolvedDisabledTabs: boolean[] = []
 </script>
 
 <InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.tabscomponent}
+	/>
+{/each}
 
 <InitializeComponent {id} />
 
@@ -97,13 +109,17 @@
 <div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
 	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 		<div bind:clientHeight={tabHeight}>
-			<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
+			<Tabs
+				bind:selected
+				class={twMerge(css?.tabRow?.class, 'wm-tabs-tabRow')}
+				style={css?.tabRow?.style}
+			>
 				{#each tabs ?? [] as res, index}
 					<Tab
 						value={res}
-						class={css?.allTabs?.class}
+						class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
 						style={css?.allTabs?.style}
-						selectedClass={css?.selectedTab?.class}
+						selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
 						selectedStyle={css?.selectedTab?.style}
 						disabled={resolvedDisabledTabs[index]}
 					>
@@ -136,7 +152,7 @@
 					{id}
 					visible={render && i === selectedIndex}
 					subGridId={`${id}-${i}`}
-					class={css?.container?.class}
+					class={twMerge(css?.container?.class, 'wm-tabs-container')}
 					style={css?.container?.style}
 					containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
 						? componentContainerHeight - tabHeight

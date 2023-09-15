@@ -22,8 +22,10 @@
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { getContext } from 'svelte'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { initOutput } from '../../editor/appUtils'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -92,8 +94,18 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
 
-	$: css = concatCustomCss($app.css?.timeseriescomponent, customCss)
+	let css = initCss($app.css?.timeseriescomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.timeseriescomponent}
+	/>
+{/each}
 
 <InputValue
 	key="logarithmicScale"
@@ -105,7 +117,10 @@
 <InputValue key="pannable" {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-timeseries')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			<Scatter {data} {options} />
 		{/if}

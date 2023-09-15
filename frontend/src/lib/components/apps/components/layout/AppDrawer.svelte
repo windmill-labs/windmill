@@ -3,7 +3,7 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import Portal from 'svelte-portal'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
@@ -11,6 +11,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -31,7 +32,7 @@
 
 	let appDrawer: Drawer
 
-	$: css = concatCustomCss($app.css?.drawercomponent, customCss)
+	let css = initCss($app.css?.drawercomponent, customCss)
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
@@ -43,14 +44,25 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.drawercomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <div class="h-full w-full">
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
-			btnClasses={css?.button?.class}
+			btnClasses={twMerge(css?.button?.class, 'wm-drawer-button')}
 			wrapperClasses={twMerge(
 				css?.container?.class,
+				'wm-drawer-button-container',
 				resolvedConfig?.fillContainer ? 'w-full h-full' : ''
 			)}
 			wrapperStyle={css?.container?.style}
@@ -93,7 +105,8 @@
 			fullScreen={$mode !== 'dnd'}
 		>
 			<div
-				class="h-full"
+				class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
+				style={css?.drawer?.style}
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 					if (!$connectingInput.opened) {

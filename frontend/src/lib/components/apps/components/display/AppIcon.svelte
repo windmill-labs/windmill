@@ -2,12 +2,14 @@
 	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { AlignWrapper } from '../helpers'
 	import { loadIcon } from '../icon'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
@@ -33,7 +35,7 @@
 		iconComponent = i ? await loadIcon(i) : undefined
 	}
 
-	$: css = concatCustomCss($app.css?.iconcomponent, customCss)
+	let css = initCss($app.css?.iconcomponent, customCss)
 </script>
 
 {#each Object.keys(components['iconcomponent'].initialData.configuration) as key (key)}
@@ -44,13 +46,24 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.iconcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper
 	{render}
 	{horizontalAlignment}
 	{verticalAlignment}
-	class={css?.container?.class ?? ''}
+	class={twMerge(css?.container?.class, 'wm-icon-container')}
 	style={css?.container?.style ?? ''}
 >
 	{#if resolvedConfig.icon && iconComponent}
@@ -59,7 +72,7 @@
 			size={resolvedConfig.size || 24}
 			color={resolvedConfig.color || 'currentColor'}
 			strokeWidth={resolvedConfig.strokeWidth || 2}
-			class={css?.icon?.class ?? ''}
+			class={twMerge(css?.icon?.class, 'wm-icon')}
 			style={css?.icon?.style ?? ''}
 		/>
 	{/if}

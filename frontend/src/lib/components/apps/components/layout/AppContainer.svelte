@@ -3,8 +3,10 @@
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	// import type { EvalV2AppInput, StaticAppInput } from '../../inputType'
 	import { writable } from 'svelte/store'
 	import { InputValue } from '../helpers'
@@ -32,10 +34,20 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 </script>
 
 <InitializeComponent {id} />
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.containercomponent}
+	/>
+{/each}
 
 {#each Object.keys(groupFields ?? {}) as field}
 	{#if groupFields && field in groupFields}
@@ -49,7 +61,7 @@
 			<SubGridEditor
 				visible={render}
 				{id}
-				class={css?.container?.class}
+				class={twMerge(css?.container?.class, 'wm-container')}
 				style={css?.container?.style}
 				subGridId={`${id}-0`}
 				containerHeight={componentContainerHeight}

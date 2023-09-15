@@ -134,6 +134,7 @@
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,
+			'wm-app-component',
 			ismoving ? 'animate-pulse' : ''
 		)}
 		style={$app.css?.['app']?.['component']?.style}
@@ -591,6 +592,7 @@
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'chartjscomponent'}
@@ -607,6 +609,7 @@
 				id={component.id}
 				configuration={component.configuration}
 				componentInput={component.componentInput}
+				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
 				bind:initializing

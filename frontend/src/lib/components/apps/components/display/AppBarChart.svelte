@@ -16,10 +16,12 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -105,7 +107,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.barchartcomponent, customCss)
+	let css = initCss($app.css?.barchartcomponent, customCss)
 </script>
 
 {#each Object.keys(components['barchartcomponent'].initialData.configuration) as key (key)}
@@ -117,8 +119,21 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.barchartcomponent}
+	/>
+{/each}
+
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-bar-chart')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			{#if resolvedConfig.line}
 				<Line {data} options={lineOptions} />

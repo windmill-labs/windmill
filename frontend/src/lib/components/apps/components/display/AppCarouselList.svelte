@@ -3,7 +3,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import type { AppInput } from '../../inputType'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -13,11 +13,13 @@
 	import Carousel from 'svelte-carousel'
 	import { ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'carousellistcomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
@@ -43,7 +45,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.carousellistcomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	let inputs = {}
@@ -64,6 +66,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.carousellistcomponent}
 	/>
 {/each}
 
@@ -148,7 +160,7 @@
 									<SubGridEditor
 										{id}
 										visible={render}
-										class={css?.container?.class}
+										class={twMerge(css?.container?.class, 'wm-carousel')}
 										style={css?.container?.style}
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight - 40}

@@ -233,11 +233,11 @@ export function toKebabCase(text: string) {
 	return text.replace(/[A-Z]+(?![a-z])|[A-Z]/g, ($, ofs) => (ofs ? '-' : '') + $.toLowerCase())
 }
 
-export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
+export function initCss<T extends Record<string, ComponentCssProperty>>(
 	appCss?: Record<string, ComponentCssProperty>,
 	componentCss?: T
-): T | undefined {
-	if (!componentCss) return undefined
+): T {
+	if (!componentCss) return {} as T
 
 	return Object.fromEntries(
 		Object.entries(componentCss).map(([key, v]) => {
@@ -253,7 +253,8 @@ export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
 				key,
 				{
 					style: (appStyle + appEnding + compStyle + compEnding).trim(),
-					class: twMerge(appCss?.[key]?.class, v?.class)
+					class: twMerge(appCss?.[key]?.class, v?.class),
+					evalClass: appCss?.[key]?.evalClass || v?.evalClass
 				}
 			]
 		})

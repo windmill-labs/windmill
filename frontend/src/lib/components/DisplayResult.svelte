@@ -236,7 +236,7 @@
 		{:else if !forceJson && resultKind == 'file'}
 			<div
 				><a
-					download={result.filename ?? 'windmill.file'}
+					download={result.filename ?? result.file?.filename ?? 'windmill.file'}
 					href="data:application/octet-stream;base64,{contentOrRootString(result.file)}">Download</a
 				>
 			</div>
