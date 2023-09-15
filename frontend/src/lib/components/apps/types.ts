@@ -43,6 +43,7 @@ export interface GeneralAppInput {
 export type ComponentCssProperty = {
 	class?: string
 	style?: string
+	evalClass?: RichConfiguration
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<
@@ -129,6 +130,16 @@ export type HiddenRunnable = {
 } & Runnable &
 	RecomputeOthersSource
 
+export type AppTheme =
+	| {
+			type: 'path'
+			path: string
+	  }
+	| {
+			type: 'inlined'
+			css: string
+	  }
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
@@ -141,6 +152,7 @@ export type App = {
 	hiddenInlineScripts: Array<HiddenRunnable>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
+	theme: AppTheme | undefined
 }
 
 export type ConnectingInput = {
@@ -228,6 +240,8 @@ export type AppViewerContext = {
 	hoverStore: Writable<string | undefined>
 	allIdsInPath: Writable<string[]>
 	darkMode: Writable<boolean>
+	cssEditorOpen: Writable<boolean>
+	previewTheme: Writable<string | undefined>
 }
 
 export type AppEditorContext = {

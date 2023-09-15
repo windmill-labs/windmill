@@ -2,11 +2,13 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
 	import { initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -30,7 +32,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 
 	$componentControl[id] = {
 		left: () => {
@@ -66,6 +68,18 @@
 	}
 </script>
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.[
+			horizontal ? 'horizontalsplitpanescomponent' : 'verticalsplitpanescomponent'
+		]}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <div class="h-full w-full border" on:pointerdown={onFocus}>
@@ -88,7 +102,10 @@
 								visible={render}
 								{id}
 								shouldHighlight={$focusedGrid?.subGridIndex === index}
-								class={css?.container?.class}
+								class={twMerge(
+									css?.container?.class,
+									horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
+								)}
 								style={css?.container?.style}
 								subGridId={`${id}-${index}`}
 								containerHeight={horizontal ? undefined : componentContainerHeight - 8}

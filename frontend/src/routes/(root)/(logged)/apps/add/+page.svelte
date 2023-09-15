@@ -10,6 +10,7 @@
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
@@ -29,7 +30,10 @@
 		fullscreen: false,
 		unusedInlineScripts: [],
 		hiddenInlineScripts: [],
-		css: {}
+		theme: {
+			type: 'path',
+			path: DEFAULT_THEME
+		}
 	}
 
 	if (nodraft) {
@@ -93,7 +97,7 @@
 							fullscreen: false,
 							unusedInlineScripts: [],
 							hiddenInlineScripts: [],
-							css: {}
+							theme: undefined
 						}
 					}
 				}

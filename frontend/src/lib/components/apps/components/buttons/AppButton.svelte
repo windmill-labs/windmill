@@ -17,7 +17,8 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { concatCustomCss } from '../../utils'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { initCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -123,7 +124,7 @@
 	}
 	let loading = false
 
-	$: css = concatCustomCss($app.css?.buttoncomponent, customCss)
+	let css = initCss($app.css?.buttoncomponent, customCss)
 </script>
 
 {#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
@@ -133,6 +134,16 @@
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+	/>
+{/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.buttoncomponent}
 	/>
 {/each}
 
@@ -154,16 +165,17 @@
 	{extraKey}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
 		{#if errorsMessage}
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
 			on:pointerdown={(e) => e.stopPropagation()}
-			btnClasses={css?.button?.class}
+			btnClasses={twMerge(css?.button?.class, 'wm-button')}
 			wrapperClasses={twMerge(
 				css?.container?.class,
-				resolvedConfig.fillContainer ? 'w-full h-full' : ''
+				resolvedConfig.fillContainer ? 'w-full h-full' : '',
+				'wm-button-container'
 			)}
 			wrapperStyle={css?.container?.style}
 			style={css?.button?.style}

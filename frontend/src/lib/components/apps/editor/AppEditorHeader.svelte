@@ -61,6 +61,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
+	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 
 	async function hash(message) {
 		try {
@@ -255,6 +256,9 @@
 	}
 
 	async function save() {
+		$secondaryMenuLeftStore.isOpen = false
+		$secondaryMenuRightStore.isOpen = false
+
 		$dirtyStore = false
 		saveDrawerOpen = true
 		return

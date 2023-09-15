@@ -27,6 +27,26 @@ import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 
+export function findComponentSettings(app: App, id: string | undefined) {
+	if (!id) return undefined
+	if (app?.grid) {
+		const gridItem = app.grid.find((x) => x.data?.id === id)
+		if (gridItem) {
+			return { item: gridItem, parent: undefined }
+		}
+	}
+
+	if (app?.subgrids) {
+		for (const key of Object.keys(app.subgrids ?? {})) {
+			const gridItem = app.subgrids[key].find((x) => x.data?.id === id)
+			if (gridItem) {
+				return { item: gridItem, parent: key }
+			}
+		}
+	}
+
+	return undefined
+}
 export function dfs(
 	grid: GridItem[],
 	id: string,
@@ -261,7 +281,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
-			customCss: {},
+			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,

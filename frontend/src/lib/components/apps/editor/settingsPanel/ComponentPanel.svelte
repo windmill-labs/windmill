@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faChevronRight } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -24,7 +24,6 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
-	import { secondaryMenu } from './secondaryMenu'
 	import StylePanel from './StylePanel.svelte'
 	import { Delete, ExternalLink } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
@@ -33,6 +32,7 @@
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import type { ResultAppInput } from '../../inputType'
 	import GridGroup from './GridGroup.svelte'
+	import { secondaryMenuLeft } from './secondaryMenu'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -361,18 +361,10 @@
 						color="light"
 						size="xs"
 						variant="border"
-						on:click={() => (viewCssOptions = !viewCssOptions)}
+						startIcon={{ icon: faChevronLeft }}
+						on:click={() => secondaryMenuLeft.toggle(StylePanel, {})}
 					>
-						{viewCssOptions ? 'Hide' : 'Show'}
-					</Button>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						endIcon={{ icon: faChevronRight }}
-						on:click={() => secondaryMenu.open(StylePanel, { component })}
-					>
-						Rich Editor
+						Show
 					</Button>
 				</div>
 				<AlignmentEditor bind:component={componentSettings.item.data} />
