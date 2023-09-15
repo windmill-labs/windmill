@@ -742,13 +742,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         let copy_tx = _copy_to_bucket_tx.clone();
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
-            let wc = WORKER_CONFIG.read().await;
-            let tags = wc.worker_tags.as_slice();
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
                 jobs_executed,
-                tags,
+                tags.as_slice(),
                 &worker_name
             )
             .execute(db)

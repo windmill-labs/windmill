@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+#[cfg(feature = "enterprise")]
 use chrono::Timelike;
+#[cfg(feature = "enterprise")]
 use futures::StreamExt;
+
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
@@ -13,7 +16,7 @@ use tokio::{
 use windmill_api_client::types::{
     CreateFlowBody, EditSchedule, NewSchedule, RawScript, ScriptArgs,
 };
-use windmill_common::worker::{WORKER_CONFIG, load_worker_config};
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -126,6 +129,7 @@ impl ApiServer {
     }
 
     async fn close(self) -> anyhow::Result<()> {
+        println!("closing api server");
         let Self { tx, task, .. } = self;
         drop(tx);
         task.await.unwrap()
@@ -892,7 +896,8 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        completed_job(uuid, db).await
+        let r = completed_job(uuid, db).await;
+        r
     }
 }
 
@@ -933,7 +938,6 @@ async fn in_test_worker<Fut: std::future::Future>(
         .await
         .expect("worker timed out")
         .expect("worker panicked");
-
     res
 }
 
@@ -960,9 +964,10 @@ fn spawn_test_worker(
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
+        {
         let mut wc = WORKER_CONFIG.write().await;
-        *wc = load_worker_config(&db).await.unwrap();
-        drop(wc);
+        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
@@ -1670,7 +1675,6 @@ echo "hello $msg"
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
     .await;
-
     assert_eq!(job.json_result(), Some(json!("hello world")));
 }
 
@@ -2603,6 +2607,7 @@ async fn test_rust_client(db: Pool<Postgres>) {
 }
 
 
+#[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2736,6 +2741,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
 }
 
 
+#[cfg(feature = "enterprise")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
