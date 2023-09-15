@@ -11,7 +11,6 @@ use crate::oauth2::AllClients;
 use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
-use crate::workers::ALL_TAGS;
 use crate::{
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
@@ -36,6 +35,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::utils::rd_string;
+use windmill_common::worker::ALL_TAGS;
 
 use windmill_common::error::AppError;
 
@@ -72,7 +72,7 @@ mod workspaces;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
-pub use users::delete_expired_items_perdiodically;
+pub use users::delete_expired_items;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152; // 2MB
 lazy_static::lazy_static! {
@@ -153,7 +153,7 @@ pub async fn run_server(
     port_tx: tokio::sync::oneshot::Sender<u16>,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
-        for tag in ALL_TAGS.clone() {
+        for tag in ALL_TAGS.read().await.iter() {
             let r =
                 rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
             if let Err(e) = r {

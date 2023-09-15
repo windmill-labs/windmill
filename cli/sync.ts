@@ -20,6 +20,7 @@ import {
   yamlStringify,
   yamlParse,
   ScheduleService,
+  SEP,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -237,7 +238,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       },
     };
   }
-  return _internal_folder("./", zip);
+  return _internal_folder("." + SEP, zip);
 }
 
 async function* readDirRecursiveWithIgnore(
@@ -353,19 +354,27 @@ async function compareDynFSElement(
 }
 
 const isNotWmillFile = (p: string, isDirectory: boolean) => {
-  if (p.endsWith("/")) {
+  if (p.endsWith(SEP)) {
     return false;
   }
   if (isDirectory) {
-    return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/");
+    return (
+      !p.startsWith("u" + SEP) &&
+      !p.startsWith("f" + SEP) &&
+      !p.startsWith("g" + SEP)
+    );
   }
 
   try {
     const typ = getTypeStrFromPath(p);
     if (typ == "resource-type") {
-      return p.includes("/");
+      return p.includes(SEP);
     } else {
-      return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/");
+      return (
+        !p.startsWith("u" + SEP) &&
+        !p.startsWith("f" + SEP) &&
+        !p.startsWith("g" + SEP)
+      );
     }
   } catch {
     return true;
@@ -373,7 +382,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 };
 
 export const isWhitelisted = (p: string) => {
-  return p == "./" || p == "" || p == "u" || p == "f" || p == "g";
+  return p == "." + SEP || p == "" || p == "u" || p == "f" || p == "g";
 };
 export async function ignoreF() {
   try {

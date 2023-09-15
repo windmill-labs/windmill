@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.171.0",
+	"version": "1.173.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -18,10 +18,10 @@
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",
 		"@playwright/test": "^1.34.3",
-		"@rgossiaux/svelte-headlessui": "^1.0.2",
-		"@sveltejs/adapter-static": "^2.0.2",
-		"@sveltejs/kit": "^1.20.1",
-		"@sveltejs/package": "^2.2.0",
+		"@rgossiaux/svelte-headlessui": "^2.0.0",
+		"@sveltejs/adapter-static": "^2.0.3",
+		"@sveltejs/kit": "^1.25.0",
+		"@sveltejs/package": "^2.2.2",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
@@ -37,7 +37,7 @@
 		"d3-dag": "^0.11.5",
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
-		"eslint-plugin-svelte3": "^4.0.0",
+		"eslint-plugin-svelte": "^2.33.1",
 		"monaco-editor-workers": "~0.39.1",
 		"ol": "^7.4.0",
 		"openapi-typescript-codegen": "^0.25.0",
@@ -50,7 +50,7 @@
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
 		"stylelint-config-recommended": "^13.0.0",
-		"svelte": "^3.59.2",
+		"svelte": "^4.0.0",
 		"svelte-awesome": "^3.2.1",
 		"svelte-awesome-color-picker": "^2.4.5",
 		"svelte-check": "^3.4.3",
@@ -61,7 +61,7 @@
 		"svelte-popperjs": "^1.3.2",
 		"svelte-preprocess": "^5.0.1",
 		"svelte-range-slider-pips": "^2.1.1",
-		"svelte-splitpanes": "^0.7.14",
+		"svelte-splitpanes": "^0.8.0",
 		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.3.2",
 		"tslib": "^2.6.1",
@@ -69,6 +69,20 @@
 		"vite": "^4.4.9",
 		"vite-plugin-monaco-editor": "^1.1.0",
 		"yootils": "^0.3.1"
+	},
+	"overrides": {
+		"@rgossiaux/svelte-headlessui": {
+			"svelte": "$svelte"
+		},
+		"ag-grid-svelte": {
+			"svelte": "$svelte"
+		},
+		"svelte-chartjs": {
+			"svelte": "$svelte"
+		},
+		"svelte-timezone-picker": {
+			"svelte": "$svelte"
+		}
 	},
 	"type": "module",
 	"dependencies": {
@@ -78,7 +92,7 @@
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.9.2",
+		"@tanstack/svelte-table": "^8.9.9",
 		"ag-grid-svelte": "^0.3.0",
 		"ansi_up": "^5.2.1",
 		"chart.js": "^4.3.0",
@@ -92,14 +106,14 @@
 		"graphql": "^16.7.1",
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.246.0",
+		"lucide-svelte": "^0.277.0",
 		"monaco-graphql": "^1.3.0",
 		"monaco-languageclient": "~6.0.3",
 		"openai": "^4.3.0",
 		"quill": "^1.3.7",
 		"svelte-autosize": "^1.0.1",
 		"svelte-carousel": "^1.0.25",
-		"svelte-chartjs": "^3.1.0",
+		"svelte-chartjs": "^3.1.2",
 		"svelte-dnd-action": "^0.9.22",
 		"svelte-exmarkdown": "^2.1.0",
 		"svelte-infinite-loading": "^1.3.8",
@@ -114,8 +128,8 @@
 		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.20.1",
-		"svelte": "^3.59.2"
+		"@sveltejs/kit": "^1.25.0",
+		"svelte": "^4.0.0"
 	},
 	"exports": {
 		"./package.json": "./package.json",

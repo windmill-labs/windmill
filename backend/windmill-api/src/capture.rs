@@ -9,7 +9,7 @@
 use axum::{
     extract::{Extension, Path, Query},
     routing::{get, post, put},
-    Json, Router,
+    Router,
 };
 use hyper::{HeaderMap, StatusCode};
 use serde::Deserialize;
@@ -21,7 +21,7 @@ use windmill_common::{
 
 use crate::{
     db::{ApiAuthed, DB},
-    jobs::add_include_headers,
+    jobs::{add_include_headers, add_raw_string, JsonOrForm},
 };
 
 const KEEP_LAST: i64 = 8;
@@ -95,11 +95,12 @@ pub async fn update_payload(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(run_query): Query<IncludeHeaderQuery>,
     headers: HeaderMap,
-    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+    JsonOrForm(args, raw_string): JsonOrForm,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
-
     let args = add_include_headers(&run_query.include_header, headers, args.unwrap_or_default());
+    let args = add_raw_string(raw_string, args);
+
     sqlx::query!(
         "
        UPDATE capture

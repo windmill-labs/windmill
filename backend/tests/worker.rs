@@ -1,18 +1,30 @@
 use std::sync::Arc;
 
+#[cfg(feature = "enterprise")]
 use chrono::Timelike;
+#[cfg(feature = "enterprise")]
 use futures::StreamExt;
+
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, query};
-use tokio::{
-    sync::RwLock,
-    time::{timeout, Duration},
-};
+use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
+use tokio::sync::RwLock;
+
+#[cfg(feature = "enterprise")]
+use tokio::time::{timeout, Duration};
+
 use windmill_api_client::types::{
-    CreateFlowBody, EditSchedule, NewSchedule, RawScript, ScriptArgs,
+    CreateFlowBody, RawScript
 };
+
+#[cfg(feature = "enterprise")]
+use sqlx::query;
+
+#[cfg(feature = "enterprise")]
+use windmill_api_client::types::{EditSchedule, NewSchedule,  ScriptArgs, NewScript, NewScriptLanguage};
+
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -22,6 +34,8 @@ use windmill_common::{
 use windmill_queue::PushIsolationLevel;
 use serde::Serialize;
 
+use std::str::FromStr;
+
 #[derive(Debug, sqlx::FromRow, Serialize)]
 pub struct CompletedJob {
     pub workspace_id: String,
@@ -30,7 +44,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
@@ -125,6 +139,7 @@ impl ApiServer {
     }
 
     async fn close(self) -> anyhow::Result<()> {
+        println!("closing api server");
         let Self { tx, task, .. } = self;
         drop(tx);
         task.await.unwrap()
@@ -865,7 +880,7 @@ impl RunJob {
             args,
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
-            /* permissioned_as */ "u/admin".to_string(),
+            /* permissioned_as */ "u/test-user".to_string(),
             /* scheduled_for_o */ None,
             /* schedule_path */ None,
             /* parent_job */ None,
@@ -891,7 +906,8 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        completed_job(uuid, db).await
+        let r = completed_job(uuid, db).await;
+        r
     }
 }
 
@@ -926,13 +942,12 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    drop(quit);
+    quit.send(()).expect("send");
 
     let _: () = worker
         .await
         .expect("worker timed out")
         .expect("worker panicked");
-
     res
 }
 
@@ -956,8 +971,13 @@ fn spawn_test_worker(
     let worker_name: String = next_worker_name();
     let ip: &str = Default::default();
 
+    let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
+        {
+        let mut wc = WORKER_CONFIG.write().await;
+        (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
@@ -966,6 +986,7 @@ fn spawn_test_worker(
             1,
             ip,
             rx,
+            tx2,
             &base_internal_url,
             None,
             Arc::new(RwLock::new(None)),
@@ -1664,7 +1685,6 @@ echo "hello $msg"
     .arg("msg", json!("world"))
     .run_until_complete(&db, port)
     .await;
-
     assert_eq!(job.json_result(), Some(json!("hello world")));
 }
 
@@ -2596,7 +2616,9 @@ async fn test_rust_client(db: Pool<Postgres>) {
     .unwrap();
 }
 
-#[sqlx::test(fixtures("base"))]
+
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base", "schedule"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
@@ -2729,7 +2751,8 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
 }
 
 
-#[sqlx::test(fixtures("base"))]
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base", "schedule"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
@@ -2861,4 +2884,204 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         port,
     )
     .await;
+}
+
+
+async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: String, language: ScriptLang) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    client.create_script(
+        "test-workspace",
+        &NewScript {
+            language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
+            content: script_content,
+            path: "f/system/test_import".to_string(),
+            concurrent_limit: vec![],
+            concurrency_time_window_s: vec![],
+            cache_ttl: None,
+            dedicated_worker: None,
+            description: "".to_string(),
+            draft_only: None,
+            envs: vec![],
+            is_template: None,
+            kind: None,
+            parent_hash: None,
+            lock: vec![],
+            summary: "".to_string(),
+            tag: None,
+            schema: std::collections::HashMap::new(),
+        },
+    ).await.unwrap();
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(&db, async move {
+        completed.next().await; // deployed script
+
+        let script =
+            query!("SELECT hash FROM script WHERE path = $1", "f/system/test_import".to_string())
+                .fetch_one(&db2)
+                .await
+                .unwrap();
+
+        let job = RunJob::from(JobPayload::ScriptHash {
+            path: "f/system/test_import".to_string(),
+            hash: ScriptHash(script.hash),
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            dedicated_worker: None,
+            language,
+        }).push(&db2).await;
+
+
+        completed.next().await; // completed job
+
+
+        let result = completed_job(job, &db2).await.json_result().unwrap();
+
+
+        assert_eq!(result, serde_json::json!(["f/system/same_folder_script", "f/system/same_folder_script", "f/system_relative/different_folder_script", "f/system_relative/different_folder_script"]));
+
+    }, port).await;
+}
+
+
+async fn run_preview_relative_imports(db: &Pool<Postgres>, script_content: String, language: ScriptLang) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(&db, async move {
+        let job = RunJob::from(JobPayload::Code(RawCode {
+            content: script_content,
+            path: Some("f/system/test_import".to_string()),
+            language,
+            lock: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+        })).push(&db2).await;
+
+
+        completed.next().await; // completed job
+
+
+        let result = completed_job(job, &db2).await.json_result().unwrap();
+
+
+        assert_eq!(result, serde_json::json!(["f/system/same_folder_script", "f/system/same_folder_script", "f/system_relative/different_folder_script", "f/system_relative/different_folder_script"]));
+
+    }, port).await;
+}
+
+
+#[sqlx::test(fixtures("base", "relative_bun"))]
+async fn test_relative_imports_bun(db: Pool<Postgres>) {
+    let content = r#"
+import { main as test1 } from "/f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "/f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
+}
+
+
+#[sqlx::test(fixtures("base", "relative_bun"))]
+async fn test_nested_imports_bun(db: Pool<Postgres>) {
+
+    let content = r#"
+import { main as test } from "/f/system_relative/nested_script.ts";
+
+export async function main() {
+  return test();
+}
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await;
+}
+
+
+#[sqlx::test(fixtures("base", "relative_deno"))]
+async fn test_relative_imports_deno(db: Pool<Postgres>) {
+    let content = r#"
+import { main as test1 } from "/f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "/f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
+
+}
+
+
+#[sqlx::test(fixtures("base", "relative_deno"))]
+async fn test_nested_imports_deno(db: Pool<Postgres>) {
+
+    let content = r#"
+import { main as test } from "/f/system_relative/nested_script.ts";
+
+export async function main() {
+  return test();
+}
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await;
+}
+
+
+#[sqlx::test(fixtures("base", "relative_python"))]
+async fn test_relative_imports_python(db: Pool<Postgres>) {
+    let content = r#"
+from f.system.same_folder_script import main as test1
+from .same_folder_script import main as test2
+from f.system_relative.different_folder_script import main as test3
+from ..system_relative.different_folder_script import main as test4
+    
+def main():
+    return [test1(), test2(), test3(), test4()]
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
+
+}
+
+
+#[sqlx::test(fixtures("base", "relative_python"))]
+async fn test_nested_imports_python(db: Pool<Postgres>) {
+
+    let content = r#"
+
+from f.system_relative.nested_script import main as test
+
+def main():
+    return test()
+"#.to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
+    run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
 }

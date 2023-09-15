@@ -41,13 +41,13 @@ use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
-use windmill_queue::CLOUD_HOSTED;
 
 const TTL_TOKEN_CACHE_S: u64 = 60; // 60s
 pub const TTL_TOKEN_DB_H: u32 = 72;
@@ -712,7 +712,7 @@ async fn list_users(
         SELECT usr.*, usage.*
           FROM usr
              , LATERAL (
-                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0) executions
+                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
                   FROM completed_job
                  WHERE workspace_id = $1
                    AND job_kind NOT IN ('flow', 'flowpreview')
@@ -2240,6 +2240,20 @@ pub struct LoginUserInfo {
     pub displayName: Option<String>,
 }
 
+async fn _check_nb_of_user(db: &DB) -> Result<()> {
+    let nb_groups =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
+            .fetch_one(db)
+            .await?;
+    if nb_groups.unwrap_or(0) >= 50 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of oauth users accounts (50) without an enterprise license"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
 pub async fn login_externally(
     db: DB,
     email: &String,
@@ -2292,6 +2306,10 @@ pub async fn login_externally(
         if (name.is_none() || name == Some(String::new())) && user.is_some() {
             name = user.clone().unwrap().displayName;
         }
+
+        #[cfg(not(feature = "enterprise"))]
+        _check_nb_of_user(&db).await?;
+
         sqlx::query(&format!(
             "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
                  $2, $3, '{}', true)",
@@ -2341,71 +2359,58 @@ pub async fn login_externally(
     Ok(())
 }
 
-pub async fn delete_expired_items_perdiodically(
-    db: &DB,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
-) -> () {
-    loop {
-        let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM token WHERE expiration <= now()
+pub async fn delete_expired_items(db: &DB) -> () {
+    let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
+        "DELETE FROM token WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",
-        )
-        .fetch_all(db)
-        .await;
+    )
+    .fetch_all(db)
+    .await;
 
-        match tokens_deleted_r {
-            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
-            Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
-        }
+    match tokens_deleted_r {
+        Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
+        Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
+    }
 
-        let pip_resolution_r = sqlx::query_scalar!(
-            "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
-        )
-        .fetch_all(db)
-        .await;
+    let pip_resolution_r = sqlx::query_scalar!(
+        "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
+    )
+    .fetch_all(db)
+    .await;
 
-        match pip_resolution_r {
-            Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
-            Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
-        }
+    match pip_resolution_r {
+        Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
+        Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
+    }
 
-        let deleted_cache = sqlx::query_scalar!(
+    let deleted_cache = sqlx::query_scalar!(
             "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
         )
         .fetch_all(db)
         .await;
 
-        match deleted_cache {
-            Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
-            Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
-        }
+    match deleted_cache {
+        Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
+        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
 
-        if *JOB_RETENTION_SECS > 0 {
-            let deleted_jobs = sqlx::query_scalar!(
+    if *JOB_RETENTION_SECS > 0 {
+        let deleted_jobs = sqlx::query_scalar!(
                 "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
                 *JOB_RETENTION_SECS as i64
             )
             .fetch_all(db)
             .await;
 
-            match deleted_jobs {
-                Ok(deleted_jobs) => {
-                    tracing::info!(
-                        "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
-                        deleted_jobs.len(),
-                        deleted_jobs
-                    )
-                }
-                Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
+        match deleted_jobs {
+            Ok(deleted_jobs) => {
+                tracing::info!(
+                    "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
+                    deleted_jobs.len(),
+                    deleted_jobs
+                )
             }
-        }
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(600))     => (),
-            _ = rx. recv() => {
-                 println!("received killpill for delete expired tokens");
-                 break;
-            }
+            Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
         }
     }
 }

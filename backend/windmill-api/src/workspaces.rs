@@ -74,13 +74,19 @@ pub fn workspaced_service() -> Router {
         .route("/edit_error_handler", post(edit_error_handler));
 
     #[cfg(feature = "enterprise")]
-    tracing::info!("stripe enabled");
+    { 
+        if std::env::var("STRIPE_KEY").is_err() {
+            return router;
+        } else {
+            tracing::info!("stripe enabled");
+            
+            return router
+            .route("/checkout", get(stripe_checkout))
+            .route("/billing_portal", get(stripe_portal));
+        }
+    }
 
-    #[cfg(feature = "enterprise")]
-    let router = router
-        .route("/checkout", get(stripe_checkout))
-        .route("/billing_portal", get(stripe_portal));
-
+    #[cfg(not(feature = "enterprise"))]
     router
 }
 pub fn global_service() -> Router {
@@ -843,6 +849,20 @@ lazy_static::lazy_static! {
 
 }
 
+async fn _check_nb_of_workspaces(db: &DB) -> Result<()> {
+    let nb_workspaces = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace WHERE id != 'admins' AND deleted = false",)
+        .fetch_one(db)
+        .await?;
+    if nb_workspaces.unwrap_or(0) >= 3 {
+        return Err(Error::BadRequest(
+            "You have reached the maximum number of workspaces (3 outside of default group 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
+                .to_string(),
+        ));
+    }
+    return Ok(());
+}
+
+
 async fn create_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -852,6 +872,10 @@ async fn create_workspace(
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
         require_super_admin(&db, &authed.email).await?;
     }
+
+    #[cfg(not(feature = "enterprise"))]
+    _check_nb_of_workspaces(&db).await?;
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     check_name_conflict(&mut tx, &nw.id).await?;

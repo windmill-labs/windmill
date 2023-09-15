@@ -106,7 +106,7 @@
 							<tr>
 								<Cell first>
 									Operators
-									<Tooltip light>
+									<Tooltip>
 										Actual pricing is calculated on the MAXIMUM number of operators in a given
 										billing period, see the customer portal for more info.
 									</Tooltip>

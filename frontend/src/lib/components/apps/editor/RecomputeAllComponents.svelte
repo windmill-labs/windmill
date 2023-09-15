@@ -101,9 +101,16 @@
 	]
 </script>
 
-<!-- {allItems($app.grid, $app.subgrids)
+<!-- {$initialized.initializedComponents?.join(', ')} -->
+<!-- {allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length}
+{$initialized.initializedComponents}
+{allItems($app.grid, $app.subgrids)
 	.map((x) => x.id)
-	.filter((x) => !$initialized.initializedComponents?.includes(x))} -->
+	.filter((x) => !$initialized.initializedComponents?.includes(x))
+	.sort()
+	.join(', ')} -->
+<!-- {allItems($app.grid, $app.subgrids).map((x) => x.id)} -->
+
 <div class="flex items-center">
 	<Button
 		disabled={componentNumber == 0}

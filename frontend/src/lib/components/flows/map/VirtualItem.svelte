@@ -45,7 +45,9 @@
 		<button
 			title="Delete branch"
 			on:click|stopPropagation={() => {
-				dispatch('deleteBranch', deleteBranch)
+				if (deleteBranch) {
+					dispatch('deleteBranch', deleteBranch)
+				}
 			}}
 			type="button"
 			class="text-primary bg-surface border mx-0.5 border-gray-300 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"

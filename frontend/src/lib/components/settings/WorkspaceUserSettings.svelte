@@ -118,7 +118,7 @@
 
 				<Cell head>
 					Executions (<abbr title="past 1w">1w</abbr>)
-					<Tooltip light>
+					<Tooltip>
 						An execution is calculated as 1 for any runs of scripts + 1 for each seconds above the
 						first one
 					</Tooltip>

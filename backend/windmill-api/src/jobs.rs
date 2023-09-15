@@ -13,7 +13,6 @@ use crate::{
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
     variables::get_workspace_key,
-    workers::{CUSTOM_TAGS, CUSTOM_TAGS_PER_WORKSPACE},
     BASE_URL,
 };
 use anyhow::Context;
@@ -34,6 +33,7 @@ use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::worker::CUSTOM_TAGS_PER_WORKSPACE;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -396,7 +396,7 @@ pub struct CompletedJob<'rows> {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
@@ -453,7 +453,7 @@ pub struct ListableCompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i32,
+    pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
@@ -1348,7 +1348,7 @@ struct UnifiedJob {
     running: Option<bool>,
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
-    duration_ms: Option<i32>,
+    duration_ms: Option<i64>,
     success: Option<bool>,
     deleted: bool,
     canceled: bool,
@@ -1480,8 +1480,8 @@ struct PreviewFlow {
 }
 
 pub struct JsonOrForm(
-    Option<serde_json::Map<String, serde_json::Value>>,
-    Option<String>,
+    pub Option<serde_json::Map<String, serde_json::Value>>,
+    pub Option<String>,
 );
 
 #[axum::async_trait]
@@ -1594,7 +1594,7 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
     serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
 
-fn add_raw_string(
+pub fn add_raw_string(
     raw_string: Option<String>,
     mut args: serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
@@ -1607,12 +1607,12 @@ fn add_raw_string(
     return args;
 }
 
-fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> error::Result<()> {
+async fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> error::Result<()> {
     if let Some(tag) = tag {
         if tag == "" {
             return Ok(());
         }
-        let custom_tags_per_w = &*CUSTOM_TAGS_PER_WORKSPACE;
+        let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
         if custom_tags_per_w.0.contains(&tag.to_string()) {
             Ok(())
         } else if custom_tags_per_w.1.contains_key(tag)
@@ -1626,7 +1626,7 @@ fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> error:
         } else {
             return Err(error::Error::BadRequest(format!(
                 "Tag {tag} cannot be used on workspace {w_id}: (CUSTOM_TAGS: {:?})",
-                *CUSTOM_TAGS
+                custom_tags_per_w
             )));
         }
     } else {
@@ -1655,7 +1655,7 @@ pub async fn run_flow_by_path(
     .fetch_optional(&db)
     .await?
     .flatten();
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
@@ -1705,7 +1705,7 @@ pub async fn run_job_by_path(
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
 
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -1908,7 +1908,7 @@ pub async fn run_wait_result_job_by_path_get(
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
     let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2079,7 +2079,7 @@ async fn run_wait_result_script_by_path_internal(
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2143,7 +2143,7 @@ pub async fn run_wait_result_script_by_hash(
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2258,7 +2258,7 @@ async fn run_wait_result_flow_by_path_internal(
     .fetch_optional(&db)
     .await?
     .flatten();
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2314,7 +2314,7 @@ async fn run_preview_job(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
-    check_tag_available_for_workspace(&w_id, &preview.tag)?;
+    check_tag_available_for_workspace(&w_id, &preview.tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2422,7 +2422,7 @@ async fn run_preview_flow_job(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
-    check_tag_available_for_workspace(&w_id, &raw_flow.tag)?;
+    check_tag_available_for_workspace(&w_id, &raw_flow.tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(
@@ -2479,7 +2479,7 @@ pub async fn run_job_by_hash(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
     let args = add_raw_string(raw_string, args);
-    check_tag_available_for_workspace(&w_id, &tag)?;
+    check_tag_available_for_workspace(&w_id, &tag).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
 
     let (uuid, tx) = push(

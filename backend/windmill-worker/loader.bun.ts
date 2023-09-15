@@ -24,15 +24,25 @@ const p = {
         loader: "tsx",
       };
     });
-    build.onResolve({ filter: /(?!\.\/main\.ts)\..*\.ts$/ }, (args) => {
-      const cdir = resolve("./");
+    const cdir = resolve("./");
+    const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
+    const filter = new RegExp(
+      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.ts).*\\.ts$`
+    );
+    build.onResolve({ filter }, (args) => {
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
           : args.importer.replace(cdir + "/", "");
 
-      const url = `${base_internal_url}/api/w/${w_id}/scripts/raw/p/${file_path}/../${args.path}`;
-      const file = resolve("./" + current_path + "/../" + args.path + ".url");
+      const isRelative = !args.path.startsWith("/");
+
+      const url = isRelative
+        ? `${base_internal_url}/api/w/${w_id}/scripts/raw/p/${file_path}/../${args.path}`
+        : `${base_internal_url}/api/w/${w_id}/scripts/raw/p/${args.path}`;
+      const file = isRelative
+        ? resolve("./" + current_path + "/../" + args.path + ".url")
+        : resolve("./" + args.path + ".url");
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {

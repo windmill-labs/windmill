@@ -8,17 +8,16 @@
 
 use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
 
-#[cfg(feature = "benchmark")]
-use std::time::Instant;
-
 use anyhow::Context;
 use async_recursion::async_recursion;
+use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
-use itertools::Itertools;
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
 use serde_json::json;
 use sqlx::{Pool, Postgres, Transaction};
+#[cfg(feature = "benchmark")]
+use std::time::Instant;
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -37,8 +36,12 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
+    worker::WORKER_CONFIG,
     DB, METRICS_ENABLED,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::worker::CLOUD_HOSTED;
 
 use crate::{
     schedule::{get_schedule_opt, push_scheduled_job},
@@ -66,57 +69,6 @@ lazy_static::lazy_static! {
         "Total number of jobs pulled from the queue."
     )
     .unwrap();
-    pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
-
-    pub static ref DEFAULT_TAGS : Vec<String> = vec![
-        "deno".to_string(),
-        "python3".to_string(),
-        "go".to_string(),
-        "bash".to_string(),
-        "powershell".to_string(),
-        "nativets".to_string(),
-        "mysql".to_string(),
-        "graphql".to_string(),
-        "bun".to_string(),
-        "postgresql".to_string(),
-        "bigquery".to_string(),
-        "snowflake".to_string(),
-        "graphql".to_string(),
-        "dependency".to_string(),
-        "flow".to_string(),
-        "hub".to_string(),
-        "other".to_string()];
-
-    pub static ref DEDICATED_WORKER: Option<(String, String)> = std::env::var("DEDICATED_WORKER")
-        .ok()
-        .map(|x| {
-            let splitted = x.split(':').to_owned().collect_vec();
-            if splitted.len() != 2 {
-                panic!("DEDICATED_WORKER should be in the form of <workspace>:<script_path>")
-            } else {
-                let workspace = splitted[0];
-                let script_path = splitted[1];
-                (workspace.to_string(), script_path.to_string())
-            }
-        });
-
-    pub static ref ACCEPTED_TAGS: Vec<String> = {
-        let worker_tags = std::env::var("WORKER_TAGS")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect())
-        .unwrap_or_else(|| DEFAULT_TAGS.clone());
-        if let Some(ref dedicated_worker) = DEDICATED_WORKER.as_ref() {
-            vec![format!("{}:{}", dedicated_worker.0, dedicated_worker.1)]
-        } else {
-            worker_tags
-         }
-    };
-
-    pub static ref IS_WORKER_TAGS_DEFINED: bool = std::env::var("WORKER_TAGS").ok().is_some();
-
-
-
-
 
     // When compiled in 'benchmark' mode, this flags is exposed via the /workers/toggle endpoint
     // and make it possible to disable to current active workers (such that they don't pull any)
@@ -284,6 +236,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             .await
             .ok()
             .flatten()
+            .map(|x| x.to_i64())
+            .flatten()
         } else {
             tracing::warn!("Could not parse flow status");
             None
@@ -300,7 +254,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id.clone();
-    let _duration = sqlx::query_scalar!(
+    let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
                    , id
@@ -425,7 +379,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     if !is_flow && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
-        let premium_workspace = *CLOUD_HOSTED
+        let premium_workspace = *windmill_common::worker::CLOUD_HOSTED
             && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
@@ -436,7 +390,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $3",
                 if premium_workspace { w_id } else { &queued_job.email },
                 premium_workspace,
-                additional_usage)
+                additional_usage as i32)
                 .execute(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
@@ -1072,8 +1026,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let job_uuid: Uuid = pulled_job.id;
         let min_started_at: Option<DateTime<Utc>> = script_path_live_stats.min_started_at;
-        let avg_script_duration: Option<i32> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS INT) AS avg_duration_s FROM
+        let avg_script_duration: Option<i64> = sqlx::query_scalar!(
+            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
                 (SELECT duration_ms FROM completed_job WHERE script_path = $1
                 ORDER BY started_at
                 DESC LIMIT 10) AS t",
@@ -1153,7 +1107,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         // TODO: REDIS: Race conditions / replace last_ping
 
         // TODO: shuffle this list to have fairness
-        let mut all_tags = ACCEPTED_TAGS.clone();
+        let mut all_tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
         let mut msg: Option<_> = None;
         let mut tag = None;
@@ -1210,7 +1164,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-
+        let config = WORKER_CONFIG.read().await.clone();
+        let tags = config.worker_tags.clone();
+        drop(config);
         let r = if suspend_first {
             sqlx::query_as::<_, QueuedJob>("UPDATE queue
             SET running = true
@@ -1226,7 +1182,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 LIMIT 1
             )
             RETURNING *")
-                .bind(ACCEPTED_TAGS.as_slice())
+                .bind(tags)
                 .fetch_optional(db)
                 .await?
         } else {
@@ -1236,6 +1192,8 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
+
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             let r = sqlx::query_as::<_, QueuedJob>(
                 "UPDATE queue
@@ -1253,10 +1211,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             )
             RETURNING *",
             )
-            .bind(ACCEPTED_TAGS.as_slice())
+            .bind(tags)
             .fetch_optional(db)
             .await?;
-
             // #[cfg(feature = "benchmark")]
             // println!("pull query: {:?}", instant.elapsed());
 

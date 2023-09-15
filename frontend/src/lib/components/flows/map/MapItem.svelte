@@ -34,7 +34,7 @@
 		}
 		select: string
 		newBranch: { module: FlowModule }
-		move: { module: FlowModule }
+		move: { module: FlowModule } | undefined
 	}>()
 
 	$: itemProps = {

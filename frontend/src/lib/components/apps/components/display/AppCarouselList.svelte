@@ -55,6 +55,7 @@
 			parentComponentId: id,
 			subGridIndex: 0
 		})
+	let currentPageIndex = 0
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
@@ -91,8 +92,8 @@
 						arrows={true}
 						swiping={false}
 						bind:this={carousel}
-						let:currentPageIndex
 						on:pageChange={(event) => {
+							currentPageIndex = event.detail
 							$focusedGrid = {
 								parentComponentId: id,
 								subGridIndex: event.detail

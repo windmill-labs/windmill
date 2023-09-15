@@ -28,12 +28,10 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
+    worker::{update_ping, CLOUD_HOSTED, WORKER_CONFIG},
     DB, IS_READY, METRICS_ENABLED,
 };
-use windmill_queue::{
-    canceled_job_to_result, get_queued_job, pull, ACCEPTED_TAGS, CLOUD_HOSTED, DEDICATED_WORKER,
-    HTTP_CLIENT, IS_WORKER_TAGS_DEFINED,
-};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, HTTP_CLIENT};
 
 use serde_json::{json, Value};
 
@@ -350,6 +348,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     _num_workers: u32,
     ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    killpill_tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
     _sync_barrier: Arc<RwLock<Option<Barrier>>>,
@@ -388,7 +387,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    insert_initial_ping(worker_instance, &worker_name, ip, db).await;
+    update_ping(worker_instance, &worker_name, ip, db).await;
 
     let uptime_metric =
         prometheus::register_counter!(WORKER_UPTIME_OPTS.clone().const_label("name", &worker_name))
@@ -609,19 +608,23 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs");
+    tracing::info!(worker = %worker_name, "listening for jobs, config: {:#?}", WORKER_CONFIG.read().await);
 
-    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some((_workspace, _script_path)) =
-        DEDICATED_WORKER.clone()
+    let (dedicated_worker_tx, dedicated_worker_handle) = if let Some(_wp) =
+        WORKER_CONFIG.read().await.dedicated_worker.clone()
     {
         #[cfg(not(feature = "enterprise"))]
-        panic!("Dedicated worker is an enterprise feature");
+        {
+            tracing::error!("Dedicated worker is an enterprise feature");
+            killpill_tx.send(()).expect("send");
+            return;
+        }
 
         #[cfg(feature = "enterprise")]
         {
             let (dedicated_worker_tx, dedicated_worker_rx) =
                 mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
-            let killpill_rx = killpill_rx.resubscribe();
+            let mut killpill_rx = killpill_rx.resubscribe();
             let db = db.clone();
             let worker_dir = worker_dir.clone();
             let base_internal_url = base_internal_url.to_string();
@@ -645,19 +648,52 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 .execute(&db)
                 .await
                 {
-                    panic!("failed to create token for dedicated worker: {:?}", e)
+                    tracing::error!("failed to create token for dedicated worker: {:?}", e);
+                    killpill_tx.send(()).expect("send");
                 };
 
-                let (content, lock, _language, envs) = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
+                let (content, lock, _language, envs) = {
+                    let r;
+                    loop {
+                        let q = sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
                     "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
                     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                 )
-                .bind(&_script_path)
-                .bind(&_workspace)
+                .bind(&_wp.path)
+                .bind(&_wp.workspace_id)
                 .fetch_optional(&db)
-                .await.expect("Failed to fetch script for dedicated worker")
-                .expect(&format!("Failed to fetch script `{_script_path}` in workspace {_workspace} for dedicated worker"));
+                .await;
+                        if let Ok(q) = q {
+                            if let Some(wp) = q {
+                                r = wp;
+                                break;
+                            } else {
+                                tracing::error!(
+                                "Failed to fetch script `{}` in workspace {} for dedicated worker. Retrying in 10s.",
+                                _wp.path,
+                                _wp.workspace_id
+                            );
+                                tokio::select! {
+                                    biased;
+                                    _ = killpill_rx.recv() => {
+                                        tracing::info!("Killing dedicated worker while it was attempting to fetch script");
+                                        return;
+                                    }
+                                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                                        continue;
+                                    }
+
+                                }
+                            }
+                        } else {
+                            tracing::error!("Failed to fetch script for dedicated worker");
+                            killpill_tx.send(()).expect("send");
+                            return;
+                        }
+                    }
+                    r
+                };
 
                 let worker_envs = build_envs(envs).expect("failed to build envs");
                 if let Err(e) = start_worker(
@@ -668,8 +704,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     &job_dir,
                     &worker_name,
                     worker_envs,
-                    &_workspace,
-                    &_script_path,
+                    &_wp.workspace_id,
+                    &_wp.path,
                     &token,
                     job_completed_tx,
                     dedicated_worker_rx,
@@ -706,9 +742,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         let copy_tx = _copy_to_bucket_tx.clone();
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
+            let tags = WORKER_CONFIG.read().await.worker_tags.clone();
+
             sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
                 jobs_executed,
+                tags.as_slice(),
                 &worker_name
             )
             .execute(db)
@@ -1267,25 +1306,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         let _ = f().await;
     }
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
-}
-
-async fn insert_initial_ping(
-    worker_instance: &str,
-    worker_name: &str,
-    ip: &str,
-    db: &Pool<Postgres>,
-) {
-    let tags = ACCEPTED_TAGS.clone();
-    sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags) VALUES ($1, $2, $3, $4) ON CONFLICT (worker) DO NOTHING",
-        worker_instance,
-        worker_name,
-        ip,
-        if *IS_WORKER_TAGS_DEFINED { Some(tags.as_slice()) } else { None }
-    )
-    .execute(db)
-    .await
-    .expect("insert worker_ping initial value");
 }
 
 fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {

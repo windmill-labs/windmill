@@ -1,12 +1,11 @@
-use std::time::Duration;
-
 use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
-use tokio::sync::mpsc;
+use tokio::{join, sync::mpsc};
 use uuid::Uuid;
 use windmill_common::{
     error,
     jobs::{JobKind, QueuedJob},
+    worker::{load_worker_config, reload_custom_tags_setting, WORKER_CONFIG},
     METRICS_ENABLED,
 };
 use windmill_worker::{
@@ -37,23 +36,61 @@ lazy_static::lazy_static! {
     .unwrap();
 }
 
-pub async fn handle_zombie_jobs_periodically<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
->(
+pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
+    tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    worker_mode: bool,
+    server_mode: bool,
 ) {
-    loop {
-        handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(30))    => (),
-            _ = rx.recv() => {
-                    println!("received killpill for monitor job");
-                    break;
+    let zombie_jobs_f = async {
+        if server_mode {
+            handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
+        }
+    };
+    let expired_items_f = async {
+        if server_mode {
+            windmill_api::delete_expired_items(&db).await;
+        }
+    };
+    let reload_worker_config_f = async {
+        if worker_mode {
+            reload_worker_config(&db, tx).await;
+        }
+    };
+    let reload_custom_tags_f = async {
+        if server_mode {
+            if let Err(e) = reload_custom_tags_setting(db).await {
+                tracing::error!("Error reloading custom tags: {:?}", e)
             }
+        }
+    };
+    join!(
+        expired_items_f,
+        zombie_jobs_f,
+        reload_worker_config_f,
+        reload_custom_tags_f
+    );
+}
+
+pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcast::Sender<()>) {
+    let config = load_worker_config(&db).await;
+    if let Err(e) = config {
+        tracing::error!("Error reloading worker config: {:?}", e)
+    } else {
+        let wc = WORKER_CONFIG.read().await;
+        let config = config.unwrap();
+        if *wc != config {
+            if (*wc).dedicated_worker != config.dedicated_worker {
+                tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
+                let _ = tx.send(());
+            }
+            drop(wc);
+
+            let mut wc = WORKER_CONFIG.write().await;
+            tracing::info!("Reloading worker config...");
+            *wc = config
         }
     }
 }

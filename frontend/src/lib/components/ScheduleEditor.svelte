@@ -10,7 +10,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -324,7 +324,7 @@
 
 			<div class="flex flex-row items-center mb-2 gap-1">
 				<div class="text-xl font-extrabold">Schedule</div>
-				<Tooltip light>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 			</div>
 
 			<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
@@ -372,7 +372,7 @@
 				{/if}
 			</div>
 			<h2 class="border-b pb-1 mt-8 mb-2"
-				>Error Handler <Tooltip light>
+				>Error Handler <Tooltip>
 					<div class="flex gap-20 items-start mt-3">
 						<div class="text-tertiary text-sm"
 							>The following args will be passed to the error handler:
@@ -429,12 +429,21 @@
 
 			<div class="flex flex-row items-center justify-between">
 				<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-					<p>Triggered when schedule failed</p>
-					<select class="!w-14" bind:value={failedExact}>
+					<p
+						>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
+						when schedule failed</p
+					>
+					<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
 						<option value={false}>&gt;=</option>
 						<option value={true}>==</option>
 					</select>
-					<input type="number" class="!w-14 text-center" bind:value={failedTimes} min="1" />
+					<input
+						type="number"
+						class="!w-14 text-center"
+						bind:value={failedTimes}
+						disabled={!$enterpriseLicense}
+						min="1"
+					/>
 					<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
 				</div>
 			</div>
@@ -455,7 +464,10 @@
 			{/if}
 
 			<h2 class="border-b pb-1 mt-8 mb-2"
-				>Recovery Handler <Tooltip light
+				>Recovery Handler {#if !$enterpriseLicense}<span class="text-normal text-2xs"
+						>(ee only)</span
+					>{/if}
+				<Tooltip
 					><div class="text-tertiary text-sm"
 						>The following args will be passed to the recovery handler:
 						<ul class="mt-1 ml-2">
@@ -483,7 +495,7 @@
 			{#if recoveryHandlerSelected === 'custom'}
 				<div class="flex flex-row mb-2">
 					<ScriptPicker
-						disabled={!can_write}
+						disabled={!can_write || !$enterpriseLicense}
 						initialPath={recoveryHandlerPath}
 						kind={Script.kind.SCRIPT}
 						allowFlow={true}

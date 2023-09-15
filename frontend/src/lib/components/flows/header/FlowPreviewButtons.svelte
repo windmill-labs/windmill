@@ -26,6 +26,8 @@
 			'settings-same-worker',
 			'settings-graph',
 			'settings-worker-group',
+			'settings-cache',
+			'settings-concurrency',
 			'inputs',
 			'schedules',
 			'failure',

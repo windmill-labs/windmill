@@ -89,11 +89,18 @@
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
 		}
 
-		items.splice(index, 1)
-
-		items = [...items]
+		// Remove the corresponding item from the items array
+		items = items.filter((item) => item.originalIndex !== index)
 
 		component.numberOfSubgrids = items.length
+		// Update the originalIndex of the remaining items
+		items.forEach((item, i) => {
+			item.originalIndex = i
+		})
+		items = items
+
+		delete $app!.subgrids![`${component.id}-${items.length}`]
+		$app = $app
 	}
 
 	function addCondition(): void {
