@@ -13,8 +13,8 @@ import { sendUserToast } from './toast'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
-	if (username != '' && !/^\w+$/.test(username)) {
-		return 'username can only contain letters and numbers'
+	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
+		return 'username can only contain letters and numbers and must start with a letter'
 	} else {
 		return ''
 	}

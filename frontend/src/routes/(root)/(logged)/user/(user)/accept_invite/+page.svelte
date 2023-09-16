@@ -47,12 +47,13 @@
 	}
 
 	UserService.globalWhoami().then((x) => {
+		let uname = ''
 		if (x.name) {
-			username = x.name.split(' ')[0]
+			uname = x.name.split(' ')[0]
 		} else {
-			username = x.email.split('@')[0]
+			uname = x.email.split('@')[0]
 		}
-		username = username.toLowerCase()
+		username = uname.toLowerCase()
 	})
 </script>
 

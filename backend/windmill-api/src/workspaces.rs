@@ -1246,7 +1246,7 @@ async fn add_user(
     let mut tx = db.begin().await?;
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
