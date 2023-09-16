@@ -34,6 +34,12 @@ lazy_static::lazy_static! {
         "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
     )
     .unwrap();
+
+    static ref QUEUE_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
+        "queue_count",
+        "Number of jobs in the queue",
+        &["tag"]
+    ).unwrap();
 }
 
 pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
@@ -66,12 +72,32 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         }
     };
+    let expose_queue_metrics_f = async {
+        if *METRICS_ENABLED && server_mode {
+            expose_queue_metrics(&db).await;
+        }
+    };
     join!(
         expired_items_f,
         zombie_jobs_f,
         reload_worker_config_f,
-        reload_custom_tags_f
+        reload_custom_tags_f,
+        expose_queue_metrics_f
     );
+}
+
+pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
+    let queue_counts = sqlx::query!("SELECT tag, count(*) as count FROM queue GROUP BY tag")
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![]);
+    for q in queue_counts {
+        let count = q.count.unwrap_or(0);
+        let tag = q.tag;
+        let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
+        metric.set(count as i64);
+    }
 }
 
 pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcast::Sender<()>) {

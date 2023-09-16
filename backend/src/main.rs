@@ -8,6 +8,7 @@
 
 use gethostname::gethostname;
 use git_version::git_version;
+use rand::Rng;
 use sqlx::{Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -201,9 +202,10 @@ Windmill Community Edition {GIT_VERSION}
 
             let mut rx = rx.resubscribe();
             let base_internal_url = base_internal_url.to_string();
+            let rd_delay = rand::thread_rng().gen_range(0..30);
             tokio::spawn(async move {
                 //monitor_db is applied at start, no need to apply it twice
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                 loop {
                     monitor_db(
                         &db,
