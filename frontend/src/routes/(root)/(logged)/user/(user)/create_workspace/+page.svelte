@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { ResourceService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -20,6 +20,7 @@
 
 	let errorId = ''
 	let errorUser = ''
+	let openAiKey = ''
 	let checking = false
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
@@ -54,6 +55,24 @@
 				requestBody: { operator: operatorOnly }
 			})
 		}
+		if (openAiKey != '') {
+			let path = `u/${username}/openai_windmill_codegen`
+			await ResourceService.createResource({
+				workspace: id,
+				requestBody: {
+					path,
+					value: {
+						api_key: openAiKey
+					},
+					resource_type: 'openai'
+				}
+			})
+			await WorkspaceService.editOpenaiResourcePath({
+				workspace: id,
+				requestBody: { openai_resource_path: path }
+			})
+		}
+
 		sendUserToast(`Created workspace id: ${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -126,6 +145,14 @@
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
+	</label>
+	<label class="block pb-2">
+		<span class="text-secondary text-sm"
+			>OpenAI key for codegen<span class="text-2xs text-tertiary ml-2"
+				>(optional but recommended)</span
+			></span
+		>
+		<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}
