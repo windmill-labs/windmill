@@ -87,11 +87,15 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
-    let queue_counts = sqlx::query!("SELECT tag, count(*) as count FROM queue GROUP BY tag")
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
+    let queue_counts = sqlx::query!(
+        "SELECT tag, count(*) as count FROM queue WHERE
+        scheduled_for <= now() - ('3 seconds')::interval AND running = false
+        GROUP BY tag"
+    )
+    .fetch_all(db)
+    .await
+    .ok()
+    .unwrap_or_else(|| vec![]);
     for q in queue_counts {
         let count = q.count.unwrap_or(0);
         let tag = q.tag;
