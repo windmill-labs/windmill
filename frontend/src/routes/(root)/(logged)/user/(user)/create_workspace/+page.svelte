@@ -122,10 +122,10 @@
 	</label>
 	<label class="block pb-2">
 		<span class="text-secondary text-sm">Your username in that workspace</span>
+		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
-		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}
