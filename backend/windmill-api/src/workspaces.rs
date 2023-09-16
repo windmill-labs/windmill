@@ -1109,6 +1109,10 @@ async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM resource_type WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1",
         &w_id
