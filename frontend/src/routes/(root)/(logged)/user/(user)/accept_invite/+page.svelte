@@ -62,10 +62,10 @@
 <CenteredModal title="Invitation to join {workspace_id}">
 	<label class="block pb-2">
 		<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
+		<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 		{#if errorUsername}
 			<span class="text-red-500 text-xs">{errorUsername}</span>
 		{/if}
-		<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 	</label>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
