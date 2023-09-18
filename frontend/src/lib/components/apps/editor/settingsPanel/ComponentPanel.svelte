@@ -299,7 +299,11 @@
 					{/if}
 				{/key}
 			</PanelSection>
+
 		{/if}
+	
+		<ComponentControl type={component.type} />
+
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
@@ -431,6 +435,5 @@
 			</PanelSection>
 		{/if}
 
-		<ComponentControl type={component.type} />
 	</div>
 {/if}

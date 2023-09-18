@@ -32,34 +32,39 @@
       </Button>
     </div>
 
-    {#if !collapsed}
-      <div transition:slide|local class="text-xs">	This component can be controlled by frontend scripts using these functions:</div>
-    {/if}
-    {#each componentControls as control}
-      <div class="text-xs leading-6 font-semibold">
-        {control.title}
+    {#if collapsed}
+      <div class="flex flex-row gap-1">
+        {#each componentControls as control}
+          <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border">
+            {control.title}
+          </span>
+        {/each}
       </div>
-      {#if !collapsed}
-        <div class="text-xs" transition:slide|local>
+    {:else}
+      <div class="text-xs">This component can be controlled by frontend scripts using these functions:</div>
+      {#each componentControls as control}
+        <div class="text-xs leading-6 font-semibold">
+          {control.title}
+        </div>
+        <div class="text-xs">
           {control.description}
         </div>
-      {/if}
-      <div class="p-1 border w-full">
-        <Highlight language={typescript} code={control.example} />
-      </div>
-      {#if !collapsed}
+        <div class="p-1 border w-full">
+          <Highlight language={typescript} code={control.example} />
+        </div>
+      
         <a
           href={control.documentation}
           target="_blank"
           class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-          transition:slide|local
         >
           <div class="flex flex-row gap-2">
             See documentation
             <ExternalLink size="16" />
           </div>
         </a>
-      {/if}
-    {/each}  
+      
+      {/each}  
+    {/if}
   </PanelSection>
 {/if}
