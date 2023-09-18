@@ -33,6 +33,9 @@
 	import type { ResultAppInput } from '../../inputType'
 	import GridGroup from './GridGroup.svelte'
 	import { secondaryMenuLeft } from './secondaryMenu'
+	import { getComponentControl } from '../componentsPanel/componentControlUtils'
+	import { Highlight } from 'svelte-highlight'
+	import typescript from 'svelte-highlight/languages/typescript'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -426,6 +429,33 @@
 						<Kbd>&DoubleUpArrow;</Kbd>+<Kbd>click</Kbd>
 					</div>
 				</div>
+			</PanelSection>
+		{/if}
+
+		{#if getComponentControl(component.type)?.length > 0 }
+			<PanelSection title="Controls">
+			<div class="text-xs">	This component can be controlled by frontend scripts using these functions:</div>
+			{#each getComponentControl(component.type) as control}
+				<div class="text-xs leading-6 font-semibold">
+					{control.title}
+				</div>
+				<div class="text-xs">
+					{control.description}
+				</div>
+			<div class="p-1 border w-full">
+				<Highlight language={typescript} code={control.example} />
+			</div>
+				<a
+					href={control.documentation}
+					target="_blank"
+					class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
+				>
+					<div class="flex flex-row gap-2">
+						See documentation
+						<ExternalLink size="16" />
+					</div>
+				</a>
+			{/each}  
 			</PanelSection>
 		{/if}
 	</div>
