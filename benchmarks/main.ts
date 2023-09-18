@@ -3,8 +3,8 @@
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.167.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
+import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 import { Action } from "./action.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
@@ -22,7 +22,38 @@ async function login(email: string, password: string): Promise<string> {
   });
 }
 
-export const VERSION = "v1.173.0";
+export const VERSION = "v1.174.0";
+
+async function waitForDeployed(workspace: string, hash: string) {
+  const maxTries = 20;
+  for (let i = 0; i < maxTries; i++) {
+    const resp = await windmill.ScriptService.getScriptDeploymentStatus({
+      workspace,
+      hash,
+    });
+    if (resp.lock !== null) {
+      return;
+    }
+    await sleep(0.5);
+  }
+  throw new Error("Script did not deploy in time");
+}
+
+async function waitForDedicatedWorker(workspace: string, path: string) {
+  const query = windmill.JobService.runWaitResultScriptByPath({
+    workspace,
+    path,
+    requestBody: {
+      args: {},
+    },
+  });
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => {
+      reject("Timeout");
+    }, 15000);
+  });
+  await Promise.race([query, timeout]);
+}
 
 export async function main({
   host,
@@ -181,9 +212,10 @@ export async function main({
   if (
     !useFlows &&
     (scriptPattern === undefined ||
-      ["deno", "python", "go", "bash"].includes(scriptPattern))
+      ["deno", "python", "go", "bash", "bun", "dedicated"].includes(
+        scriptPattern
+      ))
   ) {
-    console.log("Creating benchmark script...");
     const path = `f/benchmarks/${scriptPattern || "deno"}`;
     const exists = await windmill.ScriptService.existsScriptByPath({
       workspace,
@@ -210,13 +242,16 @@ export async function main({
     } else if (scriptPattern === "bash") {
       scriptContent = "echo $WM_JOB_ID";
       language = "bash";
+    } else if (scriptPattern === "dedicated" || scriptPattern === "bun") {
+      scriptContent = 'export function main(){ return Bun.env["WM_JOB_ID"]; }';
+      language = "bun";
     } else {
       scriptContent =
         'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
       language = "deno";
     }
 
-    await windmill.ScriptService.createScript({
+    const hash = await windmill.ScriptService.createScript({
       workspace,
       requestBody: {
         path,
@@ -224,10 +259,17 @@ export async function main({
         summary: (scriptPattern || "deno") + " benchmark",
         description: "",
         language: language as api.NewScript.language,
+        dedicated_worker: scriptPattern === "dedicated",
       },
     });
 
-    await sleep(5); // make sure script is created
+    await waitForDeployed(workspace, hash);
+
+    console.log("Created benchmark script at path", path);
+
+    if (scriptPattern === "dedicated") {
+      await waitForDedicatedWorker(workspace, path);
+    }
   }
 
   let workers: Worker[] = new Array(num_workers);
@@ -495,7 +537,7 @@ if (import.meta.main) {
     )
     .option(
       "--script-pattern <pattern:string>",
-      "Use a different script pattern among: deno, identity, python, go, bash (Default deno)"
+      "Use a different script pattern among: deno, identity, python, go, bash, dedicated, bun (Default deno)"
     )
     .option("--custom <custom_path:string>", "Use custom actions during bench")
     .option(

@@ -2,15 +2,29 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
-const VERSION = "1.167.0";
+const VERSION = "1.174.0";
+
+type BenchmarkTypes =
+  | "noop"
+  | "flow"
+  | "deno"
+  | "python"
+  | "go"
+  | "bash"
+  | "bun"
+  | "dedicated";
 
 type Config = {
   benchmarks: [
     {
       graph_title: string;
-      name: string;
-      jobs: number | undefined;
-      type: "noop" | "flow" | "deno" | "python" | "go" | "bash";
+      type: BenchmarkTypes;
+    }
+  ];
+  extra_graphs?: [
+    {
+      graph_title: string;
+      types: BenchmarkTypes[];
     }
   ];
 };
@@ -44,7 +58,7 @@ async function main({
       : "./main.ts"
   );
 
-  const { drawGraph } = await import(
+  const { drawGraph, drawGraphMulti } = await import(
     branch !== undefined
       ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/graph.ts`
       : "./graph.ts"
@@ -64,7 +78,7 @@ async function main({
     for (const benchmark of config.benchmarks) {
       try {
         console.log(
-          "%cRunning benchmark " + benchmark.name,
+          "%cRunning benchmark " + benchmark.type,
           "font-weight: bold;"
         );
 
@@ -118,7 +132,7 @@ async function main({
           ts: Date.now(),
         };
         let data: (typeof stat)[] = [];
-        const jsonFilePath = `${benchmark.name}.json`;
+        const jsonFilePath = `${benchmark.type}_benchmark.json`;
         try {
           const existing = await Deno.readTextFile(jsonFilePath);
           data = JSON.parse(existing);
@@ -131,15 +145,40 @@ async function main({
           data.slice(-10).map((d) => ({ ...d, date: new Date(d.ts) })),
           benchmark.graph_title
         );
-        await Deno.writeTextFile(`${benchmark.name}.svg`, svg);
+        await Deno.writeTextFile(`${benchmark.type}_benchmark.svg`, svg);
       } catch (err) {
-        console.error("Failed to run benchmark", benchmark.name, err);
+        console.error("Failed to run benchmark", benchmark.type, err);
       }
+    }
+
+    for (const extraGraph of config.extra_graphs || []) {
+      const data: {
+        value: number;
+        ts: number;
+      }[] = [];
+      for (const type of extraGraph.types) {
+        try {
+          const existing = await Deno.readTextFile(`${type}_benchmark.json`);
+          const existingData = JSON.parse(existing)
+            .map((d) => ({
+              ...d,
+              date: new Date(d.ts),
+              type,
+            }))
+            .slice(-10);
+          data.push(...existingData);
+        } catch (err) {
+          console.log("Error while loading", type, "benchmark data", err);
+        }
+      }
+      const svg = drawGraphMulti(data, extraGraph.graph_title);
+      await Deno.writeTextFile(`${extraGraph.types.join("_vs_")}.svg`, svg);
     }
 
     Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
   } catch (err) {
-    return console.error(`Failed to read config file ${configPath}: ${err}`);
+    console.error(`Failed to read config file ${configPath}: ${err}`);
+    Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
   }
 }
 

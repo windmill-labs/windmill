@@ -323,9 +323,13 @@ while (
       r = r as api.CompletedJob;
       try {
         if (
-          !["httpversion", "identity", "httpslow", "noop"].includes(
-            config.scriptPattern
-          ) &&
+          ![
+            "httpversion",
+            "identity",
+            "httpslow",
+            "noop",
+            "dedicated",
+          ].includes(config.scriptPattern) &&
           r.result != uuid
         ) {
           console.log(
