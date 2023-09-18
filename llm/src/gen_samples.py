@@ -7,6 +7,7 @@ from test_data import RESOURCE_TYPES, DB_SCHEMA
 load_dotenv()
 
 import openai
+import litellm
 
 import re
 
@@ -118,7 +119,7 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
         (system, prompt, template_prompt) = prepare_prompt(
             query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG
         )
-        chat_completion = openai.ChatCompletion.create(
+        chat_completion = litellm.completion(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system},

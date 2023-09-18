@@ -1,4 +1,5 @@
 openai==0.27.8
+litellm>=0.1.697
 python-dotenv==1.0.0
 pyyaml==6.0
 tqdm==4.65.0
