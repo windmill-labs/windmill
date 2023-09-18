@@ -476,7 +476,20 @@ export const components = {
 				fieldType: 'object',
 				value: { foo: 42 }
 			},
-			configuration: {}
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				}
+			}
 		}
 	},
 	jobidlogcomponent: {

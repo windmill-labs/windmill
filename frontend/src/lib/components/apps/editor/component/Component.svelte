@@ -146,6 +146,7 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
+				configuration={component.configuration}
 				{render}
 			/>
 		{:else if component.type === 'logcomponent'}
