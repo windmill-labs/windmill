@@ -458,13 +458,13 @@ const paginationOneOf = {
 } as const
 
 const documentationBaseUrl =
-	'https://www.windmill.dev/docs/apps/app_configuration-settings/app_component_library'
+	'https://www.windmill.dev/docs/apps/app_configuration_settings'
 
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}#rich-result`,
+		documentationLink: `${documentationBaseUrl}/rich_result`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -495,7 +495,7 @@ export const components = {
 	jobidlogcomponent: {
 		name: 'Log by Job Id',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}#log-display`,
+		documentationLink: `${documentationBaseUrl}/log_display`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -515,7 +515,7 @@ export const components = {
 	logcomponent: {
 		name: 'Log',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}#log-display`,
+		documentationLink: `${documentationBaseUrl}/log_display`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -534,7 +534,7 @@ export const components = {
 	flowstatuscomponent: {
 		name: 'Flow Status',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}#flow-status`,
+		documentationLink: `${documentationBaseUrl}/flow_status`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -553,7 +553,7 @@ export const components = {
 	jobidflowstatuscomponent: {
 		name: 'Flow Status by Job Id',
 		icon: Monitor,
-		documentationLink: `${documentationBaseUrl}#flow-status`,
+		documentationLink: `${documentationBaseUrl}/flow_status`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			header: { class: '', style: '' },
@@ -573,7 +573,7 @@ export const components = {
 	containercomponent: {
 		name: 'Container',
 		icon: BoxSelect,
-		documentationLink: `${documentationBaseUrl}#container`,
+		documentationLink: `${documentationBaseUrl}/container`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -587,7 +587,7 @@ export const components = {
 	listcomponent: {
 		name: 'List',
 		icon: ListIcon,
-		documentationLink: `${documentationBaseUrl}#list`,
+		documentationLink: `${documentationBaseUrl}/list`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -662,7 +662,7 @@ export const components = {
 		name: 'Text',
 		icon: Type,
 		dims: '1:1-3:1' as AppComponentDimensions,
-		documentationLink: `${documentationBaseUrl}#text`,
+		documentationLink: `${documentationBaseUrl}/text`,
 		customCss: {
 			text: { class: '', style: '' },
 			container: { class: '', style: '' }
@@ -703,7 +703,7 @@ export const components = {
 		name: 'Button',
 		icon: Inspect,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		documentationLink: `${documentationBaseUrl}#button`,
+		documentationLink: `${documentationBaseUrl}/button`,
 		customCss: {
 			button: { style: '', class: '' },
 			container: { style: '', class: '' }
@@ -773,7 +773,7 @@ export const components = {
 	downloadcomponent: {
 		name: 'Download Button',
 		icon: Download,
-		documentationLink: `${documentationBaseUrl}#download-button`,
+		documentationLink: `${documentationBaseUrl}/download_button`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' }
@@ -836,7 +836,7 @@ export const components = {
 	formcomponent: {
 		name: 'Submit form',
 		icon: FormInput,
-		documentationLink: `${documentationBaseUrl}#submit-form`,
+		documentationLink: `${documentationBaseUrl}/submit_form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -878,7 +878,7 @@ export const components = {
 	formbuttoncomponent: {
 		name: 'Modal Form',
 		icon: PlusSquare,
-		documentationLink: `${documentationBaseUrl}#modal-form`,
+		documentationLink: `${documentationBaseUrl}/modal_form`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
@@ -932,7 +932,7 @@ export const components = {
 	piechartcomponent: {
 		name: 'Pie Chart',
 		icon: PieChart,
-		documentationLink: `${documentationBaseUrl}#pie-chart`,
+		documentationLink: `${documentationBaseUrl}/pie_chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -963,7 +963,7 @@ export const components = {
 	chartjscomponent: {
 		name: 'ChartJs',
 		icon: PieChart,
-		documentationLink: `${documentationBaseUrl}#chartjs`,
+		documentationLink: `${documentationBaseUrl}/chartjs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1002,7 +1002,7 @@ export const components = {
 	barchartcomponent: {
 		name: 'Bar/Line Chart',
 		icon: BarChart4,
-		documentationLink: `${documentationBaseUrl}#barline-chart`,
+		documentationLink: `${documentationBaseUrl}/bar_line_chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1033,7 +1033,7 @@ export const components = {
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
-		documentationLink: `${documentationBaseUrl}#html`,
+		documentationLink: `${documentationBaseUrl}/html`,
 		dims: '1:2-1:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1055,7 +1055,7 @@ Hello \${ctx.username}
 	mardowncomponent: {
 		name: 'Markdown',
 		icon: Heading1,
-		documentationLink: `${documentationBaseUrl}#html`,
+		documentationLink: `${documentationBaseUrl}/html`,
 		dims: '1:2-1:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1086,7 +1086,7 @@ This is a paragraph.
 	vegalitecomponent: {
 		name: 'Vega Lite',
 		icon: PieChart,
-		documentationLink: `${documentationBaseUrl}#vega-lite`,
+		documentationLink: `${documentationBaseUrl}/vega_lite`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -1123,7 +1123,7 @@ This is a paragraph.
 	plotlycomponent: {
 		name: 'Plotly',
 		icon: PieChart,
-		documentationLink: `${documentationBaseUrl}#plotly`,
+		documentationLink: `${documentationBaseUrl}/plotly`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -1156,7 +1156,7 @@ This is a paragraph.
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal,
-		documentationLink: `${documentationBaseUrl}#timeseries`,
+		documentationLink: `${documentationBaseUrl}/timeseries`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1230,7 +1230,7 @@ This is a paragraph.
 	scatterchartcomponent: {
 		name: 'Scatter Chart',
 		icon: GripHorizontal,
-		documentationLink: `${documentationBaseUrl}#scatter-chart`,
+		documentationLink: `${documentationBaseUrl}/scatter_chart`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1280,7 +1280,7 @@ This is a paragraph.
 	tablecomponent: {
 		name: 'Table',
 		icon: Table2,
-		documentationLink: `${documentationBaseUrl}#table`,
+		documentationLink: `${documentationBaseUrl}/table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -1338,7 +1338,7 @@ This is a paragraph.
 	aggridcomponent: {
 		name: 'AgGrid Table',
 		icon: Table2,
-		documentationLink: `${documentationBaseUrl}#aggrid-table`,
+		documentationLink: `${documentationBaseUrl}/aggrid_table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -1411,7 +1411,7 @@ This is a paragraph.
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
-		documentationLink: `${documentationBaseUrl}#toggle`,
+		documentationLink: `${documentationBaseUrl}/toggle`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			text: { class: '', style: '' },
@@ -1443,7 +1443,7 @@ This is a paragraph.
 	textinputcomponent: {
 		name: 'Text Input',
 		icon: TextCursorInput,
-		documentationLink: `${documentationBaseUrl}#text-input`,
+		documentationLink: `${documentationBaseUrl}/text_input`,
 		dims: '2:1-2:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1468,7 +1468,7 @@ This is a paragraph.
 	quillcomponent: {
 		name: 'Rich Text Editor',
 		icon: TextCursorInput,
-		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
+		documentationLink: `${documentationBaseUrl}/rich_text_editor`,
 		dims: '2:1-4:4' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
@@ -1490,7 +1490,7 @@ This is a paragraph.
 	textareainputcomponent: {
 		name: 'Textarea',
 		icon: TextCursorInput,
-		documentationLink: `${documentationBaseUrl}#textarea`,
+		documentationLink: `${documentationBaseUrl}/textarea`,
 		dims: '2:1-2:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1514,7 +1514,7 @@ This is a paragraph.
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
-		documentationLink: `${documentationBaseUrl}#select`,
+		documentationLink: `${documentationBaseUrl}/select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: {
@@ -1579,7 +1579,7 @@ This is a paragraph.
 	multiselectcomponent: {
 		name: 'Multi Select',
 		icon: List,
-		documentationLink: `${documentationBaseUrl}#multiselect`,
+		documentationLink: `${documentationBaseUrl}/multiselect`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			multiselect: {
@@ -1630,7 +1630,7 @@ This is a paragraph.
 	resourceselectcomponent: {
 		name: 'Resource Select',
 		icon: List,
-		documentationLink: `${documentationBaseUrl}#resource-select`,
+		documentationLink: `${documentationBaseUrl}/resource_select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { style: '' }
@@ -1663,7 +1663,7 @@ This is a paragraph.
 	numberinputcomponent: {
 		name: 'Number',
 		icon: Binary,
-		documentationLink: `${documentationBaseUrl}#number-input`,
+		documentationLink: `${documentationBaseUrl}/number_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1704,7 +1704,7 @@ This is a paragraph.
 	currencycomponent: {
 		name: 'Currency',
 		icon: DollarSign,
-		documentationLink: `${documentationBaseUrl}#currency-input`,
+		documentationLink: `${documentationBaseUrl}/currency_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1744,7 +1744,7 @@ This is a paragraph.
 	slidercomponent: {
 		name: 'Slider',
 		icon: SlidersHorizontal,
-		documentationLink: `${documentationBaseUrl}#slider`,
+		documentationLink: `${documentationBaseUrl}/slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
 		customCss: {
 			bar: { style: '', class: '' },
@@ -1788,7 +1788,7 @@ This is a paragraph.
 	rangecomponent: {
 		name: 'Range',
 		icon: SlidersHorizontal,
-		documentationLink: `${documentationBaseUrl}#range`,
+		documentationLink: `${documentationBaseUrl}/range`,
 		dims: '3:2-4:2' as AppComponentDimensions,
 		customCss: {
 			handles: { style: '' },
@@ -1840,7 +1840,7 @@ This is a paragraph.
 	passwordinputcomponent: {
 		name: 'Password',
 		icon: Lock,
-		documentationLink: `${documentationBaseUrl}#password-input`,
+		documentationLink: `${documentationBaseUrl}/password_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1860,7 +1860,7 @@ This is a paragraph.
 	emailinputcomponent: {
 		name: 'Email Input',
 		icon: AtSignIcon,
-		documentationLink: `${documentationBaseUrl}#email-input`,
+		documentationLink: `${documentationBaseUrl}/email_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1885,7 +1885,7 @@ This is a paragraph.
 	dateinputcomponent: {
 		name: 'Date',
 		icon: Calendar,
-		documentationLink: `${documentationBaseUrl}#date-input`,
+		documentationLink: `${documentationBaseUrl}/date_input`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			input: { class: '', style: '' }
@@ -1922,7 +1922,7 @@ This is a paragraph.
 	tabscomponent: {
 		name: 'Tabs',
 		icon: ListOrdered,
-		documentationLink: `${documentationBaseUrl}#tabs-2`,
+		documentationLink: `${documentationBaseUrl}/tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			tabRow: { class: '', style: '' },
@@ -1949,7 +1949,7 @@ This is a paragraph.
 	steppercomponent: {
 		name: 'Stepper',
 		icon: ListOrdered,
-		documentationLink: `${documentationBaseUrl}#stepper`,
+		documentationLink: `${documentationBaseUrl}/stepper`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1969,7 +1969,7 @@ This is a paragraph.
 	carousellistcomponent: {
 		name: 'Carousel List',
 		icon: ListIcon,
-		documentationLink: `${documentationBaseUrl}#list`,
+		documentationLink: `${documentationBaseUrl}/list`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1997,7 +1997,7 @@ This is a paragraph.
 	iconcomponent: {
 		name: 'Icon',
 		icon: Smile,
-		documentationLink: `${documentationBaseUrl}#icon`,
+		documentationLink: `${documentationBaseUrl}/icon`,
 		dims: '1:3-1:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -2037,7 +2037,7 @@ This is a paragraph.
 	horizontaldividercomponent: {
 		name: 'Divider X',
 		icon: SeparatorHorizontal,
-		documentationLink: `${documentationBaseUrl}#divider-x`,
+		documentationLink: `${documentationBaseUrl}/divider_x`,
 		dims: '3:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -2073,7 +2073,7 @@ This is a paragraph.
 	verticaldividercomponent: {
 		name: 'Divider Y',
 		icon: SeparatorVertical,
-		documentationLink: `${documentationBaseUrl}#divider-y`,
+		documentationLink: `${documentationBaseUrl}/divider_y`,
 		dims: '1:4-1:6' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -2105,7 +2105,7 @@ This is a paragraph.
 	fileinputcomponent: {
 		name: 'File Input',
 		icon: Paperclip,
-		documentationLink: `${documentationBaseUrl}#file-input`,
+		documentationLink: `${documentationBaseUrl}/file_input`,
 		dims: '3:4-6:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2141,7 +2141,7 @@ This is a paragraph.
 	imagecomponent: {
 		name: 'Image',
 		icon: Image,
-		documentationLink: `${documentationBaseUrl}#image`,
+		documentationLink: `${documentationBaseUrl}/image`,
 		dims: '3:4-5:4' as AppComponentDimensions,
 		customCss: {
 			image: { class: '', style: '' }
@@ -2180,7 +2180,7 @@ This is a paragraph.
 	drawercomponent: {
 		name: 'Drawer',
 		icon: SidebarClose,
-		documentationLink: `${documentationBaseUrl}#drawer`,
+		documentationLink: `${documentationBaseUrl}/drawer`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' },
@@ -2237,7 +2237,7 @@ This is a paragraph.
 	mapcomponent: {
 		name: 'Map',
 		icon: MapPin,
-		documentationLink: `${documentationBaseUrl}#map`,
+		documentationLink: `${documentationBaseUrl}/map`,
 		dims: '3:6-6:10' as AppComponentDimensions,
 		customCss: {
 			map: { class: '', style: '' }
@@ -2291,7 +2291,7 @@ This is a paragraph.
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
-		documentationLink: `${documentationBaseUrl}#vertical-split-panes`,
+		documentationLink: `${documentationBaseUrl}/vertical_split_panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2306,7 +2306,7 @@ This is a paragraph.
 	horizontalsplitpanescomponent: {
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
-		documentationLink: `${documentationBaseUrl}#horizontal-split-panes`,
+		documentationLink: `${documentationBaseUrl}/horizontal_split_panes`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2321,7 +2321,7 @@ This is a paragraph.
 	pdfcomponent: {
 		name: 'PDF',
 		icon: FileText,
-		documentationLink: `${documentationBaseUrl}#pdf`,
+		documentationLink: `${documentationBaseUrl}/pdf`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2350,7 +2350,7 @@ This is a paragraph.
 	modalcomponent: {
 		name: 'Modal',
 		icon: SidebarClose,
-		documentationLink: `${documentationBaseUrl}#modal-layout`,
+		documentationLink: `${documentationBaseUrl}/modal`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
@@ -2407,7 +2407,7 @@ This is a paragraph.
 	schemaformcomponent: {
 		name: 'Form',
 		icon: FileText,
-		documentationLink: `${documentationBaseUrl}#form-input`,
+		documentationLink: `${documentationBaseUrl}/form_input`,
 		dims: '3:8-8:12' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
@@ -2450,7 +2450,7 @@ This is a paragraph.
 	selecttabcomponent: {
 		name: 'Select Tab',
 		icon: List,
-		documentationLink: `${documentationBaseUrl}#select-tab`,
+		documentationLink: `${documentationBaseUrl}/select_tab`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			tabRow: { class: '', style: '' },
@@ -2490,7 +2490,7 @@ This is a paragraph.
 	selectstepcomponent: {
 		name: 'Select Step',
 		icon: List,
-		documentationLink: `${documentationBaseUrl}#select-step`,
+		documentationLink: `${documentationBaseUrl}/select_step`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2519,7 +2519,7 @@ This is a paragraph.
 	conditionalwrapper: {
 		name: 'Conditional tabs',
 		icon: Split,
-		documentationLink: `${documentationBaseUrl}#conditional-tabs`,
+		documentationLink: `${documentationBaseUrl}/conditional_tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
