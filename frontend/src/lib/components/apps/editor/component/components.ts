@@ -476,11 +476,24 @@ export const components = {
 				fieldType: 'object',
 				value: { foo: 42 }
 			},
-			configuration: {}
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				}
+			}
 		}
 	},
 	jobidlogcomponent: {
-		name: 'Log',
+		name: 'Log by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}#log-display`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -538,7 +551,7 @@ export const components = {
 		}
 	},
 	jobidflowstatuscomponent: {
-		name: 'Flow Status',
+		name: 'Flow Status by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}#flow-status`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -651,7 +664,8 @@ export const components = {
 		dims: '1:1-3:1' as AppComponentDimensions,
 		documentationLink: `${documentationBaseUrl}#text`,
 		customCss: {
-			text: { class: '', style: '' }
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'left',
@@ -1400,7 +1414,8 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#toggle`,
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
-			text: { class: '', style: '' }
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -1455,9 +1470,7 @@ This is a paragraph.
 		icon: TextCursorInput,
 		documentationLink: `${documentationBaseUrl}#rich-text-editor`,
 		dims: '2:1-4:4' as AppComponentDimensions,
-		customCss: {
-			input: { class: '', style: '' }
-		},
+		customCss: {},
 		initialData: {
 			componentInput: undefined,
 			configuration: {
@@ -1734,8 +1747,8 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#slider`,
 		dims: '3:1-4:1' as AppComponentDimensions,
 		customCss: {
-			bar: { style: '' },
-			handle: { style: '' },
+			bar: { style: '', class: '' },
+			handle: { style: '', class: '' },
 			limits: { class: '', style: '' },
 			value: { class: '', style: '' }
 		},
@@ -2171,7 +2184,8 @@ This is a paragraph.
 		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { style: '', class: '' },
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			drawer: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',
@@ -2479,9 +2493,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}#select-step`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			tabRow: { class: '', style: '' },
-			allTabs: { class: '', style: '' },
-			selectedTab: { class: '', style: '' }
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			verticalAlignment: 'center',

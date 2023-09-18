@@ -3,7 +3,7 @@
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ListWrapper from './ListWrapper.svelte'
 	import type { AppInput } from '../../inputType'
@@ -12,6 +12,8 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { Button } from '$lib/components/common'
 	import { Loader2, ChevronLeft, ChevronRight } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -43,7 +45,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.containercomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	$: isCard = resolvedConfig.width?.selected == 'card'
@@ -111,6 +113,16 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.listcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <RunnableWrapper
@@ -124,7 +136,10 @@
 	bind:result
 	bind:loading
 >
-	<div class="flex flex-col divide-y h-full">
+	<div
+		class={twMerge('flex flex-col divide-y h-full', css?.container?.class, 'wm-list')}
+		style={css?.container?.style}
+	>
 		<div
 			class="w-full flex flex-wrap overflow-auto {isCard ? 'h-full gap-2' : 'divide-y max-h-full'}"
 		>
@@ -150,8 +165,6 @@
 								<SubGridEditor
 									visible={render}
 									{id}
-									class={css?.container?.class}
-									style={css?.container?.style}
 									subGridId={`${id}-0`}
 									containerHeight={resolvedConfig.heightPx}
 									on:focus={() => {
@@ -175,11 +188,12 @@
 			{/if}
 		</div>
 		{#if pagination.shouldDisplayPagination}
-			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center">
+			<div class="bg-surface-secondary h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination">
 				<Button
 					size="xs2"
 					variant="border"
 					color="light"
+					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 					on:click={() => {
 						isPreviousLoading = true
 						page = page - 1
@@ -187,19 +201,18 @@
 					}}
 					disabled={page === 0}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						{#if isPreviousLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronLeft size={14} />
-						{/if}
-						Previous
-					</div>
+					{#if isPreviousLoading && loading}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						<ChevronLeft size={14} />
+					{/if}
+					Previous
 				</Button>
 				<Button
 					size="xs2"
 					variant="border"
 					color="light"
+					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 					on:click={() => {
 						isNextLoading = true
 						page = page + 1
@@ -207,15 +220,13 @@
 					}}
 					disabled={pagination.disableNext && pagination.total > 0}
 				>
-					<div class="flex flex-row gap-1 items-center">
-						Next
+					Next
 
-						{#if isNextLoading && loading}
-							<Loader2 size={14} class="animate-spin" />
-						{:else}
-							<ChevronRight size={14} />
-						{/if}
-					</div>
+					{#if isNextLoading && loading}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						<ChevronRight size={14} />
+					{/if}
 				</Button>
 				<div class="text-xs">{page + 1} {pagination.total > 0 ? `of ${pagination.total}` : ''}</div>
 			</div>

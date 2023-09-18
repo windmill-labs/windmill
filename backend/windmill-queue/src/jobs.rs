@@ -1081,7 +1081,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 , started_at = null
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
                 , logs = CASE WHEN logs IS NULL OR logs = '' THEN '{job_log_event}'::text WHEN logs LIKE '%{job_log_event}' THEN logs ELSE concat(logs, '{job_log_line_break}{job_log_event}'::text) END
-                WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false)
+                WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false AND scheduled_for <= now())
                 RETURNING *"
             ))
             .fetch_all(&mut tx)

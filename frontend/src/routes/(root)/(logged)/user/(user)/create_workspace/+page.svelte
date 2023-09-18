@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { ResourceService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -20,6 +20,7 @@
 
 	let errorId = ''
 	let errorUser = ''
+	let openAiKey = ''
 	let checking = false
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
@@ -54,6 +55,24 @@
 				requestBody: { operator: operatorOnly }
 			})
 		}
+		if (openAiKey != '') {
+			let path = `u/${username}/openai_windmill_codegen`
+			await ResourceService.createResource({
+				workspace: id,
+				requestBody: {
+					path,
+					value: {
+						api_key: openAiKey
+					},
+					resource_type: 'openai'
+				}
+			})
+			await WorkspaceService.editOpenaiResourcePath({
+				workspace: id,
+				requestBody: { openai_resource_path: path }
+			})
+		}
+
 		sendUserToast(`Created workspace id: ${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
@@ -86,12 +105,13 @@
 		loadWorkspaces()
 
 		UserService.globalWhoami().then((x) => {
+			let uname = ''
 			if (x.name) {
-				username = x.name.split(' ')[0]
+				uname = x.name.split(' ')[0]
 			} else {
-				username = x.email.split('@')[0]
+				uname = x.email.split('@')[0]
 			}
-			username = username.toLowerCase()
+			username = uname.toLowerCase()
 		})
 
 		WorkspaceService.isDomainAllowed().then((x) => {
@@ -121,10 +141,18 @@
 	</label>
 	<label class="block pb-2">
 		<span class="text-secondary text-sm">Your username in that workspace</span>
+		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
-		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
+	</label>
+	<label class="block pb-2">
+		<span class="text-secondary text-sm"
+			>OpenAI key for codegen<span class="text-2xs text-tertiary ml-2"
+				>(optional but recommended)</span
+			></span
+		>
+		<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}

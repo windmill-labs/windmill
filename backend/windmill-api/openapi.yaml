@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.173.0
+  version: 1.174.0
   title: Windmill API
 
   contact:
@@ -3518,6 +3518,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/public_resource/{path}:
+    get:
+      summary: get public resource
+      operationId: get public resource
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource value
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/apps/secret_of/{path}:
     get:

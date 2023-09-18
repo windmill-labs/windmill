@@ -9,7 +9,7 @@
 		ListInputs,
 		RichConfigurations
 	} from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -20,6 +20,7 @@
 	import { classNames } from '$lib/utils'
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -138,7 +139,7 @@
 		}
 	}
 
-	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
+	let css = initCss($app.css?.selectcomponent, customCss)
 
 	function handleFilter(e) {
 		if (resolvedConfig.create) {
@@ -172,6 +173,17 @@
 		configuration={configuration[key]}
 	/>
 {/each}
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.selectcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>

@@ -17,10 +17,12 @@
 	import Scatter from 'svelte-chartjs/Scatter.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initOutput } from '../../editor/appUtils'
+	import { twMerge } from 'tailwind-merge'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -78,14 +80,27 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
 
-	$: css = concatCustomCss($app.css?.scatterchartcomponent, customCss)
+	let css = initCss($app.css?.scatterchartcomponent, customCss)
 </script>
+
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.scatterchartcomponent}
+	/>
+{/each}
 
 <InputValue key="zoomable" {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue key="pannable" {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+	<div
+		class={twMerge('w-full h-full', css?.container?.class, 'wm-scatter-chart')}
+		style={css?.container?.style ?? ''}
+	>
 		{#if result}
 			<Scatter {data} {options} />
 		{/if}

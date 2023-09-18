@@ -27,10 +27,6 @@ yaml.add_representer(Literal, literal_presenter)
 
 class Prompt(TypedDict):
     prompt: str
-    example_description: str
-    example_answer: str
-    example_code: str
-    example_error: str
 
 
 class PromptsConfig(TypedDict):
@@ -75,37 +71,22 @@ def prepare_prompt(
     system = ""
     prompt = ""
     template_prompt = ""
-    example_prompt = ""
-    example_answer = ""
     if query["type"] == "gen":
         system = GEN_CONFIG["system"]
         template_prompt = GEN_CONFIG["prompts"][query["lang"]]["prompt"]
         prompt = template_prompt.replace("{description}", query["description"])
-        example_prompt = template_prompt.replace(
-            "{description}", GEN_CONFIG["prompts"][query["lang"]]["example_description"]
-        )
-        example_answer = GEN_CONFIG["prompts"][query["lang"]]["example_answer"]
     elif query["type"] == "edit":
         system = EDIT_CONFIG["system"]
         template_prompt = EDIT_CONFIG["prompts"][query["lang"]]["prompt"]
         prompt = template_prompt.replace("{description}", query["description"]).replace(
             "{code}", query["code"]
         )
-        example_prompt = template_prompt.replace(
-            "{description}",
-            EDIT_CONFIG["prompts"][query["lang"]]["example_description"],
-        ).replace("{code}", EDIT_CONFIG["prompts"][query["lang"]]["example_code"])
-        example_answer = EDIT_CONFIG["prompts"][query["lang"]]["example_answer"]
     elif query["type"] == "fix":
         system = FIX_CONFIG["system"]
         template_prompt = FIX_CONFIG["prompts"][query["lang"]]["prompt"]
         prompt = template_prompt.replace("{error}", query["error"]).replace(
             "{code}", query["code"]
         )
-        example_prompt = template_prompt.replace(
-            "{error}", FIX_CONFIG["prompts"][query["lang"]]["example_error"]
-        ).replace("{code}", FIX_CONFIG["prompts"][query["lang"]]["example_code"])
-        example_answer = FIX_CONFIG["prompts"][query["lang"]]["example_answer"]
 
     if query["lang"] in ["deno", "bun", "nativets"]:
         prompt = prompt.replace("{resourceTypes}", RESOURCE_TYPES["typescript"])
@@ -119,7 +100,7 @@ def prepare_prompt(
             + DB_SCHEMA
         )
 
-    return system, prompt, template_prompt, example_prompt, example_answer
+    return system, prompt, template_prompt
 
 
 def format_literal(answer: str):
@@ -134,22 +115,16 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
     answers = []
 
     for query in tqdm(queries):
-        (
-            system,
-            prompt,
-            template_prompt,
-            example_prompt,
-            example_answer,
-        ) = prepare_prompt(query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG)
+        (system, prompt, template_prompt) = prepare_prompt(
+            query, GEN_CONFIG, EDIT_CONFIG, FIX_CONFIG
+        )
         chat_completion = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": example_prompt},
-                {"role": "assistant", "content": example_answer},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.5,
+            temperature=0.3,
             max_tokens=2048,
         )
 
@@ -158,8 +133,6 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
             "answer": Literal(format_literal(chat_completion["choices"][0]["message"]["content"])),  # type: ignore
             "template_system": Literal(format_literal(system)),
             "template_prompt": Literal(format_literal(template_prompt)),
-            "example_prompt": Literal(format_literal(example_prompt)),
-            "example_answer": Literal(format_literal(example_answer)),
         }
 
         if "code" in query:

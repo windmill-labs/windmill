@@ -37,7 +37,8 @@
 				style={css?.popup?.style}
 				class={twMerge(
 					'bg-surface max-w-5xl m-24 overflow-y-auto rounded-lg relative',
-					css?.popup?.class
+					css?.popup?.class,
+					'wm-modal-form-popup'
 				)}
 				use:clickOutside
 				on:click_outside={() => {
@@ -51,7 +52,6 @@
 							on:click={() => {
 								isOpen = false
 							}}
-							style={css?.button?.style}
 							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 						>
 							<X class="text-tertiary" />

@@ -950,6 +950,21 @@ async fn create_workspace(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}') ON CONFLICT DO NOTHING",
+        nw.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type) VALUES ($1, 'f/app_themes/theme_0', '{\"name\": \"Default Theme\", \"value\": \"\"}', 'The default app theme', 'app_theme') ON CONFLICT DO NOTHING",
+        nw.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,
@@ -1094,6 +1109,10 @@ async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    sqlx::query!("DELETE FROM resource_type WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1",
         &w_id
@@ -1231,7 +1250,7 @@ async fn add_user(
     let mut tx = db.begin().await?;
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 

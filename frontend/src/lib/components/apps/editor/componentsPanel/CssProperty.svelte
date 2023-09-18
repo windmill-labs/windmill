@@ -1,15 +1,18 @@
 <script lang="ts">
-	import { Paintbrush2 } from 'lucide-svelte'
+	import { Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals, copyToClipboard } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import type { ComponentCssProperty } from '../../types'
-	import type { TypedComponent } from '../component'
+	import { ccomponents, type TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { PropertyGroup } from './quickStyleProperties'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import CssEval from './CssEval.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -18,6 +21,11 @@
 	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
 	export let componentType: TypedComponent['type'] | undefined = undefined
 	export let tooltip: string | undefined = undefined
+	export let shouldDisplayLeft: boolean = false
+	export let shouldDisplayRight: boolean = false
+	export let overriden: boolean = false
+	export let overridding: boolean = false
+	export let wmClass: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
@@ -27,30 +35,90 @@
 	function toggleQuickMenu() {
 		isQuickMenuOpen = !isQuickMenuOpen
 	}
+	let dynamicClass: boolean = value.evalClass !== undefined
 </script>
 
-<div
-	class="sticky top-0 z-20 text-lg bg-surface-secondary font-semibold lowercase leading-none [font-variant:small-caps] text-secondary px-3 pb-1 mt-4 mb-1"
->
-	{addWhitespaceBeforeCapitals(name)}
+<div class=" border-b flex justify-between items-center p-2 text-xs leading-6 font-bold">
+	<div class="flex flex-col gap-1 w-full items-start">
+		<div class="flex flex-row h-8 items-center justify-between w-full">
+			<div class="capitalize">
+				{addWhitespaceBeforeCapitals(name)}
+			</div>
+			{#if shouldDisplayLeft}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						dispatch('left')
+					}}
+				>
+					<div class="flex flex-row gap-2 text-2xs items-center">
+						<MoveLeft size={14} />
+						Copy for this component
+					</div>
+				</Button>
+			{/if}
+			{#if shouldDisplayRight}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						dispatch('right')
+					}}
+				>
+					<div class="flex flex-row gap-2 text-2xs items-center">
+						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
+						<MoveRight size={14} />
+					</div>
+				</Button>
+			{/if}
+		</div>
+		{#if wmClass}
+			<Badge small>
+				<div class="flex flex-row gap-1 items-center">
+					{wmClass}
+					<Button
+						color="light"
+						size="xs2"
+						on:click={() => {
+							copyToClipboard(wmClass)
+						}}
+					>
+						<Copy size={14} />
+					</Button>
+				</div>
+			</Badge>
+		{/if}
+	</div>
 </div>
+
 {#if value}
-	<div class="px-3">
+	<div class="p-2">
 		{#if tooltip}
 			<div class="text-tertiary text-2xs py-2">{tooltip}</div>
 		{/if}
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<label class="block">
-					<div class="text-sm font-medium text-tertiary pb-0.5"> Plain CSS </div>
+				<label class="block w-full">
+					<div class="flex flex-row justify-between items-center w-full h-8">
+						<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
+						{#if overriden}
+							<Badge color="red" small>Overriden by local</Badge>
+						{:else if overridding}
+							<Badge color="blue" small>Overriding global</Badge>
+						{/if}
+					</div>
+
 					<div class="flex gap-1">
 						<div class="relative grow">
 							<ClearableInput
 								bind:value={value.style}
 								type="textarea"
 								wrapperClass="h-full min-h-[72px]"
-								inputClass="h-full"
+								inputClass="h-full !text-xs  !rounded-none !p-2"
 							/>
 						</div>
 						<div class="flex flex-col gap-1">
@@ -88,18 +156,44 @@
 				{/if}
 			</div>
 		{/if}
+
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
-				<div class="text-sm font-medium text-tertiary pb-0.5">
-					Tailwind classes<Tooltip documentationLink="https://tailwindcss.com/"
-						>Use any tailwind classes to style your component</Tooltip
-					></div
-				>
+				<div class="text-xs font-medium text-tertiary">
+					Tailwind classes
+					<Tooltip light documentationLink="https://tailwindcss.com/">
+						Use any tailwind classes to style your component
+					</Tooltip>
+				</div>
 				<div class="relative">
 					<ClearableInput bind:value={value.class} />
 				</div>
 			</label>
+		{/if}
+
+		<Toggle
+			options={{
+				right: 'Use dynamic class'
+			}}
+			size="xs"
+			bind:checked={dynamicClass}
+			on:change={(e) => {
+				if (e.detail && !value.evalClass) {
+					value.evalClass = {
+						type: 'evalv2',
+						expr: '',
+						connections: [],
+						fieldType: 'text'
+					}
+				} else {
+					value.evalClass = undefined
+				}
+			}}
+		/>
+
+		{#if value.evalClass && dynamicClass}
+			<CssEval bind:evalClass={value.evalClass} />
 		{/if}
 	</div>
 {/if}

@@ -12,10 +12,11 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { concatCustomCss } from '../../utils'
+	import { initCss } from '../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -64,7 +65,7 @@
 
 	$: outputs.valid.set(valid)
 
-	$: css = concatCustomCss($app.css?.schemaformcomponent, customCss)
+	let css = initCss($app.css?.schemaformcomponent, customCss)
 
 	const resolvedConfig = initConfig(
 		components['schemaformcomponent'].initialData.configuration,
@@ -83,10 +84,20 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.schemaformcomponent}
+	/>
+{/each}
+
 <RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	{#if result && Object.keys(result?.properties ?? {}).length > 0}
 		<div
-			class={twMerge('p-2 overflow-auto h-full', css?.container?.class)}
+			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
 			on:pointerdown|stopPropagation={(e) =>
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}

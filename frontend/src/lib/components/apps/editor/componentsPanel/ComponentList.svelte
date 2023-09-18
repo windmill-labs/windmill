@@ -54,12 +54,15 @@
 
 	let search = ''
 
-	// Filter COMPONENT_SETS by search
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
 		components: set.components.filter((component) => {
 			const name = componentsRecord[component].name.toLowerCase()
 			return name.includes(search.toLowerCase())
+		}),
+		presets: set.presets?.filter((preset) => {
+			const presetName = presetsRecord[preset].name.toLowerCase()
+			return presetName.includes(search.toLowerCase())
 		})
 	}))
 </script>

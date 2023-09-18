@@ -47,12 +47,13 @@
 	}
 
 	UserService.globalWhoami().then((x) => {
+		let uname = ''
 		if (x.name) {
-			username = x.name.split(' ')[0]
+			uname = x.name.split(' ')[0]
 		} else {
-			username = x.email.split('@')[0]
+			uname = x.email.split('@')[0]
 		}
-		username = username.toLowerCase()
+		username = uname.toLowerCase()
 	})
 </script>
 
@@ -61,10 +62,10 @@
 <CenteredModal title="Invitation to join {workspace_id}">
 	<label class="block pb-2">
 		<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
+		<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 		{#if errorUsername}
 			<span class="text-red-500 text-xs">{errorUsername}</span>
 		{/if}
-		<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 	</label>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"

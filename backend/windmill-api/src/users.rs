@@ -1219,7 +1219,7 @@ async fn decline_invite(
 }
 
 lazy_static! {
-    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
 
     pub static ref JOB_RETENTION_SECS: u32 = std::env::var("JOB_RETENTION_SECS")
     .ok()
@@ -1236,7 +1236,7 @@ async fn accept_invite(
 ) -> Result<(StatusCode, String)> {
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
@@ -1319,7 +1319,7 @@ async fn add_user_to_workspace<'c>(
 
     if !VALID_USERNAME.is_match(username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores"
+            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
         )));
     }
 
