@@ -115,7 +115,7 @@
 
 
 {#if component}
-  {#key component.id}
+  {#key component?.id}
 		<div class="px-2 flex items-center gap-2 flex-row justify-between">
 			{#if !cssEditorOpen}
 				<Button
