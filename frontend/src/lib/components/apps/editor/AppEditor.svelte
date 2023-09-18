@@ -271,7 +271,6 @@
 	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
 
 	function animateCssInput(cssEditorOpen: boolean) {
-		console.log(cssEditorOpen, cssToggled)
 		if (cssEditorOpen && !cssToggled) {
 			cssToggled = true
 

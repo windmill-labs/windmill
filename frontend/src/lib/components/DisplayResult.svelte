@@ -14,6 +14,7 @@
 	export let disableExpand = false
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
+	export let disableDetails = false
 
 	let resultKind:
 		| 'json'
@@ -132,15 +133,18 @@
 				>
 				<slot name="copilot-fix" />
 			</div>
-		{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 w-full min-w-[400px] text-sm relative"
-				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				{#if !disableExpand}
-					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
-						<button on:click={() => copyToClipboard(jsonStr)}><ClipboardCopy size={16} /></button>
-						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
-					</div>
-				{/if}
+		{/if}
+		{#if typeof result == 'object' && Object.keys(result).length > 0}
+			<div class="mb-2 w-full min-w-[400px] text-sm relative">
+			{#if !disableDetails}
+			The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
+			{/if}
+			{#if !disableExpand}
+				<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
+					<button on:click={() => copyToClipboard(jsonStr)}><ClipboardCopy size={16} /></button>
+					<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+				</div>
+			{/if}
 			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border rounded-md"
 			>
@@ -295,6 +299,7 @@
 		<div class="text-tertiary text-sm">No result: {jsonStr}</div>
 	{/if}
 </div>
+
 
 {#if !disableExpand}
 	<Portal>

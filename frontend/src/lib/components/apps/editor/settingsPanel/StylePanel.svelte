@@ -25,7 +25,7 @@
 	let tab: 'local' | 'global' = 'local'
 	let overrideGlobalCSS: (() => void) | undefined = undefined
 	let overrideLocalCSS: (() => void) | undefined = undefined
-	let type = component?.type
+	$: type = component?.type
 	let migrationModal: CssMigrationModal | undefined = undefined
 
 	$: customCssByComponentType =
