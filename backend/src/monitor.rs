@@ -2,11 +2,14 @@ use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use tokio::{join, sync::mpsc};
 use uuid::Uuid;
+use windmill_api::{IS_SECURE, OAUTH_CLIENTS};
 use windmill_common::{
     error,
+    global_settings::BASE_URL_SETTING,
     jobs::{JobKind, QueuedJob},
-    worker::{load_worker_config, reload_custom_tags_setting, WORKER_CONFIG},
-    METRICS_ENABLED,
+    server::load_server_config,
+    worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
+    DB, METRICS_ENABLED,
 };
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
@@ -72,6 +75,12 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
         }
     };
+
+    let reload_server_config_f = async {
+        if server_mode {
+            reload_server_config(&db).await;
+        }
+    };
     let expose_queue_metrics_f = async {
         if *METRICS_ENABLED && server_mode {
             expose_queue_metrics(&db).await;
@@ -81,6 +90,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         expired_items_f,
         zombie_jobs_f,
         reload_worker_config_f,
+        reload_server_config_f,
         reload_custom_tags_f,
         expose_queue_metrics_f
     );
@@ -104,7 +114,22 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     }
 }
 
-pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcast::Sender<()>) {
+pub async fn reload_server_config(db: &Pool<Postgres>) {
+    let config = load_server_config(&db).await;
+    if let Err(e) = config {
+        tracing::error!("Error reloading server config: {:?}", e)
+    } else {
+        let wc = SERVER_CONFIG.read().await;
+        let config = config.unwrap();
+        if *wc != config {
+            let mut wc = SERVER_CONFIG.write().await;
+            tracing::info!("Reloading server config...");
+            *wc = config
+        }
+    }
+}
+
+pub async fn reload_worker_config(db: &DB, tx: tokio::sync::broadcast::Sender<()>) {
     let config = load_worker_config(&db).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
@@ -123,6 +148,57 @@ pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcas
             *wc = config
         }
     }
+}
+
+async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+    let q = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        BASE_URL_SETTING
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let base_url = if let Some(q) = q {
+        if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+            v
+        } else {
+            tracing::error!(
+                "Could not parse base_url setting as a string, found: {:#?}",
+                &q.value
+            );
+            "http://localhost".to_string()
+        }
+    } else {
+        "http://localhost".to_string()
+    };
+
+    {
+        let l = BASE_URL.read().await;
+        if l.clone() == base_url {
+            return Ok(());
+        } else {
+            tracing::info!("Base url setting changed, updating");
+        }
+    }
+
+    {
+        let mut l = BASE_URL.write().await;
+        *l = base_url
+    }
+
+    {
+        let mut l = IS_SECURE.write().await;
+        *l = base_url.starts_with("https://")
+    }
+
+    {
+        let mut l = OAUTH_CLIENTS.write().await;
+        *l = build_oauth_clients(&base_url)
+        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
+        .unwrap();
+    }
+
+    Ok(())
 }
 
 async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(

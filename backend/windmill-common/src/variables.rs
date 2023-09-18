@@ -61,7 +61,7 @@ pub struct CreateVariable {
     pub is_oauth: Option<bool>,
 }
 
-pub fn get_reserved_variables(
+pub async fn get_reserved_variables(
     w_id: &str,
     token: &str,
     email: &str,
@@ -163,7 +163,7 @@ pub fn get_reserved_variables(
         },
         ContextualVariable {
             name: "WM_BASE_URL".to_string(),
-            value: BASE_URL.clone(),
+            value: BASE_URL.read().await.clone(),
             description: "base url of this instance".to_string(),
         },
         ContextualVariable {

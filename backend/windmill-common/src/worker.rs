@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{error, global_settings::CUSTOM_TAGS_SETTING, DB};
+use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
@@ -34,6 +34,9 @@ lazy_static::lazy_static! {
         worker_tags: Default::default(),
         dedicated_worker: Default::default(),
     }));
+
+    pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default() }));
+
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
@@ -97,10 +100,6 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         .concat();
     }
     Ok(())
-    // pub static ref CUSTOM_TAGS_PER_WORKSPACE: (Vec<String>, HashMap<String, Vec<String>>) =  process_custom_tags(std::env::var("CUSTOM_TAGS")
-    //     .ok());
-
-    // pub static ref ALL_TAGS: Vec<String> = [CUSTOM_TAGS_PER_WORKSPACE.0.clone(), CUSTOM_TAGS_PER_WORKSPACE.1.keys().map(|x| x.to_string()).collect_vec()].concat();
 }
 
 fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, Vec<String>>) {
@@ -144,8 +143,8 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 
 pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     let config: WorkerConfigOpt = sqlx::query_scalar!(
-        "SELECT config FROM worker_group_config WHERE name = $1",
-        *WORKER_GROUP
+        "SELECT config FROM config WHERE name = $1",
+        format!("worker__{}", *WORKER_GROUP)
     )
     .fetch_optional(db)
     .await?

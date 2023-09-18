@@ -3,7 +3,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
@@ -50,10 +50,14 @@
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 text-tertiary flex flex-col">
-					<div>Windmill <Version /></div><div><Uptodate /></div>
-				</div>
-
+				<div class="flex justify-between">
+					<div class="text-xs pt-1 text-tertiary flex flex-col">
+						<div>Windmill <Version /></div><div><Uptodate /></div>
+					</div>
+					<Button variant="border" size="sm" on:click={() => goto('/user/instance_settings')}>
+						Instance settings
+					</Button></div
+				>
 				<PageHeader title="All global users" primary={false} />
 
 				<div class="p-2 border mb-4">

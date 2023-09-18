@@ -12,7 +12,7 @@ use crate::saml::{SamlSsoLogin, ServiceProviderExt};
 use crate::scim::has_scim_token;
 use crate::tracing_init::MyOnFailure;
 use crate::{
-    oauth2::{build_oauth_clients, SlackVerifier},
+    oauth2::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -24,9 +24,10 @@ use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::{http, Method};
-use mail_send::SmtpClientBuilder;
 use reqwest::Client;
+use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::{
@@ -36,6 +37,7 @@ use tower_http::{
 use windmill_common::db::UserDB;
 use windmill_common::utils::rd_string;
 use windmill_common::worker::ALL_TAGS;
+use windmill_common::BASE_URL;
 
 use windmill_common::error::AppError;
 
@@ -76,7 +78,6 @@ pub use users::delete_expired_items;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152; // 2MB
 lazy_static::lazy_static! {
-    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
     pub static ref REQUEST_SIZE_LIMIT: usize = std::env::var("REQUEST_SIZE_LIMIT")
     .ok()
@@ -90,59 +91,20 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
-        static ref IS_SECURE: bool = BASE_URL.starts_with("https://");
+    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
-    pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
-        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
-        .unwrap();
-
-    pub static ref SMTP_CLIENT: Option<SmtpClientBuilder<String>> = {
-        let smtp = parse_smtp();
-        if let Some(smtp) = smtp {
-            match smtp {
-                Ok(smtp) => Some(smtp),
-                Err(e) => {
-                    tracing::error!("SMTP is not configured correctly, emails will not be sent: {}", e);
-                    None
-                }
-            }
-        } else {
-            tracing::warn!("SMTP is not configured, emails will not be sent");
-            None
-        }
-    };
-
-    pub static ref SMTP_FROM: String = std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@getwindmill.com".to_string());
+    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
+        logins: HashMap::new(),
+        connects: HashMap::new(),
+        slack: None
+    }));
 
     pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
-}
-
-pub fn parse_smtp() -> Option<windmill_common::error::Result<SmtpClientBuilder<String>>> {
-    let username = std::env::var("SMTP_USERNAME").ok();
-    let port = std::env::var("SMTP_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(587);
-    let password = std::env::var("SMTP_PASSWORD").ok();
-    let host = std::env::var("SMTP_HOST").ok();
-    let tls_implicit = std::env::var("SMTP_TLS_IMPLICIT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(false);
-
-    if username.is_some() && password.is_some() && host.is_some() {
-        let smtp = SmtpClientBuilder::new(host.unwrap(), port)
-            .implicit_tls(tls_implicit)
-            .credentials((username.unwrap(), password.unwrap()));
-        Some(Ok(smtp))
-    } else {
-        None
-    }
 }
 
 pub async fn run_server(

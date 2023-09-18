@@ -107,7 +107,7 @@ async fn get_worker_groups(
 ) -> error::JsonResult<Vec<WorkerGroup>> {
     require_super_admin(&db, &authed.email).await?;
 
-    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM worker_group_config")
+    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM config")
         .fetch_all(&db)
         .await?;
     Ok(Json(rows))
@@ -123,7 +123,7 @@ async fn update_worker_group(
     require_super_admin(&db, &authed.email).await?;
 
     sqlx::query!(
-        "INSERT INTO worker_group_config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
+        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
         &name,
         config
     )
@@ -150,8 +150,8 @@ async fn delete_worker_group(
     tx.commit().await?;
 
     let deleted = sqlx::query!(
-        "DELETE FROM worker_group_config WHERE name = $1 RETURNING name",
-        name,
+        "DELETE FROM config WHERE name = $1 RETURNING name",
+        format!("worker__{}", name)
     )
     .fetch_all(&db)
     .await?;

@@ -192,6 +192,7 @@ pub async fn get_reserved_variables(
         job.schedule_path.clone(),
         job.flow_step_id.clone(),
     )
+    .await
     .to_vec();
 
     Ok(build_envs_map(variables))

@@ -13,7 +13,6 @@ use crate::{
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
     variables::get_workspace_key,
-    BASE_URL,
 };
 use anyhow::Context;
 use axum::{
@@ -34,6 +33,7 @@ use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::worker::CUSTOM_TAGS_PER_WORKSPACE;
+use windmill_common::BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -1295,7 +1295,8 @@ pub async fn get_resume_urls(
         .map(|x| format!("?approver={}", encode(x)))
         .unwrap_or_else(String::new);
 
-    let base_url = BASE_URL.as_str();
+    let base_url_str = BASE_URL.read().await.clone();
+    let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
             "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"

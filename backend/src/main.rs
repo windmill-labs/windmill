@@ -19,7 +19,7 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
-use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
+use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS};
 use windmill_common::{global_settings::ENV_SETTINGS, utils::rd_string, METRICS_ADDR};
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
@@ -129,14 +129,6 @@ Windmill Community Edition {GIT_VERSION}
     display_config(&ENV_SETTINGS);
 
     tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
-    if let Some(ref smtp) = *SMTP_CLIENT {
-        tracing::info!("Smtp client defined. Testing connection...");
-        if let Err(e) = smtp.connect().await {
-            tracing::error!("Failed to connect to smtp server: {}", e);
-        } else {
-            tracing::info!("Smtp client connected.");
-        }
-    }
 
     let worker_mode = num_workers > 0;
 

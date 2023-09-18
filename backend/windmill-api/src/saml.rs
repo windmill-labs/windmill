@@ -71,7 +71,7 @@ pub async fn build_sp_extension() -> anyhow::Result<(ServiceProviderExt, SamlSso
                 ..ContactPerson::default()
             })
             .idp_metadata(idp_metadata)
-            .acs_url(format!("{}/api/saml/acs", *BASE_URL))
+            .acs_url(format!("{}/api/saml/acs", BASE_URL.read().await.clone()))
             .build()?;
 
         tracing::info!("SAML Configured, sso login link at: {:?}", url);
