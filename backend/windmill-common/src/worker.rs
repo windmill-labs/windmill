@@ -143,7 +143,7 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 }
 
 pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
-    let config: WorkerConfigOpt = sqlx::query_scalar!(
+    let mut config: WorkerConfigOpt = sqlx::query_scalar!(
         "SELECT config FROM worker_group_config WHERE name = $1",
         *WORKER_GROUP
     )
@@ -153,6 +153,9 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
     .map(|x| serde_json::from_value(x).ok())
     .flatten()
     .unwrap_or_default();
+    if config.dedicated_worker.is_none() {
+        config.dedicated_worker = std::env::var("DEDICATED_WORKER").ok();
+    }
     let dedicated_worker = config.dedicated_worker.map(|x| {
         let splitted = x.split(':').to_owned().collect_vec();
         if splitted.len() != 2 {
