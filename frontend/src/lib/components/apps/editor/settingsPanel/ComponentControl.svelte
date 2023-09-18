@@ -5,7 +5,6 @@
 	import { getComponentControl } from '../componentsPanel/componentControlUtils'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
-	import { slide } from "svelte/transition"
 	import { Button } from "$lib/components/common"
   export let type: keyof typeof components
 
