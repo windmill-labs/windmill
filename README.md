@@ -6,7 +6,7 @@ Open-source developer platform to turn scripts into workflows and UIs. Open-sour
 ![noop benchmark](./noop_benchmark.svg)
 
 
-![flow benchmark](./flow_benchmark.svg)
+![flow benchmark](./2steps_benchmark.svg)
 
 
 ![deno benchmark](./deno_benchmark.svg)
