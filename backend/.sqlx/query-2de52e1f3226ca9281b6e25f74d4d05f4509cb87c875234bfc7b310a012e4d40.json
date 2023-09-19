@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl)\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) RETURNING id",
+  "query": "INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11)) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -11,18 +11,8 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Uuid",
-        "Bool",
-        "Uuid",
-        "Varchar",
-        "Varchar",
-        "Timestamptz",
         "Int8",
         "Varchar",
-        "Text",
-        "Text",
-        "Jsonb",
         {
           "Custom": {
             "name": "job_kind",
@@ -45,10 +35,6 @@
             }
           }
         },
-        "Varchar",
-        "Jsonb",
-        "Jsonb",
-        "Bool",
         {
           "Custom": {
             "name": "script_lang",
@@ -70,15 +56,11 @@
             }
           }
         },
-        "Bool",
-        "Text",
         "Varchar",
-        "Bool",
-        "Uuid",
         "Varchar",
-        "Int4",
-        "Int4",
-        "Int4",
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
         "Varchar",
         "Int4"
       ]
@@ -87,5 +69,5 @@
       false
     ]
   },
-  "hash": "9e8c3ff3d6b31e366e15beda1e96e03e870ccc3b353401439bc0ed8ff219249b"
+  "hash": "2de52e1f3226ca9281b6e25f74d4d05f4509cb87c875234bfc7b310a012e4d40"
 }
