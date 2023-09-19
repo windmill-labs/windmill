@@ -37,9 +37,7 @@ jobs:
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
-          --pull always --health-interval 10s --health-timeout 5s
-          --health-retries 5 --health-cmd "curl
-          http://localhost:8000/api/version"
+          --pull always
     steps:
       - uses: denoland/setup-deno@v1
         with:
