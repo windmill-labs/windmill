@@ -25,7 +25,10 @@ use crate::{
 #[cfg(feature = "enterprise")]
 use crate::MAX_BUFFERED_DEDICATED_JOBS;
 
-use tokio::{fs::File, process::Command};
+use tokio::{
+    fs::{remove_dir_all, File},
+    process::Command,
+};
 
 #[cfg(feature = "enterprise")]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -227,6 +230,7 @@ pub async fn handle_bun_job(
             common_bun_proc_envs.clone(),
         )
         .await?;
+        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
@@ -243,6 +247,7 @@ pub async fn handle_bun_job(
             false,
         )
         .await?;
+        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     }
 
     logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
