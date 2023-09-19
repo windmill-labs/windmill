@@ -19,15 +19,25 @@ jobs:
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
       windmill:
-        image: ghcr.io/windmill-labs/windmill:main
+        image: ghcr.io/windmill-labs/windmill-ee:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
           http://localhost:8000/api/version"
         ports:
           - 8000:8000
+      windmill-worker:
+        image: ghcr.io/windmill-labs/windmill-ee:main
+        env:
+          DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
+          DISABLE_SERVER: true
+          DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
+        options: >-
+          --pull always
     steps:
       - uses: denoland/setup-deno@v1
         with:
@@ -37,14 +47,9 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 10
-        run: deno run --unstable -A
+        run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
-          --host http://localhost:8000
-          -r
-          -e admin@windmill.dev
-          -p changeme
           -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
-          --branch ${GITHUB_REF##ref/head/}
       - name: Push changes
         run: |
           pwd
