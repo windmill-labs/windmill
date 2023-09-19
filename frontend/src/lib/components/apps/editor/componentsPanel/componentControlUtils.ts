@@ -50,6 +50,13 @@ const setValue = {
 	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#setvalue'
 }
 
+const setSelectedIndex = {
+	title: 'setSelectedIndex',
+	description: 'Use the setSelectedIndex function to select a row in a table or an AG Grid table.',
+	example: 'setSelectedIndex(id: string, index: number)',
+	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#setselectedindex'
+}
+
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
 	switch (type) {
 		case 'tabscomponent':
@@ -78,7 +85,13 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'selectcomponent':
 		case 'slidercomponent':
 		case 'schemaformcomponent':
+		case 'quillcomponent':
+		case 'textcomponent':
+		case 'textareainputcomponent':
 			return [setValue]
+		case 'tablecomponent':
+		case 'aggridcomponent':
+			return [setSelectedIndex]
 		default:
 			return [recompute]
 	}
