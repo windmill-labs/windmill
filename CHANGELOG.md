@@ -1,6 +1,33 @@
 # Changelog
 
 
+## [1.175.0](https://github.com/windmill-labs/windmill/compare/v1.174.0...v1.175.0) (2023-09-19)
+
+
+### Features
+
+* add batch jobs ([#2306](https://github.com/windmill-labs/windmill/issues/2306)) ([5867e5d](https://github.com/windmill-labs/windmill/commit/5867e5d0f80fd515fab165659831b5ee9a8c3f97))
+* add dediacted worker env var ([#2296](https://github.com/windmill-labs/windmill/issues/2296)) ([e0c6eee](https://github.com/windmill-labs/windmill/commit/e0c6eee16e535b3a7d803a7978e463404f5fec30))
+* dedicated benchmarks ([#2297](https://github.com/windmill-labs/windmill/issues/2297)) ([c549239](https://github.com/windmill-labs/windmill/commit/c5492396843ddd9143ffe890696d0317c970de36))
+* **frontend:** Add component control doc ([#2295](https://github.com/windmill-labs/windmill/issues/2295)) ([26f8863](https://github.com/windmill-labs/windmill/commit/26f88636f0b972d4fe4931ed02135c38b27a56d2))
+* suggest adding openai key on workspace creation ([a6b3b2f](https://github.com/windmill-labs/windmill/commit/a6b3b2f63b317825a3d80218cbb606b9f610c221))
+* support pinned versions for bun in deployed scripts ([03806dc](https://github.com/windmill-labs/windmill/commit/03806dc3907cba724be14acb6aadf5be6e35cdb6))
+
+
+### Bug Fixes
+
+* add HOME to bun and deno ([0e3ecc7](https://github.com/windmill-labs/windmill/commit/0e3ecc7d6025c173135f20bacc33a0dc972ec222))
+* add queue_count to metrics ([9ced883](https://github.com/windmill-labs/windmill/commit/9ced8834a45151c6900b1eb33eca2cff4886a065))
+* ai improve prompts ([#2310](https://github.com/windmill-labs/windmill/issues/2310)) ([b647213](https://github.com/windmill-labs/windmill/commit/b647213b2c968b0cb1f90c97d94e8023c415dd55))
+* **frontend:** add missing key ([#2299](https://github.com/windmill-labs/windmill/issues/2299)) ([39d2467](https://github.com/windmill-labs/windmill/commit/39d24672ddd696372e55e9b4566f322a322385a8))
+* **frontend:** Always mount components ([#2309](https://github.com/windmill-labs/windmill/issues/2309)) ([34f94aa](https://github.com/windmill-labs/windmill/commit/34f94aa50e92254114c046fa8b7e900d93807937))
+* **frontend:** fix alignment ([#2307](https://github.com/windmill-labs/windmill/issues/2307)) ([f9fc6f1](https://github.com/windmill-labs/windmill/commit/f9fc6f19482e68c9ccba0014879fd8761662c36a))
+* **frontend:** Fix rich result styling + add title and hideDetails config ([#2294](https://github.com/windmill-labs/windmill/issues/2294)) ([732daef](https://github.com/windmill-labs/windmill/commit/732daef1c3515f7df3e09deac691bb585f9859cd))
+* **frontend:** fix tab styling + component bg ([#2308](https://github.com/windmill-labs/windmill/issues/2308)) ([5e773d3](https://github.com/windmill-labs/windmill/commit/5e773d386343f003425173207c166e3c4eeef956))
+* **frontend:** fix theme make default ([#2304](https://github.com/windmill-labs/windmill/issues/2304)) ([4629819](https://github.com/windmill-labs/windmill/commit/46298197c5333a81b9b8a004027ab9a856bdada4))
+* **frontend:** fix theme UI ([#2305](https://github.com/windmill-labs/windmill/issues/2305)) ([576f76b](https://github.com/windmill-labs/windmill/commit/576f76b1ffe9c50c8ccaca8c5e34d0ec03aebf3f))
+* validate more strongly usernames ([47094bb](https://github.com/windmill-labs/windmill/commit/47094bb8d1c6f4ba621d42515dede061fd04afdd))
+
 ## [1.174.0](https://github.com/windmill-labs/windmill/compare/v1.173.0...v1.174.0) (2023-09-15)
 
 
