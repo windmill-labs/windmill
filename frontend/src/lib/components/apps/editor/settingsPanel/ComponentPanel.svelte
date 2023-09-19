@@ -34,6 +34,8 @@
 	import GridGroup from './GridGroup.svelte'
 	import { secondaryMenuLeft } from './secondaryMenu'
 
+	import ComponentControl from './ComponentControl.svelte'
+
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -297,7 +299,11 @@
 					{/if}
 				{/key}
 			</PanelSection>
+
 		{/if}
+	
+		<ComponentControl type={component.type} />
+
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}
@@ -428,5 +434,6 @@
 				</div>
 			</PanelSection>
 		{/if}
+
 	</div>
 {/if}

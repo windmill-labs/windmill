@@ -2366,19 +2366,6 @@ struct BatchInfo {
     dedicated_worker: Option<bool>,
 }
 
-// async fn batch_loop() -> () {
-//     #[tracing::instrument(level = "trace", skip_all)]
-// async fn add_noop_jobs(
-//     authed: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
-//     Path((w_id, n)): Path<(String, i32)>,
-// ) -> error::JsonResult<Vec<String>> {
-//     require_super_admin(&db, &authed.email).await?;
-
-//     Ok(Json(uuids))
-// }
-
 #[tracing::instrument(level = "trace", skip_all)]
 async fn add_batch_jobs(
     authed: ApiAuthed,
