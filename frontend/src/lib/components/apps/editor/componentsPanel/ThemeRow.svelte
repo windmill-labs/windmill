@@ -140,11 +140,11 @@
 	<Cell last>
 		<div class={twMerge('flex flex-row gap-1 justify-end ')}>
 			{#if row.path === DEFAULT_THEME}
-				<Badge color="blue">Default theme</Badge>
+				<Badge color="blue" small>Default</Badge>
 			{/if}
 
 			{#if $app?.theme?.type === 'path' && $app.theme.path === row.path}
-				<Badge color="green">Active</Badge>
+				<Badge color="green" small>Active</Badge>
 			{/if}
 
 			{#if type === 'inlined'}
@@ -162,7 +162,7 @@
 						Preview
 					</div>
 				</Button>
-				<Button color="dark" size="xs" on:click={apply}>Apply</Button>
+				<Button color="dark" size="xs2" on:click={apply}>Apply</Button>
 			{/if}
 
 			<button on:pointerdown|stopPropagation>
