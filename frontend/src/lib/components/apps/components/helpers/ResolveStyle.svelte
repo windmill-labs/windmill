@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { deepEqual } from 'fast-equals'
 	import type { ComponentCssProperty } from '../../types'
 	import InputValue from './InputValue.svelte'
 
@@ -19,8 +20,14 @@
 		const { class: componentClass, style: componentStyleValue } = componentStyle?.[key] ?? {}
 		const { class: customClass, style: customStyleValue } = customCss?.[key] ?? {}
 
-		css.class = [componentClass, customClass, evalClassValue].filter(Boolean).join(' ')
-		css.style = [componentStyleValue, customStyleValue].filter(Boolean).join(';')
+		const newCss = {
+			class: [componentClass, customClass, evalClassValue].filter(Boolean).join(' '),
+			style: [componentStyleValue, customStyleValue].filter(Boolean).join(';')
+		}
+
+		if (!deepEqual(newCss, css)) {
+			css = newCss
+		}
 	}
 
 	// When any of the values change, update the css
