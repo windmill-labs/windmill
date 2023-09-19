@@ -73,69 +73,43 @@ export async function main({
   console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
-  let response: Response;
+  let body: string;
   if (kind === "noop") {
-    response = await fetch(
-      config.server +
-        "/api/w/" +
-        config.workspace_id +
-        `/jobs/add_batch_jobs/${jobsSent}`,
-      {
-        method: "POST",
-        headers: {
-          ["Authorization"]: "Bearer " + config.token,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          kind: "noop",
-        }),
-      }
-    );
+    body = JSON.stringify({
+      kind: "noop",
+    });
   } else if (
     ["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)
   ) {
-    response = await fetch(
-      config.server +
-        "/api/w/" +
-        config.workspace_id +
-        `/jobs/add_batch_jobs/${jobsSent}`,
-      {
-        method: "POST",
-        headers: {
-          ["Authorization"]: "Bearer " + config.token,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          kind: "script",
-          path: "f/benchmarks/" + kind,
-          dedicated_worker: kind === "dedicated",
-        }),
-      }
-    );
+    body = JSON.stringify({
+      kind: "script",
+      path: "f/benchmarks/" + kind,
+      dedicated_worker: kind === "dedicated",
+    });
   } else if (["2steps", "onebranch", "branchallparrallel"].includes(kind)) {
     const payload = getFlowPayload(kind);
-    response = await fetch(
-      config.server +
-        "/api/w/" +
-        config.workspace_id +
-        `/jobs/add_batch_jobs/${jobsSent}`,
-      {
-        method: "POST",
-        headers: {
-          ["Authorization"]: "Bearer " + config.token,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          kind: "flow",
-          path: "f/benchmarks/" + kind,
-          flow_value: payload.value,
-        }),
-      }
-    );
+    body = JSON.stringify({
+      kind: "flow",
+      flow_value: payload.value,
+    });
   } else {
     throw new Error("Unknown script pattern " + kind);
   }
 
+  const response = await fetch(
+    config.server +
+      "/api/w/" +
+      config.workspace_id +
+      `/jobs/add_batch_jobs/${jobsSent}`,
+    {
+      method: "POST",
+      headers: {
+        ["Authorization"]: "Bearer " + config.token,
+        "Content-Type": "application/json",
+      },
+      body,
+    }
+  );
   if (!response.ok) {
     throw new Error("Failed to create jobs: " + response.statusText);
   }
