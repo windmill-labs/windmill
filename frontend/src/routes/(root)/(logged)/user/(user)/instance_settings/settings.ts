@@ -4,5 +4,7 @@ export interface Setting {
 	tooltip?: string
 	key: string
 	fieldType: 'text' | 'number' | 'boolean' | 'password' | 'select' | 'textarea' | 'seconds'
-	storage: 'setting' | 'config'
+	storage: SettingStorage
 }
+
+export type SettingStorage = 'setting' | 'config' | 'smtp'

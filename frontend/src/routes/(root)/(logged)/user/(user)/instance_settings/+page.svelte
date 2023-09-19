@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import type { Setting } from './settings'
+	import type { Setting, SettingStorage } from './settings'
 	import { Button } from '$lib/components/common'
 	import { ConfigService, SettingService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -30,8 +30,8 @@
 				label: 'Retention Period in secs',
 				key: 'retention_period_secs',
 				fieldType: 'seconds',
-				placeholder: '60'
-				global_setting: true
+				placeholder: '60',
+				storage: 'setting'
 			}
 		],
 		SMTP: [
@@ -39,54 +39,81 @@
 				label: 'Host',
 				key: 'smtp_host',
 				fieldType: 'text',
-				placeholder: 'smtp.gmail.com'
+				placeholder: 'smtp.gmail.com',
+				storage: 'smtp'
 			},
 			{
 				label: 'Port',
 				key: 'smtp_port',
 				fieldType: 'number',
-				placeholder: '567'
+				placeholder: '567',
+				storage: 'smtp'
 			},
 			{
 				label: 'Username',
 				key: 'smtp_username',
 				fieldType: 'text',
-				placeholder: 'ruben@windmill.dev'
+				placeholder: 'ruben@windmill.dev',
+				storage: 'smtp'
 			},
 			{
 				label: 'Password',
 				key: 'smtp_password',
-				fieldType: 'password'
+				fieldType: 'password',
+				storage: 'smtp'
 			},
 			{
 				label: 'Implicit TLS',
 				key: 'smtp_implicit_tls',
-				fieldType: 'boolean'
+				fieldType: 'boolean',
+				storage: 'smtp'
 			}
 		]
 	}
 
 	let values: Setting[] | undefined = undefined
+	let serverConfig: {
+		smtp?: Record<string, any>
+	} = {}
 
 	loadSettings()
 	async function loadSettings() {
-		let serverConfig = {}
 		try {
-			serverConfig = await ConfigService.getConfig({ name: 'server' })
+			serverConfig = (await ConfigService.getConfig({ name: 'server' })) ?? {}
 		} catch (e) {
 			console.log("Sever config not found, assuming it's first setup")
+		}
+
+		async function getValue(key: string, storage: SettingStorage) {
+			if (storage == 'setting') {
+				return SettingService.getGlobal({ key })
+			} else if (storage == 'smtp') {
+				return serverConfig.smtp?.[key]
+			} else if (storage == 'config') {
+				return serverConfig[key]
+			}
 		}
 		values = Object.fromEntries(
 			(
 				await Promise.all(
 					Object.entries(settings).map(
 						async ([_, y]) =>
-							await Promise.all(
-								y.map(async (x) => [x.key, await SettingService.getGlobal({ key: x.key })])
-							)
+							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
 					)
 				)
 			).flat()
+		)
+	}
+
+	async function saveSettings() {
+		const updateConfig = ConfigService.updateConfig({ name: 'server', requestBody: serverConfig })
+		const updateSettings = Promise.all(
+			Object.values(settings)
+				.flatMap((x) => Object.entries(x))
+				.filter((x) => x[1].storage == 'setting')
+				.map(async ([_, x]) => {
+					await SettingService.updateGlobal({ key: x.key, requestBody: { value: values[x.key] } })
+				})
 		)
 	}
 
@@ -205,5 +232,10 @@
 	<pre class="text-xs"
 		>{JSON.stringify({ oauths, values }, null, 2)}
 	</pre>
-	<Button on:click={() => sendUserToast('Settings updated')}>Save</Button>
+	<Button
+		on:click={async () => {
+			await saveSettings()
+			sendUserToast('Settings updated')
+		}}>Save</Button
+	>
 </CenteredModal>
