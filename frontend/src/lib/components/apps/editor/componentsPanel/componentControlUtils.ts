@@ -67,26 +67,18 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'aggridcomponent':
 			return [getAgGrid]
 		case 'displaycomponent':
-			return [setValue]
 		case 'dateinputcomponent':
-			return [setValue]
 		case 'textinputcomponent':
-			return [setValue]
 		case 'numberinputcomponent':
-			return [setValue]
 		case 'currencycomponent':
-			return [setValue]
 		case 'checkboxcomponent':
-			return [setValue]
 		case 'formcomponent':
-			return [setValue]
 		case 'rangecomponent':
-			return [setValue]
 		case 'multiselectcomponent':
-			return [setValue]
 		case 'selectcomponent':
-			return [setValue]
 		case 'slidercomponent':
+		case 'schemaformcomponent':
+			return [setValue]
 		default:
 			return [recompute]
 	}
