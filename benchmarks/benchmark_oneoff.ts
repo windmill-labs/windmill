@@ -73,8 +73,9 @@ export async function main({
   console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
+  let response: Response;
   if (kind === "noop") {
-    await fetch(
+    response = await fetch(
       config.server +
         "/api/w/" +
         config.workspace_id +
@@ -93,7 +94,7 @@ export async function main({
   } else if (
     ["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)
   ) {
-    await fetch(
+    response = await fetch(
       config.server +
         "/api/w/" +
         config.workspace_id +
@@ -113,7 +114,7 @@ export async function main({
     );
   } else if (["2steps", "onebranch", "branchallparrallel"].includes(kind)) {
     const payload = getFlowPayload(kind);
-    await fetch(
+    response = await fetch(
       config.server +
         "/api/w/" +
         config.workspace_id +
@@ -133,6 +134,10 @@ export async function main({
     );
   } else {
     throw new Error("Unknown script pattern " + kind);
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to create jobs: " + response.statusText);
   }
   const end_create = Date.now();
   const create_duration = end_create - start_create;
