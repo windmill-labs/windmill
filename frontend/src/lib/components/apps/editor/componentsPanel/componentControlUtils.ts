@@ -1,4 +1,4 @@
-import type { components } from '../component'
+import { components } from '../component'
 
 export type ComponentFunction = {
 	title: string
@@ -93,6 +93,10 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'aggridcomponent':
 			return [setSelectedIndex]
 		default:
-			return [recompute]
+			if (components[type].initialData['componentInput']) {
+				return [recompute]
+			} else {
+				return []
+			}
 	}
 }
