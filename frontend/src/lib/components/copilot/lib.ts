@@ -100,7 +100,11 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 		const { schema, lang } = dbSchema
 		if (lang === 'graphql') {
 			const graphqlSchema = printSchema(buildClientSchema(schema))
-			prompt = prompt + '\nHere is the GraphQL schema: ' + JSON.stringify(graphqlSchema)
+			prompt =
+				prompt +
+				'\nHere is the GraphQL schema: <schema>\n' +
+				JSON.stringify(graphqlSchema) +
+				'\n</schema>'
 		} else {
 			let smallerSchema: {
 				[schemaKey: string]: {
@@ -122,20 +126,17 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 				}
 			}
 
-			let finalSchema:
-				| typeof smallerSchema
-				| {
-						[tableKey: string]: Array<[string, string, boolean, string?]>
-				  } = smallerSchema
-			if (lang === 'postgresql' && dbSchema.publicOnly) {
-				finalSchema = smallerSchema.public || smallerSchema
+			let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
+			if (dbSchema.publicOnly) {
+				finalSchema = smallerSchema.public || smallerSchema.PUBLIC || smallerSchema
 			} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
 				finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
 			}
 			prompt =
 				prompt +
-				"\nHere's the database schema, each column is in the format [name, type, required, default?]: " +
-				JSON.stringify(finalSchema)
+				"\nHere's the database schema, each column is in the format [name, type, required, default?]: <dbschema>\n" +
+				JSON.stringify(finalSchema) +
+				'\n</dbschema>'
 		}
 	}
 	return prompt
@@ -250,21 +251,21 @@ export async function copilot(
 
 			if (scriptOptions.type === 'fix') {
 				//  in fix mode, check for explanation
-				let explanationMatch = response.match(/explanation: "(.+)"/i)
+				let explanationMatch = response.match(/<explanation>([\s\S]+)<\/explanation>/)
 
 				if (explanationMatch) {
-					const explanation = explanationMatch[1]
+					const explanation = explanationMatch[1].trim()
 					generatedExplanation?.set(explanation)
 					break
 				}
 
-				explanationMatch = response.match(/explanation: "(.+)/i)
+				explanationMatch = response.match(/<explanation>([\s\S]+)/)
 
 				if (!explanationMatch) {
 					continue
 				}
 
-				const explanation = explanationMatch[1]
+				const explanation = explanationMatch[1].replace(/<\/?e?x?p?l?a?n?a?t?i?o?n?>?$/, '').trim()
 
 				generatedExplanation?.set(explanation)
 
