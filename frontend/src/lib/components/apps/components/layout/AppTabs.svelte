@@ -123,7 +123,7 @@
 						selectedStyle={css?.selectedTab?.style}
 						disabled={resolvedDisabledTabs[index]}
 					>
-						<span class="font-semibold text-primary">{res}</span>
+						<span class="font-semibold">{res}</span>
 					</Tab>
 				{/each}
 			</Tabs>
