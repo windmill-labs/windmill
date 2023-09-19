@@ -2,25 +2,14 @@
 /// <reference lib="deno.window" />
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
-import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
-export {
-  DenoLandProvider,
-  UpgradeCommand,
-} from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
-async function login(email: string, password: string): Promise<string> {
-  return await windmill.UserService.login({
-    requestBody: {
-      email: email,
-      password: password,
-    },
-  });
-}
+import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 
-export const VERSION = "v1.167.0";
+import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
+
+import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
 
 export async function main({
   host,
@@ -28,21 +17,21 @@ export async function main({
   password,
   token,
   workspace,
+  kind,
   jobs,
-  batches,
 }: {
   host: string;
   email?: string;
   password?: string;
   token?: string;
   workspace: string;
+  kind: string;
   jobs: number;
-  batches: number;
 }) {
   windmill.setClient("", host);
 
   console.log(
-    "Started benchmark with NOOP jobs with options",
+    "Started benchmark with options",
     JSON.stringify(
       {
         host,
@@ -76,48 +65,83 @@ export async function main({
   windmill.setClient(final_token, host);
   const enc = (s: string) => new TextEncoder().encode(s);
 
-  console.log("Disabling workers before loading jobs");
-  const disable_workers = await fetch(
-    config.server + "/api/workers/toggle?disable=true",
-    {
-      method: "GET",
-      headers: { ["Authorization"]: "Bearer " + config.token },
-    }
-  );
-  if (!disable_workers.ok) {
-    console.error(
-      "Unable to disable workers. Is the Windmill server running in benchmark mode?"
-    );
+  if (["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)) {
+    await createBenchScript(kind, workspace);
   }
 
-  const jobsSent = jobs;
-  const batch_num = batches;
-  console.log(`Bulk creating ${jobsSent} jobs in ${batch_num} batches`);
+  let jobsSent = jobs;
+  console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
-  const all_create_operations = [];
-  for (let i = 0; i < batch_num; i++) {
-    all_create_operations.push(
-      fetch(
-        config.server +
-          "/api/w/" +
-          config.workspace_id +
-          `/jobs/add_noop_jobs/${jobsSent / batch_num}`,
-        {
-          method: "POST",
-          headers: { ["Authorization"]: "Bearer " + config.token },
-        }
-      )
+  if (kind === "noop") {
+    await fetch(
+      config.server +
+        "/api/w/" +
+        config.workspace_id +
+        `/jobs/add_batch_jobs/${jobsSent}`,
+      {
+        method: "POST",
+        headers: {
+          ["Authorization"]: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          kind: "noop",
+        }),
+      }
     );
+  } else if (
+    ["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)
+  ) {
+    await fetch(
+      config.server +
+        "/api/w/" +
+        config.workspace_id +
+        `/jobs/add_batch_jobs/${jobsSent}`,
+      {
+        method: "POST",
+        headers: {
+          ["Authorization"]: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          kind: "script",
+          path: "f/benchmarks/" + kind,
+          dedicated_worker: kind === "dedicated",
+        }),
+      }
+    );
+  } else if (["2steps", "onebranch", "branchallparrallel"].includes(kind)) {
+    const payload = getFlowPayload(kind);
+    await fetch(
+      config.server +
+        "/api/w/" +
+        config.workspace_id +
+        `/jobs/add_batch_jobs/${jobsSent}`,
+      {
+        method: "POST",
+        headers: {
+          ["Authorization"]: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          kind: "flow",
+          path: "f/benchmarks/" + kind,
+          flow_value: payload.value,
+        }),
+      }
+    );
+  } else {
+    throw new Error("Unknown script pattern " + kind);
   }
-  await Promise.all(all_create_operations);
-
   const end_create = Date.now();
   const create_duration = end_create - start_create;
   console.log(
-    `Jobs successfully added to the queue in ${create_duration}s. Windmill will start pulling them\n`
+    `Jobs successfully added to the queue in ${
+      create_duration / 1000
+    }s. Windmill will start pulling them\n`
   );
-  const start = Date.now();
+  let start = Date.now();
 
   let queue_length = jobsSent;
   let lastElapsed = 0;
@@ -151,30 +175,23 @@ export async function main({
         }/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | queue: ${queue_length}                          \r`
       )
     );
-  }, 100);
-
-  console.log("Enabling workers to start processing jobs");
-  const enable_workers = await fetch(
-    config.server + "/api/workers/toggle?disable=false",
-    {
-      method: "GET",
-      headers: { ["Authorization"]: "Bearer " + config.token },
-    }
-  );
-  if (!enable_workers.ok) {
-    console.error(
-      "Unable to disable workers. Is the Windmill server running in benchmark mode?"
-    );
-  }
+  }, 10);
 
   while (queue_length > 0) {
-    await sleep(0.1);
+    if (queue_length < jobsSent && jobsSent === jobs) {
+      // reset start time to when the first job was picked up
+      start = Date.now();
+      jobsSent = queue_length;
+    }
+    await sleep(0.01);
   }
 
   clearInterval(updateState);
 
   const total_duration_sec = (Date.now() - start) / 1000.0;
-  console.log(`jobs: ${jobsSent}`);
+
+  await sleep(0.1);
+  console.log(`\njobs: ${jobsSent}`);
   console.log(`duration: ${total_duration_sec}s`);
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
@@ -204,8 +221,16 @@ if (import.meta.main) {
     .option("--host <url:string>", "The windmill host to benchmark.", {
       default: "http://127.0.0.1:8000",
     })
-    .option("-e --email <email:string>", "The email to use to login.")
-    .option("-p --password <password:string>", "The password to use to login.")
+    .option("-e --email <email:string>", "The email to use to login.", {
+      default: "admin@windmill.dev",
+    })
+    .option(
+      "-p --password <password:string>",
+      "The password to use to login.",
+      {
+        default: "changeme",
+      }
+    )
     .env(
       "WM_TOKEN=<token:string>",
       "The token to use when talking to the API server. Preferred over manual login."
@@ -223,14 +248,16 @@ if (import.meta.main) {
       "The workspace to spawn scripts from.",
       { default: "admins" }
     )
-    .option("-j --jobs <jobs:number>", "Number of NOOP jobs to create.", {
+    .option(
+      "--kind <kind:string>",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, onebranch, branchallparrallel",
+      {
+        required: true,
+      }
+    )
+    .option("-j --jobs <jobs:number>", "Number of jobs to create.", {
       default: 10000,
     })
-    .option(
-      "-b --batches <batches:number>",
-      "Number of batches to create all the jobs.",
-      { default: 1 }
-    )
     .action(main)
     .command(
       "upgrade",

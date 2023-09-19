@@ -2,29 +2,23 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
-const VERSION = "1.174.0";
+import { main as runBenchmark } from "./benchmark_oneoff.ts";
 
-type BenchmarkTypes =
-  | "noop"
-  | "flow"
-  | "deno"
-  | "python"
-  | "go"
-  | "bash"
-  | "bun"
-  | "dedicated";
+import { drawGraph, drawGraphMulti } from "./graph.ts";
+import { VERSION } from "./lib.ts";
 
 type Config = {
   benchmarks: [
     {
       graph_title: string;
-      type: BenchmarkTypes;
+      kind: string;
+      jobs: number;
     }
   ];
   extra_graphs?: [
     {
       graph_title: string;
-      types: BenchmarkTypes[];
+      kinds: string[];
     }
   ];
 };
@@ -36,7 +30,6 @@ async function main({
   token,
   workspace,
   configPath,
-  branch,
 }: {
   host: string;
   email?: string;
@@ -44,26 +37,7 @@ async function main({
   token?: string;
   workspace: string;
   configPath: string;
-  branch?: string;
 }) {
-  const { main: runNoopBenchmark } = await import(
-    branch !== undefined
-      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/benchmark_noop.ts`
-      : "./benchmark_noop.ts"
-  );
-
-  const { main: runBenchmark } = await import(
-    branch !== undefined
-      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/main.ts`
-      : "./main.ts"
-  );
-
-  const { drawGraph, drawGraphMulti } = await import(
-    branch !== undefined
-      ? `https://raw.githubusercontent.com/windmill-labs/windmill/${branch}/benchmarks/graph.ts`
-      : "./graph.ts"
-  );
-
   async function getConfig(configPath: string): Promise<Config> {
     if (configPath.startsWith("http")) {
       const response = await fetch(configPath);
@@ -78,51 +52,19 @@ async function main({
     for (const benchmark of config.benchmarks) {
       try {
         console.log(
-          "%cRunning benchmark " + benchmark.type,
+          "%cRunning benchmark " + benchmark.kind,
           "font-weight: bold;"
         );
 
-        let result:
-          | {
-              throughput: number;
-            }
-          | undefined;
-        if (benchmark.type === "noop") {
-          result = await runNoopBenchmark({
-            host,
-            email,
-            password,
-            token,
-            workspace,
-            jobs: 1000,
-            batches: 1,
-          });
-        } else {
-          result = await runBenchmark({
-            host,
-            email,
-            password,
-            token,
-            workspace,
-            workers: 1,
-            seconds: benchmark.type === "flow" ? 2 : 5,
-            metrics: "http://localhost:8001/metrics",
-            maximumThroughput: Infinity,
-            zombieTimeout: 90000,
-            histogramBuckets: [],
-            scriptPattern: [
-              "deno",
-              "python",
-              "go",
-              "bash",
-              "dedicated",
-            ].includes(benchmark.type)
-              ? benchmark.type
-              : "deno",
-            useFlows: benchmark.type === "flow",
-            hideProgress: true,
-          });
-        }
+        const result = await runBenchmark({
+          host,
+          email,
+          password,
+          token,
+          workspace,
+          kind: benchmark.kind,
+          jobs: benchmark.jobs,
+        });
 
         if (!result) {
           throw new Error("No result returned");
@@ -132,7 +74,7 @@ async function main({
           ts: Date.now(),
         };
         let data: (typeof stat)[] = [];
-        const jsonFilePath = `${benchmark.type}_benchmark.json`;
+        const jsonFilePath = `${benchmark.kind}_benchmark.json`;
         try {
           const existing = await Deno.readTextFile(jsonFilePath);
           data = JSON.parse(existing);
@@ -145,9 +87,9 @@ async function main({
           data.slice(-10).map((d) => ({ ...d, date: new Date(d.ts) })),
           benchmark.graph_title
         );
-        await Deno.writeTextFile(`${benchmark.type}_benchmark.svg`, svg);
+        await Deno.writeTextFile(`${benchmark.kind}_benchmark.svg`, svg);
       } catch (err) {
-        console.error("Failed to run benchmark", benchmark.type, err);
+        console.error("Failed to run benchmark", benchmark.kind, err);
       }
     }
 
@@ -155,24 +97,26 @@ async function main({
       const data: {
         value: number;
         ts: number;
+        date: Date;
+        kind: string;
       }[] = [];
-      for (const type of extraGraph.types) {
+      for (const kind of extraGraph.kinds) {
         try {
-          const existing = await Deno.readTextFile(`${type}_benchmark.json`);
+          const existing = await Deno.readTextFile(`${kind}_benchmark.json`);
           const existingData = JSON.parse(existing)
-            .map((d) => ({
+            .map((d: { value: number; ts: number }) => ({
               ...d,
               date: new Date(d.ts),
-              type,
+              kind,
             }))
             .slice(-10);
           data.push(...existingData);
         } catch (err) {
-          console.log("Error while loading", type, "benchmark data", err);
+          console.log("Error while loading", kind, "benchmark data", err);
         }
       }
       const svg = drawGraphMulti(data, extraGraph.graph_title);
-      await Deno.writeTextFile(`${extraGraph.types.join("_vs_")}.svg`, svg);
+      await Deno.writeTextFile(`${extraGraph.kinds.join("_vs_")}.svg`, svg);
     }
 
     Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
@@ -189,8 +133,12 @@ await new Command()
   .option("--host <url:string>", "The windmill host to benchmark.", {
     default: "http://127.0.0.1:8000",
   })
-  .option("-e --email <email:string>", "The email to use to login.")
-  .option("-p --password <password:string>", "The password to use to login.")
+  .option("-e --email <email:string>", "The email to use to login.", {
+    default: "admin@windmill.dev",
+  })
+  .option("-p --password <password:string>", "The password to use to login.", {
+    default: "changeme",
+  })
   .env(
     "WM_TOKEN=<token:string>",
     "The token to use when talking to the API server. Preferred over manual login."
@@ -211,10 +159,6 @@ await new Command()
   .option("-c --config-path <config:string>", "The path of the config file", {
     required: true,
   })
-  .option(
-    "--branch <branch:string>",
-    "The branch to use when running remotely."
-  )
   .action(main)
   .command(
     "upgrade",

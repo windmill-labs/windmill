@@ -108,7 +108,7 @@ export function drawGraph(data: DataPoint[], title: string) {
 }
 
 interface DataPointMulti extends DataPoint {
-  type: string;
+  kind: string;
 }
 
 export function drawGraphMulti(data: DataPointMulti[], title: string) {
@@ -192,7 +192,7 @@ export function drawGraphMulti(data: DataPointMulti[], title: string) {
     .text(title);
 
   const sumstat = d3.group(data, function (d: DataPointMulti) {
-    return d.type;
+    return d.kind;
   });
 
   const keys = Array.from(sumstat.keys());
@@ -288,22 +288,22 @@ if (import.meta.main) {
       {
         value: 10,
         date: new Date(86400000),
-        type: "test",
+        kind: "test",
       },
       {
         value: 12,
         date: new Date(86400000 * 2),
-        type: "test",
+        kind: "test",
       },
       {
         value: 8,
         date: new Date(86400000),
-        type: "test2",
+        kind: "test2",
       },
       {
         value: 9,
         date: new Date(86400000 * 2),
-        type: "test2",
+        kind: "test2",
       },
     ],
     "test"

@@ -24,6 +24,7 @@ use axum::{
 };
 use base64::Engine;
 use bytes::Bytes;
+use chrono::Utc;
 use hmac::Mac;
 use hyper::{header::CONTENT_TYPE, http, HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -41,7 +42,7 @@ use windmill_common::{
     flows::FlowValue,
     jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{Script, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
@@ -105,7 +106,7 @@ pub fn workspaced_service() -> Router {
                 .layer(cors.clone()),
         )
         .route("/run/preview", post(run_preview_job))
-        .route("/add_noop_jobs/:n", post(add_noop_jobs))
+        .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
@@ -2357,53 +2358,144 @@ async fn run_preview_job(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[derive(Deserialize)]
+struct BatchInfo {
+    kind: String,
+    flow_value: Option<FlowValue>,
+    path: Option<String>,
+    dedicated_worker: Option<bool>,
+}
+
+// async fn batch_loop() -> () {
+//     #[tracing::instrument(level = "trace", skip_all)]
+// async fn add_noop_jobs(
+//     authed: ApiAuthed,
+//     Extension(db): Extension<DB>,
+//     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+//     Path((w_id, n)): Path<(String, i32)>,
+// ) -> error::JsonResult<Vec<String>> {
+//     require_super_admin(&db, &authed.email).await?;
+
+//     Ok(Json(uuids))
+// }
+
 #[tracing::instrument(level = "trace", skip_all)]
-async fn add_noop_jobs(
+async fn add_batch_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, n)): Path<(String, i32)>,
-) -> error::JsonResult<Vec<String>> {
+    Json(batch_info): Json<BatchInfo>,
+) -> error::JsonResult<Vec<Uuid>> {
     require_super_admin(&db, &authed.email).await?;
-    let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
-    let mut uuids: Vec<String> = Vec::new();
-    for _ in 0..n {
-        let (uuid, ntx) = push(
-            &db,
-            tx,
-            &w_id,
-            JobPayload::Noop,
-            serde_json::Map::new(),
-            &authed.username,
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            None,
-            None,
-            None,
-        )
-        .await?;
-        tx = PushIsolationLevel::Transaction(ntx);
-        uuids.push(uuid.to_string());
-    }
-    match tx {
-        PushIsolationLevel::Transaction(tx) => {
-            tx.commit().await?;
+    let (hash, path, job_kind, language, dedicated_worker) = match batch_info.kind.as_str() {
+        "script" => {
+            let script = sqlx::query_as::<_, Script>(
+                "select * from script where path = $1 and workspace_id = $2",
+            )
+            .bind(&batch_info.path)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!("Script not found: {:?}", batch_info.path))
+            })?;
+            (
+                Some(script.hash),
+                batch_info.path,
+                JobKind::Script,
+                Some(script.language),
+                batch_info.dedicated_worker,
+            )
         }
-        _ => (),
-    }
+        "flow" => {
+            let mut tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+
+            let mut uuids: Vec<Uuid> = Vec::new();
+            if batch_info.flow_value.is_none() {
+                return Err(error::Error::BadRequest(
+                    "Flow value is required for batch flow".to_string(),
+                ));
+            }
+            for _ in 0..n {
+                let (uuid, ntx) = push(
+                    &db,
+                    tx,
+                    &w_id,
+                    JobPayload::RawFlow {
+                        value: batch_info.flow_value.clone().unwrap(),
+                        path: None,
+                    },
+                    serde_json::Map::new(),
+                    &authed.username,
+                    &authed.email,
+                    username_to_permissioned_as(&authed.username),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    true,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                tx = PushIsolationLevel::Transaction(ntx);
+                uuids.push(uuid);
+            }
+            match tx {
+                PushIsolationLevel::Transaction(tx) => {
+                    tx.commit().await?;
+                }
+                _ => (),
+            }
+            return Ok(Json(uuids));
+        }
+        "noop" => (None, None, JobKind::Noop, None, None),
+        _ => {
+            return Err(error::Error::BadRequest(format!(
+                "Invalid batch kind: {}",
+                batch_info.kind
+            )))
+        }
+    };
+
+    let language = language.unwrap_or(ScriptLang::Deno);
+
+    let tag = if let Some(dedicated_worker) = dedicated_worker {
+        if dedicated_worker && path.is_some() {
+            format!("{}:{}", w_id, path.clone().unwrap())
+        } else {
+            format!("{}", language.as_str())
+        }
+    } else {
+        format!("{}", language.as_str())
+    };
+
+    let uuids = sqlx::query_scalar!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11)) RETURNING id",
+            hash.map(|h| h.0),
+            path,
+            job_kind.clone() as JobKind,
+            language as ScriptLang,
+            tag,
+            authed.username,
+            authed.email,
+            username_to_permissioned_as(&authed.username),
+            Utc::now(),
+            w_id,
+            n
+        )
+        .fetch_all(&db)
+        .await?;
 
     Ok(Json(uuids))
 }
+
 async fn run_preview_flow_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,

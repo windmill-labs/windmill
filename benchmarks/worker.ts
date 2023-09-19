@@ -1,10 +1,21 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="deno.worker" />
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.167.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
-import { Job } from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
+import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 import { Action, evaluate } from "./action.ts";
+import { getFlowPayload } from "./lib.ts";
+
+async function getQueueCount() {
+  return (
+    await (
+      await fetch(
+        config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+        { headers: { ["Authorization"]: "Bearer " + config.token } }
+      )
+    ).json()
+  ).database_length;
+}
 
 const promise = new Promise<{
   workspace_id: string;
@@ -46,11 +57,11 @@ let cont = true;
 let total_spawned = 0;
 
 const start_time: number = Date.now();
-let complete_timeout = Infinity;
+// let complete_timeout = Infinity;
 
 self.onmessage = (evt) => {
   cont = false;
-  complete_timeout = evt.data;
+  // complete_timeout = evt.data;
 };
 
 const updateStatusInterval = setInterval(() => {
@@ -85,141 +96,8 @@ while (cont) {
       await evaluate(config.custom);
       continue;
     } else if (config.useFlows) {
-      let payload: api.FlowPreview;
-      if (config.flowPattern == "branchone") {
-        payload = {
-          path: "branchone",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
-                },
-              },
-              {
-                id: "b",
-                value: {
-                  type: "branchone",
-                  branches: [],
-                  default: [
-                    {
-                      id: "c",
-                      value: {
-                        input_transforms: {
-                          x: {
-                            type: "javascript",
-                            expr: "results.a",
-                          },
-                        },
-                        language: api.RawScript.language.DENO,
-                        type: "rawscript",
-                        content: "export function main(x: string){ return x; }",
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        };
-      } else if (config.flowPattern == "branchallparrallel") {
-        payload = {
-          path: "branchall",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
-                },
-              },
-              {
-                id: "b",
-                value: {
-                  type: "branchall",
-                  parallel: true,
-                  branches: [
-                    {
-                      modules: [
-                        {
-                          id: "c",
-                          value: {
-                            input_transforms: {
-                              x: {
-                                type: "javascript",
-                                expr: "results.a",
-                              },
-                            },
-                            language: api.RawScript.language.DENO,
-                            type: "rawscript",
-                            content:
-                              "export function main(x: string){ return x; }",
-                          },
-                        },
-                      ],
-                    },
-                    {
-                      modules: [
-                        {
-                          id: "d",
-                          value: {
-                            input_transforms: {
-                              x: {
-                                type: "javascript",
-                                expr: "results.a",
-                              },
-                            },
-                            language: api.RawScript.language.DENO,
-                            type: "rawscript",
-                            content:
-                              "export function main(x: string){ return x; }",
-                          },
-                        },
-                      ],
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        };
-      } else {
-        payload = {
-          path: "2steps",
-          args: {},
-          value: {
-            modules: [
-              {
-                id: "a",
-                value: {
-                  input_transforms: {},
-                  language: api.RawScript.language.DENO,
-                  type: "rawscript",
-                  content:
-                    'export function main(){ return Deno.env.get("WM_FLOW_JOB_ID"); }',
-                },
-              },
-              {
-                id: "b",
-                value: {
-                  type: "identity",
-                },
-              },
-            ],
-          },
-        };
-      }
+      const payload = getFlowPayload(config.flowPattern);
+
       uuid = await windmill.JobService.runFlowPreview({
         workspace: config.workspace_id,
         requestBody: payload,
@@ -261,103 +139,97 @@ while (cont) {
 
 clearInterval(updateStatusInterval);
 
-const end_time = Date.now() + complete_timeout;
+// const end_time = Date.now() + complete_timeout;
 
-let incorrect_results = 0;
-const enc = (s: string) => new TextEncoder().encode(s);
+// let incorrect_results = 0;
+// const enc = (s: string) => new TextEncoder().encode(s);
 
-async function getQueueCount() {
-  return (
-    await (
-      await fetch(
-        config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-        { headers: { ["Authorization"]: "Bearer " + config.token } }
-      )
-    ).json()
-  ).database_length;
-}
+// let last_queue_length = await getQueueCount();
+// console.log(`waiting for ${last_queue_length} jobs to complete...`);
 
-let last_queue_length = await getQueueCount();
-console.log(`waiting for ${last_queue_length} jobs to complete...`);
+// while (
+//   outstanding.length > 0 &&
+//   last_queue_length > 0 &&
+//   Date.now() < end_time
+// ) {
+//   try {
+//     if (!config.hideProgress) {
+//       await Deno.stdout.write(
+//         enc(
+//           "\rwaiting for jobs to complete: outstanding " +
+//             outstanding.length +
+//             " - queue" +
+//             last_queue_length +
+//             "\n"
+//         )
+//       );
+//     }
+//     last_queue_length = await getQueueCount();
 
-while (
-  outstanding.length > 0 &&
-  last_queue_length > 0 &&
-  Date.now() < end_time
-) {
-  try {
-    if (!config.hideProgress) {
-      await Deno.stdout.write(
-        enc(
-          "\rwaiting for jobs to complete: outstanding " +
-            outstanding.length +
-            " - queue" +
-            last_queue_length +
-            "\n"
-        )
-      );
-    }
-    last_queue_length = await getQueueCount();
+//     const uuid = outstanding.shift()!;
 
-    const uuid = outstanding.shift()!;
+//     let r: Job;
+//     try {
+//       r = await windmill.JobService.getJob({
+//         workspace: config.workspace_id,
+//         id: uuid,
+//       });
+//     } catch (e) {
+//       console.log("job not found: " + uuid + " " + e.message);
+//       continue;
+//     }
+//     if (r.type == "QueuedJob") {
+//       outstanding.push(uuid);
 
-    let r: Job;
-    try {
-      r = await windmill.JobService.getJob({
-        workspace: config.workspace_id,
-        id: uuid,
-      });
-    } catch (e) {
-      console.log("job not found: " + uuid + " " + e.message);
-      continue;
-    }
-    if (r.type == "QueuedJob") {
-      outstanding.push(uuid);
+//       if (!config.hideProgress) {
+//         await Deno.stdout.write(
+//           enc(`uuid: ${uuid}, queue length: ${last_queue_length}\r`)
+//         );
+//       }
+//     } else {
+//       r = r as api.CompletedJob;
+//       try {
+//         if (
+//           ![
+//             "httpversion",
+//             "identity",
+//             "httpslow",
+//             "noop",
+//             "dedicated",
+//           ].includes(config.scriptPattern) &&
+//           r.result != uuid
+//         ) {
+//           console.log(
+//             "job did not return correct UUID: " +
+//               r.result +
+//               " != " +
+//               uuid +
+//               "job: \n" +
+//               JSON.stringify(r, null, 2)
+//           );
+//           incorrect_results++;
+//         } else {
+//           // console.log(r.result);
+//         }
+//       } catch (e) {
+//         console.log("error during wait: ", e);
+//         outstanding.push(uuid);
+//       }
+//     }
+//   } catch (e) {
+//     console.log("error while waiting for outstanding jobs, sleeing: ", e);
+//     await sleep(0.5);
+//   }
+// }
 
-      if (!config.hideProgress) {
-        await Deno.stdout.write(
-          enc(`uuid: ${uuid}, queue length: ${last_queue_length}\r`)
-        );
-      }
-    } else {
-      r = r as api.CompletedJob;
-      try {
-        if (
-          ![
-            "httpversion",
-            "identity",
-            "httpslow",
-            "noop",
-            "dedicated",
-          ].includes(config.scriptPattern) &&
-          r.result != uuid
-        ) {
-          console.log(
-            "job did not return correct UUID: " +
-              r.result +
-              " != " +
-              uuid +
-              "job: \n" +
-              JSON.stringify(r, null, 2)
-          );
-          incorrect_results++;
-        } else {
-          // console.log(r.result);
-        }
-      } catch (e) {
-        console.log("error during wait: ", e);
-        outstanding.push(uuid);
-      }
-    }
-  } catch (e) {
-    console.log("error while waiting for outstanding jobs, sleeing: ", e);
-    await sleep(0.5);
-  }
-}
+// self.postMessage({
+//   type: "zombie_jobs",
+//   zombie_jobs: outstanding.length,
+//   incorrect_results,
+//   jobs_sent: total_spawned,
+// });
 
 self.postMessage({
-  type: "zombie_jobs",
-  zombie_jobs: outstanding.length,
-  incorrect_results,
+  type: "done",
   jobs_sent: total_spawned,
 });

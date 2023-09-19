@@ -4,10 +4,10 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 import { Action } from "./action.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
+import { VERSION, createBenchScript } from "./lib.ts";
 export {
   DenoLandProvider,
   UpgradeCommand,
@@ -20,39 +20,6 @@ async function login(email: string, password: string): Promise<string> {
       password: password,
     },
   });
-}
-
-export const VERSION = "v1.174.0";
-
-async function waitForDeployed(workspace: string, hash: string) {
-  const maxTries = 20;
-  for (let i = 0; i < maxTries; i++) {
-    const resp = await windmill.ScriptService.getScriptDeploymentStatus({
-      workspace,
-      hash,
-    });
-    if (resp.lock !== null) {
-      return;
-    }
-    await sleep(0.5);
-  }
-  throw new Error("Script did not deploy in time");
-}
-
-async function waitForDedicatedWorker(workspace: string, path: string) {
-  const query = windmill.JobService.runWaitResultScriptByPath({
-    workspace,
-    path,
-    requestBody: {
-      args: {},
-    },
-  });
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => {
-      reject("Timeout");
-    }, 15000);
-  });
-  await Promise.race([query, timeout]);
 }
 
 export async function main({
@@ -77,7 +44,6 @@ export async function main({
   continous,
   max,
   custom,
-  hideProgress,
 }: {
   host: string;
   workers: number;
@@ -100,7 +66,6 @@ export async function main({
   continous?: boolean;
   max?: number;
   custom?: string;
-  hideProgress?: boolean;
 }) {
   windmill.setClient("", host);
   const versionResp = await fetch(`${host}/api/version`);
@@ -161,7 +126,6 @@ export async function main({
         scriptPattern,
         zombieTimeout,
         continous,
-        hideProgress,
       },
       null,
       4
@@ -206,7 +170,6 @@ export async function main({
     scriptPattern,
     continous,
     custom: custom_content,
-    hideProgress,
   };
 
   if (
@@ -216,60 +179,7 @@ export async function main({
         scriptPattern
       ))
   ) {
-    const path = `f/benchmarks/${scriptPattern || "deno"}`;
-    const exists = await windmill.ScriptService.existsScriptByPath({
-      workspace,
-      path,
-    });
-
-    if (exists) {
-      await windmill.ScriptService.deleteScriptByPath({
-        workspace,
-        path,
-      });
-    }
-
-    let scriptContent: string;
-    let language: string;
-    if (scriptPattern === "python") {
-      scriptContent =
-        'import os\n\ndef main():\n    return os.environ.get("WM_JOB_ID")';
-      language = "python3";
-    } else if (scriptPattern === "go") {
-      scriptContent =
-        'package inner\nimport "os"\nfunc main() (string, error) { return os.Getenv("WM_JOB_ID"), nil }';
-      language = "go";
-    } else if (scriptPattern === "bash") {
-      scriptContent = "echo $WM_JOB_ID";
-      language = "bash";
-    } else if (scriptPattern === "dedicated" || scriptPattern === "bun") {
-      scriptContent = 'export function main(){ return Bun.env["WM_JOB_ID"]; }';
-      language = "bun";
-    } else {
-      scriptContent =
-        'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
-      language = "deno";
-    }
-
-    const hash = await windmill.ScriptService.createScript({
-      workspace,
-      requestBody: {
-        path,
-        content: scriptContent,
-        summary: (scriptPattern || "deno") + " benchmark",
-        description: "",
-        language: language as api.NewScript.language,
-        dedicated_worker: scriptPattern === "dedicated",
-      },
-    });
-
-    await waitForDeployed(workspace, hash);
-
-    console.log("Created benchmark script at path", path);
-
-    if (scriptPattern === "dedicated") {
-      await waitForDedicatedWorker(workspace, path);
-    }
+    await createBenchScript(scriptPattern || "deno", workspace);
   }
 
   let workers: Worker[] = new Array(num_workers);
@@ -354,13 +264,27 @@ export async function main({
   );
 
   const shutdown_start = Date.now();
-  let zombie_jobs = 0;
-  let incorrect_results = 0;
+  // let zombie_jobs = 0;
+  // let incorrect_results = 0;
+  // workers.forEach((worker, i) => {
+  //   const l = (evt: MessageEvent<any>) => {
+  //     if (evt.data.type === "zombie_jobs") {
+  //       zombie_jobs += evt.data.zombie_jobs;
+  //       incorrect_results += evt.data.incorrect_results;
+  //       worker.removeEventListener("message", l);
+  //       workers = workers.filter((w) => w != worker);
+  //       jobsSent[i] = evt.data.jobs_sent;
+  //       worker.terminate();
+  //     }
+  //   };
+  //   worker.addEventListener("message", l);
+  //   worker.postMessage(
+  //     Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
+  //   );
+  // });
   workers.forEach((worker, i) => {
     const l = (evt: MessageEvent<any>) => {
-      if (evt.data.type === "zombie_jobs") {
-        zombie_jobs += evt.data.zombie_jobs;
-        incorrect_results += evt.data.incorrect_results;
+      if (evt.data.type === "done") {
         worker.removeEventListener("message", l);
         workers = workers.filter((w) => w != worker);
         jobsSent[i] = evt.data.jobs_sent;
@@ -368,15 +292,32 @@ export async function main({
       }
     };
     worker.addEventListener("message", l);
-    worker.postMessage(
-      Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
-    );
+    worker.postMessage("done");
   });
 
   console.log("waiting for shutdown\n");
   while (workers.length > 0) {
     await sleep(0.1);
   }
+
+  let queue_length = await getQueueCount();
+  const updateQueue = setInterval(async () => {
+    queue_length = (
+      await (
+        await fetch(
+          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+    await Deno.stdout.write(enc(`queue length: ${queue_length}\r`));
+  }, 100);
+  while (queue_length > 0) {
+    await sleep(0.1);
+  }
+
+  clearInterval(updateQueue);
+
   sum = jobsSent.reduce((a, b) => a + b, 0);
 
   const tts = (Date.now() - shutdown_start) / 1000;
@@ -386,8 +327,8 @@ export async function main({
   console.log("time (s + tts):", time);
   console.log("throughput /s (jobs/time):", sum / time);
 
-  console.log("zombie jobs: ", zombie_jobs);
-  console.log("incorrect results: ", incorrect_results);
+  // console.log("zombie jobs: ", zombie_jobs);
+  // console.log("incorrect results: ", incorrect_results);
   console.log(
     "queue length:",
     (

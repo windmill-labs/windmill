@@ -62,9 +62,6 @@ use crate::bun_executor::start_worker;
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
-#[cfg(feature = "benchmark")]
-use windmill_queue::IDLE_WORKERS;
-
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, handle_bun_job},
@@ -818,78 +815,67 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
-            let _wait_signal = false;
-
             #[cfg(feature = "benchmark")]
-            let _wait_signal = IDLE_WORKERS.load(Ordering::Relaxed);
+            if !started {
+                started = true
+            }
 
-            if _wait_signal {
-                // tracing::warn!("Worker is marked as idle. Not pulling any job for now");
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
-                Ok(None)
-            } else {
-                #[cfg(feature = "benchmark")]
-                if !started {
-                    started = true
-                }
-
-                tokio::select! {
-                    biased;
-                    _ = killpill_rx.recv() => {
-                        #[cfg(feature = "enterprise")]
-                        if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
-                            if !copy_cache_from_bucket_handle.is_finished() {
-                                copy_cache_from_bucket_handle.abort();
-                            }
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    #[cfg(feature = "enterprise")]
+                    if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                        if !copy_cache_from_bucket_handle.is_finished() {
+                            copy_cache_from_bucket_handle.abort();
                         }
-                        #[cfg(feature = "enterprise")]
-                        for handle in &handles {
-                            if !handle.is_finished() {
-                                handle.abort();
-                            }
+                    }
+                    #[cfg(feature = "enterprise")]
+                    for handle in &handles {
+                        if !handle.is_finished() {
+                            handle.abort();
                         }
-                        println!("received killpill for worker {}", i_worker);
-                        break
-                    },
-                    _ = copy_to_bucket_rx.recv() => {
-                        tracing::debug!("can_pull lock start");
-                        let _lock = CAN_PULL.write().await;
-                        // if num_workers > 1 {
-                        //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
-                        // }
-                        //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
-                        #[cfg(feature = "enterprise")]
-                        if let Err(e) = copy_tmp_cache_to_cache().await {
-                            tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
-                        }
-                        tracing::debug!("can_pull lock end");
-                        Ok(None)
-                    },
-                    Some(job_id) = same_worker_rx.recv() => {
-                        sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                        .bind(job_id)
-                        .fetch_optional(db)
-                        .await
-                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
-                    },
-                    (job, timer) = {
-                        let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None };
-                        let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
-                            last_checked_suspended = Instant::now();
-                            true
-                        } else { false };
-                        pull(&db, rsmq.clone(), suspend_first).map(|x| (x, timer))
-                    } => {
-                        add_time!(timing, loop_start, "post pull");
+                    }
+                    println!("received killpill for worker {}", i_worker);
+                    break
+                },
+                _ = copy_to_bucket_rx.recv() => {
+                    tracing::debug!("can_pull lock start");
+                    let _lock = CAN_PULL.write().await;
+                    // if num_workers > 1 {
+                    //     create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                    // }
+                    //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
+                    #[cfg(feature = "enterprise")]
+                    if let Err(e) = copy_tmp_cache_to_cache().await {
+                        tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
+                    }
+                    tracing::debug!("can_pull lock end");
+                    Ok(None)
+                },
+                Some(job_id) = same_worker_rx.recv() => {
+                    sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                    .bind(job_id)
+                    .fetch_optional(db)
+                    .await
+                    .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
+                },
+                (job, timer) = {
+                    let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None };
+                    let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
+                        last_checked_suspended = Instant::now();
+                        true
+                    } else { false };
+                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, timer))
+                } => {
+                    add_time!(timing, loop_start, "post pull");
 
-                        timer.map(|timer| {
-                            let duration_pull_s = timer.stop_and_record();
-                            worker_pull_duration_counter.inc_by(duration_pull_s);
-                        });
-                        job
+                    timer.map(|timer| {
+                        let duration_pull_s = timer.stop_and_record();
+                        worker_pull_duration_counter.inc_by(duration_pull_s);
+                    });
+                    job
 
-                    },
-                }
+                },
             }
         };
 

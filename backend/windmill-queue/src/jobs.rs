@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, sync::atomic::AtomicBool, vec};
+use std::{collections::HashMap, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -70,10 +70,6 @@ lazy_static::lazy_static! {
     )
     .unwrap();
 
-    // When compiled in 'benchmark' mode, this flags is exposed via the /workers/toggle endpoint
-    // and make it possible to disable to current active workers (such that they don't pull any)
-    // jobs from the queue
-    pub static ref IDLE_WORKERS: AtomicBool = AtomicBool::new(false);
 }
 
 #[cfg(feature = "enterprise")]
