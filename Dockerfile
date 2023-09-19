@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl nodejs npm
+    curl nodejs
 
 RUN rustup component add rustfmt
 

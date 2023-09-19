@@ -1,11 +1,14 @@
 <script lang="ts">
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { onMount } from 'svelte'
 	import type { Setting } from './settings'
 	import { Button } from '$lib/components/common'
-	import { SettingService } from '$lib/gen'
-
-	onMount(() => {})
+	import { ConfigService, SettingService } from '$lib/gen'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -13,19 +16,22 @@
 				label: 'Base Url',
 				key: 'base_url',
 				fieldType: 'text',
-				placeholder: 'https://windmill.com'
+				placeholder: 'https://windmill.com',
+				storage: 'setting'
 			},
 			{
-				label: 'Request Size Limit',
+				label: 'Request Size Limit In MB',
 				key: 'request_size_limit_mb',
 				fieldType: 'number',
-				placeholder: '50'
+				placeholder: '50',
+				storage: 'setting'
 			},
 			{
-				label: 'Retention Period',
-				key: 'retention_period_days',
-				fieldType: 'number',
-				placeholder: '6 0'
+				label: 'Retention Period in secs',
+				key: 'retention_period_secs',
+				fieldType: 'seconds',
+				placeholder: '60'
+				global_setting: true
 			}
 		],
 		SMTP: [
@@ -45,12 +51,12 @@
 				label: 'Username',
 				key: 'smtp_username',
 				fieldType: 'text',
-				placeholder: 'smtp.gmail.com'
+				placeholder: 'ruben@windmill.dev'
 			},
 			{
 				label: 'Password',
 				key: 'smtp_password',
-				fieldType: 'text'
+				fieldType: 'password'
 			},
 			{
 				label: 'Implicit TLS',
@@ -64,6 +70,12 @@
 
 	loadSettings()
 	async function loadSettings() {
+		let serverConfig = {}
+		try {
+			serverConfig = await ConfigService.getConfig({ name: 'server' })
+		} catch (e) {
+			console.log("Sever config not found, assuming it's first setup")
+		}
 		values = Object.fromEntries(
 			(
 				await Promise.all(
@@ -77,6 +89,10 @@
 			).flat()
 		)
 	}
+
+	let oauths: Record<string, any> = {}
+
+	let resourceName = ''
 </script>
 
 <CenteredModal title="Instance Settings">
@@ -85,14 +101,17 @@
 			>&leftarrow; Back to workspaces</Button
 		>
 	</div>
-	<div class="flex-col flex gap-4">
+	<div class="flex-col flex gap-10">
 		{#each Object.keys(settings) as category}
-			<div class="text-primary font-semibold text-lg">{category}</div>
-			<div class="flex-col flex gap-4">
-				{#each settings[category] as setting}
-					<label class="block pb-2">
-						<span class="text-primary font-semibold"> {setting.label} </span>
-						{#if setting.fieldType == 'text' || setting.fieldType == 'number'}
+			<div>
+				<h2 class="pb-2">{category}</h2>
+				<div class="flex-col flex gap-1 pb-4">
+					{#each settings[category] as setting}
+						<label class="block pb-2">
+							<span class="text-primary font-semibold text-sm">{setting.label}</span>
+							{#if setting.tooltip}
+								<Tooltip>{setting.tooltip}</Tooltip>
+							{/if}
 							{#if values}
 								{#if setting.fieldType == 'text'}
 									<input
@@ -112,14 +131,79 @@
 										placeholder={setting.placeholder}
 										bind:value={values[setting.key]}
 									/>
+								{:else if setting.fieldType == 'boolean'}
+									<div>
+										<Toggle bind:checked={values[setting.key]} />
+									</div>
+								{:else if setting.fieldType == 'seconds'}
+									<div>
+										<SecondsInput bind:seconds={values[setting.key]} />
+									</div>
 								{/if}
 							{:else}
 								<input disabled placeholder="Loading..." />
 							{/if}
-						{/if}
-					</label>
-				{/each}
+						</label>
+					{/each}
+				</div>
 			</div>
 		{/each}
+		<div>
+			<h2 class="pb-4">OAuth</h2>
+
+			<h4 class="pb-4">Logins</h4>
+			<div class="text-xs italic text-tertiary pb-4">
+				Without EE, the number of SSO users is limited to 50. SCIM/SAML is available on EE</div
+			>
+			<div class="flex flex-col gap-2 pb-4">
+				<OAuthSetting name="Google" bind:value={oauths['google']} />
+				<OAuthSetting name="Microsoft" bind:value={oauths['microsoft']} />
+				<OAuthSetting name="Github" bind:value={oauths['github']} />
+				<OAuthSetting name="Gitlab" bind:value={oauths['gitlab']} />
+				<OAuthSetting name="Jumpcloud" bind:value={oauths['jumpcloud']} />
+				<OAuthSetting name="Okta" bind:value={oauths['okta']} />
+				<OAuthSetting name="Keycloak" bind:value={oauths['keycloak']} />
+			</div>
+			<h4 class="pb-4">Resources</h4>
+			{#each Object.keys(oauths) as k}
+				{#if !['google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak'].includes(k)}
+					{#if oauths[k]}
+						<div class="flex flex-col gap-2 pb-4">
+							<label class="text-sm font-medium text-gray-700">{k}</label>
+							<label class="block pb-2">
+								<span class="text-primary font-semibold text-sm">Client Id</span>
+								<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
+							</label>
+							<label class="block pb-2">
+								<span class="text-primary font-semibold text-sm">Client Secret</span>
+								<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
+							</label>
+						</div>
+					{/if}
+				{/if}
+			{/each}
+			<div class="flex gap-2">
+				<input type="text" placeholder="slack" bind:value={resourceName} />
+				<Button
+					variant="border"
+					color="blue"
+					hover="yo"
+					size="sm"
+					endIcon={{ icon: faPlus }}
+					disabled={resourceName == ''}
+					on:click={() => {
+						oauths[resourceName] = { id: '', secret: '' }
+						resourceName = ''
+					}}
+				>
+					Add OAuth client for {resourceName}
+				</Button>
+			</div>
+		</div>
 	</div>
+	<div class="py-4" />
+	<pre class="text-xs"
+		>{JSON.stringify({ oauths, values }, null, 2)}
+	</pre>
+	<Button on:click={() => sendUserToast('Settings updated')}>Save</Button>
 </CenteredModal>

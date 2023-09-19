@@ -120,7 +120,10 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
-pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
+pub fn build_oauth_clients(
+    base_url: &str,
+    oauths_from_config: Option<HashMap<String, OAuthClient>>,
+) -> anyhow::Result<AllClients> {
     let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
         "../../oauth_connect.json"
     ))?;
@@ -128,26 +131,36 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         "../../oauth_login.json"
     ))?;
 
-    let path = "./oauth.json";
-    let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
-        str::from_utf8(
-            &base64::engine::general_purpose::STANDARD
-                .decode(e)
-                .map_err(to_anyhow)?,
-        )?
-        .to_string()
-    } else if std::path::Path::new(path).exists() {
-        fs::read_to_string(path).map_err(to_anyhow)?
+    let oauths = if let Some(oauths) = oauths_from_config {
+        oauths
     } else {
-        tracing::warn!("oauth.json not found, no OAuth clients loaded");
-        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
-    };
+        let path = "./oauth.json";
+        let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
+            str::from_utf8(
+                &base64::engine::general_purpose::STANDARD
+                    .decode(e)
+                    .map_err(to_anyhow)?,
+            )?
+            .to_string()
+        } else if std::path::Path::new(path).exists() {
+            fs::read_to_string(path).map_err(to_anyhow)?
+        } else {
+            tracing::warn!("oauth.json not found, no OAuth clients loaded");
+            return Ok(AllClients {
+                logins: HashMap::new(),
+                connects: HashMap::new(),
+                slack: None,
+            });
+        };
 
-    if content.is_empty() {
-        tracing::warn!("oauth.json is empty, no OAuth clients loaded");
-        return Ok(AllClients { logins: HashMap::new(), connects: HashMap::new(), slack: None });
-    };
-    let oauths: HashMap<String, OAuthClient> =
+        if content.is_empty() {
+            tracing::warn!("oauth.json is empty, no OAuth clients loaded");
+            return Ok(AllClients {
+                logins: HashMap::new(),
+                connects: HashMap::new(),
+                slack: None,
+            });
+        };
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,
             Err(e) => {
@@ -156,7 +169,8 @@ pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             }
         }
         .into_iter()
-        .collect();
+        .collect()
+    };
 
     tracing::info!("OAuth loaded clients: {}", oauths.keys().join(", "));
 

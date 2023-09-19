@@ -1,15 +1,20 @@
+use std::collections::HashMap;
+
 use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use tokio::{join, sync::mpsc};
 use uuid::Uuid;
-use windmill_api::{IS_SECURE, OAUTH_CLIENTS};
+use windmill_api::{
+    oauth2::{build_oauth_clients, OAuthClient},
+    IS_SECURE, OAUTH_CLIENTS,
+};
 use windmill_common::{
     error,
-    global_settings::BASE_URL_SETTING,
+    global_settings::{BASE_URL_SETTING, OAUTH_SETTING},
     jobs::{JobKind, QueuedJob},
     server::load_server_config,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
-    DB, METRICS_ENABLED,
+    BASE_URL, DB, METRICS_ENABLED,
 };
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
@@ -45,24 +50,12 @@ lazy_static::lazy_static! {
     ).unwrap();
 }
 
-pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+pub async fn initial_load(
     db: &Pool<Postgres>,
     tx: tokio::sync::broadcast::Sender<()>,
-    base_internal_url: &str,
-    rsmq: Option<R>,
     worker_mode: bool,
     server_mode: bool,
 ) {
-    let zombie_jobs_f = async {
-        if server_mode {
-            handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
-        }
-    };
-    let expired_items_f = async {
-        if server_mode {
-            windmill_api::delete_expired_items(&db).await;
-        }
-    };
     let reload_worker_config_f = async {
         if worker_mode {
             reload_worker_config(&db, tx).await;
@@ -76,24 +69,50 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     };
 
+    let reload_base_url_f = async {
+        if server_mode {
+            if let Err(e) = reload_base_url_setting(db).await {
+                tracing::error!("Error reloading custom tags: {:?}", e)
+            }
+        }
+    };
+
     let reload_server_config_f = async {
         if server_mode {
             reload_server_config(&db).await;
         }
     };
+    join!(
+        reload_worker_config_f,
+        reload_server_config_f,
+        reload_custom_tags_f,
+        reload_base_url_f
+    );
+}
+
+pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
+    db: &Pool<Postgres>,
+    base_internal_url: &str,
+    rsmq: Option<R>,
+    server_mode: bool,
+) {
+    let zombie_jobs_f = async {
+        if server_mode {
+            handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
+        }
+    };
+    let expired_items_f = async {
+        if server_mode {
+            windmill_api::delete_expired_items(&db).await;
+        }
+    };
+
     let expose_queue_metrics_f = async {
         if *METRICS_ENABLED && server_mode {
             expose_queue_metrics(&db).await;
         }
     };
-    join!(
-        expired_items_f,
-        zombie_jobs_f,
-        reload_worker_config_f,
-        reload_server_config_f,
-        reload_custom_tags_f,
-        expose_queue_metrics_f
-    );
+    join!(expired_items_f, zombie_jobs_f, expose_queue_metrics_f);
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
@@ -150,15 +169,15 @@ pub async fn reload_worker_config(db: &DB, tx: tokio::sync::broadcast::Sender<()
     }
 }
 
-async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
+pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+    let q_base_url = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
         BASE_URL_SETTING
     )
     .fetch_optional(db)
     .await?;
 
-    let base_url = if let Some(q) = q {
+    let base_url = if let Some(q) = q_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
             v
         } else {
@@ -166,19 +185,46 @@ async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
                 "Could not parse base_url setting as a string, found: {:#?}",
                 &q.value
             );
-            "http://localhost".to_string()
+            std::env::var("BASE_URL")
+                .ok()
+                .unwrap_or_else(|| "http://localhost".to_string())
         }
     } else {
-        "http://localhost".to_string()
+        std::env::var("BASE_URL")
+            .ok()
+            .unwrap_or_else(|| "http://localhost".to_string())
     };
 
-    {
-        let l = BASE_URL.read().await;
-        if l.clone() == base_url {
-            return Ok(());
+    let q_oauth = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        OAUTH_SETTING
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let oauths = if let Some(q) = q_oauth {
+        if let Ok(v) =
+            serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.value.clone())
+        {
+            v
         } else {
-            tracing::info!("Base url setting changed, updating");
+            tracing::error!(
+                "Could not parse oauth setting as a json, found: {:#?}",
+                &q.value
+            );
+            None
         }
+    } else {
+        None
+    };
+
+    let is_secure = base_url.starts_with("https://");
+
+    {
+        let mut l = OAUTH_CLIENTS.write().await;
+        *l = build_oauth_clients(&base_url, oauths)
+        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
+        .unwrap();
     }
 
     {
@@ -188,14 +234,7 @@ async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 
     {
         let mut l = IS_SECURE.write().await;
-        *l = base_url.starts_with("https://")
-    }
-
-    {
-        let mut l = OAUTH_CLIENTS.write().await;
-        *l = build_oauth_clients(&base_url)
-        .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
-        .unwrap();
+        *l = is_secure;
     }
 
     Ok(())

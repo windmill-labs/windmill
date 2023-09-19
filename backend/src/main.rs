@@ -9,7 +9,7 @@
 use gethostname::gethostname;
 use git_version::git_version;
 use rand::Rng;
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
@@ -19,8 +19,13 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
-use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS};
-use windmill_common::{global_settings::ENV_SETTINGS, utils::rd_string, METRICS_ADDR};
+use windmill_api::LICENSE_KEY;
+use windmill_common::{
+    global_settings::{BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING},
+    utils::rd_string,
+    worker::{reload_custom_tags_setting, WORKER_GROUP},
+    METRICS_ADDR,
+};
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
@@ -28,7 +33,9 @@ use windmill_worker::{
     PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
 
-use crate::monitor::monitor_db;
+use crate::monitor::{
+    initial_load, monitor_db, reload_base_url_setting, reload_server_config, reload_worker_config,
+};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;
@@ -128,8 +135,6 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
-    tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
-
     let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode {
@@ -144,15 +149,9 @@ Windmill Community Edition {GIT_VERSION}
         // since it's only on server mode, the port is statically defined
         let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
-        monitor_db(
-            &db,
-            tx.clone(),
-            &base_internal_url,
-            rsmq.clone(),
-            worker_mode,
-            server_mode,
-        )
-        .await;
+        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
+
+        initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -198,18 +197,93 @@ Windmill Community Edition {GIT_VERSION}
             tokio::spawn(async move {
                 //monitor_db is applied at start, no need to apply it twice
                 tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+
+                let mut listener = match PgListener::connect_with(&db).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Could not connect to database");
+                        return;
+                    }
+                };
+
+                if let Err(e) = listener
+                    .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+                    .await
+                {
+                    tracing::error!(error = %e, "Could not listen to database");
+                    return;
+                }
+
                 loop {
-                    monitor_db(
-                        &db,
-                        tx.clone(),
-                        &base_internal_url,
-                        rsmq.clone(),
-                        worker_mode,
-                        server_mode,
-                    )
-                    .await;
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(30))    => (),
+                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                            monitor_db(
+                                &db,
+                                &base_internal_url,
+                                rsmq.clone(),
+                                server_mode,
+                            )
+                            .await;
+                        },
+                        notification = listener.recv() => {
+                            match notification {
+                                Ok(n) => {
+                                    tracing::info!("Received new pg notification: {n:?}");
+                                    match n.channel() {
+                                        "notify_config_change" => {
+                                            tracing::info!("Config change detected");
+                                            match n.payload() {
+                                                "server" if server_mode => {
+                                                    tracing::info!("Server config change detected");
+                                                    reload_server_config(&db).await;
+                                                },
+                                                a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
+                                                    tracing::info!("Worker config change detected");
+                                                    reload_worker_config(&db, tx.clone()).await;
+                                                },
+                                                _ => {
+                                                    ()
+                                                }
+                                            }
+                                        },
+                                        "notify_global_setting_change" => {
+                                            tracing::info!("Global setting change detected");
+                                            match n.payload() {
+                                                BASE_URL_SETTING => {
+                                                    tracing::info!("Base URL setting change detected");
+                                                    if let Err(e) = reload_base_url_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload base url setting");
+                                                    }
+                                                },
+                                                OAUTH_SETTING => {
+                                                    tracing::info!("OAuth setting change detected");
+                                                    if let Err(e) = reload_base_url_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload oauth setting");
+                                                    }
+                                                },
+                                                CUSTOM_TAGS_SETTING => {
+                                                    tracing::info!("Custom tags setting change detected");
+                                                    if let Err(e) = reload_custom_tags_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload custom tags setting");
+                                                    }
+                                                },
+                                                a @_ => {
+                                                    tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
+                                                }
+                                            }
+                                        },
+                                        _ => {
+                                            tracing::warn!("Unknown notification received");
+                                            continue;
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Could not receive notification");
+                                    continue;
+                                }
+                            };
+                        },
                         _ = rx.recv() => {
                                 println!("received killpill for monitor job");
                                 break;

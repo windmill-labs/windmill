@@ -15,6 +15,7 @@ pub struct Smtp {
 #[derive(Serialize, Deserialize)]
 pub struct ServerConfigOpt {
     pub smtp: Option<Smtp>,
+    pub timeout_wait_result: Option<u64>,
 }
 
 pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
@@ -56,16 +57,27 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
         tracing::warn!("SMTP not configured");
     }
 
-    Ok(ServerConfig { smtp })
+    Ok(ServerConfig {
+        smtp,
+        timeout_wait_result: config
+            .timeout_wait_result
+            .ok_or(
+                std::env::var("TIMEOUT_WAIT_RESULT")
+                    .ok()
+                    .and_then(|x| x.parse::<u64>().ok()),
+            )
+            .unwrap_or(20),
+    })
 }
 
 impl Default for ServerConfigOpt {
     fn default() -> Self {
-        Self { smtp: Default::default() }
+        Self { smtp: Default::default(), timeout_wait_result: Default::default() }
     }
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct ServerConfig {
     pub smtp: Option<Smtp>,
+    pub timeout_wait_result: u64,
 }

@@ -5268,15 +5268,15 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /workers/list_worker_groups:
+  /configs/list_worker_groups:
     get:
-      summary: list workers
+      summary: list worker grous
       operationId: listWorkerGroups
       tags:
-        - worker
+        - config
       responses:
         "200":
-          description: a list of workers
+          description: a list of worker group configs
           content:
             application/json:
               schema:
@@ -5291,12 +5291,27 @@ paths:
                     - name
                     - config
 
-  /workers/worker_group/{name}:
-    post:
-      summary: Update Worker Group
-      operationId: updateWorkerGroup
+  /configs/get/{name}:
+    get:
+      summary: get config
+      operationId: get config
       tags:
-        - worker
+        - config
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: a config
+          content:
+            application/json:
+              schema: {}
+
+  /configs/update/{name}:
+    post:
+      summary: Update config
+      operationId: updateConfig
+      tags:
+        - config
       parameters:
         - $ref: "#/components/parameters/Name"
       requestBody:
@@ -5313,15 +5328,15 @@ paths:
               schema:
                 type: string
     delete:
-      summary: Delete Worker Group
-      operationId: deleteWorkerGroup
+      summary: Delete Config
+      operationId: deleteConfig
       tags:
-        - worker
+        - config
       parameters:
         - $ref: "#/components/parameters/Name"
       responses:
         "200":
-          description: Delete a worker group
+          description: Delete config
           content:
             text/plain:
               schema:

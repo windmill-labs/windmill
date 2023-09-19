@@ -44,6 +44,7 @@ use windmill_common::error::AppError;
 mod apps;
 mod audit;
 mod capture;
+mod configs;
 mod db;
 mod drafts;
 mod favorite;
@@ -53,7 +54,7 @@ mod granular_acls;
 mod groups;
 mod inputs;
 pub mod jobs;
-mod oauth2;
+pub mod oauth2;
 mod openai;
 mod raw_apps;
 mod resources;
@@ -201,6 +202,7 @@ pub async fn run_server(
                 .nest("/settings", settings::global_service())
                 .nest("/jobs", jobs::global_root_service())
                 .nest("/workers", workers::global_service())
+                .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())

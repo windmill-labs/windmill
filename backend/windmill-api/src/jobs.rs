@@ -32,7 +32,7 @@ use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::worker::CUSTOM_TAGS_PER_WORKSPACE;
+use windmill_common::worker::{CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
 use windmill_common::BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -1775,11 +1775,11 @@ impl Drop for Guard {
 async fn run_wait_result<T>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    timeout: i32,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
     let mut result;
+    let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
     let timeout_ms = if timeout <= 0 {
         2000
     } else {
@@ -1863,10 +1863,6 @@ lazy_static::lazy_static! {
     pub static ref QUEUE_LIMIT_WAIT_RESULT: Option<i64> = std::env::var("QUEUE_LIMIT_WAIT_RESULT")
         .ok()
         .and_then(|x| x.parse().ok());
-    pub static ref TIMEOUT_WAIT_RESULT: i32 = std::env::var("TIMEOUT_WAIT_RESULT")
-        .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(20);
     pub static ref WAIT_RESULT_FAST_POLL_INTERVAL_MS: u64 = std::env::var("WAIT_RESULT_FAST_POLL_INTERVAL_MS")
         .ok()
         .and_then(|x| x.parse().ok())
@@ -1937,14 +1933,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
 }
 
 pub async fn run_wait_result_flow_by_path_get(
@@ -2108,14 +2097,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
 }
 
 pub async fn run_wait_result_script_by_hash(
@@ -2180,14 +2162,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_hash)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_hash))).await
 }
 
 pub async fn openai_sync_flow_by_path(
@@ -2287,14 +2262,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, flow_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, flow_path))).await
 }
 
 async fn run_preview_job(

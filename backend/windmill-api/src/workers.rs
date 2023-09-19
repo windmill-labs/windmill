@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Query},
     routing::get,
     Json, Router,
 };
@@ -16,10 +16,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
     db::UserDB,
-    error::{self, JsonResult},
+    error::JsonResult,
     utils::{paginate, Pagination},
     worker::ALL_TAGS,
-    DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -27,19 +26,13 @@ use std::sync::atomic::Ordering;
 #[cfg(feature = "benchmark")]
 use windmill_queue::IDLE_WORKERS;
 
-use crate::{db::ApiAuthed, utils::require_super_admin};
+use crate::db::ApiAuthed;
 
 pub fn global_service() -> Router {
-    use axum::routing::post;
-
     let router = Router::new()
         .route("/list", get(list_worker_pings))
-        .route("/custom_tags", get(get_custom_tags))
-        .route("/list_worker_groups", get(get_worker_groups))
-        .route(
-            "/worker_group/:name",
-            post(update_worker_group).delete(delete_worker_group),
-        );
+        .route("/custom_tags", get(get_custom_tags));
+
     #[cfg(feature = "benchmark")]
     return router.route("/toggle", get(toggle));
 
@@ -93,74 +86,4 @@ async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
 
 async fn get_custom_tags() -> Json<Vec<String>> {
     Json(ALL_TAGS.read().await.clone().into())
-}
-
-#[derive(Serialize, Deserialize, FromRow)]
-struct WorkerGroup {
-    name: String,
-    config: serde_json::Value,
-}
-
-async fn get_worker_groups(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> error::JsonResult<Vec<WorkerGroup>> {
-    require_super_admin(&db, &authed.email).await?;
-
-    let rows = sqlx::query_as!(WorkerGroup, "SELECT * FROM config")
-        .fetch_all(&db)
-        .await?;
-    Ok(Json(rows))
-}
-
-#[cfg(feature = "enterprise")]
-async fn update_worker_group(
-    Path(name): Path<String>,
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(config): Json<serde_json::Value>,
-) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
-
-    sqlx::query!(
-        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
-        &name,
-        config
-    )
-    .execute(&db)
-    .await?;
-
-    Ok(format!("Updated worker group {name}"))
-}
-
-#[cfg(not(feature = "enterprise"))]
-async fn update_worker_group() -> String {
-    "Worker groups available only in enterprise version".to_string()
-}
-
-async fn delete_worker_group(
-    Path(name): Path<String>,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    authed: ApiAuthed,
-) -> error::Result<String> {
-    let tx = user_db.begin(&authed).await?;
-
-    require_super_admin(&db, &authed.email).await?;
-    tx.commit().await?;
-
-    let deleted = sqlx::query!(
-        "DELETE FROM config WHERE name = $1 RETURNING name",
-        format!("worker__{}", name)
-    )
-    .fetch_all(&db)
-    .await?;
-
-    if deleted.len() == 0 {
-        return Err(error::Error::NotFound(format!(
-            "Worker group {name} not found",
-            name = name
-        )));
-    }
-    Ok(format!("Deleted worker group {name}"))
 }

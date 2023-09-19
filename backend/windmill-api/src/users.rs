@@ -2375,7 +2375,11 @@ pub async fn delete_expired_items(db: &DB) -> () {
     .await;
 
     match tokens_deleted_r {
-        Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
+        Ok(tokens) => {
+            if tokens.len() > 0 {
+                tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens)
+            }
+        }
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
@@ -2386,7 +2390,11 @@ pub async fn delete_expired_items(db: &DB) -> () {
     .await;
 
     match pip_resolution_r {
-        Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} pip_resolution: {:?}", res.len(), res)
+            }
+        }
         Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
     }
 
@@ -2397,7 +2405,11 @@ pub async fn delete_expired_items(db: &DB) -> () {
         .await;
 
     match deleted_cache {
-        Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} cache resource: {:?}", res.len(), res)
+            }
+        }
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
@@ -2411,11 +2423,14 @@ pub async fn delete_expired_items(db: &DB) -> () {
 
         match deleted_jobs {
             Ok(deleted_jobs) => {
-                tracing::info!(
-                    "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
-                    deleted_jobs.len(),
-                    deleted_jobs
-                )
+                if deleted_jobs.len() > 0 {
+                    tracing::info!(
+                        "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
+                        deleted_jobs.len(),
+                        *JOB_RETENTION_SECS,
+                        deleted_jobs,
+                    )
+                }
             }
             Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
         }

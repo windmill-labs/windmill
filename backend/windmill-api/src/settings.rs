@@ -23,12 +23,10 @@ use windmill_common::{
 };
 
 pub fn global_service() -> Router {
-    Router::new()
-        .route("/local", get(get_local_settings))
-        .route(
-            "/global/:key",
-            post(set_global_setting).get(get_global_setting),
-        )
+    Router::new().route("/envs", get(get_local_settings)).route(
+        "/global/:key",
+        post(set_global_setting).get(get_global_setting),
+    )
 }
 
 pub async fn get_local_settings(

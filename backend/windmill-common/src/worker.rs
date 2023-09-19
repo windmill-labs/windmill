@@ -35,7 +35,7 @@ lazy_static::lazy_static! {
         dedicated_worker: Default::default(),
     }));
 
-    pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default() }));
+    pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
 
 
 
