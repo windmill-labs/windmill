@@ -3,11 +3,11 @@
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.7/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.167.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.167.0/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import { Action } from "./action.ts";
 import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/upgrade_command.ts";
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
+import { VERSION, createBenchScript } from "./lib.ts";
 export {
   DenoLandProvider,
   UpgradeCommand,
@@ -21,8 +21,6 @@ async function login(email: string, password: string): Promise<string> {
     },
   });
 }
-
-export const VERSION = "v1.174.0";
 
 export async function main({
   host,
@@ -46,7 +44,6 @@ export async function main({
   continous,
   max,
   custom,
-  hideProgress,
 }: {
   host: string;
   workers: number;
@@ -69,7 +66,6 @@ export async function main({
   continous?: boolean;
   max?: number;
   custom?: string;
-  hideProgress?: boolean;
 }) {
   windmill.setClient("", host);
   const versionResp = await fetch(`${host}/api/version`);
@@ -130,7 +126,6 @@ export async function main({
         scriptPattern,
         zombieTimeout,
         continous,
-        hideProgress,
       },
       null,
       4
@@ -175,59 +170,16 @@ export async function main({
     scriptPattern,
     continous,
     custom: custom_content,
-    hideProgress,
   };
 
   if (
     !useFlows &&
     (scriptPattern === undefined ||
-      ["deno", "python", "go", "bash"].includes(scriptPattern))
+      ["deno", "python", "go", "bash", "bun", "dedicated"].includes(
+        scriptPattern
+      ))
   ) {
-    console.log("Creating benchmark script...");
-    const path = `f/benchmarks/${scriptPattern || "deno"}`;
-    const exists = await windmill.ScriptService.existsScriptByPath({
-      workspace,
-      path,
-    });
-
-    if (exists) {
-      await windmill.ScriptService.deleteScriptByPath({
-        workspace,
-        path,
-      });
-    }
-
-    let scriptContent: string;
-    let language: string;
-    if (scriptPattern === "python") {
-      scriptContent =
-        'import os\n\ndef main():\n    return os.environ.get("WM_JOB_ID")';
-      language = "python3";
-    } else if (scriptPattern === "go") {
-      scriptContent =
-        'package inner\nimport "os"\nfunc main() (string, error) { return os.Getenv("WM_JOB_ID"), nil }';
-      language = "go";
-    } else if (scriptPattern === "bash") {
-      scriptContent = "echo $WM_JOB_ID";
-      language = "bash";
-    } else {
-      scriptContent =
-        'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
-      language = "deno";
-    }
-
-    await windmill.ScriptService.createScript({
-      workspace,
-      requestBody: {
-        path,
-        content: scriptContent,
-        summary: (scriptPattern || "deno") + " benchmark",
-        description: "",
-        language: language as api.NewScript.language,
-      },
-    });
-
-    await sleep(5); // make sure script is created
+    await createBenchScript(scriptPattern || "deno", workspace);
   }
 
   let workers: Worker[] = new Array(num_workers);
@@ -312,13 +264,27 @@ export async function main({
   );
 
   const shutdown_start = Date.now();
-  let zombie_jobs = 0;
-  let incorrect_results = 0;
+  // let zombie_jobs = 0;
+  // let incorrect_results = 0;
+  // workers.forEach((worker, i) => {
+  //   const l = (evt: MessageEvent<any>) => {
+  //     if (evt.data.type === "zombie_jobs") {
+  //       zombie_jobs += evt.data.zombie_jobs;
+  //       incorrect_results += evt.data.incorrect_results;
+  //       worker.removeEventListener("message", l);
+  //       workers = workers.filter((w) => w != worker);
+  //       jobsSent[i] = evt.data.jobs_sent;
+  //       worker.terminate();
+  //     }
+  //   };
+  //   worker.addEventListener("message", l);
+  //   worker.postMessage(
+  //     Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
+  //   );
+  // });
   workers.forEach((worker, i) => {
     const l = (evt: MessageEvent<any>) => {
-      if (evt.data.type === "zombie_jobs") {
-        zombie_jobs += evt.data.zombie_jobs;
-        incorrect_results += evt.data.incorrect_results;
+      if (evt.data.type === "done") {
         worker.removeEventListener("message", l);
         workers = workers.filter((w) => w != worker);
         jobsSent[i] = evt.data.jobs_sent;
@@ -326,15 +292,32 @@ export async function main({
       }
     };
     worker.addEventListener("message", l);
-    worker.postMessage(
-      Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
-    );
+    worker.postMessage("done");
   });
 
   console.log("waiting for shutdown\n");
   while (workers.length > 0) {
     await sleep(0.1);
   }
+
+  let queue_length = await getQueueCount();
+  const updateQueue = setInterval(async () => {
+    queue_length = (
+      await (
+        await fetch(
+          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+    await Deno.stdout.write(enc(`queue length: ${queue_length}\r`));
+  }, 100);
+  while (queue_length > 0) {
+    await sleep(0.1);
+  }
+
+  clearInterval(updateQueue);
+
   sum = jobsSent.reduce((a, b) => a + b, 0);
 
   const tts = (Date.now() - shutdown_start) / 1000;
@@ -344,8 +327,8 @@ export async function main({
   console.log("time (s + tts):", time);
   console.log("throughput /s (jobs/time):", sum / time);
 
-  console.log("zombie jobs: ", zombie_jobs);
-  console.log("incorrect results: ", incorrect_results);
+  // console.log("zombie jobs: ", zombie_jobs);
+  // console.log("incorrect results: ", incorrect_results);
   console.log(
     "queue length:",
     (
@@ -495,7 +478,7 @@ if (import.meta.main) {
     )
     .option(
       "--script-pattern <pattern:string>",
-      "Use a different script pattern among: deno, identity, python, go, bash (Default deno)"
+      "Use a different script pattern among: deno, identity, python, go, bash, dedicated, bun (Default deno)"
     )
     .option("--custom <custom_path:string>", "Use custom actions during bench")
     .option(

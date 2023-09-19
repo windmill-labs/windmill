@@ -22,11 +22,6 @@ use windmill_common::{
     DB,
 };
 
-#[cfg(feature = "benchmark")]
-use std::sync::atomic::Ordering;
-#[cfg(feature = "benchmark")]
-use windmill_queue::IDLE_WORKERS;
-
 use crate::{db::ApiAuthed, utils::require_super_admin};
 
 pub fn global_service() -> Router {
@@ -40,10 +35,7 @@ pub fn global_service() -> Router {
             "/worker_group/:name",
             post(update_worker_group).delete(delete_worker_group),
         );
-    #[cfg(feature = "benchmark")]
-    return router.route("/toggle", get(toggle));
 
-    #[cfg(not(feature = "benchmark"))]
     return router;
 }
 
@@ -83,12 +75,6 @@ async fn list_worker_pings(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
-}
-
-#[cfg(feature = "benchmark")]
-async fn toggle(Query(query): Query<EnableWorkerQuery>) -> JsonResult<bool> {
-    IDLE_WORKERS.store(query.disable, Ordering::Relaxed);
-    Ok(Json(IDLE_WORKERS.load(Ordering::Relaxed)))
 }
 
 async fn get_custom_tags() -> Json<Vec<String>> {
