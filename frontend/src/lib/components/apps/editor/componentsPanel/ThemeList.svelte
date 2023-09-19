@@ -75,7 +75,7 @@
 	})
 </script>
 
-<div class="p-4 flex flex-col items-start w-auto gap-2 relative">
+<div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	{#if $enterpriseLicense === undefined}
 		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0" />
 		<Alert
@@ -129,7 +129,7 @@
 			{/if}
 		</div>
 		<div class="w-full">
-			<DataTable size="sm">
+			<DataTable size="xs">
 				<Head>
 					<tr>
 						<Cell first head>Path</Cell>

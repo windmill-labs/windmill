@@ -1,6 +1,6 @@
 <script context="module" lang="ts">
 	export type DatatableContext = {
-		size: 'sm' | 'md' | 'lg'
+		size: 'xs' | 'sm' | 'md' | 'lg'
 	}
 </script>
 
@@ -16,7 +16,7 @@
 	export let loadMore: number = 0
 	export let shouldLoadMore: boolean = false
 	export let rounded: boolean = true
-	export let size: 'sm' | 'md' | 'lg' = 'md'
+	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md'
 	export let perPage: number | undefined = undefined
 	export let shouldHidePagination: boolean = false
 
