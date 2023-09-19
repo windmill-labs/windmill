@@ -59,12 +59,24 @@
 		const theme = await getTheme($workspaceStore!, path)
 
 		await updateTheme($workspaceStore!, DEFAULT_THEME, {
-			value: theme.value
+			value: {
+				value: theme.value ?? '',
+				name: theme.name
+			}
 		})
 
 		await updateTheme($workspaceStore!, path, {
-			value: defaultTheme.value
+			value: {
+				value: defaultTheme.value ?? '',
+				name: defaultTheme.name
+			}
 		})
+
+		stopPreview()
+		$app.theme = {
+			type: 'path',
+			path: DEFAULT_THEME
+		}
 
 		dispatch('reloadThemes')
 	}
