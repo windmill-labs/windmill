@@ -44,7 +44,11 @@
 <div>
 	{#if !hideDisplay}
 		<input
-			value={disabled ? '' : seconds + ' second' + (seconds === 1 ? '' : 's')}
+			value={seconds == null || seconds == undefined
+				? 'Not set'
+				: disabled
+				? ''
+				: seconds + ' second' + (seconds === 1 ? '' : 's')}
 			{disabled}
 			readonly
 			type="text"

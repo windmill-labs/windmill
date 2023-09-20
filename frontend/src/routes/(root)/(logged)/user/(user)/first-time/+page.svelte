@@ -7,7 +7,7 @@
 
 	async function startSetup(): Promise<void> {
 		$workspaceStore = 'admins'
-		goto('/apps/get/g/all/setup_app')
+		goto('/user/instance_settings')
 	}
 
 	async function decline(): Promise<void> {
@@ -16,18 +16,12 @@
 </script>
 
 <CenteredModal title="Welcome to Windmill">
-	<p class="text-center text-lg mt-4">
-		This is a brand new instance. Go the superadmins app to setup the default superadmin user and
-		enable hub resource type sync?
+	<p class="text-center text-lg mt-4 mb-4">
+		This is a brand new instance. Setup the instance settings, then set the default superadmin user
+		and enable hub resource type sync
 	</p>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="border" size="sm" on:click={decline}>Skip setup</Button>
-		<button
-			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
-			type="button"
-			on:click={startSetup}
-		>
-			Setup
-		</button>
+		<Button color="dark" variant="border" on:click={decline}>Skip setup</Button>
+		<Button color="dark" on:click={startSetup}>Setup</Button>
 	</div>
 </CenteredModal>

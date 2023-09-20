@@ -481,6 +481,7 @@ pub async fn start_worker(
         None,
         None,
     )
+    .await
     .to_vec();
     let context_envs = build_envs_map(context);
     if let Some(reqs) = requirements_o {
@@ -603,7 +604,8 @@ for await (const chunk of Bun.stdin.stream()) {{
         None,
         None,
         None,
-    );
+    )
+    .await;
 
     let _ = write_file(
         &job_dir,

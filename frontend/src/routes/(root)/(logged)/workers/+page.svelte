@@ -9,7 +9,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
-	import { WorkerService, type WorkerPing, SettingService } from '$lib/gen'
+	import { WorkerService, type WorkerPing, SettingService, ConfigService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
@@ -53,10 +53,10 @@
 	async function loadWorkerGroups(): Promise<void> {
 		try {
 			workerGroups = Object.fromEntries(
-				(await WorkerService.listWorkerGroups()).map((x) => [x.name, x.config])
+				(await ConfigService.listWorkerGroups()).map((x) => [x.name.substring(8), x.config])
 			)
 		} catch (err) {
-			sendUserToast(`Could not load workers: ${err}`, true)
+			sendUserToast(`Could not load worker groups: ${err}`, true)
 		}
 	}
 
@@ -103,7 +103,7 @@
 	let newGroupName = ''
 
 	async function addGroup() {
-		await WorkerService.updateWorkerGroup({ name: newGroupName, requestBody: {} })
+		await ConfigService.updateConfig({ name: 'worker__' + newGroupName, requestBody: {} })
 		loadWorkerGroups()
 	}
 
@@ -168,10 +168,10 @@
 							{#if customTags == undefined}
 								<Loader2 class="animate-spin" />
 							{:else}
-								<div class="flex flex-col">
+								<div class="flex flex-wrap gap-3 gap-y-2">
 									{#each customTags as customTag}
-										<div class="font-mono flex items-center gap-2 w-full">
-											<div class="w-full">- {customTag}</div>
+										<div class="flex gap-0.5 items-center"
+											><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
 											<button
 												class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 												aria-label="Remove item"
@@ -184,9 +184,9 @@
 													sendUserToast('Tag removed')
 												}}
 											>
-												<X size={14} />
-											</button>
-										</div>
+												<X size={12} />
+											</button></div
+										>
 									{/each}
 								</div>
 								<input type="text" bind:value={newTag} />

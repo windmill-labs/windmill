@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use error::Error;
 use scripts::ScriptLang;
@@ -24,6 +24,7 @@ pub mod more_serde;
 pub mod oauth2;
 pub mod schedule;
 pub mod scripts;
+pub mod server;
 pub mod users;
 pub mod utils;
 pub mod variables;
@@ -47,7 +48,7 @@ lazy_static::lazy_static! {
     .flatten()
     .flatten();
     pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
-    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
@@ -78,6 +79,7 @@ pub async fn shutdown_signal(
     Ok(())
 }
 
+use tokio::sync::RwLock;
 #[cfg(feature = "prometheus")]
 use tokio::task::JoinHandle;
 
