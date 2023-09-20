@@ -12,9 +12,14 @@ pub struct Smtp {
     pub tls_implicit: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct ServerConfigOpt {
-    pub smtp: Option<Smtp>,
+    pub smtp_host: Option<String>,
+    pub smtp_username: Option<String>,
+    pub smtp_password: Option<String>,
+    pub smtp_port: Option<u16>,
+    pub smtp_from: Option<String>,
+    pub smtp_tls_implicit: Option<bool>,
     pub timeout_wait_result: Option<u64>,
 }
 
@@ -28,7 +33,23 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
             .flatten()
             .unwrap_or_default();
 
-    let smtp = config.smtp.or(
+    let config_smtp = if let (Some(host), Some(username), Some(password)) =
+        (config.smtp_host, config.smtp_username, config.smtp_password)
+    {
+        Some(Smtp {
+            host,
+            username,
+            password,
+            tls_implicit: config.smtp_tls_implicit.unwrap_or(false),
+            port: config.smtp_port.unwrap_or(587),
+            from: config
+                .smtp_from
+                .unwrap_or_else(|| "noreply@getwindmill.com".to_string()),
+        })
+    } else {
+        None
+    };
+    let smtp = config_smtp.or(
         if let (Some(host), Some(username), Some(password)) = (
             std::env::var("SMTP_HOST").ok(),
             std::env::var("SMTP_USERNAME").ok(),
@@ -66,13 +87,21 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
                     .ok()
                     .and_then(|x| x.parse::<u64>().ok()),
             )
-            .unwrap_or(20),
+            .unwrap_or(600),
     })
 }
 
 impl Default for ServerConfigOpt {
     fn default() -> Self {
-        Self { smtp: Default::default(), timeout_wait_result: Default::default() }
+        Self {
+            smtp_from: None,
+            smtp_host: None,
+            smtp_password: None,
+            smtp_port: None,
+            smtp_tls_implicit: None,
+            smtp_username: None,
+            timeout_wait_result: Default::default(),
+        }
     }
 }
 

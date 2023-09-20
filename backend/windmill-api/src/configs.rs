@@ -26,10 +26,11 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/list_worker_groups", get(list_worker_groups))
         .route("/update/:name", post(update_config).delete(delete_config))
+        .route("/get/:name", get(get_config))
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
-struct WorkerGroup {
+struct Config {
     name: String,
     config: serde_json::Value,
 }
@@ -37,16 +38,28 @@ struct WorkerGroup {
 async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-) -> error::JsonResult<Vec<WorkerGroup>> {
+) -> error::JsonResult<Vec<Config>> {
     require_super_admin(&db, &authed.email).await?;
 
-    let rows = sqlx::query_as!(
-        WorkerGroup,
-        "SELECT * FROM config WHERE name LIKE 'worker__%'"
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+        .fetch_all(&db)
+        .await?;
     Ok(Json(rows))
+}
+
+async fn get_config(
+    authed: ApiAuthed,
+    Path(name): Path<String>,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Option<serde_json::Value>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
+        .fetch_optional(&db)
+        .await?
+        .map(|c| c.config);
+
+    Ok(Json(config))
 }
 
 async fn update_config(
@@ -73,7 +86,7 @@ async fn update_config(
     .execute(&db)
     .await?;
 
-    Ok(format!("Updated worker group {name}"))
+    Ok(format!("Updated config {name}"))
 }
 
 async fn delete_config(

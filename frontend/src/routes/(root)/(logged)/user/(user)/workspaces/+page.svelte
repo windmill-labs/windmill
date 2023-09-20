@@ -219,17 +219,12 @@
 				<Icon data={faCrown} class="mr-1" scale={1} />
 				Superadmin settings
 			</Button>
-			<Button variant="border" size="sm" on:click={() => goto('/user/instance_settings')}>
-				<Icon data={faCrown} class="mr-1" scale={1} />
-				Instance settings
-			</Button>
 		{/if}
 		<Button variant="border" size="sm" on:click={userSettings.openDrawer}>
 			<Icon data={faUserCog} class="mr-1" scale={1} />
 			User settings
 		</Button>
-	</div>
-	<div class="flex w-full flex-row-reverse pt-4">
+
 		<Button
 			variant="border"
 			color="blue"

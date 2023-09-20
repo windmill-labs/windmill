@@ -1221,12 +1221,6 @@ async fn decline_invite(
 
 lazy_static! {
     pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
-
-    pub static ref JOB_RETENTION_SECS: u32 = std::env::var("JOB_RETENTION_SECS")
-    .ok()
-    .and_then(|x| x.parse::<u32>().ok())
-    .unwrap_or(60 * 60 * 24 * 60); // 60 days
-
 }
 
 async fn accept_invite(
@@ -2364,77 +2358,6 @@ pub async fn login_externally(
     }
     tx.commit().await?;
     Ok(())
-}
-
-pub async fn delete_expired_items(db: &DB) -> () {
-    let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-        "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
-    )
-    .fetch_all(db)
-    .await;
-
-    match tokens_deleted_r {
-        Ok(tokens) => {
-            if tokens.len() > 0 {
-                tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens)
-            }
-        }
-        Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
-    }
-
-    let pip_resolution_r = sqlx::query_scalar!(
-        "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
-    )
-    .fetch_all(db)
-    .await;
-
-    match pip_resolution_r {
-        Ok(res) => {
-            if res.len() > 0 {
-                tracing::info!("deleted {} pip_resolution: {:?}", res.len(), res)
-            }
-        }
-        Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
-    }
-
-    let deleted_cache = sqlx::query_scalar!(
-            "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
-        )
-        .fetch_all(db)
-        .await;
-
-    match deleted_cache {
-        Ok(res) => {
-            if res.len() > 0 {
-                tracing::info!("deleted {} cache resource: {:?}", res.len(), res)
-            }
-        }
-        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
-    }
-
-    if *JOB_RETENTION_SECS > 0 {
-        let deleted_jobs = sqlx::query_scalar!(
-                "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
-                *JOB_RETENTION_SECS as i64
-            )
-            .fetch_all(db)
-            .await;
-
-        match deleted_jobs {
-            Ok(deleted_jobs) => {
-                if deleted_jobs.len() > 0 {
-                    tracing::info!(
-                        "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
-                        deleted_jobs.len(),
-                        *JOB_RETENTION_SECS,
-                        deleted_jobs,
-                    )
-                }
-            }
-            Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
-        }
-    }
 }
 
 pub fn truncate_token(token: &str) -> String {

@@ -21,7 +21,10 @@ use tokio::{
 };
 use windmill_api::LICENSE_KEY;
 use windmill_common::{
-    global_settings::{BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING},
+    global_settings::{
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+    },
     utils::rd_string,
     worker::{reload_custom_tags_setting, WORKER_GROUP},
     METRICS_ADDR,
@@ -34,7 +37,8 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, monitor_db, reload_base_url_setting, reload_server_config, reload_worker_config,
+    initial_load, monitor_db, reload_base_url_setting, reload_retention_period_setting,
+    reload_server_config, reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -267,6 +271,19 @@ Windmill Community Edition {GIT_VERSION}
                                                         tracing::error!(error = %e, "Could not reload custom tags setting");
                                                     }
                                                 },
+                                                RETENTION_PERIOD_SECS_SETTING => {
+                                                    tracing::info!("Retention period setting change detected");
+                                                    reload_retention_period_setting(&db).await
+                                                },
+                                                REQUEST_SIZE_LIMIT_SETTING => {
+                                                    tracing::info!("Request limit size change detected, killing server expecting to be restarted");
+                                                    // we wait a bit randomly to avoid having all servers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    }
+                                                }
                                                 a @_ => {
                                                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                 }
