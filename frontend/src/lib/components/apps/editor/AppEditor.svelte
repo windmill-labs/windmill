@@ -36,7 +36,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Paintbrush, Plus } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -392,6 +392,8 @@
 			existingElement.innerHTML = theme
 		}
 	}
+
+	let scale: number = 100
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -443,18 +445,51 @@
 										$focusedGrid = undefined
 									}}
 									class={twMerge(
-										'bg-surface h-full w-full relative',
+										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
+									<div
+										class="absolute inset-0 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px]"
+									/>
+									<div class="absolute bottom-4 left-4 z-50">
+										<div class="flex flex-row gap-2 text-xs items-center">
+											<Button
+												color="light"
+												variant="border"
+												size="xs2"
+												disabled={scale <= 60}
+												on:click={() => {
+													scale -= 10
+												}}
+											>
+												<Minus size={14} />
+											</Button>
+											{scale}
+											<Button
+												color="light"
+												variant="border"
+												size="xs2"
+												disabled={scale >= 100}
+												on:click={() => {
+													scale += 10
+												}}
+											>
+												<Plus size={14} />
+											</Button>
+										</div>
+									</div>
+
 									<div id="app-editor-top-level-drawer" />
 									<div
 										class={classNames(
-											'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
-											app.fullscreen ? '' : 'max-w-6xl'
+											'bg-surface-secondary relative mx-auto w-full h-full overflow-auto',
+											$appStore.fullscreen ? '' : 'max-w-6xl border-x',
+											scale < 100 ? 'border-y border-x' : ''
 										)}
+										style={`transform: scale(${scale / 100})`}
 									>
 										{#if $appStore.grid}
 											<ComponentNavigation />

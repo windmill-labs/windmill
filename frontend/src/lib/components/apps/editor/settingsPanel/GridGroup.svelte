@@ -40,13 +40,13 @@
 			}
 			console.log(groupFields)
 		}}
-		options={{ right: 'container is a component group' }}
-	/>
-	<Tooltip
-		>Group fields allow inner components to depend on the group fields which make the container a
+		options={{
+			right: 'container is a component group',
+			rightTooltip: `Group fields allow inner components to depend on the group fields which make the container a
 		group of component that is encapsulated. Inside the group, it is possible to retrieve the values
-		using `group.<x />` where x is the group field name</Tooltip
-	>
+		using \`group.<x />\` where x is the group field name`
+		}}
+	/>
 </div>
 {#if groupFields != undefined}
 	<PanelSection
