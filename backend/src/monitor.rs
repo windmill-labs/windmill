@@ -15,8 +15,8 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, LICENSE_KEY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING,  OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, LICENSE_KEY_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     server::load_server_config,
@@ -27,7 +27,10 @@ use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
 };
 
-use crate::ee::{set_license_key, verify_license_key};
+#[cfg(feature = "enterprise")]
+use crate::ee::verify_license_key;
+
+use crate::ee::set_license_key;
 
 lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")

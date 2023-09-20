@@ -1,7 +1,6 @@
 #[cfg(feature = "enterprise")]
 use windmill_common::error;
 
-#[cfg(feature = "enterprise")]
 pub async fn set_license_key(license_key: String) -> anyhow::Result<()> {
     use windmill_api::{ee::validate_license_key, LICENSE_KEY, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
@@ -34,7 +33,7 @@ pub async fn verify_license_key() -> error::Result<()> {
         .clone()
         .split(".")
         .nth(1)
-        .unwrap()
+        .unwrap_or_else(|| "")
         .parse::<u64>()
         .map_err(to_anyhow)?;
     if expiry_nb < chrono::Utc::now().timestamp() as u64 {

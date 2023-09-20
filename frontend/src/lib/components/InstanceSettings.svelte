@@ -50,6 +50,14 @@
 				fieldType: 'seconds',
 				placeholder: '60',
 				storage: 'config'
+			},
+			{
+				label: 'License Key',
+				description: 'License Key required to use the EE (switch image for windmill-ee)',
+				key: 'license_key',
+				fieldType: 'license_key',
+				placeholder: 'only needed to prepare upgrade to EE',
+				storage: 'setting'
 			}
 		],
 		SMTP: [
@@ -226,6 +234,18 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+											{:else if setting.fieldType == 'textarea'}
+												<textarea
+													rows="2"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
+											{:else if setting.fieldType == 'license_key'}
+												<textarea
+													rows="2"
+													placeholder={setting.placeholder}
+													bind:value={values[setting.key]}
+												/>
 											{:else if setting.fieldType == 'email'}
 												<input
 													type="email"
@@ -251,6 +271,20 @@
 											{:else if setting.fieldType == 'seconds'}
 												<div>
 													<SecondsInput bind:seconds={values[setting.key]} />
+												</div>
+											{/if}
+											{#if setting.key == 'license_key'}
+												<div class="flex mt-1">
+													<Button
+														variant="border"
+														size="xs"
+														on:click={async () => {
+															await SettingService.testLicenseKey({
+																requestBody: { license_key: values[setting.key] }
+															})
+															sendUserToast('Valid key')
+														}}>Test Key</Button
+													>
 												</div>
 											{/if}
 										{:else}

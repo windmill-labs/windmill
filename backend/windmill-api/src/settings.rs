@@ -74,10 +74,16 @@ pub async fn test_email(
     Ok("Sent test email".to_string())
 }
 
+#[derive(Deserialize)]
+pub struct TestKey {
+    pub license_key: String,
+}
+
+
 pub async fn test_license_key(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Json(license_key): Json<String>,
+    Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
     validate_license_key(license_key).await?;

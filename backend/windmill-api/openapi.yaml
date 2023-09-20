@@ -624,6 +624,32 @@ paths:
               schema:
                 type: string
 
+  /settings/test_license_key:
+    post:
+      summary: test license key
+      operationId: testLicenseKey
+      tags:
+        - setting
+      requestBody:
+        description: test license key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                license_key:
+                  type: string
+              required:
+                - license_key
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
   /users/email:
     get:
       summary: get current user email (if logged in)
