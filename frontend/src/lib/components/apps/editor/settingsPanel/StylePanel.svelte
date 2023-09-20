@@ -25,7 +25,7 @@
 	let tab: 'local' | 'global' = 'local'
 	let overrideGlobalCSS: (() => void) | undefined = undefined
 	let overrideLocalCSS: (() => void) | undefined = undefined
-	let type = component?.type
+	$: type = component?.type
 	let migrationModal: CssMigrationModal | undefined = undefined
 
 	$: customCssByComponentType =
@@ -113,164 +113,167 @@
 	})
 </script>
 
-{#if component}
-	<div class="px-2 flex items-center gap-2 flex-row justify-between">
-		{#if !cssEditorOpen}
-			<Button
-				color="blue"
-				size="xs2"
-				variant="border"
-				on:click={() => {
-					$cssEditorOpen = true
-				}}
-			>
-				<div class="flex flex-row gap-1 text-xs items-center">
-					Open CSS editor{$enterpriseLicense === undefined ? '  (EE only)' : ''}
-					<Tooltip light>
-						You can also use the App CSS Editor to customise the CSS of all components.
-					</Tooltip>
-				</div>
-			</Button>
-		{:else}
-			<div />
-		{/if}
 
-		<div class="flex flex-row gap-2 items-center justify-between">
-			{#if $enterpriseLicense !== undefined}
+{#if component}
+  {#key component?.id}
+		<div class="px-2 flex items-center gap-2 flex-row justify-between">
+			{#if !cssEditorOpen}
 				<Button
-					color="dark"
+					color="blue"
 					size="xs2"
+					variant="border"
 					on:click={() => {
-						migrationModal?.open()
+						$cssEditorOpen = true
 					}}
 				>
-					Convert to global CSS
+					<div class="flex flex-row gap-1 text-xs items-center">
+						Open CSS editor{$enterpriseLicense === undefined ? '  (EE only)' : ''}
+						<Tooltip light>
+							You can also use the App CSS Editor to customise the CSS of all components.
+						</Tooltip>
+					</div>
 				</Button>
+			{:else}
+				<div />
 			{/if}
-		</div>
-	</div>
 
-	<Tabs bind:selected={tab}>
-		<Tab value="local" size="xs">
-			<div class="flex flex-row gap-2 items-center">
-				ID
-				<Badge color="indigo" size="xs">
-					{component?.id}
-				</Badge>
-
-				<Tooltip light>
-					You can customise the CSS and the classes of this component instance. Theses
-					customisations will only be applied to this component.
-				</Tooltip>
-			</div>
-		</Tab>
-		<Tab value="global" size="xs">
-			<div class="flex flex-row gap-2 items-center">
-				Global: {type ? ccomponents[type].name : ''}
-
-				<Tooltip light>
-					You can customise the CSS and the classes of all components of this type. Theses
-					customisations will be applied to all components of this type.
-				</Tooltip>
-			</div>
-		</Tab>
-		<svelte:fragment slot="content">
-			<TabContent value="local">
-				{#if component && component.customCss !== undefined}
-					{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
-						<div class="w-full">
-							<CssProperty
-								quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
-								forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
-								forceClass={ccomponents[component.type].customCss[name].class !== undefined}
-								tooltip={ccomponents[component.type].customCss[name].tooltip}
-								{name}
-								wmClass={getSelector(name)}
-								componentType={component.type}
-								bind:value={component.customCss[name]}
-								on:change={() => app.set($app)}
-								shouldDisplayRight={hasStyleValue(component.customCss[name])}
-								on:right={() => {
-									copyLocalToGlobal(name, component?.customCss?.[name])
-									tab = 'global'
-								}}
-								overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
-									hasStyleValue(component.customCss[name])}
-							/>
-						</div>
-					{/each}
+			<div class="flex flex-row gap-2 items-center justify-between">
+				{#if $enterpriseLicense !== undefined}
+					<Button
+						color="dark"
+						size="xs2"
+						on:click={() => {
+							migrationModal?.open()
+						}}
+					>
+						Convert to global CSS
+					</Button>
 				{/if}
-			</TabContent>
-			<TabContent value="global">
-				{#if type}
-					{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
-						<div class="w-full">
-							{#if $app.css && type && $app.css[type] && component?.customCss}
-								<CssPropertyWrapper
-									{forceStyle}
-									{forceClass}
-									{id}
-									bind:property={$app.css[type]}
-									on:left={() => {
-										copyGlobalToLocal(
-											id,
-											component?.type ? $app?.css?.[component?.type]?.[id] : undefined
-										)
-										tab = 'local'
+			</div>
+		</div>
+
+		<Tabs bind:selected={tab}>
+			<Tab value="local" size="xs">
+				<div class="flex flex-row gap-2 items-center">
+					ID
+					<Badge color="indigo" size="xs">
+						{component?.id}
+					</Badge>
+
+					<Tooltip light>
+						You can customise the CSS and the classes of this component instance. Theses
+						customisations will only be applied to this component.
+					</Tooltip>
+				</div>
+			</Tab>
+			<Tab value="global" size="xs">
+				<div class="flex flex-row gap-2 items-center">
+					Global: {type ? ccomponents[type].name : ''}
+
+					<Tooltip light>
+						You can customise the CSS and the classes of all components of this type. Theses
+						customisations will be applied to all components of this type.
+					</Tooltip>
+				</div>
+			</Tab>
+			<svelte:fragment slot="content">
+				<TabContent value="local">
+					{#if component && component.customCss !== undefined}
+						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
+							<div class="w-full">
+								<CssProperty
+									quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
+									forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
+									forceClass={ccomponents[component.type].customCss[name].class !== undefined}
+									tooltip={ccomponents[component.type].customCss[name].tooltip}
+									{name}
+									wmClass={getSelector(name)}
+									componentType={component.type}
+									bind:value={component.customCss[name]}
+									on:change={() => app.set($app)}
+									shouldDisplayRight={hasStyleValue(component.customCss[name])}
+									on:right={() => {
+										copyLocalToGlobal(name, component?.customCss?.[name])
+										tab = 'global'
 									}}
-									overriden={hasStyleValue(component.customCss[id])}
-									wmClass={getSelector(id)}
+									overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+										hasStyleValue(component.customCss[name])}
 								/>
-							{/if}
-						</div>
-					{/each}
-				{/if}
-			</TabContent>
-		</svelte:fragment>
-	</Tabs>
+							</div>
+						{/each}
+					{/if}
+				</TabContent>
+				<TabContent value="global">
+					{#if type}
+						{#each customCssByComponentType ?? [] as { id, forceStyle, forceClass }}
+							<div class="w-full">
+								{#if $app.css && type && $app.css[type] && component?.customCss}
+									<CssPropertyWrapper
+										{forceStyle}
+										{forceClass}
+										{id}
+										bind:property={$app.css[type]}
+										on:left={() => {
+											copyGlobalToLocal(
+												id,
+												component?.type ? $app?.css?.[component?.type]?.[id] : undefined
+											)
+											tab = 'local'
+										}}
+										overriden={hasStyleValue(component.customCss[id])}
+										wmClass={getSelector(id)}
+									/>
+								{/if}
+							</div>
+						{/each}
+					{/if}
+				</TabContent>
+			</svelte:fragment>
+		</Tabs>
 
-	<ConfirmationModal
-		title="Confirm overriding global CSS"
-		confirmationText="Override global CSS"
-		open={Boolean(overrideGlobalCSS)}
-		on:confirmed={() => {
-			if (overrideGlobalCSS) {
-				overrideGlobalCSS()
+		<ConfirmationModal
+			title="Confirm overriding global CSS"
+			confirmationText="Override global CSS"
+			open={Boolean(overrideGlobalCSS)}
+			on:confirmed={() => {
+				if (overrideGlobalCSS) {
+					overrideGlobalCSS()
+					overrideGlobalCSS = undefined
+				}
+
+				sendUserToast('Global CSS overridden')
+			}}
+			on:canceled={() => {
 				overrideGlobalCSS = undefined
-			}
+			}}
+		>
+			<div class="text-primary pb-2">
+				The global CSS for this component already exists. Do you want to override it?
+			</div>
+		</ConfirmationModal>
 
-			sendUserToast('Global CSS overridden')
-		}}
-		on:canceled={() => {
-			overrideGlobalCSS = undefined
-		}}
-	>
-		<div class="text-primary pb-2">
-			The global CSS for this component already exists. Do you want to override it?
-		</div>
-	</ConfirmationModal>
+		<ConfirmationModal
+			title="Confirm overriding local CSS"
+			confirmationText="Override local CSS"
+			open={Boolean(overrideLocalCSS)}
+			on:confirmed={() => {
+				if (overrideLocalCSS) {
+					overrideLocalCSS()
+					overrideLocalCSS = undefined
+				}
 
-	<ConfirmationModal
-		title="Confirm overriding local CSS"
-		confirmationText="Override local CSS"
-		open={Boolean(overrideLocalCSS)}
-		on:confirmed={() => {
-			if (overrideLocalCSS) {
-				overrideLocalCSS()
+				sendUserToast('Local CSS overridden')
+			}}
+			on:canceled={() => {
 				overrideLocalCSS = undefined
-			}
-
-			sendUserToast('Local CSS overridden')
-		}}
-		on:canceled={() => {
-			overrideLocalCSS = undefined
-		}}
-	>
-		<div class="text-primary pb-2">
-			The local CSS for this component already exists. Do you want to override it?
-		</div>
-	</ConfirmationModal>
-	<CssMigrationModal bind:this={migrationModal} bind:component />
+			}}
+		>
+			<div class="text-primary pb-2">
+				The local CSS for this component already exists. Do you want to override it?
+			</div>
+		</ConfirmationModal>
+		<CssMigrationModal bind:this={migrationModal} bind:component />
+	{/key}
 {:else}
 	<span class="text-sm text-gray-600 mx-2">Select a component to style it in this panel</span>
 {/if}

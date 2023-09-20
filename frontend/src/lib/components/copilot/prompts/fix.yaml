@@ -1,6 +1,6 @@
 system: |-
   You fix the code shared by the user. Only output code. Wrap the code in a code block. 
-  Explain the error and the fix.
+  Explain the error and the fix after generating the code inside an <explanation> tag.
   Also put explanations directly in the code as comments.
 
   Here's how interactions have to look like:
@@ -8,7 +8,7 @@ system: |-
   assistant: ```language
   {code}
   ```
-  explanation: "{explanation}"
+  <explanation>{explanation}</explanation>
 prompts:
   python3:
     prompt: |-
@@ -16,9 +16,15 @@ prompts:
       ```python
       {code}
       ```
-      Additional information: We have to export a "main" function and specify the parameter types but do not call it.
-      You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
-      Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      <contextual_information>
+      We have to export a "main" function and specify the parameter types but do not call it.
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      The resource type name has to be exactly as specified (has to be IN LOWERCASE).
+      <resourceTypes>
+      {resourceTypes}
+      </resourceTypes>
+      Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   deno:
@@ -27,9 +33,16 @@ prompts:
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
-      You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-      Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      <contextual_information>
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      If needed, the standard fetch method is available globally, do not import it.
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      The resource type name has to be exactly as specified.
+      <resourceTypes>
+      {resourceTypes}
+      </resourceTypes>
+      Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   go:
@@ -38,7 +51,9 @@ prompts:
       ```go
       {code}
       ```
-      Additional information: We have to export a "main" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner"
+      <contextual_information>
+      We have to export a "main" function. Import the packages you need. The return type of the function has to be ({return_type}, error). The file package has to be "inner"
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   bash:
@@ -47,7 +62,9 @@ prompts:
       ```shell
       {code}
       ```
-      Additional information: Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+      <contextual_information>
+      Do not include "#!/bin/bash". Arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc... You do not need to check if the arguments are present.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   postgresql:
@@ -56,7 +73,9 @@ prompts:
       ```sql
       {code}
       ```
-      Additional information: Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row, do not include the type)
+      <contextual_information>
+      Arguments can be obtained directly in the statement with `$1::{type}`, `$2::{type}`, etc... Name the parameters (without specifying the type) by adding comments before the statement like that: `-- $1 name1` or `-- $2 name = default` (one per row)
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   mysql:
@@ -65,7 +84,9 @@ prompts:
       ```sql
       {code}
       ```
-      Additional information: Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+      <contextual_information>
+      Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   bigquery:
@@ -74,7 +95,9 @@ prompts:
       ```sql
       {code}
       ```
-      Additional information: You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....
+      <contextual_information>
+      You can define arguments by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   snowflake:
@@ -83,7 +106,9 @@ prompts:
       ```sql
       {code}
       ```
-      Additional information: Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+      <contextual_information>
+      Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   graphql:
@@ -92,6 +117,9 @@ prompts:
       ```graphql
       {code}
       ```
+      <contextual_information>
+      Add the needed arguments as query parameters.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   powershell:
@@ -100,7 +128,9 @@ prompts:
       ```powershell
       {code}
       ```
-      Additional information: Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`
+      <contextual_information>
+      Arguments can be obtained by calling the param function on the first line like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   nativets:
@@ -109,20 +139,32 @@ prompts:
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
-      You should use fetch and are not allowed to import any libraries.
-      You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-      Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      <contextual_information>
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      The resource type name has to be exactly as specified.
+      <resourceTypes>
+      {resourceTypes}
+      </resourceTypes>
+      Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.
   bun:
     prompt: |-
-      Here's my TypeScript code in a node.js running environment: 
+      Here's my TypeScript code: 
       ```typescript
       {code}
       ```
-      Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
-      You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-      Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      <contextual_information>
+      We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+      If needed, the standard fetch method is available globally, do not import it.
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      The resource type name has to be exactly as specified.
+      <resourceTypes>
+      {resourceTypes}
+      </resourceTypes>
+      Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+      </contextual_information>
       I get the following error: {error}
       Fix my code.

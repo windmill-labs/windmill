@@ -4,13 +4,13 @@
 - lang: python3
   type: fix
   code: |-
-    def main(num: int) -> int:
+    def main(num: int) -> float:
       return 3 / num
   error: division by zero
 - lang: python3
   type: edit
   code: |-
-    def main(num: int) -> int:
+    def main(num: int) -> float:
       return num / 16
   description: comment my code
 - lang: go

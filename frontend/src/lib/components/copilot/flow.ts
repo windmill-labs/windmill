@@ -53,12 +53,25 @@ const additionalInfos: {
 	bun: string
 	python3: string
 } = {
-	bun: `Additional information: We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
-You have access to the following resource types, if you need them, you have to define the type exactly as specified and add them as parameters: {resourceTypes}
-Only use the ones you need. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.`,
-	python3: `Additional information: We have to export a "main" function and specify the parameter types but do not call it.
-You have access to the following resource types, if you need them, you have to define the TypedDict exactly as specified (class name has to be IN LOWERCASE) and add them as parameters: {resourceTypes}
-Only use the ones you need. If the TypedDict name conflicts with the imported object, rename the imported object NOT THE TYPE.`
+	bun: `<contextual_information>
+We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+If needed, the standard fetch method is available globally, do not import it.
+You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+The resource type name has to be exactly as specified.
+<resourceTypes>
+{resourceTypes}
+</resourceTypes>
+Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+</contextual_information>`,
+	python3: `<contextual_information>
+We have to export a "main" function and specify the parameter types but do not call it.
+You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+The resource type name has to be exactly as specified (has to be IN LOWERCASE).
+<resourceTypes>
+{resourceTypes}
+</resourceTypes>
+Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+</contextual_information>`
 }
 
 const triggerPrompts: {

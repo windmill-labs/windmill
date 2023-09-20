@@ -8,8 +8,8 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
         write_file,
     },
-    AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, NPM_CONFIG_REGISTRY,
-    PATH_ENV, TZ_ENV,
+    AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
+    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, BASE_URL};
@@ -54,6 +54,7 @@ async fn get_common_deno_proc_envs(
 
     let mut deno_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
         (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
         (

@@ -96,8 +96,9 @@ def prepare_prompt(
     if query["lang"] in ["postgresql"]:
         prompt = (
             prompt
-            + "\nHere's the database schema, each column is in the format [name, type, required, default?]: "
+            + "\nHere's the database schema, each column is in the format [name, type, required, default?]: <dbschema>\n"
             + DB_SCHEMA
+            + "\n</dbschema>"
         )
 
     return system, prompt, template_prompt

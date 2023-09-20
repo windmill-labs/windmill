@@ -18,14 +18,17 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
         write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
+    AuthedClientBackgroundTask, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV,
     NPM_CONFIG_REGISTRY, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 #[cfg(feature = "enterprise")]
 use crate::MAX_BUFFERED_DEDICATED_JOBS;
 
-use tokio::{fs::File, process::Command};
+use tokio::{
+    fs::{remove_dir_all, File},
+    process::Command,
+};
 
 #[cfg(feature = "enterprise")]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -227,6 +230,7 @@ pub async fn handle_bun_job(
             common_bun_proc_envs.clone(),
         )
         .await?;
+        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
@@ -243,6 +247,7 @@ pub async fn handle_bun_job(
             false,
         )
         .await?;
+        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     }
 
     logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
@@ -421,6 +426,7 @@ plugin(p)
 pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
     let mut deno_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
         (String::from("DISABLE_COLORS"), "0".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
