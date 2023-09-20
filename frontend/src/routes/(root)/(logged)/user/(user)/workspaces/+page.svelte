@@ -224,6 +224,7 @@
 			<Icon data={faUserCog} class="mr-1" scale={1} />
 			User settings
 		</Button>
+
 		<Button
 			variant="border"
 			color="blue"

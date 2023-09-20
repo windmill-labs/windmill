@@ -132,7 +132,7 @@ export const APP_TO_ICON_COMPONENT = {
 	bigquery: BigQueryIcon,
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
-	azure: AzureIcon,
+	azure: AzureIcon
 } as const
 
 export {
@@ -196,5 +196,5 @@ export {
 	BigQueryIcon,
 	GraphqlIcon,
 	NocoDbIcon,
-	AzureIcon,
+	AzureIcon
 }

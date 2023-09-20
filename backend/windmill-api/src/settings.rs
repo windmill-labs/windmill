@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::time::Duration;
+
 use crate::{
     db::{ApiAuthed, DB},
     utils::require_super_admin,
@@ -17,18 +19,57 @@ use axum::{
     Json, Router,
 };
 
+use mail_send::{mail_builder::MessageBuilder, SmtpClientBuilder};
+use serde::Deserialize;
+use tokio::time::timeout;
 use windmill_common::{
-    error::{self, JsonResult},
+    error::{self, to_anyhow, JsonResult},
     global_settings::ENV_SETTINGS,
+    server::Smtp,
 };
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/local", get(get_local_settings))
+        .route("/envs", get(get_local_settings))
         .route(
             "/global/:key",
             post(set_global_setting).get(get_global_setting),
         )
+        .route("/test_smtp", post(test_email))
+}
+
+#[derive(Deserialize)]
+pub struct TestEmail {
+    pub to: String,
+    pub smtp: Smtp,
+}
+
+pub async fn test_email(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(test_email): Json<TestEmail>,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let smtp = test_email.smtp;
+    let to = test_email.to;
+    let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+        .implicit_tls(smtp.tls_implicit)
+        .credentials((smtp.username, smtp.password));
+    let message = MessageBuilder::new()
+        .from(("Windmill", smtp.from.as_str()))
+        .to(to.clone())
+        .subject("Test email from Windmill")
+        .text_body("Test email content");
+    let dur = Duration::from_secs(3);
+    timeout(dur, client.connect())
+        .await
+        .map_err(to_anyhow)?
+        .map_err(to_anyhow)?
+        .send(message)
+        .await
+        .map_err(to_anyhow)?;
+    tracing::info!("Sent test email to {to}");
+    Ok("Sent test email".to_string())
 }
 
 pub async fn get_local_settings(

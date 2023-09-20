@@ -3,7 +3,7 @@
 	import { Button, Popup } from './common'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { WorkerService } from '$lib/gen'
+	import { ConfigService } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -49,7 +49,7 @@
 	const dispatch = createEventDispatcher()
 
 	async function deleteWorkerGroup() {
-		await WorkerService.deleteWorkerGroup({ name })
+		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
 	}
 	let dirty = false
@@ -120,10 +120,10 @@
 			</ToggleButtonGroup>
 			{#if selected == 'normal'}
 				{#if nconfig?.worker_tags != undefined}
-					<div class="flex flex-col gap-1 pb-2">
+					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
 						{#each nconfig.worker_tags as tag}
-							<div class="flex gap-1 items-center"
-								><div class="text-sm">- {tag}</div>
+							<div class="flex gap-0.5 items-center"
+								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
 								<button
 									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 									aria-label="Remove item"
@@ -133,7 +133,7 @@
 										}
 									}}
 								>
-									<X size={14} />
+									<X size={12} />
 								</button></div
 							>
 						{/each}
@@ -221,10 +221,8 @@
 					color="dark"
 					size="xs"
 					on:click={async () => {
-						await WorkerService.updateWorkerGroup({ name, requestBody: nconfig })
-						sendUserToast(
-							'Setting configuration, it can take up to 30s to get propagated to all workers'
-						)
+						await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
+						sendUserToast('Configuration set')
 						dispatch('reload')
 					}}
 					disabled={!dirty || !$enterpriseLicense}

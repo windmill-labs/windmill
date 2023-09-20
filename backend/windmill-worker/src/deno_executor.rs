@@ -41,8 +41,12 @@ lazy_static::lazy_static! {
 
 
 }
-fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<String, String> {
-    let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
+async fn get_common_deno_proc_envs(
+    token: &str,
+    base_internal_url: &str,
+) -> HashMap<String, String> {
+    let hostname = BASE_URL.read().await.clone();
+    let hostname_base = hostname.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
     let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
     let deno_auth_tokens =
@@ -259,7 +263,7 @@ run().catch(async (e) => {{
         write_import_map_f
     )?;
 
-    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
+    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");

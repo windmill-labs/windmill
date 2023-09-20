@@ -18,7 +18,7 @@ use crate::{
     utils::require_super_admin,
     webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    BASE_URL, COOKIE_DOMAIN, IS_SECURE, SMTP_CLIENT, SMTP_FROM,
+    BASE_URL, COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -32,6 +32,7 @@ use axum::{
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
 use mail_send::mail_builder::MessageBuilder;
+use mail_send::SmtpClientBuilder;
 use rand::rngs::OsRng;
 use regex::Regex;
 use retainer::Cache;
@@ -41,7 +42,7 @@ use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -1220,12 +1221,6 @@ async fn decline_invite(
 
 lazy_static! {
     pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
-
-    pub static ref JOB_RETENTION_SECS: u32 = std::env::var("JOB_RETENTION_SECS")
-    .ok()
-    .and_then(|x| x.parse::<u32>().ok())
-    .unwrap_or(60 * 60 * 24 * 60); // 60 days
-
 }
 
 async fn accept_invite(
@@ -1570,7 +1565,9 @@ async fn create_user(
 Log in and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
 
 You can then join or create a workspace. Happy building!",
-            *BASE_URL, &nu.email, &nu.password
+            BASE_URL.read().await.clone(),
+            &nu.email,
+            &nu.password
         ),
         &nu.email,
     );
@@ -1590,13 +1587,17 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
 }
 
 pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
-    if let Some(ref smtp) = *SMTP_CLIENT {
+    if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
+        let client = SmtpClientBuilder::new(smtp.host, smtp.port)
+            .implicit_tls(smtp.tls_implicit)
+            .credentials((smtp.username, smtp.password));
         let message = MessageBuilder::new()
-            .from(("Windmill", SMTP_FROM.as_str()))
+            .from(("Windmill", smtp.from.as_str()))
             .to(to)
             .subject(subject)
             .text_body(content);
-        smtp.connect()
+        client
+            .connect()
             .await
             .map_err(to_anyhow)?
             .send(message)
@@ -1942,7 +1943,7 @@ pub async fn create_session_token<'c>(
     .execute(&mut **tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(*IS_SECURE);
+    cookie.set_secure(IS_SECURE.read().await.clone());
     cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
@@ -2357,62 +2358,6 @@ pub async fn login_externally(
     }
     tx.commit().await?;
     Ok(())
-}
-
-pub async fn delete_expired_items(db: &DB) -> () {
-    let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-        "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
-    )
-    .fetch_all(db)
-    .await;
-
-    match tokens_deleted_r {
-        Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
-        Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
-    }
-
-    let pip_resolution_r = sqlx::query_scalar!(
-        "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
-    )
-    .fetch_all(db)
-    .await;
-
-    match pip_resolution_r {
-        Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
-        Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
-    }
-
-    let deleted_cache = sqlx::query_scalar!(
-            "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
-        )
-        .fetch_all(db)
-        .await;
-
-    match deleted_cache {
-        Ok(res) => tracing::debug!("deleted {} cache resource: {:?}", res.len(), res),
-        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
-    }
-
-    if *JOB_RETENTION_SECS > 0 {
-        let deleted_jobs = sqlx::query_scalar!(
-                "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
-                *JOB_RETENTION_SECS as i64
-            )
-            .fetch_all(db)
-            .await;
-
-        match deleted_jobs {
-            Ok(deleted_jobs) => {
-                tracing::info!(
-                    "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
-                    deleted_jobs.len(),
-                    deleted_jobs
-                )
-            }
-            Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
-        }
-    }
 }
 
 pub fn truncate_token(token: &str) -> String {
