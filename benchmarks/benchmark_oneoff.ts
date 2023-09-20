@@ -65,11 +65,36 @@ export async function main({
   windmill.setClient(final_token, host);
   const enc = (s: string) => new TextEncoder().encode(s);
 
+  async function getQueueCount() {
+    return (
+      await (
+        await fetch(
+          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+  }
+
+  let pastJobs = 0;
+  async function getCompletedJobsCount(): Promise<number> {
+    const completedJobs = (
+      await (
+        await fetch(
+          host + "/api/w/" + config.workspace_id + "/jobs/completed/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+    return completedJobs - pastJobs;
+  }
+  pastJobs = await getCompletedJobsCount();
+
   if (["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)) {
     await createBenchScript(kind, workspace);
   }
 
-  let jobsSent = jobs;
+  const jobsSent = jobs;
   console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
@@ -122,47 +147,45 @@ export async function main({
   );
   let start = Date.now();
 
-  let queue_length = jobsSent;
+  let completedJobs = 0;
   let lastElapsed = 0;
-  let lastQueueLength = queue_length;
+  let lastCompletedJobs = 0;
   const updateState = setInterval(async () => {
     const elapsed = start ? Date.now() - start : 0;
-    queue_length = (
-      await (
-        await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } }
-        )
-      ).json()
-    ).database_length;
-    const avgThr = (((jobsSent - queue_length) / elapsed) * 1000).toFixed(2);
+    completedJobs = await getCompletedJobsCount();
+    const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
     const instThr =
       lastElapsed > 0
         ? (
-            ((lastQueueLength - queue_length) / (elapsed - lastElapsed)) *
+            ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
             1000
           ).toFixed(2)
         : 0;
 
     lastElapsed = elapsed;
-    lastQueueLength = queue_length;
+    lastCompletedJobs = completedJobs;
 
     await Deno.stdout.write(
       enc(
-        `elapsed: ${(elapsed / 1000).toFixed(2)} | jobs executed: ${
-          jobsSent - queue_length
-        }/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | queue: ${queue_length}                          \r`
+        `elapsed: ${(elapsed / 1000).toFixed(
+          2
+        )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
+          jobsSent - completedJobs
+        }                          \r`
       )
     );
-  }, 10);
+  }, 50);
 
-  while (queue_length > 0) {
-    if (queue_length < jobsSent && jobsSent === jobs) {
-      // reset start time to when the first job was picked up
-      start = Date.now();
-      jobsSent = queue_length;
+  let didStart = false;
+  while (completedJobs < jobsSent) {
+    if (!didStart) {
+      const actual_queue = await getQueueCount();
+      if (actual_queue < jobsSent) {
+        start = Date.now();
+        didStart = true;
+      }
     }
-    await sleep(0.01);
+    await sleep(0.05);
   }
 
   clearInterval(updateState);
@@ -174,17 +197,8 @@ export async function main({
   console.log(`duration: ${total_duration_sec}s`);
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
-  console.log(
-    "queue length:",
-    (
-      await (
-        await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } }
-        )
-      ).json()
-    ).database_length
-  );
+  console.log("completed jobs", await getCompletedJobsCount());
+  console.log("queue length:", await getQueueCount());
   console.log("done");
 
   return {

@@ -159,6 +159,7 @@ Windmill Community Edition {GIT_VERSION}
             rsmq.clone(),
             worker_mode,
             server_mode,
+            false,
         )
         .await;
 
@@ -214,6 +215,7 @@ Windmill Community Edition {GIT_VERSION}
                         rsmq.clone(),
                         worker_mode,
                         server_mode,
+                        true,
                     )
                     .await;
                     tokio::select! {

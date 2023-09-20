@@ -2471,8 +2471,8 @@ async fn add_batch_jobs(
             language as ScriptLang,
             tag,
             authed.username,
-            authed.email,
             username_to_permissioned_as(&authed.username),
+            authed.email,
             Utc::now(),
             w_id,
             n

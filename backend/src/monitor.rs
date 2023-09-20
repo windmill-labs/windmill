@@ -49,6 +49,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     rsmq: Option<R>,
     worker_mode: bool,
     server_mode: bool,
+    kill_on_change: bool,
 ) {
     let zombie_jobs_f = async {
         if server_mode {
@@ -62,7 +63,7 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
     let reload_worker_config_f = async {
         if worker_mode {
-            reload_worker_config(&db, tx).await;
+            reload_worker_config(&db, tx, kill_on_change).await;
         }
     };
     let reload_custom_tags_f = async {
@@ -104,7 +105,11 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     }
 }
 
-pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcast::Sender<()>) {
+pub async fn reload_worker_config(
+    db: &Pool<Postgres>,
+    tx: tokio::sync::broadcast::Sender<()>,
+    kill_on_change: bool,
+) {
     let config = load_worker_config(&db).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
@@ -112,7 +117,7 @@ pub async fn reload_worker_config(db: &Pool<Postgres>, tx: tokio::sync::broadcas
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
         if *wc != config {
-            if (*wc).dedicated_worker != config.dedicated_worker {
+            if (*wc).dedicated_worker != config.dedicated_worker && kill_on_change {
                 tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                 let _ = tx.send(());
             }
