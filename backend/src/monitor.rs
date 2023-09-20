@@ -67,7 +67,7 @@ pub async fn initial_load(
 ) {
     let reload_worker_config_f = async {
         if worker_mode {
-            reload_worker_config(&db, tx).await;
+            reload_worker_config(&db, tx, false).await;
         }
     };
     let reload_custom_tags_f = async {
@@ -101,7 +101,6 @@ pub async fn initial_load(
         if server_mode {
             reload_request_size(&db).await;
         }
-        tracing::info!("6")
     };
     join!(
         reload_worker_config_f,
@@ -309,7 +308,11 @@ pub async fn reload_server_config(db: &Pool<Postgres>) {
     }
 }
 
-pub async fn reload_worker_config(db: &DB, tx: tokio::sync::broadcast::Sender<()>) {
+pub async fn reload_worker_config(
+    db: &DB,
+    tx: tokio::sync::broadcast::Sender<()>,
+    kill_if_change: bool,
+) {
     let config = load_worker_config(&db).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
@@ -317,7 +320,7 @@ pub async fn reload_worker_config(db: &DB, tx: tokio::sync::broadcast::Sender<()
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
         if *wc != config {
-            if (*wc).dedicated_worker != config.dedicated_worker {
+            if kill_if_change && (*wc).dedicated_worker != config.dedicated_worker {
                 tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                 let _ = tx.send(());
             }

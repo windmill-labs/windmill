@@ -243,7 +243,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
                                                     tracing::info!("Worker config change detected");
-                                                    reload_worker_config(&db, tx.clone()).await;
+                                                    reload_worker_config(&db, tx.clone(), true).await;
                                                 },
                                                 _ => {
                                                     ()
