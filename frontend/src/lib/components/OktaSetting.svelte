@@ -13,18 +13,20 @@
 	$: changeOrg(org)
 
 	function changeOrg(org) {
-		value = {
-			...value,
-			login_config: {
-				auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
-				token_url: `https://${org}.okta.com/oauth2/v1/token`,
-				userinfo_url: `https://${org}.okta.com/oauth2/v1/userinfo`,
-				scopes: ['openid', 'profile', 'email']
-			},
-			connect_config: {
-				auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
-				token_url: `https://${org}.okta.com/oauth2/v1/token`,
-				scopes: ['openid', 'profile', 'email']
+		if (value) {
+			value = {
+				...value,
+				login_config: {
+					auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
+					token_url: `https://${org}.okta.com/oauth2/v1/token`,
+					userinfo_url: `https://${org}.okta.com/oauth2/v1/userinfo`,
+					scopes: ['openid', 'profile', 'email']
+				},
+				connect_config: {
+					auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
+					token_url: `https://${org}.okta.com/oauth2/v1/token`,
+					scopes: ['openid', 'profile', 'email']
+				}
 			}
 		}
 	}
