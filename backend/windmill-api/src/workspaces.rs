@@ -846,7 +846,7 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
 
 lazy_static::lazy_static! {
 
-    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(false));
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(true));
 
 }
 
