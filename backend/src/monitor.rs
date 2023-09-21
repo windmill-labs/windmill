@@ -63,7 +63,7 @@ pub async fn initial_load(
     db: &Pool<Postgres>,
     tx: tokio::sync::broadcast::Sender<()>,
     worker_mode: bool,
-    server_mode: bool,
+    server_mode: bool
 ) {
     let reload_worker_config_f = async {
         if worker_mode {
