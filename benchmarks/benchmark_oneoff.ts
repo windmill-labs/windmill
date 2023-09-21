@@ -181,6 +181,7 @@ export async function main({
 
   let didStart = false;
   while (completedJobs < jobsSent) {
+    let loopStart = Date.now();
     if (!didStart) {
       const actual_queue = await getQueueCount();
       if (actual_queue < jobsSent) {
@@ -215,6 +216,10 @@ export async function main({
         )
       );
     }
+    let loopDuration = (Date.now() - loopStart) / 1000.0;
+    if (loopDuration < 0.05) {
+      await sleep(0.05 - loopDuration);
+    }
   }
 
   const total_duration_sec = (Date.now() - start) / 1000.0;
@@ -223,7 +228,7 @@ export async function main({
   console.log(`duration: ${total_duration_sec}s`);
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
-  console.log("completed jobs", await getCompletedJobsCount());
+  console.log("completed jobs", completedJobs);
   console.log("queue length:", await getQueueCount());
 
   if (!noVerify && kind !== "noop") {
