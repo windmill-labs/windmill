@@ -2332,7 +2332,6 @@ struct BatchInfo {
     kind: String,
     flow_value: Option<FlowValue>,
     path: Option<String>,
-    dedicated_worker: Option<bool>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2362,7 +2361,7 @@ async fn add_batch_jobs(
                 batch_info.path,
                 JobKind::Script,
                 Some(script.language),
-                batch_info.dedicated_worker,
+                script.dedicated_worker,
             )
         }
         "flow" => {
@@ -2433,15 +2432,22 @@ async fn add_batch_jobs(
         format!("{}", language.as_str())
     };
 
-    let uuids = sqlx::query_scalar!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11)) RETURNING id",
+    let uuids = sqlx::query_scalar!(
+        r#"WITH uuid_table as (
+            select gen_random_uuid() as uuid from generate_series(1, $11)
+        )
+        INSERT INTO queue 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10 FROM uuid_table) 
+        RETURNING id"#,
             hash.map(|h| h.0),
             path,
             job_kind.clone() as JobKind,
             language as ScriptLang,
             tag,
             authed.username,
-            authed.email,
             username_to_permissioned_as(&authed.username),
+            authed.email,
             Utc::now(),
             w_id,
             n
