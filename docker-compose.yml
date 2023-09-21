@@ -22,7 +22,7 @@ services:
 
   windmill_server:
     image: ${WM_IMAGE}
-    pull_policy: always
+    # pull_policy: always
     deploy:
       replicas: 1
     restart: unless-stopped
@@ -41,12 +41,15 @@ services:
       db:
         condition: service_healthy
 
-
   windmill_worker:
     image: ${WM_IMAGE}
-    pull_policy: always
+    # pull_policy: always
     deploy:
       replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -66,29 +69,27 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
 
-  ## This worker is specialized for "native" jobs. They run in-process and can thus be parallelized to more than 1 at a time on a given worker which is why NUM_WORKERS is set to 4
+  ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
-    pull_policy: always
+    # pull_policy: always
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
-          limits:
-            cpus: "0.25"
-            memory: 512M
+        limits:
+          cpus: "0.1"
+          memory: 128M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - RUST_LOG=info
       - DISABLE_SERVER=true
       - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      - NUM_WORKERS=4
       - WORKER_GROUP=native
     depends_on:
       db:
         condition: service_healthy
-
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
