@@ -14,6 +14,7 @@
 	export let close: () => void
 	export let funcDesc: string
 	export let modules: FlowModule[]
+	export let trigger = false
 
 	// state
 	let input: HTMLInputElement | undefined
@@ -31,7 +32,8 @@
 			const ts = Date.now()
 			const scriptIds = await ScriptService.queryHubScripts({
 				text: `${text}`,
-				limit: 3
+				limit: 3,
+				kind: trigger ? 'trigger' : 'script'
 			})
 			if (ts < doneTs) return
 			doneTs = ts
@@ -60,7 +62,7 @@
 		$copilotModulesStore = [
 			{
 				id: nextId($flowStateStore, $flowStore),
-				type: 'script',
+				type: trigger ? 'trigger' : 'script',
 				description: funcDesc,
 				code: '',
 				source: selectedCompletion ? 'hub' : 'custom',
@@ -96,7 +98,7 @@
 						hubCompletions = []
 					}
 				}}
-				placeholder="AI Gen       or search hub scripts"
+				placeholder="AI Gen       or search hub {trigger ? 'triggers' : 'scripts'}"
 			/>
 			{#if funcDesc.length === 0}
 				<Icon
@@ -155,7 +157,7 @@
 		{/if}
 		{#if hubCompletions.length > 0}
 			<div class="text-left mt-2">
-				<p class="text-xs text-secondary ml-2">Hub Scripts</p>
+				<p class="text-xs text-secondary ml-2">Hub {trigger ? 'Triggers' : 'Scripts'}</p>
 				<ul class="transition-all divide-y">
 					{#each hubCompletions as item (item.path)}
 						<li>
