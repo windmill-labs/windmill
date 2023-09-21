@@ -11,6 +11,31 @@ import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 
 import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
 
+async function verifyOutputs(uuids: string[], workspace: string) {
+  console.log("Verifying outputs");
+  let incorrectResults = 0;
+  for (const uuid of uuids) {
+    try {
+      const job = await windmill.JobService.getCompletedJob({
+        workspace,
+        id: uuid,
+      });
+      if (!job.success) {
+        console.log(`Job ${uuid} did not complete`);
+        incorrectResults++;
+      }
+      if (job.result !== uuid) {
+        console.log(`Job ${uuid} did not output the correct value`);
+        incorrectResults++;
+      }
+    } catch (err) {
+      console.log(`Job ${uuid} did not complete`);
+      incorrectResults++;
+    }
+  }
+  console.log(`Incorrect results: ${incorrectResults}`);
+}
+
 export async function main({
   host,
   email,
@@ -19,6 +44,7 @@ export async function main({
   workspace,
   kind,
   jobs,
+  noVerify,
 }: {
   host: string;
   email?: string;
@@ -27,6 +53,7 @@ export async function main({
   workspace: string;
   kind: string;
   jobs: number;
+  noVerify: boolean;
 }) {
   windmill.setClient("", host);
 
@@ -88,11 +115,12 @@ export async function main({
     ).database_length;
     return completedJobs - pastJobs;
   }
-  pastJobs = await getCompletedJobsCount();
 
   if (["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)) {
     await createBenchScript(kind, workspace);
   }
+
+  pastJobs = await getCompletedJobsCount();
 
   const jobsSent = jobs;
   console.log(`Bulk creating ${jobsSent} jobs`);
@@ -109,9 +137,8 @@ export async function main({
     body = JSON.stringify({
       kind: "script",
       path: "f/benchmarks/" + kind,
-      dedicated_worker: kind === "dedicated",
     });
-  } else if (["2steps", "onebranch", "branchallparrallel"].includes(kind)) {
+  } else if (["2steps"].includes(kind)) {
     const payload = getFlowPayload(kind);
     body = JSON.stringify({
       kind: "flow",
@@ -138,6 +165,7 @@ export async function main({
   if (!response.ok) {
     throw new Error("Failed to create jobs: " + response.statusText);
   }
+  const uuids = await response.json();
   const end_create = Date.now();
   const create_duration = end_create - start_create;
   console.log(
@@ -150,31 +178,6 @@ export async function main({
   let completedJobs = 0;
   let lastElapsed = 0;
   let lastCompletedJobs = 0;
-  const updateState = setInterval(async () => {
-    const elapsed = start ? Date.now() - start : 0;
-    completedJobs = await getCompletedJobsCount();
-    const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
-    const instThr =
-      lastElapsed > 0
-        ? (
-            ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
-            1000
-          ).toFixed(2)
-        : 0;
-
-    lastElapsed = elapsed;
-    lastCompletedJobs = completedJobs;
-
-    await Deno.stdout.write(
-      enc(
-        `elapsed: ${(elapsed / 1000).toFixed(
-          2
-        )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
-          jobsSent - completedJobs
-        }                          \r`
-      )
-    );
-  }, 50);
 
   let didStart = false;
   while (completedJobs < jobsSent) {
@@ -184,21 +187,49 @@ export async function main({
         start = Date.now();
         didStart = true;
       }
-    }
-    await sleep(0.05);
-  }
+    } else {
+      const elapsed = start ? Date.now() - start : 0;
+      completedJobs = await getCompletedJobsCount();
+      if (kind === "2steps") {
+        completedJobs = Math.floor(completedJobs / 3);
+      }
+      const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
+      const instThr =
+        lastElapsed > 0
+          ? (
+              ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
+              1000
+            ).toFixed(2)
+          : 0;
 
-  clearInterval(updateState);
+      lastElapsed = elapsed;
+      lastCompletedJobs = completedJobs;
+
+      await Deno.stdout.write(
+        enc(
+          `elapsed: ${(elapsed / 1000).toFixed(
+            2
+          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
+            jobsSent - completedJobs
+          }                          \r`
+        )
+      );
+    }
+  }
 
   const total_duration_sec = (Date.now() - start) / 1000.0;
 
-  await sleep(0.1);
   console.log(`\njobs: ${jobsSent}`);
   console.log(`duration: ${total_duration_sec}s`);
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
   console.log("completed jobs", await getCompletedJobsCount());
   console.log("queue length:", await getQueueCount());
+
+  if (!noVerify && kind !== "noop") {
+    await verifyOutputs(uuids, config.workspace_id);
+  }
+
   console.log("done");
 
   return {
@@ -243,7 +274,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, onebranch, branchallparrallel",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps",
       {
         required: true,
       }
@@ -251,6 +282,7 @@ if (import.meta.main) {
     .option("-j --jobs <jobs:number>", "Number of jobs to create.", {
       default: 10000,
     })
+    .option("--no-verify", "Do not verify the output of the jobs.")
     .action(main)
     .command(
       "upgrade",

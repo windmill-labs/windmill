@@ -10,6 +10,7 @@ use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
+use prometheus::core::{AtomicU64, GenericCounter};
 #[cfg(feature = "benchmark")]
 use serde::Serialize;
 use sqlx::{Pool, Postgres};
@@ -340,6 +341,52 @@ macro_rules! add_time {
     };
 }
 
+async fn handle_receive_completed_job<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
+>(
+    jc: JobCompleted,
+    worker_execution_failed: HashMap<Option<ScriptLang>, GenericCounter<AtomicU64>>,
+    base_internal_url: String,
+    db: Pool<Postgres>,
+    worker_dir: String,
+    same_worker_tx: Sender<Uuid>,
+    rsmq: Option<R>,
+) {
+    let metrics = build_language_metrics(&worker_execution_failed.clone(), &jc.job.language);
+    let token = jc.token.clone();
+    let workspace = jc.job.workspace_id.clone();
+    let client = AuthedClient {
+        base_internal_url: base_internal_url.to_string(),
+        workspace,
+        token,
+        client: OnceCell::new(),
+    };
+    if let Err(err) = process_completed_job(
+        &jc,
+        &client,
+        &db,
+        &worker_dir,
+        metrics.clone(),
+        same_worker_tx.clone(),
+        rsmq.clone(),
+    )
+    .await
+    {
+        handle_job_error(
+            &db,
+            &client,
+            &jc.job,
+            err,
+            metrics,
+            false,
+            same_worker_tx.clone(),
+            &worker_dir,
+            rsmq.clone(),
+        )
+        .await;
+    }
+}
+
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
@@ -554,12 +601,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_execution_failed2 = worker_execution_failed.clone();
     let thread_count = Arc::new(AtomicUsize::new(0));
 
+    let is_dedicated_worker = WORKER_CONFIG.read().await.dedicated_worker.is_some();
+
     #[cfg(feature = "benchmark")]
     let jobs = 25000;
 
     #[cfg(feature = "benchmark")]
     {
-        if WORKER_CONFIG.read().await.dedicated_worker.is_some() {
+        if is_dedicated_worker {
             // you need to create the script first, check https://github.com/windmill-labs/windmill/blob/b76a92cfe454c686f005c65f534e29e039f3c706/benchmarks/lib.ts#L47
             let hash = sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2",
@@ -621,9 +670,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let send_result = tokio::spawn(async move {
         while let Some(jc) = job_completed_rx.recv().await {
-            thread_count.fetch_add(1, Ordering::SeqCst);
-            let thread_count = thread_count.clone();
-
             let base_internal_url2 = base_internal_url2.clone();
             let worker_execution_failed2 = worker_execution_failed2.clone();
             let worker_dir2 = worker_dir2.clone();
@@ -631,98 +677,88 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let same_worker_tx2 = same_worker_tx2.clone();
             let rsmq2 = rsmq2.clone();
 
-            #[cfg(feature = "benchmark")]
-            let send_duration = send_duration2.clone();
-            #[cfg(feature = "benchmark")]
-            let process_duration = process_duration.clone();
-            #[cfg(feature = "benchmark")]
-            let completed_jobs = completed_jobs.clone();
-            #[cfg(feature = "benchmark")]
-            let main_duration = main_duration2.clone();
+            if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
+                thread_count.fetch_add(1, Ordering::SeqCst);
+                let thread_count = thread_count.clone();
 
-            tokio::spawn(async move {
                 #[cfg(feature = "benchmark")]
-                let process_start = Instant::now();
+                let send_duration = send_duration2.clone();
+                #[cfg(feature = "benchmark")]
+                let process_duration = process_duration.clone();
+                #[cfg(feature = "benchmark")]
+                let completed_jobs = completed_jobs.clone();
+                #[cfg(feature = "benchmark")]
+                let main_duration = main_duration2.clone();
 
-                let metrics =
-                    build_language_metrics(&worker_execution_failed2.clone(), &jc.job.language);
-                let token = jc.token.clone();
-                let workspace = jc.job.workspace_id.clone();
-                let client = AuthedClient {
-                    base_internal_url: base_internal_url2.to_string(),
-                    workspace,
-                    token,
-                    client: OnceCell::new(),
-                };
-                if let Err(err) = process_completed_job(
-                    &jc,
-                    &client,
-                    &db2,
-                    &worker_dir2,
-                    metrics.clone(),
-                    same_worker_tx2.clone(),
-                    rsmq2.clone(),
-                )
-                .await
-                {
-                    handle_job_error(
-                        &db2,
-                        &client,
-                        &jc.job,
-                        err,
-                        metrics,
-                        false,
-                        same_worker_tx2.clone(),
-                        &worker_dir2,
-                        rsmq2.clone(),
+                tokio::spawn(async move {
+                    #[cfg(feature = "benchmark")]
+                    let process_start = Instant::now();
+
+                    handle_receive_completed_job(
+                        jc,
+                        worker_execution_failed2,
+                        base_internal_url2,
+                        db2,
+                        worker_dir2,
+                        same_worker_tx2,
+                        rsmq2,
                     )
                     .await;
-                }
-                #[cfg(feature = "benchmark")]
-                {
-                    let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
-                    if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
-                        let duration_s = start.elapsed().as_secs_f64();
-                        let jobs_per_sec = n as f64 / duration_s;
-                        tracing::info!(
-                            "completed {} jobs in {}s, {} jobs/s",
-                            n + 1,
-                            duration_s,
-                            jobs_per_sec
-                        );
+                    #[cfg(feature = "benchmark")]
+                    {
+                        let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
+                        if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
+                            let duration_s = start.elapsed().as_secs_f64();
+                            let jobs_per_sec = n as f64 / duration_s;
+                            tracing::info!(
+                                "completed {} jobs in {}s, {} jobs/s",
+                                n + 1,
+                                duration_s,
+                                jobs_per_sec
+                            );
 
-                        tracing::info!(
-                            "main loop without send {}s",
-                            main_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                        );
+                            tracing::info!(
+                                "main loop without send {}s",
+                                main_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                            );
 
-                        tracing::info!(
-                            "send job completed / send dedicated job duration {}s",
-                            send_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                        );
+                            tracing::info!(
+                                "send job completed / send dedicated job duration {}s",
+                                send_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                            );
 
-                        tracing::info!(
-                            "job completed process duration {}s",
-                            process_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                            tracing::info!(
+                                "job completed process duration {}s",
+                                process_duration.load(Ordering::SeqCst) as f64 / 1000.0
+                            );
+                        }
+
+                        process_duration.fetch_add(
+                            process_start.elapsed().as_millis() as usize,
+                            Ordering::SeqCst,
                         );
                     }
 
-                    process_duration.fetch_add(
-                        process_start.elapsed().as_millis() as usize,
-                        Ordering::SeqCst,
-                    );
-                }
-
-                thread_count.fetch_sub(1, Ordering::SeqCst);
-            });
+                    thread_count.fetch_sub(1, Ordering::SeqCst);
+                });
+            } else {
+                handle_receive_completed_job(
+                    jc,
+                    worker_execution_failed2,
+                    base_internal_url2,
+                    db2,
+                    worker_dir2,
+                    same_worker_tx2,
+                    rsmq2,
+                )
+                .await;
+            }
         }
 
         tracing::info!("stopped processing new completed jobs");
-
         while thread_count.load(Ordering::SeqCst) > 0 {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-
         tracing::info!("finished processing all completed jobs");
 
         // if let Err(e) =

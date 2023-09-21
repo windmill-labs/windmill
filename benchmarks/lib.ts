@@ -32,16 +32,16 @@ async function waitForDedicatedWorker(workspace: string, path: string) {
   const query = windmill.JobService.runWaitResultScriptByPath({
     workspace,
     path,
-    requestBody: {
-      args: {},
-    },
+    requestBody: {},
   });
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
       reject("Timeout");
     }, 15000);
   });
-  await Promise.race([query, timeout]);
+  await Promise.race([query, timeoutPromise]);
+  clearTimeout(timeout);
 }
 
 export async function createBenchScript(
@@ -63,6 +63,7 @@ export async function createBenchScript(
 
   let scriptContent: string;
   let language: string;
+  let schemaProperties = {};
   if (scriptPattern === "python") {
     scriptContent =
       'import os\n\ndef main():\n    return os.environ.get("WM_JOB_ID")';
@@ -74,9 +75,15 @@ export async function createBenchScript(
   } else if (scriptPattern === "bash") {
     scriptContent = "echo $WM_JOB_ID";
     language = "bash";
-  } else if (scriptPattern === "dedicated" || scriptPattern === "bun") {
+  } else if (scriptPattern === "bun") {
     scriptContent = 'export function main(){ return Bun.env["WM_JOB_ID"]; }';
     language = "bun";
+  } else if (scriptPattern === "dedicated") {
+    scriptContent = "export function main(uuid){ return uuid; }";
+    language = "bun";
+    schemaProperties = {
+      uuid: { default: null, description: "", type: "string" },
+    };
   } else if (scriptPattern === "deno") {
     scriptContent =
       'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
@@ -96,6 +103,12 @@ export async function createBenchScript(
       description: "",
       language: language as api.NewScript.language,
       dedicated_worker: scriptPattern === "dedicated",
+      schema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        properties: schemaProperties,
+        required: [],
+        type: "object",
+      },
     },
   });
 
