@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.174.0
+  version: 1.175.0
   title: Windmill API
 
   contact:
@@ -574,6 +574,55 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /settings/test_smtp:
+    post:
+      summary: test smtp
+      operationId: testSmtp
+      tags:
+        - setting
+      requestBody:
+        description: test smtp payload
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                smtp:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                    username:
+                      type: string
+                    password:
+                      type: string
+                    port:
+                      type: integer
+                    from:
+                      type: string
+                    tls_implicit:
+                      type: boolean
+                  required:
+                    - host
+                    - username
+                    - password
+                    - port
+                    - from
+                    - tls_implicit
+              required:
+                - to
+                - smtp
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
 
   /users/email:
     get:
@@ -5268,15 +5317,15 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /workers/list_worker_groups:
+  /configs/list_worker_groups:
     get:
-      summary: list workers
+      summary: list worker groups
       operationId: listWorkerGroups
       tags:
-        - worker
+        - config
       responses:
         "200":
-          description: a list of workers
+          description: a list of worker group configs
           content:
             application/json:
               schema:
@@ -5291,12 +5340,27 @@ paths:
                     - name
                     - config
 
-  /workers/worker_group/{name}:
-    post:
-      summary: Update Worker Group
-      operationId: updateWorkerGroup
+  /configs/get/{name}:
+    get:
+      summary: get config
+      operationId: get config
       tags:
-        - worker
+        - config
+      parameters:
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: a config
+          content:
+            application/json:
+              schema: {}
+
+  /configs/update/{name}:
+    post:
+      summary: Update config
+      operationId: updateConfig
+      tags:
+        - config
       parameters:
         - $ref: "#/components/parameters/Name"
       requestBody:
@@ -5313,15 +5377,15 @@ paths:
               schema:
                 type: string
     delete:
-      summary: Delete Worker Group
-      operationId: deleteWorkerGroup
+      summary: Delete Config
+      operationId: deleteConfig
       tags:
-        - worker
+        - config
       parameters:
         - $ref: "#/components/parameters/Name"
       responses:
         "200":
-          description: Delete a worker group
+          description: Delete config
           content:
             text/plain:
               schema:

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM worker_group_config WHERE name = $1 RETURNING name",
+  "query": "DELETE FROM config WHERE name = $1 RETURNING name",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "210b7fa50246d9b8fd1a24ade787bad6882c86e9422b715844aa92b67ed05174"
+  "hash": "0d407b9e18a6ee7f4be4fb017e7ed278f2070a939ad8a0680cedd0216d53505a"
 }

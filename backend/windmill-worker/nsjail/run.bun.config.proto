@@ -72,14 +72,6 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/node_modules"
-    dst: "/tmp/bun/node_modules"
-    is_bind: true
-    mandatory: false
-}
-
-
-mount {
     src: "{JOB_DIR}/wrapper.ts"
     dst: "/tmp/bun/wrapper.ts"
     is_bind: true
@@ -139,7 +131,6 @@ mount {
     src: "{CACHE_DIR}"
     dst: "/tmp/windmill/cache/bun"
     is_bind: true
-    rw: true
     mandatory: false
 }
 
