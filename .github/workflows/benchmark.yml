@@ -23,6 +23,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
+          WORKER_GROUP: main
+          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -34,6 +36,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           DISABLE_SERVER: true
+          WORKER_GROUP: dedicated
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
