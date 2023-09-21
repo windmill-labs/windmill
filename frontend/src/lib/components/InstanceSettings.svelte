@@ -42,12 +42,12 @@
 				fieldType: 'seconds',
 				placeholder: '60',
 				storage: 'setting',
-				cloudonly: true
+				cloudonly: false
 			},
 			{
 				label: 'Max Timeout for sync endpoints',
 				key: 'timeout_wait_result',
-				cloudonly: false,
+				cloudonly: true,
 				fieldType: 'seconds',
 				placeholder: '60',
 				storage: 'config'
@@ -132,6 +132,9 @@
 		values = { ...initialValues }
 		if (values['retention_period_secs'] == undefined) {
 			values['retention_period_secs'] = 60 * 60 * 24 * 60
+		}
+		if (values['base_url'] == undefined) {
+			values['base_url'] = 'http://localhost'
 		}
 	}
 
@@ -366,7 +369,6 @@
 	on:click={async () => {
 		await saveSettings()
 		sendUserToast('Settings updated')
-		dispatch('save')
 	}}>Save</Button
 >
 <div class="pb-8" />

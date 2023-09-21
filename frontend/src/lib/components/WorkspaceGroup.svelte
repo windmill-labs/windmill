@@ -175,7 +175,7 @@
 							size="xs"
 							on:click={() => {
 								if (nconfig != undefined) {
-									nconfig.worker_tags = nativeTags
+									nconfig.worker_tags = defaultTags
 									dirty = true
 								}
 							}}
