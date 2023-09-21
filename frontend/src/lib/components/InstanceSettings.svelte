@@ -14,7 +14,6 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { createEventDispatcher } from 'svelte'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -182,8 +181,6 @@
 			console.error('Values not loaded')
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 
 	let oauths: Record<string, any> = {}
 

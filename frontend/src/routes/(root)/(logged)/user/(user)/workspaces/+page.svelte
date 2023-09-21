@@ -75,6 +75,9 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
 
+	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
+	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
+
 	onMount(() => {
 		loadInvites()
 		loadWorkspaces()
@@ -123,7 +126,7 @@
 				workspace.
 			</p>
 		{/if}
-		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
+		{#each nonAdminWorkspaces as workspace}
 			<label class="block pb-2">
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
@@ -165,8 +168,10 @@
 	<div class="flex flex-row-reverse pt-4">
 		<Button
 			size="sm"
+			btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
+			color={noWorkspaces ? 'dark' : 'blue'}
 			href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-			variant="border"
+			variant={noWorkspaces ? 'contained' : 'border'}
 			>+&nbsp;Create a new workspace
 		</Button>
 	</div>
