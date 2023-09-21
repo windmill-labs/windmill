@@ -1744,11 +1744,11 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             tag = None;
         }
         let default = || {
-            if job_kind == JobKind::Flow || job_kind == JobKind::FlowPreview {
+            if job_kind == JobKind::Flow
+                || job_kind == JobKind::FlowPreview
+                || job_kind == JobKind::Identity
+            {
                 "flow".to_string()
-            } else if job_kind == JobKind::Identity {
-                // identity is a light script, nativets is too
-                "nativets".to_string()
             } else if job_kind == JobKind::Dependencies || job_kind == JobKind::FlowDependencies {
                 "dependency".to_string()
             } else {
