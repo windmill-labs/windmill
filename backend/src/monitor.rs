@@ -15,7 +15,8 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        BASE_URL_SETTING, LICENSE_KEY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     server::load_server_config,
@@ -25,6 +26,8 @@ use windmill_common::{
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
 };
+
+use crate::ee::{set_license_key, verify_license_key};
 
 lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
@@ -63,7 +66,7 @@ pub async fn initial_load(
     db: &Pool<Postgres>,
     tx: tokio::sync::broadcast::Sender<()>,
     worker_mode: bool,
-    server_mode: bool
+    server_mode: bool,
 ) {
     let reload_worker_config_f = async {
         if worker_mode {
@@ -102,13 +105,24 @@ pub async fn initial_load(
             reload_request_size(&db).await;
         }
     };
+
+    let reload_license_key_f = async {
+        if server_mode {
+            #[cfg(feature = "enterprise")]
+            if let Err(e) = reload_license_key(&db).await {
+                tracing::error!("Error reloading license key: {:?}", e)
+            }
+        }
+    };
+
     join!(
         reload_worker_config_f,
         reload_server_config_f,
         reload_custom_tags_f,
         reload_request_size_f,
         reload_base_url_f,
-        reload_retention_period_f
+        reload_retention_period_f,
+        reload_license_key_f
     );
 }
 
@@ -214,6 +228,33 @@ pub async fn reload_request_size(db: &DB) {
     }
 }
 
+pub async fn reload_license_key(db: &DB) -> error::Result<()> {
+    let q = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        LICENSE_KEY_SETTING
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut value = std::env::var("LICENSE_KEY")
+        .ok()
+        .and_then(|x| x.parse::<String>().ok())
+        .unwrap_or(String::new());
+
+    if let Some(q) = q {
+        if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+            tracing::info!("Loaded setting LICENSE_KEY from db config: {:#?}", v);
+            value = v;
+        } else {
+            tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q.value);
+        }
+    };
+
+    set_license_key(value).await?;
+
+    Ok(())
+}
+
 pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     db: &DB,
     setting_name: &str,
@@ -271,12 +312,26 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     };
 
+    let verify_license_key_f = async {
+        if server_mode {
+            #[cfg(feature = "enterprise")]
+            if let Err(e) = verify_license_key().await {
+                tracing::error!("Error verifying license key: {:?}", e)
+            }
+        }
+    };
+
     let expose_queue_metrics_f = async {
         if *METRICS_ENABLED && server_mode {
             expose_queue_metrics(&db).await;
         }
     };
-    join!(expired_items_f, zombie_jobs_f, expose_queue_metrics_f);
+    join!(
+        expired_items_f,
+        zombie_jobs_f,
+        expose_queue_metrics_f,
+        verify_license_key_f
+    );
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {

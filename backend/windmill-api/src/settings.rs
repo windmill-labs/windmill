@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::{
     db::{ApiAuthed, DB},
+    ee::validate_license_key,
     utils::require_super_admin,
 };
 
@@ -36,6 +37,7 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/test_smtp", post(test_email))
+        .route("/test_license_key", post(test_license_key))
 }
 
 #[derive(Deserialize)]
@@ -69,6 +71,16 @@ pub async fn test_email(
         .await
         .map_err(to_anyhow)?;
     tracing::info!("Sent test email to {to}");
+    Ok("Sent test email".to_string())
+}
+
+pub async fn test_license_key(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(license_key): Json<String>,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    validate_license_key(license_key).await?;
     Ok("Sent test email".to_string())
 }
 

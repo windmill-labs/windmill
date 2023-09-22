@@ -19,7 +19,6 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
-use windmill_api::LICENSE_KEY;
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING,
@@ -355,9 +354,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    #[cfg(feature = "enterprise")]
-    ee::verify_license_key(LICENSE_KEY.clone())?;
-
     #[cfg(not(feature = "enterprise"))]
     if LICENSE_KEY.as_ref().is_some_and(|x| !x.is_empty()) {
         panic!("License key is required ONLY for the enterprise edition");
