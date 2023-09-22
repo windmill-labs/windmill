@@ -3,7 +3,7 @@
     {
       "graph_title": "noop throughput benchmark (single worker)",
       "kind": "noop",
-      "jobs": 5000
+      "jobs": 30000
     },
     {
       "graph_title": "flow throughput benchmark (single worker)",
@@ -13,7 +13,7 @@
     {
       "graph_title": "dedicated throughput benchmark (single worker)",
       "kind": "dedicated",
-      "jobs": 2000
+      "jobs": 30000
     },
     {
       "graph_title": "deno throughput benchmark (single worker)",

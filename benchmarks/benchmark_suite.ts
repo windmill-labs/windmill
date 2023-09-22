@@ -23,6 +23,25 @@ type Config = {
   ];
 };
 
+async function warmUp(
+  host: string,
+  email: string | undefined,
+  password: string | undefined,
+  token: string | undefined,
+  workspace: string
+) {
+  console.log("%cWarming up...", "font-weight: bold;");
+  await runBenchmark({
+    host,
+    email,
+    password,
+    token,
+    workspace,
+    kind: "noop",
+    jobs: 5000,
+  });
+}
+
 async function main({
   host,
   email,
@@ -46,6 +65,8 @@ async function main({
       return JSON.parse(await Deno.readTextFile(configPath));
     }
   }
+
+  await warmUp(host, email, password, token, workspace);
 
   try {
     const config = await getConfig(configPath);
