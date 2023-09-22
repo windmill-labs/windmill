@@ -5,7 +5,7 @@ use chrono::Timelike;
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
 
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
 
 use windmill_api_client::types::{
-    CreateFlowBody, RawScript
+    CreateFlowBody, RawScript, NewScript, NewScriptLanguage
 };
 
 #[cfg(feature = "enterprise")]
@@ -2925,7 +2925,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
         completed.next().await; // deployed script
 
         let script =
-            query!("SELECT hash FROM script WHERE path = $1", "f/system/test_import".to_string())
+            sqlx::query!("SELECT hash FROM script WHERE path = $1", "f/system/test_import".to_string())
                 .fetch_one(&db2)
                 .await
                 .unwrap();

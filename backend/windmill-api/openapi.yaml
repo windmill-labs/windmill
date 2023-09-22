@@ -4117,6 +4117,7 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"

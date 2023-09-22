@@ -780,7 +780,14 @@ async fn list_jobs(
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
-    let sqlc = list_completed_jobs_query(
+    if lq.success.is_some() && lq.running.is_some_and(|x| x) {
+        return Err(error::Error::BadRequest(
+            "cannot specify both success and running".to_string(),
+        ));
+
+    }
+    let sqlc = if lq.running.is_none() {  
+        Some(list_completed_jobs_query(
         &w_id,
         per_page + offset,
         0,
@@ -817,7 +824,10 @@ async fn list_jobs(
             "null as concurrent_limit",
             "null as concurrency_time_window_s",
         ],
-    );
+        ))
+    } else {
+        None
+    };
 
     let sql = if lq.success.is_none() {
         let sqlq = list_queue_jobs_query(
@@ -833,7 +843,7 @@ async fn list_jobs(
                 created_after: lq.created_after,
                 created_or_started_before: lq.created_or_started_before,
                 created_or_started_after: lq.created_or_started_after,
-                running: None,
+                running: lq.running,
                 parent_job: lq.parent_job,
                 order_desc: Some(true),
                 job_kinds: lq.job_kinds,
@@ -876,6 +886,7 @@ async fn list_jobs(
             ],
         );
 
+        if let Some(sqlc) = sqlc {
         format!(
             "{} UNION ALL {} LIMIT {} OFFSET {};",
             &sqlq.subquery()?,
@@ -883,8 +894,11 @@ async fn list_jobs(
             per_page,
             offset
         )
+        } else {
+            sqlq.query()?
+        }
     } else {
-        sqlc.query()?
+        sqlc.unwrap().query()?
     };
     let mut tx = user_db.begin(&authed).await?;
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
@@ -2721,6 +2735,7 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
+    pub running: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
