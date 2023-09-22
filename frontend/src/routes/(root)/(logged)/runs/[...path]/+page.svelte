@@ -42,10 +42,7 @@
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	// Rest of filters handled by RunsFilter
-	let success: boolean | undefined =
-		$page.url.searchParams.get('success') != undefined
-			? $page.url.searchParams.get('success') == 'true'
-			: undefined
+	let success: "running"  | "success" | "failure"  | undefined = ($page.url.searchParams.get('success') ?? undefined) as "running"  | "success" | "failure"  | undefined 
 	let isSkipped: boolean | undefined =
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
@@ -128,7 +125,8 @@
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
-			success,
+			success: success == "success" ? true : (success == 'failure' ? false : undefined),
+			running: success == 'running' ? true : undefined,
 			isSkipped,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			args:
@@ -166,34 +164,38 @@
 	async function syncer() {
 		getCount()
 		if (sync && jobs && maxTs == undefined) {
-			let ts: string | undefined = undefined
-			let cursor = 0
-			while (cursor < jobs.length && minTs == undefined) {
-				let invCursor = jobs.length - 1 - cursor
-				let isQueuedJob = cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
-				if (isQueuedJob) {
-					if (cursor > 0) {
-						const date = new Date(jobs[invCursor + 1]?.created_at!)
-						date.setMilliseconds(date.getMilliseconds() + 1)
-						ts = date.toISOString()
+			if (success == 'running') {
+				loadJobs()
+			} else {
+				let ts: string | undefined = undefined
+				let cursor = 0
+				while (cursor < jobs.length && minTs == undefined) {
+					let invCursor = jobs.length - 1 - cursor
+					let isQueuedJob = cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
+					if (isQueuedJob) {
+						if (cursor > 0) {
+							const date = new Date(jobs[invCursor + 1]?.created_at!)
+							date.setMilliseconds(date.getMilliseconds() + 1)
+							ts = date.toISOString()
+						}
+						break
 					}
-					break
+					cursor++
 				}
-				cursor++
-			}
 
-			loading = true
-			const newJobs = await fetchJobs(maxTs, minTs ?? ts)
-			if (newJobs && newJobs.length > 0 && jobs) {
-				const oldJobs = jobs?.map((x) => x.id)
-				jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
-				newJobs
-					.filter((x) => oldJobs.includes(x.id))
-					.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
-				jobs = jobs
-				computeCompletedJobs()
+				loading = true
+				const newJobs = await fetchJobs(maxTs, minTs ?? ts)
+				if (newJobs && newJobs.length > 0 && jobs) {
+					const oldJobs = jobs?.map((x) => x.id)
+					jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
+					newJobs
+						.filter((x) => oldJobs.includes(x.id))
+						.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+					jobs = jobs
+					computeCompletedJobs()
+				}
+				loading = false
 			}
-			loading = false
 		}
 	}
 
@@ -204,10 +206,7 @@
 		path = $page.params.path
 		user = $page.url.searchParams.get('user')
 		folder = $page.url.searchParams.get('folder')
-		success =
-			$page.url.searchParams.get('success') != undefined
-				? $page.url.searchParams.get('success') == 'true'
-				: undefined
+		success = ($page.url.searchParams.get('success')  ?? undefined) as "success" | "failure" | "running" | undefined
 		isSkipped =
 			$page.url.searchParams.get('is_skipped') != undefined
 				? $page.url.searchParams.get('is_skipped') == 'true'
