@@ -28,7 +28,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
         console.log(`Job ${uuid} did not output the correct value`);
         incorrectResults++;
       }
-    } catch (err) {
+    } catch (_) {
       console.log(`Job ${uuid} did not complete`);
       incorrectResults++;
     }
@@ -53,7 +53,7 @@ export async function main({
   workspace: string;
   kind: string;
   jobs: number;
-  noVerify: boolean;
+  noVerify?: boolean;
 }) {
   windmill.setClient("", host);
 
@@ -64,6 +64,9 @@ export async function main({
         host,
         email,
         workspace,
+        kind,
+        jobs,
+        noVerify,
       },
       null,
       4
@@ -181,7 +184,7 @@ export async function main({
 
   let didStart = false;
   while (completedJobs < jobsSent) {
-    let loopStart = Date.now();
+    const loopStart = Date.now();
     if (!didStart) {
       const actual_queue = await getQueueCount();
       if (actual_queue < jobsSent) {
@@ -216,7 +219,7 @@ export async function main({
         )
       );
     }
-    let loopDuration = (Date.now() - loopStart) / 1000.0;
+    const loopDuration = (Date.now() - loopStart) / 1000.0;
     if (loopDuration < 0.05) {
       await sleep(0.05 - loopDuration);
     }
@@ -287,7 +290,9 @@ if (import.meta.main) {
     .option("-j --jobs <jobs:number>", "Number of jobs to create.", {
       default: 10000,
     })
-    .option("--no-verify", "Do not verify the output of the jobs.")
+    .option("--no-verify", "Do not verify the output of the jobs.", {
+      default: false,
+    })
     .action(main)
     .command(
       "upgrade",
