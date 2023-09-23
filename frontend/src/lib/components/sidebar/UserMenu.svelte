@@ -90,7 +90,7 @@
 						switchWorkspace('admins')
 						close()
 					}}
-					class="text-secondary block px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary"
+					class="text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full"
 					role="menuitem"
 					tabindex="-1"
 				>
