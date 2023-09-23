@@ -113,7 +113,7 @@ mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
-retainer = "^0"
+quick_cache = "^0"
 rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
