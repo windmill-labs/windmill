@@ -89,11 +89,11 @@ pub async fn initial_load(
     };
 
     let reload_base_url_f = async {
-        if server_mode {
+        
             if let Err(e) = reload_base_url_setting(db).await {
-                tracing::error!("Error reloading custom tags: {:?}", e)
+                tracing::error!("Error reloading base url: {:?}", e)
             }
-        }
+        
     };
 
     let reload_server_config_f = async {
