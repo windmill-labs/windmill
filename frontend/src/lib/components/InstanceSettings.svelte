@@ -195,6 +195,18 @@
 	let resourceName = ''
 	let tab: 'Core' | 'SMTP' | 'OAuth' = 'Core'
 
+	function parseDate(license_key: string): string | undefined {
+		let splitted = license_key.split('.')
+		if (splitted.length >= 3) {
+			try {
+				let i = parseInt(splitted[1])
+				let date = new Date(i * 1000)
+				return date.toDateString()
+			} catch {}
+		}
+		return undefined
+	}
+
 	let to: string = ''
 </script>
 
@@ -241,11 +253,30 @@
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'license_key'}
-												<textarea
-													rows="2"
-													placeholder={setting.placeholder}
-													bind:value={values[setting.key]}
-												/>
+												<div class="flex justify-between gap-2">
+													<textarea
+														rows="2"
+														placeholder={setting.placeholder}
+														bind:value={values[setting.key]}
+													/>
+													<Button
+														variant={values[setting.key] ? 'contained' : 'border'}
+														size="xs"
+														on:click={async () => {
+															await SettingService.testLicenseKey({
+																requestBody: { license_key: values[setting.key] }
+															})
+															sendUserToast('Valid key')
+														}}>Test Key</Button
+													>
+												</div>
+												{#if values[setting.key]?.length > 0}
+													{#if parseDate(values[setting.key])}
+														<span class="text-gray-600 text-2xs"
+															>License key expires on {parseDate(values[setting.key])}</span
+														>
+													{/if}
+												{/if}
 											{:else if setting.fieldType == 'email'}
 												<input
 													type="email"
@@ -271,20 +302,6 @@
 											{:else if setting.fieldType == 'seconds'}
 												<div>
 													<SecondsInput bind:seconds={values[setting.key]} />
-												</div>
-											{/if}
-											{#if setting.key == 'license_key'}
-												<div class="flex mt-1">
-													<Button
-														variant="border"
-														size="xs"
-														on:click={async () => {
-															await SettingService.testLicenseKey({
-																requestBody: { license_key: values[setting.key] }
-															})
-															sendUserToast('Valid key')
-														}}>Test Key</Button
-													>
 												</div>
 											{/if}
 										{:else}

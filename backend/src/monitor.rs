@@ -30,6 +30,9 @@ use windmill_worker::{
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
 
+#[cfg(feature = "enterprise")]
+use windmill_api::LICENSE_KEY_VALID;
+
 use crate::ee::set_license_key;
 
 lazy_static::lazy_static! {
@@ -246,7 +249,7 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
-            tracing::info!("Loaded setting LICENSE_KEY from db config: {:#?}", v);
+            tracing::info!("Loaded setting LICENSE_KEY from db config: {}*******", v.truncate(14));
             value = v;
         } else {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q.value);
@@ -319,7 +322,9 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if server_mode {
             #[cfg(feature = "enterprise")]
             if let Err(e) = verify_license_key().await {
-                tracing::error!("Error verifying license key: {:?}", e)
+                tracing::error!("Error verifying license key: {:?}", e);
+                let mut l = LICENSE_KEY_VALID.write().await;
+                *l = false;
             }
         }
     };
