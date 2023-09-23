@@ -252,7 +252,7 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
         if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
             tracing::info!(
                 "Loaded setting LICENSE_KEY from db config: {}",
-                truncate_token(v)
+                truncate_token(&v)
             );
             value = v;
         } else {
