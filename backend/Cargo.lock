@@ -393,17 +393,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecc7ab41815b3c653ccd2978ec3255c81349336702dfdf62ee6f7069b12a3aae"
 
 [[package]]
-name = "async-timer"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5fa6ed76cb2aa820707b4eb9ec46f42da9ce70b0eafab5e5e34942b38a44d5"
-dependencies = [
- "libc",
- "wasm-bindgen",
- "winapi",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4097,6 +4086,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick_cache"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f69f8d22fa3f34f3083d9a4375c038732c7a7e964de1beb81c544da92dfc40b8"
+dependencies = [
+ "ahash 0.8.3",
+ "equivalent",
+ "hashbrown 0.14.0",
+ "parking_lot",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4346,18 +4347,6 @@ dependencies = [
  "web-sys",
  "webpki-roots 0.25.2",
  "winreg",
-]
-
-[[package]]
-name = "retainer"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df8c01a8276c14d0f8d51ebcf8a48f0748f9f73f5f6b29e688126e6a52bcb145"
-dependencies = [
- "async-lock",
- "async-timer",
- "log",
- "rand 0.8.5",
 ]
 
 [[package]]
@@ -7137,16 +7126,16 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
  "mime_guess",
  "prometheus",
+ "quick_cache",
  "rand 0.8.5",
  "regex",
  "reqwest",
- "retainer",
  "rsa 0.7.2",
  "rsmq_async",
  "rust-embed",
@@ -7216,7 +7205,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "prometheus",
  "rand 0.8.5",
@@ -7259,7 +7248,7 @@ version = "1.175.0"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -7281,7 +7270,7 @@ name = "windmill-parser-py"
 version = "1.175.0"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -7293,7 +7282,7 @@ version = "1.175.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "phf 0.11.2",
  "regex",
@@ -7363,7 +7352,7 @@ dependencies = [
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "prometheus",
  "reqwest",
@@ -7401,7 +7390,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "git-version",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "jsonwebtoken",
  "lazy_static",
  "mysql_async",

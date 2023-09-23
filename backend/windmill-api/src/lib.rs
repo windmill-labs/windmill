@@ -271,8 +271,6 @@ pub async fn run_server(
         println!("Graceful shutdown of server");
     });
 
-    tokio::spawn(async move { auth_cache.monitor().await });
-
     server.await?;
     Ok(())
 }
