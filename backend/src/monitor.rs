@@ -15,11 +15,12 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING,  OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, LICENSE_KEY_SETTING,
+        BASE_URL_SETTING, LICENSE_KEY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
     server::load_server_config,
+    users::truncate_token,
     worker::{load_worker_config, reload_custom_tags_setting, SERVER_CONFIG, WORKER_CONFIG},
     BASE_URL, DB, METRICS_ENABLED,
 };
@@ -249,7 +250,10 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
-            tracing::info!("Loaded setting LICENSE_KEY from db config: {}*******", v.truncate(14));
+            tracing::info!(
+                "Loaded setting LICENSE_KEY from db config: {}",
+                truncate_token(v)
+            );
             value = v;
         } else {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q.value);
