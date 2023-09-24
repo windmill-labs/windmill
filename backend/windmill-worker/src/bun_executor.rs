@@ -219,18 +219,19 @@ pub async fn handle_bun_job(
                     })?,
             )
             .await?;
+
+            install_lockfile(
+                logs,
+                &job.id,
+                &job.workspace_id,
+                db,
+                job_dir,
+                worker_name,
+                common_bun_proc_envs.clone(),
+            )
+            .await?;
+            remove_dir_all(format!("{}/node_modules", job_dir)).await?;
         }
-        install_lockfile(
-            logs,
-            &job.id,
-            &job.workspace_id,
-            db,
-            job_dir,
-            worker_name,
-            common_bun_proc_envs.clone(),
-        )
-        .await?;
-        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
