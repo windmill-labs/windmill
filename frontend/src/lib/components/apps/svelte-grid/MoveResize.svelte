@@ -297,8 +297,8 @@
 			newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
 
 			// Limit col & row
-			shadow.w = Math.round((newSize.width + gapX * 2) / xPerPx)
-			shadow.h = Math.round((newSize.height + gapY * 2) / yPerPx)
+			shadow.w = Math.round(Math.max((newSize.width + gapX * 2) / xPerPx, 1))
+			shadow.h = Math.round(Math.max((newSize.height + gapY * 2) / yPerPx, 1))
 
 			repaint(false, false)
 		}
