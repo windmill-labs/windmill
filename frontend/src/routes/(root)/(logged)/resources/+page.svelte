@@ -15,6 +15,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
+	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -175,6 +176,7 @@
 		resourceTypeDrawer.closeDrawer?.()
 		sendUserToast('Resource type created')
 		loadResourceTypes()
+		$resourceTypesStore = undefined
 	}
 
 	async function updateResourceType(): Promise<void> {

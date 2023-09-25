@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ResourceService, VariableService } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -10,6 +10,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { getResourceTypes } from './resourceTypesStore'
 
 	export let schema: Schema | any
 	export let args: Record<string, any> = {}
@@ -70,8 +71,9 @@
 	let resourceTypes: string[] | undefined = undefined
 
 	async function loadResourceTypes() {
-		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+		resourceTypes = await getResourceTypes()
 	}
+
 	loadResourceTypes()
 </script>
 
