@@ -8,10 +8,10 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { evalValue } from './flows/utils'
-	import { ResourceService, type FlowModule } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { getResourceTypes } from './resourceTypesStore'
 
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -62,10 +62,7 @@
 
 	let resourceTypes: string[] | undefined = undefined
 
-	async function loadResourceTypes() {
-		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
-	}
-	loadResourceTypes()
+	getResourceTypes()
 </script>
 
 <div class="w-full pt-2">
