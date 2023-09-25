@@ -22,7 +22,7 @@
 	<span class="text-blue-400"
 		>{uptodate} &nbsp;<Tooltip>
 			How to update?<br />
-			- docker: `docker compose up`<br />-
+			- docker: `docker compose up -d`<br />-
 			<a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
 		</Tooltip>
 	</span>
