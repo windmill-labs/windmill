@@ -520,7 +520,6 @@
 										size="xs"
 										class="h-full"
 										on:pointerdown={() => {
-											console.log('click', $cssEditorOpen)
 											if ($cssEditorOpen) {
 												$cssEditorOpen = false
 												selectedTab = 'insert'

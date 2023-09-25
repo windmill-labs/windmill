@@ -200,9 +200,6 @@
 		event.stopImmediatePropagation()
 
 		const { clientX, clientY } = event
-
-		console.log(clientX, clientY, 'A')
-
 		const cordDiff = { x: clientX - initX, y: clientY - initY }
 
 		dispatch('move', { cordDiff, clientY })
