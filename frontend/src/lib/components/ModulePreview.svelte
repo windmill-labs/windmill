@@ -20,7 +20,6 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
 	import ScriptFix from './copilot/ScriptFix.svelte'
-	import { flow } from 'lodash'
 
 	export let mod: FlowModule
 	export let schema: Schema
