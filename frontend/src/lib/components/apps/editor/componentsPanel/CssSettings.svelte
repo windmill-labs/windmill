@@ -51,20 +51,21 @@
 						{#if $enterpriseLicense === undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row items-center text-yellow-500 text-xs">
-									<div class="flex">
+									<div class="flex whitespace-nowrap">
 										<AlertTriangle size={16} />
 										EE only
 									</div>
-									<Tooltip>
+									<Tooltip light>
 										App CSS editor is an exclusive feature of the Enterprise Edition. You can
 										experiment with this feature in the editor, but please note that the changes
 										will not be visible once deployed.
 									</Tooltip>
 								</div>
 								<div class="flex flex-row items-center text-blue-500 text-xs">
-									Component styling is still available in the Community Edition
-									<Tooltip>
-										You can still style components individually in the Community Edition.
+									Component styling available in CE
+									<Tooltip light>
+										You can still style components in the Community Edition in the styling section
+										of the component's configuration.
 									</Tooltip>
 								</div>
 							</div>
