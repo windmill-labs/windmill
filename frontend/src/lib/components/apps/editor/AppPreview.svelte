@@ -119,7 +119,6 @@
 	appStore.subscribe(loadTheme)
 
 	async function loadTheme(currentAppStore: App) {
-		console.log(currentAppStore)
 		if (!currentAppStore.theme) {
 			return
 		}

@@ -421,7 +421,7 @@
 
 	let abortController: AbortController | undefined = undefined
 	let copilotLoading = false
-	let flowCopilotMode: 'trigger' | 'sequence' = 'trigger'
+	let flowCopilotMode: 'trigger' | 'sequence' = 'sequence'
 	let copilotStatus: string = ''
 	let copilotFlowInputs: Record<string, SchemaProperty> = {}
 	let copilotFlowRequiredInputs: string[] = []

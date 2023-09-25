@@ -12,7 +12,7 @@ services:
     expose:
       - 5432
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -30,37 +30,34 @@ services:
       - 8000
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       ## You can set the number of workers to 1 and not need any separate worker service but not recommended
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      - REQUEST_SIZE_LIMIT=${WM_REQUEST_SIZE_LIMIT}
       # LICENSE_KEY is only needed for the enterprise edition
       - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
 
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
-      # To handle all tags, remove the env variable altogether. If you do so, you can remove the windmill_worker_native containers.
-      - WORKER_TAGS=deno,python3,go,bash,powershell,dependency,flow,hub,other,bun
+      - WORKER_GROUP=default
       # LICENSE_KEY is only needed for the enterprise edition
       - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
@@ -70,41 +67,29 @@ services:
     volumes:
       # mount the docker socket to allow to run docker containers from within the workers
       - /var/run/docker.sock:/var/run/docker.sock
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
       - worker_dependency_cache:/tmp/windmill/cache
 
-  ## This worker is specialized for "native" jobs. They run in-process and can thus be parallelized to more than 1 at a time on a given worker which is why NUM_WORKERS is set to 4
+  ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
-          limits:
-            cpus: "0.25"
-            memory: 512M
+        limits:
+          cpus: "0.1"
+          memory: 128M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       - DISABLE_SERVER=true
-      - KEEP_JOB_DIR=false
       - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      - NUM_WORKERS=4
-      - WORKER_TAGS=nativets,postgresql,mysql,graphql,snowflake
       - WORKER_GROUP=native
-      # LICENSE_KEY is only needed for the enterprise edition
-      # - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      # See Oauth (https://docs.windmill.dev/docs/misc/setup_oauth)
-      - ./oauth.json:/usr/src/app/oauth.json
-
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest

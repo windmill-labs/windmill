@@ -165,7 +165,7 @@
 		}
 
 		const headers = Array.from(
-			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row) : [])))
+			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row ?? {}) : [])))
 		)
 
 		$options = {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, Script } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
@@ -20,6 +20,7 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
 	import ScriptFix from './copilot/ScriptFix.svelte'
+	import { flow } from 'lodash'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -71,8 +72,12 @@
 				args,
 				$flowStore?.tag ?? script.tag
 			)
+		} else if (val.type == 'flow') {
+			await testJobLoader?.abstractRun(() =>
+				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+			)
 		} else {
-			throw Error('not testable module type')
+			throw Error('Not supported module type')
 		}
 	}
 

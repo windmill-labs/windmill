@@ -13,7 +13,6 @@ use crate::{
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
     variables::get_workspace_key,
-    BASE_URL,
 };
 use anyhow::Context;
 use axum::{
@@ -34,7 +33,8 @@ use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::worker::CUSTOM_TAGS_PER_WORKSPACE;
+use windmill_common::worker::{CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
+use windmill_common::BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error},
@@ -780,7 +780,14 @@ async fn list_jobs(
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
-    let sqlc = list_completed_jobs_query(
+    if lq.success.is_some() && lq.running.is_some_and(|x| x) {
+        return Err(error::Error::BadRequest(
+            "cannot specify both success and running".to_string(),
+        ));
+
+    }
+    let sqlc = if lq.running.is_none() {  
+        Some(list_completed_jobs_query(
         &w_id,
         per_page + offset,
         0,
@@ -817,7 +824,10 @@ async fn list_jobs(
             "null as concurrent_limit",
             "null as concurrency_time_window_s",
         ],
-    );
+        ))
+    } else {
+        None
+    };
 
     let sql = if lq.success.is_none() {
         let sqlq = list_queue_jobs_query(
@@ -833,7 +843,7 @@ async fn list_jobs(
                 created_after: lq.created_after,
                 created_or_started_before: lq.created_or_started_before,
                 created_or_started_after: lq.created_or_started_after,
-                running: None,
+                running: lq.running,
                 parent_job: lq.parent_job,
                 order_desc: Some(true),
                 job_kinds: lq.job_kinds,
@@ -876,6 +886,7 @@ async fn list_jobs(
             ],
         );
 
+        if let Some(sqlc) = sqlc {
         format!(
             "{} UNION ALL {} LIMIT {} OFFSET {};",
             &sqlq.subquery()?,
@@ -883,8 +894,11 @@ async fn list_jobs(
             per_page,
             offset
         )
+        } else {
+            sqlq.query()?
+        }
     } else {
-        sqlc.query()?
+        sqlc.unwrap().query()?
     };
     let mut tx = user_db.begin(&authed).await?;
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
@@ -1296,7 +1310,8 @@ pub async fn get_resume_urls(
         .map(|x| format!("?approver={}", encode(x)))
         .unwrap_or_else(String::new);
 
-    let base_url = BASE_URL.as_str();
+    let base_url_str = BASE_URL.read().await.clone();
+    let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
             "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"
@@ -1635,6 +1650,19 @@ async fn check_tag_available_for_workspace(w_id: &str, tag: &Option<String>) -> 
     }
 }
 
+#[cfg(feature = "enterprise")]
+pub async fn check_license_key_valid() -> error::Result<()> {
+    use crate::LICENSE_KEY_VALID;
+
+    let valid = *LICENSE_KEY_VALID.read().await;
+    if !valid {
+        return Err(error::Error::BadRequest(format!(
+            "License key is not valid. Go to your superadmin settings to update your license key.",
+        )));
+    }
+    Ok(())
+}
+
 pub async fn run_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1645,6 +1673,8 @@ pub async fn run_flow_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
@@ -1698,7 +1728,11 @@ pub async fn run_job_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     let script_path = script_path.to_path();
+
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
     let (job_payload, tag) = script_path_to_payload(script_path, &db, &w_id).await?;
@@ -1775,11 +1809,11 @@ impl Drop for Guard {
 async fn run_wait_result<T>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    timeout: i32,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
     let mut result;
+    let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
     let timeout_ms = if timeout <= 0 {
         2000
     } else {
@@ -1863,10 +1897,6 @@ lazy_static::lazy_static! {
     pub static ref QUEUE_LIMIT_WAIT_RESULT: Option<i64> = std::env::var("QUEUE_LIMIT_WAIT_RESULT")
         .ok()
         .and_then(|x| x.parse().ok());
-    pub static ref TIMEOUT_WAIT_RESULT: i32 = std::env::var("TIMEOUT_WAIT_RESULT")
-        .ok()
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(20);
     pub static ref WAIT_RESULT_FAST_POLL_INTERVAL_MS: u64 = std::env::var("WAIT_RESULT_FAST_POLL_INTERVAL_MS")
         .ok()
         .and_then(|x| x.parse().ok())
@@ -1890,6 +1920,9 @@ pub async fn run_wait_result_job_by_path_get(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::JsonResult<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")));
     }
@@ -1937,14 +1970,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
 }
 
 pub async fn run_wait_result_flow_by_path_get(
@@ -1957,6 +1983,9 @@ pub async fn run_wait_result_flow_by_path_get(
     headers: HeaderMap,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::JsonResult<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")));
     }
@@ -1996,6 +2025,9 @@ pub async fn run_wait_result_script_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     run_wait_result_script_by_path_internal(
         db,
         run_query,
@@ -2108,14 +2140,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
 }
 
 pub async fn run_wait_result_script_by_hash(
@@ -2128,6 +2153,9 @@ pub async fn run_wait_result_script_by_hash(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
@@ -2180,14 +2208,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, script_hash)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_hash))).await
 }
 
 pub async fn openai_sync_flow_by_path(
@@ -2225,6 +2246,9 @@ pub async fn run_wait_result_flow_by_path(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::JsonResult<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, rsmq, user_db, headers, args, raw_string, w_id,
     )
@@ -2287,14 +2311,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(
-        authed,
-        Extension(user_db),
-        *TIMEOUT_WAIT_RESULT,
-        uuid,
-        Path((w_id, flow_path)),
-    )
-    .await
+    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, flow_path))).await
 }
 
 async fn run_preview_job(
@@ -2307,6 +2324,9 @@ async fn run_preview_job(
     headers: HeaderMap,
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     check_scopes(&authed, || format!("runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
@@ -2363,7 +2383,6 @@ struct BatchInfo {
     kind: String,
     flow_value: Option<FlowValue>,
     path: Option<String>,
-    dedicated_worker: Option<bool>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2393,7 +2412,7 @@ async fn add_batch_jobs(
                 batch_info.path,
                 JobKind::Script,
                 Some(script.language),
-                batch_info.dedicated_worker,
+                script.dedicated_worker,
             )
         }
         "flow" => {
@@ -2464,15 +2483,22 @@ async fn add_batch_jobs(
         format!("{}", language.as_str())
     };
 
-    let uuids = sqlx::query_scalar!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11)) RETURNING id",
+    let uuids = sqlx::query_scalar!(
+        r#"WITH uuid_table as (
+            select gen_random_uuid() as uuid from generate_series(1, $11)
+        )
+        INSERT INTO queue 
+            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id)
+            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10 FROM uuid_table) 
+        RETURNING id"#,
             hash.map(|h| h.0),
             path,
             job_kind.clone() as JobKind,
             language as ScriptLang,
             tag,
             authed.username,
-            authed.email,
             username_to_permissioned_as(&authed.username),
+            authed.email,
             Utc::now(),
             w_id,
             n
@@ -2543,6 +2569,9 @@ pub async fn run_job_by_hash(
     headers: HeaderMap,
     JsonOrForm(args, raw_string): JsonOrForm,
 ) -> error::Result<(StatusCode, String)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
     let hash = script_hash.0;
     let (
         path,
@@ -2746,6 +2775,7 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
+    pub running: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,

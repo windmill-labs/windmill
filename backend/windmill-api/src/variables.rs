@@ -68,6 +68,7 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
         )
+        .await
         .to_vec(),
     ))
 }

@@ -15,3 +15,9 @@ pub fn username_to_permissioned_as(user: &str) -> String {
         format!("u/{}", user)
     }
 }
+
+pub fn truncate_token(token: &str) -> String {
+    let mut s = token[..10].to_owned();
+    s.push_str("*****");
+    s
+}

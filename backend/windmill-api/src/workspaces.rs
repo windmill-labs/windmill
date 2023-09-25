@@ -284,8 +284,9 @@ async fn stripe_checkout(
         require_admin(authed.is_admin, &authed.username)?;
 
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let success_rd = format!("{}/workspace_settings/checkout?success=true", *BASE_URL);
-        let failure_rd = format!("{}/workspace_settings/checkout?success=false", *BASE_URL);
+        let base_url = BASE_URL.read().await.clone();
+        let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url);
+        let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url);
         let checkout_session = {
             let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
@@ -332,7 +333,7 @@ async fn stripe_portal(
     .await?
     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    let success_rd = format!("{}/workspace_settings?tab=premium", *BASE_URL);
+    let success_rd = format!("{}/workspace_settings?tab=premium", BASE_URL.read().await.clone());
     let portal_session = {
         let customer_id = CustomerId::from_str(&customer_id).unwrap();
         let mut params = stripe::CreateBillingPortalSession::new(customer_id);
@@ -845,7 +846,7 @@ async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str)
 
 lazy_static::lazy_static! {
 
-    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(false));
+    pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = std::env::var("CREATE_WORKSPACE_REQUIRE_SUPERADMIN").is_ok_and(|x| x.parse::<bool>().unwrap_or(true));
 
 }
 
@@ -1221,7 +1222,7 @@ async fn invite_user(
             "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            *BASE_URL
+            BASE_URL.read().await.clone()
         ),
         &nu.email,
     );
@@ -1285,7 +1286,7 @@ async fn add_user(
             "You have been granted access to Windmill's workspace {w_id} by {email}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            *BASE_URL
+            BASE_URL.read().await.clone()
         ),
         &nu.email,
     );

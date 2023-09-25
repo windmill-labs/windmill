@@ -56,7 +56,7 @@ const additionalInfos: {
 	bun: `<contextual_information>
 We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
 If needed, the standard fetch method is available globally, do not import it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
 The resource type name has to be exactly as specified.
 <resourceTypes>
 {resourceTypes}
@@ -65,7 +65,7 @@ Only define the type for resources that are actually needed to achieve the funct
 </contextual_information>`,
 	python3: `<contextual_information>
 We have to export a "main" function and specify the parameter types but do not call it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
 The resource type name has to be exactly as specified (has to be IN LOWERCASE).
 <resourceTypes>
 {resourceTypes}

@@ -9,7 +9,7 @@
 use gethostname::gethostname;
 use git_version::git_version;
 use rand::Rng;
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
@@ -19,8 +19,15 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
-use windmill_api::{LICENSE_KEY, OAUTH_CLIENTS, SMTP_CLIENT};
-use windmill_common::{global_settings::ENV_SETTINGS, utils::rd_string, METRICS_ADDR};
+use windmill_common::{
+    global_settings::{
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING, LICENSE_KEY_SETTING,
+    },
+    utils::rd_string,
+    worker::{reload_custom_tags_setting, WORKER_GROUP},
+    METRICS_ADDR,
+};
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
@@ -28,7 +35,10 @@ use windmill_worker::{
     PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
 
-use crate::monitor::monitor_db;
+use crate::monitor::{
+    initial_load, monitor_db, reload_base_url_setting, reload_retention_period_setting,
+    reload_server_config, reload_worker_config, reload_license_key,
+};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;
@@ -128,16 +138,6 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
-    tracing::info!("Loading OAuth providers...: {:#?}", *OAUTH_CLIENTS);
-    if let Some(ref smtp) = *SMTP_CLIENT {
-        tracing::info!("Smtp client defined. Testing connection...");
-        if let Err(e) = smtp.connect().await {
-            tracing::error!("Failed to connect to smtp server: {}", e);
-        } else {
-            tracing::info!("Smtp client connected.");
-        }
-    }
-
     let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode {
@@ -152,15 +152,11 @@ Windmill Community Edition {GIT_VERSION}
         // since it's only on server mode, the port is statically defined
         let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
-        monitor_db(
-            &db,
-            tx.clone(),
-            &base_internal_url,
-            rsmq.clone(),
-            worker_mode,
-            server_mode,
-        )
-        .await;
+        initial_load(&db, tx.clone(), worker_mode, server_mode).await;
+
+        
+        monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
+
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -206,18 +202,112 @@ Windmill Community Edition {GIT_VERSION}
             tokio::spawn(async move {
                 //monitor_db is applied at start, no need to apply it twice
                 tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+
+                let mut listener = match PgListener::connect_with(&db).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Could not connect to database");
+                        return;
+                    }
+                };
+
+                if let Err(e) = listener
+                    .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+                    .await
+                {
+                    tracing::error!(error = %e, "Could not listen to database");
+                    return;
+                }
+
                 loop {
-                    monitor_db(
-                        &db,
-                        tx.clone(),
-                        &base_internal_url,
-                        rsmq.clone(),
-                        worker_mode,
-                        server_mode,
-                    )
-                    .await;
                     tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(30))    => (),
+                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                            monitor_db(
+                                &db,
+                                &base_internal_url,
+                                rsmq.clone(),
+                                server_mode,
+                            )
+                            .await;
+                        },
+                        notification = listener.recv() => {
+                            match notification {
+                                Ok(n) => {
+                                    tracing::info!("Received new pg notification: {n:?}");
+                                    match n.channel() {
+                                        "notify_config_change" => {
+                                            tracing::info!("Config change detected");
+                                            match n.payload() {
+                                                "server" if server_mode => {
+                                                    tracing::info!("Server config change detected");
+                                                    reload_server_config(&db).await;
+                                                },
+                                                a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
+                                                    tracing::info!("Worker config change detected");
+                                                    reload_worker_config(&db, tx.clone(), true).await;
+                                                },
+                                                _ => {
+                                                    ()
+                                                }
+                                            }
+                                        },
+                                        "notify_global_setting_change" => {
+                                            tracing::info!("Global setting change detected");
+                                            match n.payload() {
+                                                BASE_URL_SETTING => {
+                                                    tracing::info!("Base URL setting change detected");
+                                                    if let Err(e) = reload_base_url_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload base url setting");
+                                                    }
+                                                },
+                                                OAUTH_SETTING => {
+                                                    tracing::info!("OAuth setting change detected");
+                                                    if let Err(e) = reload_base_url_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload oauth setting");
+                                                    }
+                                                },
+                                                CUSTOM_TAGS_SETTING => {
+                                                    tracing::info!("Custom tags setting change detected");
+                                                    if let Err(e) = reload_custom_tags_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload custom tags setting");
+                                                    }
+                                                },
+                                                LICENSE_KEY_SETTING => {
+                                                    tracing::info!("License Key setting change detected");
+                                                    if let Err(e) = reload_license_key(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload license key setting");
+                                                    }
+                                                },
+                                                RETENTION_PERIOD_SECS_SETTING => {
+                                                    tracing::info!("Retention period setting change detected");
+                                                    reload_retention_period_setting(&db).await
+                                                },
+                                                REQUEST_SIZE_LIMIT_SETTING => {
+                                                    tracing::info!("Request limit size change detected, killing server expecting to be restarted");
+                                                    // we wait a bit randomly to avoid having all servers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    }
+                                                }
+                                                a @_ => {
+                                                    tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
+                                                }
+                                            }
+                                        },
+                                        _ => {
+                                            tracing::warn!("Unknown notification received");
+                                            continue;
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Could not receive notification");
+                                    continue;
+                                }
+                            };
+                        },
                         _ = rx.recv() => {
                                 println!("received killpill for monitor job");
                                 break;
@@ -272,13 +362,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    #[cfg(feature = "enterprise")]
-    ee::verify_license_key(LICENSE_KEY.clone())?;
 
-    #[cfg(not(feature = "enterprise"))]
-    if LICENSE_KEY.as_ref().is_some_and(|x| !x.is_empty()) {
-        panic!("License key is required ONLY for the enterprise edition");
-    }
 
     let instance_name = gethostname()
         .to_str()

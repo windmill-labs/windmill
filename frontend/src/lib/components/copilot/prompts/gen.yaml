@@ -11,7 +11,7 @@ prompts:
   python3:
     prompt: |-
       Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
-      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
       The resource type name has to be exactly as specified (has to be IN LOWERCASE).
       <resourceTypes>
       {resourceTypes}
@@ -21,7 +21,7 @@ prompts:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
       If needed, the standard fetch method is available globally, do not import it.
-      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
       The resource type name has to be exactly as specified.
       <resourceTypes>
       {resourceTypes}
@@ -54,7 +54,7 @@ prompts:
   nativets:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
-      You can take as parameters resources which are dictionaries containing credentials or configuration information.
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
       The resource type name has to be exactly as specified.
       <resourceTypes>
       {resourceTypes}
@@ -64,7 +64,7 @@ prompts:
     prompt: |-
       Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
       If needed, the standard fetch method is available globally, do not import it.
-      You can take as parameters resources which are dictionaries containing credentials or configuration information. 
+      You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
       The resource type name has to be exactly as specified.
       <resourceTypes>
       {resourceTypes}

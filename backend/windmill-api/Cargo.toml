@@ -53,7 +53,7 @@ cron.workspace = true
 mime_guess.workspace = true
 rust-embed.workspace = true
 tracing-subscriber.workspace = true
-retainer.workspace = true
+quick_cache.workspace = true
 rand.workspace = true
 time.workspace = true
 magic-crypt.workspace = true
@@ -74,3 +74,4 @@ bytes.workspace = true
 mail-send.workspace = true
 samael = { workspace = true, optional = true }
 async-recursion.workspace = true
+rsa.workspace = true

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
-#[cfg(feature = "enterprise")]
 use futures::StreamExt;
 
 use futures::{stream, Stream};
@@ -18,11 +17,12 @@ use windmill_api_client::types::{
     CreateFlowBody, RawScript
 };
 
-#[cfg(feature = "enterprise")]
 use sqlx::query;
 
 #[cfg(feature = "enterprise")]
-use windmill_api_client::types::{EditSchedule, NewSchedule,  ScriptArgs, NewScript, NewScriptLanguage};
+use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
+
+use windmill_api_client::types::{NewScript, NewScriptLanguage};
 
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
