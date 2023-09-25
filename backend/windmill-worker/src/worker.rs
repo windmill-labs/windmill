@@ -562,8 +562,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "enterprise")]
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
 
-    tracing::info!(worker = %worker_name, "starting worker");
-
     #[cfg(feature = "enterprise")]
     let mut last_sync = Instant::now()
         + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
