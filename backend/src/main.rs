@@ -19,11 +19,10 @@ use tokio::{
     fs::{metadata, DirBuilder},
     sync::RwLock,
 };
-use windmill_api::LICENSE_KEY;
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING, LICENSE_KEY_SETTING,
     },
     utils::rd_string,
     worker::{reload_custom_tags_setting, WORKER_GROUP},
@@ -38,7 +37,7 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, monitor_db, reload_base_url_setting, reload_retention_period_setting,
-    reload_server_config, reload_worker_config,
+    reload_server_config, reload_worker_config, reload_license_key,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -153,9 +152,11 @@ Windmill Community Edition {GIT_VERSION}
         // since it's only on server mode, the port is statically defined
         let base_internal_url: String = format!("http://localhost:{}", port.to_string());
 
+        initial_load(&db, tx.clone(), worker_mode, server_mode).await;
+
+        
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
 
-        initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -271,6 +272,12 @@ Windmill Community Edition {GIT_VERSION}
                                                         tracing::error!(error = %e, "Could not reload custom tags setting");
                                                     }
                                                 },
+                                                LICENSE_KEY_SETTING => {
+                                                    tracing::info!("License Key setting change detected");
+                                                    if let Err(e) = reload_license_key(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload license key setting");
+                                                    }
+                                                },
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     tracing::info!("Retention period setting change detected");
                                                     reload_retention_period_setting(&db).await
@@ -355,13 +362,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-    #[cfg(feature = "enterprise")]
-    ee::verify_license_key(LICENSE_KEY.clone())?;
 
-    #[cfg(not(feature = "enterprise"))]
-    if LICENSE_KEY.as_ref().is_some_and(|x| !x.is_empty()) {
-        panic!("License key is required ONLY for the enterprise edition");
-    }
 
     let instance_name = gethostname()
         .to_str()

@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use quick_cache::sync::Cache;
 use serde::Serialize;
-use tokio::{select, sync::mpsc, time::interval};
+use tokio::{select, sync::mpsc};
 use windmill_common::METRICS_ENABLED;
 
 use crate::db::DB;
@@ -78,8 +79,7 @@ impl WebhookShared {
                 .timeout(Duration::from_secs(5))
                 .build()
                 .unwrap();
-            let cache = retainer::Cache::new();
-            let mut cache_purge_interval = interval(Duration::from_secs(30));
+            let cache = Cache::new(100);
 
             loop {
                 select! {
@@ -87,7 +87,7 @@ impl WebhookShared {
                     _ = shutdown_rx.recv() => break,
                     r = rx.recv() => match r {
                         Some(WebhookPayload::WorkspaceEvent(workspace_id, message)) => {
-                            let url_guard = match cache.get(&workspace_id).await {
+                            let webhook_opt = match cache.get(&workspace_id) {
                                 Some(guard) => {
                                     guard
                                 },
@@ -104,16 +104,14 @@ impl WebhookShared {
                                             tracing::error!("Webhook Message to send - but cannot get workspace settings! Workspace: {workspace_id}");
                                             continue;
                                         };
-                                    cache.insert(workspace_id.clone(), webook_opt, Duration::from_secs(30)).await;
-                                    cache.get(&workspace_id).await.unwrap()
+                                    cache.insert(workspace_id, webook_opt.clone());
+                                    webook_opt
                                 }
                             };
-                            let webook_opt = url_guard.value();
-                            if let Some(url) = webook_opt {
+                            if let Some(url) = webhook_opt {
                                 let timer = if *METRICS_ENABLED { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 let _ = client.post(url).json(&message).send().await;
                                 timer.map(|x| x.stop_and_record());
-                                drop(url_guard);
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
@@ -124,10 +122,6 @@ impl WebhookShared {
                             }
                         },
                         None => break,
-                    },
-                    _ = futures::future::poll_fn(|cx| cache_purge_interval.poll_tick(cx)) => {
-                        tracing::trace!("Purging Webhook Cache");
-                        cache.purge(10, 0.50).await;
                     },
                 }
             }

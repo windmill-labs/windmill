@@ -8,9 +8,8 @@
 	import { emptySchema, encodeState, getModifierKey } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput } from './common'
+	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import { faPlus, faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -19,7 +18,7 @@
 	import { Loader2, Pen, X } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
-	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -28,6 +27,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
 	import Toggle from './Toggle.svelte'
+	import ScriptSchema from './ScriptSchema.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -41,7 +41,6 @@
 		(initialPath == '' &&
 			$page.url.searchParams.get('state') == undefined &&
 			$page.url.searchParams.get('collab') == undefined)
-	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
@@ -272,108 +271,134 @@
 
 	let path: Path | undefined = undefined
 	let dirtyPath = false
+
+	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 <UnsavedConfirmationModal />
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
-		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
-			<h2 class="border-b pb-1 mb-4">Summary</h2>
-
-			<input
-				type="text"
-				autofocus
-				bind:value={script.summary}
-				placeholder="Short summary to be displayed when listed"
-				on:keyup={() => {
-					if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-						path?.setName(
-							script.summary
-								.toLowerCase()
-								.replace(/[^a-z0-9_]/g, '_')
-								.replace(/-+/g, '_')
-								.replace(/^-|-$/g, '')
-						)
-					}
-				}}
-			/>
-			<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
-			<Path
-				bind:this={path}
-				bind:error={pathError}
-				bind:path={script.path}
-				bind:dirty={dirtyPath}
-				{initialPath}
-				autofocus={false}
-				namePlaceholder="script"
-				kind="script"
-			/>
-
-			<h2 class="border-b pb-1 mt-10 mb-4">Language</h2>
-
-			{#if lockedLanguage}
-				<div class="text-sm text-tertiary italic mb-2">
-					As a forked script, the language '{script.language}' cannot be modified.
-				</div>
-			{/if}
-			<div class=" grid grid-cols-3 gap-2">
-				{#each langs as [label, lang]}
-					{@const isPicked = script.language == lang && template == 'script'}
-					<Popover disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}>
-						<Button
-							size="sm"
-							variant="border"
-							color={isPicked ? 'blue' : 'light'}
-							btnClasses={isPicked ? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75' : 'm-[1px]'}
-							on:click={() => {
-								template = 'script'
-								initContent(lang, script.kind, template)
-								script.language = lang
-							}}
-							disabled={lockedLanguage || (enterpriseLangs.includes(lang) && !$enterpriseLicense)}
-						>
-							<LanguageIcon {lang} />
-							<span class="ml-2 py-2 truncate">{label}</span>
-						</Button>
-						<svelte:fragment slot="text"
-							>{label} is only available with an enterprise license</svelte:fragment
-						>
-					</Popover>
-				{/each}
-				<Button
-					size="sm"
-					variant="border"
-					color={template == 'docker' ? 'blue' : 'light'}
-					btnClasses={template == 'docker'
-						? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-						: 'm-[1px]'}
-					disabled={lockedLanguage}
-					on:click={() => {
-						if (isCloudHosted()) {
-							sendUserToast(
-								'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-								true,
-								[
-									{
-										label: 'Learn more',
-										callback: () => {
-											window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-										}
-									}
-								]
-							)
-							return
-						}
-						template = 'docker'
-						initContent(Script.language.BASH, script.kind, template)
-						script.language = Script.language.BASH
-					}}
+		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
+			<Tabs bind:selected={selectedTab}>
+				<Tab value="metadata">Metadata</Tab>
+				<Tab value="runtime">Runtime</Tab>
+				<Tab value="ui"
+					>Generated UI<Tooltip
+						documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
+						>The arguments are synced with the main signature but you may refine the parts that
+						cannot be inferred from the type directly.</Tooltip
+					></Tab
 				>
-					<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
-				</Button>
+				<svelte:fragment slot="content">
+					<div class="px-4">
+						<TabContent value="metadata">
+							<div class="text-sm mt-4 text-secondary font-semibold">Summary</div>
 
-				<!-- <Button
+							<input
+								type="text"
+								autofocus
+								bind:value={script.summary}
+								placeholder="Short summary to be displayed when listed"
+								on:keyup={() => {
+									if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+										path?.setName(
+											script.summary
+												.toLowerCase()
+												.replace(/[^a-z0-9_]/g, '_')
+												.replace(/-+/g, '_')
+												.replace(/^-|-$/g, '')
+										)
+									}
+								}}
+							/>
+							<div class="text-sm mt-6 text-secondary font-semibold">Path</div>
+							<Path
+								bind:this={path}
+								bind:error={pathError}
+								bind:path={script.path}
+								bind:dirty={dirtyPath}
+								{initialPath}
+								autofocus={false}
+								namePlaceholder="script"
+								kind="script"
+							/>
+
+							<div class="text-sm mt-6 text-secondary font-semibold">Description</div>
+							<textarea
+								use:autosize
+								bind:value={script.description}
+								placeholder="Description displayed in the details page"
+								class="text-sm"
+							/>
+
+							<div class="border-b pb-1 mb-4 mt-8 font-semibold">Language</div>
+
+							{#if lockedLanguage}
+								<div class="text-sm text-tertiary italic mb-2">
+									As a forked script, the language '{script.language}' cannot be modified.
+								</div>
+							{/if}
+							<div class=" grid grid-cols-3 gap-2">
+								{#each langs as [label, lang]}
+									{@const isPicked = script.language == lang && template == 'script'}
+									<Popover disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}>
+										<Button
+											size="sm"
+											variant="border"
+											color={isPicked ? 'blue' : 'light'}
+											btnClasses={isPicked
+												? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+												: 'm-[1px]'}
+											on:click={() => {
+												template = 'script'
+												initContent(lang, script.kind, template)
+												script.language = lang
+											}}
+											disabled={lockedLanguage ||
+												(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+										>
+											<LanguageIcon {lang} />
+											<span class="ml-2 py-2 truncate">{label}</span>
+										</Button>
+										<svelte:fragment slot="text"
+											>{label} is only available with an enterprise license</svelte:fragment
+										>
+									</Popover>
+								{/each}
+								<Button
+									size="sm"
+									variant="border"
+									color={template == 'docker' ? 'blue' : 'light'}
+									btnClasses={template == 'docker'
+										? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+										: 'm-[1px]'}
+									disabled={lockedLanguage}
+									on:click={() => {
+										if (isCloudHosted()) {
+											sendUserToast(
+												'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+												true,
+												[
+													{
+														label: 'Learn more',
+														callback: () => {
+															window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+														}
+													}
+												]
+											)
+											return
+										}
+										template = 'docker'
+										initContent(Script.language.BASH, script.kind, template)
+										script.language = Script.language.BASH
+									}}
+								>
+									<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
+								</Button>
+
+								<!-- <Button
 					size="sm"
 					variant="border"
 					color={template == 'mysql' ? 'blue' : 'dark'}
@@ -386,174 +411,213 @@
 				>
 					<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
 				</Button> -->
-			</div>
-
-			<h2 class="border-b pb-1 mt-10 mb-4">Description</h2>
-			<textarea
-				use:autosize
-				bind:value={script.description}
-				placeholder="Description displayed in the details page"
-				class="text-sm"
-			/>
-
-			<h2 class="border-b pb-1 mt-10 mb-4">Concurrency limits</h2>
-			<div class="flex gap-x-4 shrink">
-				<label class="block shrink min-w-0">
-					<span class="text-secondary text-sm">Maximum number of runs</span>
-					<input class="!w-55" type="number" bind:value={script.concurrent_limit} />
-				</label>
-				<label class="block shrink min-w-0">
-					<span class="text-secondary text-sm">Per time window (seconds)</span>
-					<input class="!w-18" type="number" bind:value={script.concurrency_time_window_s} />
-				</label>
-			</div>
-
-			<h2 class="border-b pb-1 mt-10 mb-4"
-				>Worker group tag <Tooltip
-					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
-					>The script will be executed on a worker configured to accept its worker group tag. For
-					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
-				></h2
-			>
-			{#if $workerTags}
-				{#if $workerTags?.length > 0}
-					<div class="max-w-sm">
-						<select
-							bind:value={script.tag}
-							on:change={(e) => {
-								if (script.tag == '') {
-									script.tag = undefined
-								}
-							}}
-						>
-							{#if script.tag}
-								<option value="">reset to default</option>
-							{:else}
-								<option value="" disabled selected>Worker Group</option>
-							{/if}
-							{#each $workerTags ?? [] as tag (tag)}
-								<option value={tag}>{tag}</option>
-							{/each}
-						</select>
-					</div>
-				{:else}
-					<div class="text-sm text-secondary italic mb-2">
-						No custom worker group defined on this instance. See <a
-							href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-							target="_blank">documentation</a
-						>
-					</div>
-				{/if}
-			{:else}
-				<Loader2 class="animate-spin" />
-			{/if}
-
-			<h2 class="border-b pb-1 mt-10 mb-4 flex items-center gap-4"
-				>Cache <Toggle
-					size="xs"
-					checked={Boolean(script.cache_ttl)}
-					on:change={() => {
-						if (script.cache_ttl && script.cache_ttl != undefined) {
-							script.cache_ttl = undefined
-						} else {
-							script.cache_ttl = 300
-						}
-					}}
-					options={{
-						right: 'Cache the results for each possible inputs'
-					}}
-				/></h2
-			>
-
-			<div class="flex gap-x-4 shrink flex-col">
-				<div class="text-xs">How long to the keep cache valid</div>
-
-				{#if script.cache_ttl}
-					<SecondsInput bind:seconds={script.cache_ttl} />
-				{:else}
-					<SecondsInput disabled />
-				{/if}
-			</div>
-
-			<h2 class="border-b pb-1 mt-10 mb-4 items-center flex gap-1"
-				>Dedicated Workers<Tooltip
-					>In this mode, the script is meant to be run on dedicated workers that run the script at
-					native speed. Can reach >400rps per dedicated worker. Only available on enterprise edition
-					and for the Bun language.</Tooltip
-				>
-				<Toggle
-					disabled={!$enterpriseLicense ||
-						isCloudHosted() ||
-						script.language != Script.language.BUN}
-					size="xs"
-					checked={Boolean(script.dedicated_worker)}
-					on:change={() => {
-						if (script.dedicated_worker) {
-							script.dedicated_worker = undefined
-						} else {
-							script.dedicated_worker = true
-						}
-					}}
-					options={{
-						right: 'Script is run on dedicated workers'
-					}}
-				/></h2
-			>
-
-			{#if !isCloudHosted()}
-				<h2 class="border-b pb-1 mt-10 mb-4">
-					Custom env variables
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
-					>
-						Additional static custom env variables to pass to the script.
-					</Tooltip>
-				</h2>
-				<div class="w-full">
-					<span class="text-tertiary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
-					{#if Array.isArray(script.envs ?? [])}
-						{#each script.envs ?? [] as v, i}
-							<div class="flex max-w-md mt-1 w-full items-center">
-								<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
-								<button
-									transition:fade|local={{ duration: 50 }}
-									class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200"
-									aria-label="Clear"
-									on:click={() => {
-										script.envs && script.envs.splice(i, 1)
-										script.envs = script.envs
-									}}
-								>
-									<X size={14} />
-								</button>
 							</div>
-						{/each}
-						{#if script.envs && script.envs.length > 0}
-							<div class="pt-2" />
-							<Alert type="warning" title="Not passed in previews"
-								>Static envs variables are not passed in preview but solely on deployed scripts.</Alert
+
+							<div class="border-b pb-1 mb-4 mt-6 font-semibold">
+								Script kind
+								<Tooltip>
+									Tag this script's purpose within flows such that it is available as the
+									corresponding action.
+								</Tooltip>
+							</div>
+							<div class="flex flex-wrap gap-2 mb-8">
+								{#each scriptKindOptions as { value, title, desc, documentationLink }}
+									{@const isPicked = script.kind === value}
+									<Button
+										size="sm"
+										variant="border"
+										color={isPicked ? 'blue' : 'light'}
+										btnClasses="font-medium {isPicked
+											? '!bg-blue-50/75 dark:!bg-frost-900/75'
+											: ''}"
+										on:click={() => {
+											template = 'script'
+											script.kind = value
+											initContent(script.language, value, template)
+										}}
+									>
+										{title}
+										{#if desc}
+											<Tooltip {documentationLink}>
+												{desc}
+											</Tooltip>
+										{/if}
+									</Button>
+								{/each}
+							</div>
+						</TabContent>
+						<TabContent value="runtime">
+							<h2 class="border-b pb-1 mt-4 mb-4">Concurrency limits</h2>
+							<div class="flex gap-x-4 shrink">
+								<label class="block shrink min-w-0">
+									<span class="text-secondary text-sm">Maximum number of runs</span>
+									<input class="!w-55" type="number" bind:value={script.concurrent_limit} />
+								</label>
+								<label class="block shrink min-w-0">
+									<span class="text-secondary text-sm">Per time window (seconds)</span>
+									<input
+										class="!w-18"
+										type="number"
+										bind:value={script.concurrency_time_window_s}
+									/>
+								</label>
+							</div>
+
+							<h2 class="border-b pb-1 mt-10 mb-4"
+								>Worker group tag <Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+									>The script will be executed on a worker configured to accept its worker group
+									tag. For instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
+								></h2
 							>
-						{/if}
-					{/if}
-				</div>
-				<div class="flex mt-2">
-					<Button
-						variant="border"
-						color="dark"
-						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							if (script.envs == undefined || !Array.isArray(script.envs)) {
-								script.envs = []
-							}
-							script.envs = script.envs.concat('')
-						}}
-					>
-						<Icon data={faPlus} class="mr-2" />
-						Add item
-					</Button>
-				</div>
-			{/if}
+							{#if $workerTags}
+								{#if $workerTags?.length > 0}
+									<div class="max-w-sm">
+										<select
+											bind:value={script.tag}
+											on:change={(e) => {
+												if (script.tag == '') {
+													script.tag = undefined
+												}
+											}}
+										>
+											{#if script.tag}
+												<option value="">reset to default</option>
+											{:else}
+												<option value="" disabled selected>Worker Group</option>
+											{/if}
+											{#each $workerTags ?? [] as tag (tag)}
+												<option value={tag}>{tag}</option>
+											{/each}
+										</select>
+									</div>
+								{:else}
+									<div class="text-sm text-secondary italic mb-2">
+										No custom worker group defined on this instance. See <a
+											href="https://www.windmill.dev/docs/core_concepts/worker_groups"
+											target="_blank">documentation</a
+										>
+									</div>
+								{/if}
+							{:else}
+								<Loader2 class="animate-spin" />
+							{/if}
+
+							<h2 class="border-b pb-1 mt-10 mb-4 flex items-center gap-4"
+								>Cache <Toggle
+									size="xs"
+									checked={Boolean(script.cache_ttl)}
+									on:change={() => {
+										if (script.cache_ttl && script.cache_ttl != undefined) {
+											script.cache_ttl = undefined
+										} else {
+											script.cache_ttl = 300
+										}
+									}}
+									options={{
+										right: 'Cache the results for each possible inputs'
+									}}
+								/></h2
+							>
+
+							<div class="flex gap-x-4 shrink flex-col">
+								<div class="text-xs">How long to the keep cache valid</div>
+
+								{#if script.cache_ttl}
+									<SecondsInput bind:seconds={script.cache_ttl} />
+								{:else}
+									<SecondsInput disabled />
+								{/if}
+							</div>
+
+							<h2 class="border-b pb-1 mt-10 mb-4 items-center flex gap-1"
+								>Dedicated Workers<Tooltip
+									>In this mode, the script is meant to be run on dedicated workers that run the
+									script at native speed. Can reach >1500rps per dedicated worker. Only available on
+									enterprise edition and for the Bun language.</Tooltip
+								>
+								<Toggle
+									disabled={!$enterpriseLicense ||
+										isCloudHosted() ||
+										script.language != Script.language.BUN}
+									size="xs"
+									checked={Boolean(script.dedicated_worker)}
+									on:change={() => {
+										if (script.dedicated_worker) {
+											script.dedicated_worker = undefined
+										} else {
+											script.dedicated_worker = true
+										}
+									}}
+									options={{
+										right: 'Script is run on dedicated workers'
+									}}
+								/></h2
+							>
+
+							{#if !isCloudHosted()}
+								<h2 class="border-b pb-1 mt-10 mb-4">
+									Custom env variables
+									<Tooltip
+										documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
+									>
+										Additional static custom env variables to pass to the script.
+									</Tooltip>
+								</h2>
+								<div class="w-full">
+									<span class="text-tertiary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span>
+									{#if Array.isArray(script.envs ?? [])}
+										{#each script.envs ?? [] as v, i}
+											<div class="flex max-w-md mt-1 w-full items-center">
+												<input type="text" bind:value={v} placeholder="<KEY>=<VALUE>" />
+												<button
+													transition:fade|local={{ duration: 50 }}
+													class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200"
+													aria-label="Clear"
+													on:click={() => {
+														script.envs && script.envs.splice(i, 1)
+														script.envs = script.envs
+													}}
+												>
+													<X size={14} />
+												</button>
+											</div>
+										{/each}
+										{#if script.envs && script.envs.length > 0}
+											<div class="pt-2" />
+											<Alert type="warning" title="Not passed in previews"
+												>Static envs variables are not passed in preview but solely on deployed
+												scripts.</Alert
+											>
+										{/if}
+									{/if}
+								</div>
+								<div class="flex mt-2">
+									<Button
+										variant="border"
+										color="dark"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											if (script.envs == undefined || !Array.isArray(script.envs)) {
+												script.envs = []
+											}
+											script.envs = script.envs.concat('')
+										}}
+									>
+										<Icon data={faPlus} class="mr-2" />
+										Add item
+									</Button>
+								</div>
+							{/if}
+						</TabContent>
+						<TabContent value="ui">
+							<div class="mt-4" />
+							<ScriptSchema bind:schema={script.schema} />
+						</TabContent>
+					</div>
+				</svelte:fragment>
+			</Tabs>
 		</DrawerContent>
 	</Drawer>
 
@@ -618,17 +682,7 @@
 							metadataOpen = true
 						}}
 					>
-						Metadata
-					</Button>
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							advancedOpen = true
-						}}
-					>
-						Customise
+						Settings
 					</Button>
 					<Button
 						loading={loadingDraft}
@@ -653,51 +707,6 @@
 				</div>
 			</div>
 		</div>
-
-		<Drawer bind:open={advancedOpen} size="800px">
-			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
-				{#if SCRIPT_CUSTOMISE_SHOW_KIND}
-					<h2 class="border-b pb-1 mb-4">
-						Script kind &nbsp;
-						<Tooltip>
-							Tag this script's purpose within flows such that it is available as the corresponding
-							action.
-						</Tooltip>
-					</h2>
-					<div class="flex flex-wrap gap-2">
-						{#each scriptKindOptions as { value, title, desc, documentationLink }}
-							{@const isPicked = script.kind === value}
-							<Button
-								size="sm"
-								variant="border"
-								color={isPicked ? 'blue' : 'dark'}
-								btnClasses="font-medium {isPicked ? '!bg-blue-50/75 !dark:bg-blue-900/75' : ''}"
-								on:click={() => {
-									template = 'script'
-									script.kind = value
-									initContent(script.language, value, template)
-								}}
-							>
-								{title}
-								{#if desc}
-									<Tooltip {documentationLink}>
-										{desc}
-									</Tooltip>
-								{/if}
-							</Button>
-						{/each}
-					</div>
-				{/if}
-				<h2 class="border-b pb-1 mt-10 mb-4"
-					>Arguments &nbsp;<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
-						>The arguments are synced with the main signature but you may refine the parts that
-						cannot be inferred from the type directly.</Tooltip
-					></h2
-				>
-				<ScriptSchema bind:schema={script.schema} />
-			</DrawerContent>
-		</Drawer>
 
 		<ScriptEditor
 			collabMode

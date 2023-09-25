@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.175.0
+  version: 1.176.0
   title: Windmill API
 
   contact:
@@ -616,6 +616,32 @@ paths:
               required:
                 - to
                 - smtp
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain::
+              schema:
+                type: string
+
+  /settings/test_license_key:
+    post:
+      summary: test license key
+      operationId: testLicenseKey
+      tags:
+        - setting
+      requestBody:
+        description: test license key
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                license_key:
+                  type: string
+              required:
+                - license_key
       responses:
         "200":
           description: status
@@ -4117,6 +4143,7 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
