@@ -70,6 +70,7 @@
 		'h-full w-full overflow-y-auto prose',
 		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
 		css?.container?.class,
+		' dark:prose-invert',
 		'wm-markdown'
 	)}
 	style={css?.container?.style}
