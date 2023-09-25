@@ -525,6 +525,18 @@ async fn login(Path(client_name): Path<String>, cookies: Cookies) -> error::Resu
     )
 }
 
+async fn test_oauth(Path(client_name): Path<String>, cookies: Cookies) -> error::Result<Redirect> {
+    let clients = &OAUTH_CLIENTS.read().await.logins;
+    oauth_redirect(
+        clients,
+        client_name,
+        cookies,
+        None,
+        None,
+        IS_SECURE.read().await.clone(),
+    )
+}
+
 #[derive(Deserialize)]
 struct VariablePath {
     path: String,
