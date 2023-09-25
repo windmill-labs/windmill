@@ -6,7 +6,6 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let groupFields: RichConfigurations | undefined
 
