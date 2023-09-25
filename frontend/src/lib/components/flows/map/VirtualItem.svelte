@@ -25,6 +25,8 @@
 	export let moving: string | undefined = undefined
 	export let center = true
 
+	console.log(label, id)
+
 	const dispatch = createEventDispatcher<{
 		insert: {
 			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger' | 'move'

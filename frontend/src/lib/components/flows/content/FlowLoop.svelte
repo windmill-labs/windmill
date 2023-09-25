@@ -88,7 +88,7 @@
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
-						<div class="border w-full">
+						<div class="border w-full" id="flow-editor-iterator-expression">
 							<PropPickerWrapper
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}

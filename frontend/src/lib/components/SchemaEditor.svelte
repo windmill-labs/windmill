@@ -242,6 +242,7 @@
 				on:click={() => {
 					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
 				}}
+				id="flow-editor-add-property"
 			>
 				Add Property
 			</Button>

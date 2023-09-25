@@ -424,7 +424,8 @@
 												size="xs"
 												on:click={() =>
 													editor.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
-												>Apply snippet
+											>
+												Apply snippet
 											</Button>
 										</div>
 										<HighlightCode
