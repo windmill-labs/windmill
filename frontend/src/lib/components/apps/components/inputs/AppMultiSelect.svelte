@@ -97,7 +97,7 @@
 		}
 	}
 
-	$: if (render) {
+	$: if (render && portalRef && outerDiv) {
 		tick().then(() => {
 			moveOptionsToPortal()
 		})
