@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.177.1](https://github.com/windmill-labs/windmill/compare/v1.177.0...v1.177.1) (2023-09-26)
+
+
+### Bug Fixes
+
+* **frontend:** fix modal closing issues ([#2340](https://github.com/windmill-labs/windmill/issues/2340)) ([18cf8fa](https://github.com/windmill-labs/windmill/commit/18cf8faec16d496e4b327505b682459ed518a5b4))
+* **frontend:** fix overflow ([#2341](https://github.com/windmill-labs/windmill/issues/2341)) ([2e8f2ec](https://github.com/windmill-labs/windmill/commit/2e8f2ec724f6802170121f4f8aa73b697a39c9ee))
+* improve list component handling of non array data ([dc44b08](https://github.com/windmill-labs/windmill/commit/dc44b0841af17227160b9d56ec446e6646a8ab0d))
+
 ## [1.177.0](https://github.com/windmill-labs/windmill/compare/v1.176.0...v1.177.0) (2023-09-26)
 
 
