@@ -57,12 +57,10 @@
 
 <script lang="ts">
 	import { oauthStore, workspaceStore } from '$lib/stores'
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 	import { emptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
 	import { Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -71,10 +69,11 @@
 	import autosize from 'svelte-autosize'
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import OauthScopes from './OauthScopes.svelte'
 
 	export let newPageOAuth = false
 
-	const nativeLanguagesCategory = ['postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql'];
+	const nativeLanguagesCategory = ['postgresql', 'mysql', 'bigquery', 'snowflake', 'graphql']
 
 	let filter = ''
 	let manual = false
@@ -195,14 +194,14 @@
 					linkedSecret: undefined
 				}
 			])
-			const filteredNativeLanguages = filteredConnectsManual?.filter(([key, _]) =>
-      nativeLanguagesCategory.includes(key)
-    );
+		const filteredNativeLanguages = filteredConnectsManual?.filter(([key, _]) =>
+			nativeLanguagesCategory.includes(key)
+		)
 
-    filteredConnectsManual = [
-      ...(filteredNativeLanguages ?? []),
-      ...(filteredConnectsManual ?? []).filter(([key, _]) => !nativeLanguagesCategory.includes(key))
-    ];
+		filteredConnectsManual = [
+			...(filteredNativeLanguages ?? []),
+			...(filteredConnectsManual ?? []).filter(([key, _]) => !nativeLanguagesCategory.includes(key))
+		]
 	}
 
 	async function next() {
@@ -397,93 +396,62 @@
 			{#if manual == false && resource_type != ''}
 				<h3>Scopes</h3>
 				{#if !manual && resource_type != ''}
-					{#each scopes as v}
-						<div class="flex flex-row max-w-md mb-2">
-							<input type="text" bind:value={v} />
-							<Button
-								variant="border"
-								color="red"
-								size="xs"
-								btnClasses="mx-6"
-								on:click={() => {
-									scopes = scopes.filter((el) => el != v)
-								}}
-							>
-								<Icon data={faMinus} />
-							</Button>
-						</div>
-					{/each}
-					<div class="flex items-center mt-1">
-						<Button
-							variant="border"
-							color="blue"
-							hover="yo"
-							size="sm"
-							endIcon={{ icon: faPlus }}
-							on:click={() => {
-								scopes = scopes.concat('')
-							}}
-						>
-							Add item
-						</Button>
-						<span class="ml-2 text-sm text-tertiary">
-							({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
-						</span>
-					</div>
+					<OauthScopes bind:scopes />
 				{/if}
 			{/if}
 
 			<h2 class="mt-8 mb-4">Others</h2>
-      <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-        {#if filteredConnectsManual}
-          {#each filteredConnectsManual as [key, _]}
-            {#if nativeLanguagesCategory.includes(key)}
-              <Button
-                size="sm"
-                variant="border"
-                color={key === resource_type ? 'blue' : 'light'}
-                btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-                on:click={() => {
-                  manual = true;
-                  resource_type = key;
-                  next();
-                  dispatch('click');
-                }}
-              >
-                <IconedResourceType name={key} after={true} width="20px" height="20px" />
-              </Button>
-            {/if}
-          {/each}
-        {/if}
-      </div>
+			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+				{#if filteredConnectsManual}
+					{#each filteredConnectsManual as [key, _]}
+						{#if nativeLanguagesCategory.includes(key)}
+							<Button
+								size="sm"
+								variant="border"
+								color={key === resource_type ? 'blue' : 'light'}
+								btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									manual = true
+									resource_type = key
+									next()
+									dispatch('click')
+								}}
+							>
+								<IconedResourceType name={key} after={true} width="20px" height="20px" />
+							</Button>
+						{/if}
+					{/each}
+				{/if}
+			</div>
 
-	  <h2 class="mt-8 mb-4"></h2>
-	  <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-		  {#if filteredConnectsManual}
-			  {#each filteredConnectsManual as [key, _]}
-				  {#if !nativeLanguagesCategory.includes(key)} <!-- Exclude specific items -->
-					  <Button
-						  size="sm"
-						  variant="border"
-						  color={key === resource_type ? 'blue' : 'light'}
-						  btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						  on:click={() => {
-							  manual = true;
-							  resource_type = key;
-							  next();
-							  dispatch('click');
-						  }}
-					  >
-						  <IconedResourceType name={key} after={true} width="20px" height="20px" />
-					  </Button>
-				  {/if}
-			  {/each}
-		  {:else}
-			  {#each new Array(9) as _}
-				  <Skeleton layout={[[2]]} />
-			  {/each}
-		  {/if}
-	  </div>	  
+			<h2 class="mt-8 mb-4" />
+			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+				{#if filteredConnectsManual}
+					{#each filteredConnectsManual as [key, _]}
+						{#if !nativeLanguagesCategory.includes(key)}
+							<!-- Exclude specific items -->
+							<Button
+								size="sm"
+								variant="border"
+								color={key === resource_type ? 'blue' : 'light'}
+								btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									manual = true
+									resource_type = key
+									next()
+									dispatch('click')
+								}}
+							>
+								<IconedResourceType name={key} after={true} width="20px" height="20px" />
+							</Button>
+						{/if}
+					{/each}
+				{:else}
+					{#each new Array(9) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
+			</div>
 		{:else if step == 2 && manual}
 			<Path
 				bind:error={pathError}
