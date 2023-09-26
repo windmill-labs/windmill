@@ -235,8 +235,14 @@
 	let command: Disposable | undefined = undefined
 
 	let sqlSchemaCompletor: Disposable | undefined = undefined
-	$: args &&
-		(dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')])
+
+	function updateSchema(lang, args) {
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (schemaRes instanceof String) {
+			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+		}
+	}
+	$: args && updateSchema(lang, args)
 	$: dbSchema && ['sql', 'graphql'].includes(lang) && addDBSchemaCompletions()
 	$: (!dbSchema || lang !== 'sql') && sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 	$: (!dbSchema || lang !== 'graphql') && graphqlService && graphqlService.setSchemaConfig([])
