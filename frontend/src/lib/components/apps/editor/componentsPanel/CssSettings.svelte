@@ -76,7 +76,7 @@
 									class="h-full"
 									lang="css"
 									bind:code={$app.theme.css}
-									fixedOverflowWidgets={false}
+									fixedOverflowWidgets={true}
 									small
 									automaticLayout
 									bind:this={cssEditor}

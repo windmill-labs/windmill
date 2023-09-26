@@ -72,7 +72,10 @@
 		const theme = $app.theme
 
 		if (theme?.type === 'path') {
-			sendUserToast('Cannot migrate to CSS editor when using a theme by path', true)
+			sendUserToast(
+				'Cannot migrate to CSS editor when using a theme by path. Fork a global theme to edit CSS.',
+				true
+			)
 			return
 		} else if (theme?.type === 'inlined') {
 			let cssString = theme.css
