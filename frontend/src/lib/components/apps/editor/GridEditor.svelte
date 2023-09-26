@@ -32,7 +32,7 @@
 		allIdsInPath
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, scale } = getContext<AppEditorContext>('AppEditorContext')
 
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
@@ -72,14 +72,25 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge('p-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '', 'wm-app-grid')}
+		class={twMerge(
+			'p-2 overflow-visible',
+			$app.css?.['app']?.['grid']?.class ?? '',
+			'wm-app-grid border'
+		)}
 		on:pointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
 		bind:clientWidth={$parentWidth}
 	>
-		<div class={!$focusedGrid && $mode !== 'preview' ? ' border border-dashed' : ''}>
+		<div
+			class={twMerge(
+				!$focusedGrid && $mode !== 'preview' ? 'border-dashed' : '',
+				'subgrid',
+				'border-[#999999] dark:border-[#aaaaaa] border '
+			)}
+			style={`transform: scale(${$scale / 100})`}
+		>
 			<Grid
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}

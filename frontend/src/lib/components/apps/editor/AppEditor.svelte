@@ -130,12 +130,15 @@
 		previewTheme
 	})
 
+	let scale = writable(100)
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
 		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined),
-		jobsDrawerOpen: writable(false)
+		jobsDrawerOpen: writable(false),
+		scale
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -392,8 +395,6 @@
 			existingElement.innerHTML = theme
 		}
 	}
-
-	let scale: number = 100
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -451,30 +452,27 @@
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div
-										class="absolute inset-0 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px]"
-									/>
 									<div class="absolute bottom-4 left-4 z-50">
 										<div class="flex flex-row gap-2 text-xs items-center">
 											<Button
 												color="light"
 												variant="border"
 												size="xs2"
-												disabled={scale <= 60}
+												disabled={$scale <= 30}
 												on:click={() => {
-													scale -= 10
+													$scale -= 10
 												}}
 											>
 												<Minus size={14} />
 											</Button>
-											{scale}
+											{$scale}
 											<Button
 												color="light"
 												variant="border"
 												size="xs2"
-												disabled={scale >= 100}
+												disabled={$scale >= 100}
 												on:click={() => {
-													scale += 10
+													$scale += 10
 												}}
 											>
 												<Plus size={14} />
@@ -484,12 +482,13 @@
 
 									<div id="app-editor-top-level-drawer" />
 									<div
+										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+									/>
+									<div
 										class={classNames(
-											'bg-surface-secondary relative mx-auto w-full h-full overflow-auto',
-											$appStore.fullscreen ? '' : 'max-w-6xl border-x',
-											scale < 100 ? 'border-y border-x' : ''
+											'relative mx-auto w-full h-full overflow-auto',
+											$appStore.fullscreen ? '' : 'max-w-6xl border-x'
 										)}
-										style={`transform: scale(${scale / 100})`}
 									>
 										{#if $appStore.grid}
 											<ComponentNavigation />

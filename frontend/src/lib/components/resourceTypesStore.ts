@@ -14,3 +14,5 @@ export async function getResourceTypes() {
         return nrts
     }
 }
+
+
