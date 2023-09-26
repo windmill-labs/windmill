@@ -16,9 +16,6 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { capitalize } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
-	import { includes } from 'lodash'
-	import OauthScopes from './OauthScopes.svelte'
-	import OauthExtraParams from './OauthExtraParams.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 
 	export const settings: Record<string, Setting[]> = {
