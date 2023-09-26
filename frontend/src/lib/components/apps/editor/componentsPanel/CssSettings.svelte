@@ -45,7 +45,7 @@
 	<Tab size="xs" value="theme">Theme</Tab>
 	<svelte:fragment slot="content">
 		{#if selectedTab === 'css'}
-			<SplitPanesWrapper class="relative z-50">
+			<SplitPanesWrapper>
 				<Splitpanes horizontal>
 					<Pane size={60}>
 						{#if $enterpriseLicense === undefined}
@@ -70,7 +70,7 @@
 								</div>
 							</div>
 						{/if}
-						<div style="height: calc(100% - {alertHeight || 0}px);" class="z5000">
+						<div style="height: calc(100% - {alertHeight || 0}px);">
 							{#if $app.theme?.type === 'inlined'}
 								<SimpleEditor
 									class="h-full"
