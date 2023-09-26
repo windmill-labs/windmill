@@ -61,7 +61,7 @@
 		<input type="text" placeholder="name (optional)" bind:value={name} />
 	</div>
 	<div>
-		<input type="text" placeholder="company (optional)" bind:value={company} />
+		<input type="text" placeholder="password" bind:value={company} />
 	</div>
 	<div class="text-xs text-tertiary grow text-right"> Email will be sent if SMTP configured </div>
 </div>
