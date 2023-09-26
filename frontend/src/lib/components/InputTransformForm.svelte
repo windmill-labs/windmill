@@ -15,11 +15,11 @@
 
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
-	import { ResourceService, type InputTransform } from '$lib/gen'
+	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
 	import { FunctionSquare, Plug } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { getResourceTypes } from './resourceTypesStore'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -141,8 +141,9 @@
 	let resourceTypes: string[] | undefined = undefined
 
 	async function loadResourceTypes() {
-		resourceTypes = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+		resourceTypes = await getResourceTypes()
 	}
+
 	loadResourceTypes()
 </script>
 
@@ -263,7 +264,7 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-400">
+			<div class="mt-2 min-h-[28px]">
 				{#if arg}
 					<TemplateEditor
 						bind:this={monacoTemplate}

@@ -789,7 +789,7 @@ const config = {
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: lightTheme.border + ' !important',
+					backgroundColor: 'rgb(243 244 246) !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {

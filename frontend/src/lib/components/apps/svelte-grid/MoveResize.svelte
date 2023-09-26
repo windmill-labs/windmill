@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
+	import type { AppEditorContext } from '../types'
+	import { writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,6 +26,9 @@
 	export let nativeContainer
 	export let onTop
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
+
+	const ctx = getContext<AppEditorContext>('AppEditorContext')
+	const scale = ctx ? ctx.scale : writable(100)
 
 	const divId = `component-${id}`
 	let shadowElement
@@ -50,19 +55,14 @@
 			let irect = shadowElement.getBoundingClientRect()
 			let shadowBound
 
+			const factor = $scale / 100
+
 			if (subgrid) {
-				let subGridParent = subgrid.parentElement
-				let subGridParentRect = subGridParent.getBoundingClientRect()
 				let prect = subgrid.getBoundingClientRect()
 
-				const subGridOffset = {
-					x: subGridParentRect.x - prect.x,
-					y: subGridParentRect.y - prect.y
-				}
-
 				shadowBound = {
-					x: irect.x - prect.left - subGridOffset.x,
-					y: irect.y - prect.top - subGridOffset.y
+					x: irect.x - prect.left,
+					y: irect.y - prect.top
 				}
 			} else {
 				shadowBound = irect
@@ -71,8 +71,8 @@
 			const xdragBound = rect.left + cordDiff.x
 			const ydragBound = rect.top + cordDiff.y
 
-			cordDiff.x = shadow.x * xPerPx + gapX - (shadowBound.x - xdragBound)
-			cordDiff.y = shadow.y * yPerPx + gapY - (shadowBound.y - ydragBound)
+			cordDiff.x = shadow.x * xPerPx + gapX - (shadowBound.x - xdragBound * factor) * factor
+			cordDiff.y = shadow.y * yPerPx + gapY - (shadowBound.y - ydragBound * factor) * factor
 
 			active = false
 			trans = true
@@ -121,19 +121,13 @@
 
 		let irect = gridItem.getBoundingClientRect()
 		if (subgrid && subgrid.parentElement) {
-			let subGridParent = subgrid.parentElement
-			let subGridParentRect = subGridParent.getBoundingClientRect()
-
 			let prect = subgrid.getBoundingClientRect()
 
-			const subGridOffset = {
-				x: subGridParentRect.x - prect.x,
-				y: subGridParentRect.y - prect.y
-			}
+			const factor = $scale / 100
 
 			rect = {
-				top: irect.top - prect.top - subGridOffset.y,
-				left: irect.left - prect.left - subGridOffset.x
+				top: (irect.top - prect.top) / factor,
+				left: (irect.left - prect.left) / factor
 			}
 		} else {
 			rect = irect
@@ -145,8 +139,8 @@
 		dragClosure = () => {
 			dragClosure = undefined
 
-			initX = clientX
-			initY = clientY
+			initX = (clientX / $scale) * 100
+			initY = (clientY / $scale) * 100
 			dispatch('initmove')
 		}
 		window.addEventListener('pointermove', pointermove)
@@ -200,7 +194,7 @@
 		event.stopImmediatePropagation()
 
 		const { clientX, clientY } = event
-		const cordDiff = { x: clientX - initX, y: clientY - initY }
+		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
 		dispatch('move', { cordDiff, clientY })
 	}
@@ -286,8 +280,8 @@
 
 	const resizePointerMove = ({ pageX, pageY }) => {
 		if (shadow) {
-			newSize.width = initSize.width + pageX - resizeInitPos.x
-			newSize.height = initSize.height + pageY - resizeInitPos.y
+			newSize.width = initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
+			newSize.height = initSize.height + ((pageY - resizeInitPos.y) / $scale) * 100
 
 			// Get max col number
 			let maxWidth = cols - shadow.x
@@ -297,8 +291,8 @@
 			newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
 
 			// Limit col & row
-			shadow.w = Math.round((newSize.width + gapX * 2) / xPerPx)
-			shadow.h = Math.round((newSize.height + gapY * 2) / yPerPx)
+			shadow.w = Math.round(Math.max((newSize.width + gapX * 2) / xPerPx, 1))
+			shadow.h = Math.round(Math.max((newSize.height + gapY * 2) / yPerPx, 1))
 
 			repaint(false, false)
 		}
@@ -314,6 +308,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+
 <div
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
