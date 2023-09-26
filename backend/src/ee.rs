@@ -27,20 +27,23 @@ pub async fn verify_license_key() -> error::Result<()> {
     use windmill_api::{LICENSE_KEY, LICENSE_KEY_VALID};
     use windmill_common::error::to_anyhow;
 
-    let key = LICENSE_KEY.read().await.clone();
-    if key.is_empty() {
-        return Err(error::Error::InternalErr(
-            "Empty license key cannot be verified".to_string(),
-        ));
-    }
-    let expiry_nb = key
+    let expiry_nb = LICENSE_KEY
+        .read()
+        .await
+        .clone()
         .split(".")
         .nth(1)
         .unwrap_or_else(|| "")
         .parse::<u64>()
         .map_err(to_anyhow)?;
     if expiry_nb < chrono::Utc::now().timestamp() as u64 {
-        return Err(error::Error::InternalErr("License key expired".to_string()));
+        tracing::error!(
+            "License key expired: {} < {}",
+            expiry_nb,
+            chrono::Utc::now().timestamp() as u64
+        );
+        let mut l = LICENSE_KEY_VALID.write().await;
+        *l = false;
     };
     Ok(())
 }
