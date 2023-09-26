@@ -72,7 +72,7 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'modalcomponent':
 			return [openModal, closeModal]
 		case 'aggridcomponent':
-			return [getAgGrid]
+			return [getAgGrid, setSelectedIndex]
 		case 'displaycomponent':
 		case 'dateinputcomponent':
 		case 'textinputcomponent':
@@ -90,7 +90,6 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'textareainputcomponent':
 			return [setValue]
 		case 'tablecomponent':
-		case 'aggridcomponent':
 			return [setSelectedIndex]
 		default:
 			if (components[type].initialData['componentInput']) {

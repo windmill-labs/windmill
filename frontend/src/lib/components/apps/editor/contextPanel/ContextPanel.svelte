@@ -27,7 +27,7 @@
 		)}
 	>
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full p-1.5">
+			<div class="sticky z-10 top-0 left-0 w-full p-1.5 bg-surface">
 				<ClearableInput bind:value={$search} placeholder="Search outputs..." />
 			</div>
 
