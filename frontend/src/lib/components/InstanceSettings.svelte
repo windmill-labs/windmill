@@ -14,6 +14,9 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { capitalize } from '$lib/utils'
+	import { enterpriseLicense } from '$lib/stores'
+	import CustomOauth from './CustomOauth.svelte'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -125,7 +128,7 @@
 			}
 		}
 		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
-		oauths = { ...initialOauths }
+		oauths = JSON.parse(JSON.stringify(initialOauths))
 		initialValues = Object.fromEntries(
 			(
 				await Promise.all(
@@ -136,7 +139,7 @@
 				)
 			).flat()
 		)
-		values = { ...initialValues }
+		values = JSON.parse(JSON.stringify(initialValues))
 		if (values['retention_period_secs'] == undefined) {
 			values['retention_period_secs'] = 60 * 60 * 24 * 60
 		}
@@ -158,7 +161,7 @@
 					name: 'server',
 					requestBody: newServerConfig
 				})
-				serverConfig = { ...newServerConfig }
+				serverConfig = JSON.parse(JSON.stringify(newServerConfig))
 			}
 			await Promise.all(
 				allSettings
@@ -174,7 +177,7 @@
 						await SettingService.setGlobal({ key: x.key, requestBody: { value: values?.[x.key] } })
 					})
 			)
-			initialValues = { ...values }
+			initialValues = JSON.parse(JSON.stringify(initialValues))
 
 			if (!deepEqual(initialOauths, oauths)) {
 				await SettingService.setGlobal({
@@ -183,7 +186,7 @@
 						value: oauths
 					}
 				})
-				initialOauths = { ...oauths }
+				initialOauths = JSON.parse(JSON.stringify(oauths))
 			}
 		} else {
 			console.error('Values not loaded')
@@ -208,6 +211,23 @@
 	}
 
 	let to: string = ''
+
+	const windmillBuiltins = [
+		'github',
+		'gitlab',
+		'bitbucket',
+		'slack',
+		'gsheets',
+		'gdrive',
+		'gmail',
+		'gcal',
+		'gcloud',
+		'gworkspace',
+		'basecamp',
+		'linkedin'
+	]
+
+	let oauth_name = 'custom'
 </script>
 
 <div class="pb-8">
@@ -344,6 +364,11 @@
 					<Alert type="warning" title="Limited to 50 SSO users">
 						Without EE, the number of SSO users is limited to 50. SCIM/SAML is available on EE
 					</Alert>
+					<div class="py-1" />
+					<Alert type="info" title="Test on a separate tab">
+						The recommended workflow is to to save your oauth setting and test them directly on the
+						login or resource page
+					</Alert>
 					<div class="flex flex-col gap-2 py-4">
 						<OAuthSetting name="google" bind:value={oauths['google']} />
 						<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
@@ -354,6 +379,11 @@
 						<KeycloakSetting bind:value={oauths['keycloak']} />
 					</div>
 					<h4 class="py-4">OAuth</h4>
+					<Alert type="info" title="Require a corresponding resource type">
+						After setting an oauth client, make sure that there is a corresponding resource type
+						with the same name with a "token" field in the admins workspace.
+					</Alert>
+					<div class="py-1" />
 					<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 					<div class="py-1" />
 
@@ -362,7 +392,7 @@
 							{#if oauths[k]}
 								<div class="flex flex-col gap-2 pb-4">
 									<div class="flex flex-row items-center gap-2">
-										<label class="text-md font-medium text-gray-700">{k}</label>
+										<label class="text-md font-medium text-primary">{k}</label>
 										<CloseButton
 											on:close={() => {
 												delete oauths[k]
@@ -383,6 +413,9 @@
 												bind:value={oauths[k]['secret']}
 											/>
 										</label>
+										{#if !windmillBuiltins.includes(k) && k != 'slack'}
+											<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
+										{/if}
 									</div>
 								</div>
 							{/if}
@@ -390,20 +423,28 @@
 					{/each}
 
 					<div class="flex gap-2">
-						<input type="text" placeholder="slack" bind:value={resourceName} />
+						<select name="oauth_name" id="oauth_name" bind:value={oauth_name}>
+							<option value="custom">Fully Custom (require ee)</option>
+							{#each windmillBuiltins as name}
+								<option value={name}>{capitalize(name)}</option>
+							{/each}
+						</select>
+						<input type="text" placeholder="client_id" bind:value={resourceName} />
 						<Button
 							variant="border"
 							color="blue"
 							hover="yo"
 							size="sm"
 							endIcon={{ icon: faPlus }}
-							disabled={resourceName == ''}
+							disabled={(oauth_name == 'custom' && resourceName == '') ||
+								(oauth_name == 'custom' && !$enterpriseLicense)}
 							on:click={() => {
-								oauths[resourceName] = { id: '', secret: '' }
+								let name = oauth_name == 'custom' ? resourceName : oauth_name
+								oauths[name] = { id: '', secret: '' }
 								resourceName = ''
 							}}
 						>
-							Add OAuth client
+							Add OAuth client {oauth_name == 'custom' && !$enterpriseLicense ? '(require ee)' : ''}
 						</Button>
 					</div>
 				</div>
