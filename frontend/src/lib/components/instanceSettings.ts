@@ -14,6 +14,7 @@ export interface Setting {
 		| 'textarea'
 		| 'seconds'
 		| 'email'
+		| 'license_key'
 	storage: SettingStorage
 }
 

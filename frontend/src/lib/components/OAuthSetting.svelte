@@ -7,15 +7,13 @@
 	export let value: any
 	export let login = true
 
-	$: if (value && value?.['allowed_domains'] == undefined) {
-		value = { ...(value ?? {}), allowed_domains: [] }
-	}
-
 	$: enabled = value != undefined
+
+	let allowed_domains = value?.['allowed_domains'] ?? ''
 </script>
 
 <div class="flex flex-col gap-1">
-	<label class="text-sm flex gap-4 items-center font-medium text-gray-700"
+	<label class="text-sm flex gap-4 items-center font-medium text-primary"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -39,14 +37,19 @@
 			</label>
 			{#if login}
 				<label class="block pb-2">
-					{#if value['allowed_domains']}
-						<span class="text-primary font-semibold text-sm">Allowed domain</span>
-						<input
-							type="text"
-							placeholder="windmill.dev"
-							bind:value={value['allowed_domains'][0]}
-						/>
-					{/if}
+					<span class="text-primary font-semibold text-sm">Allowed domain</span>
+					<input
+						type="text"
+						placeholder="windmill.dev"
+						bind:value={allowed_domains}
+						on:keyup={() => {
+							if (allowed_domains == '') {
+								value['allowed_domains'] = undefined
+							} else {
+								value['allowed_domains'] = [allowed_domains]
+							}
+						}}
+					/>
 				</label>
 			{/if}
 			{#if name == 'google'}

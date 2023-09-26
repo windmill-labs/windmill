@@ -604,7 +604,7 @@
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} template rounded-lg min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ?? ''} border template rounded min-h-4 mx-0.5 overflow-clip"
 	bind:clientWidth={width}
 />
 

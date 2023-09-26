@@ -34,6 +34,9 @@
 		return modules
 			.filter((x) => idOrders.indexOf(x.id) <= upTo)
 			.map((m) => {
+				if (idOrders.indexOf(m.id) == upTo) {
+					return m
+				}
 				if (m.value.type === 'forloopflow') {
 					m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
 				} else if (m.value.type === 'branchone') {

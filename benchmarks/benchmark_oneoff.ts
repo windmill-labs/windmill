@@ -11,6 +11,31 @@ import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 
 import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
 
+async function verifyOutputs(uuids: string[], workspace: string) {
+  console.log("Verifying outputs");
+  let incorrectResults = 0;
+  for (const uuid of uuids) {
+    try {
+      const job = await windmill.JobService.getCompletedJob({
+        workspace,
+        id: uuid,
+      });
+      if (!job.success) {
+        console.log(`Job ${uuid} did not complete`);
+        incorrectResults++;
+      }
+      if (job.result !== uuid) {
+        console.log(`Job ${uuid} did not output the correct value`);
+        incorrectResults++;
+      }
+    } catch (_) {
+      console.log(`Job ${uuid} did not complete`);
+      incorrectResults++;
+    }
+  }
+  console.log(`Incorrect results: ${incorrectResults}`);
+}
+
 export async function main({
   host,
   email,
@@ -19,6 +44,7 @@ export async function main({
   workspace,
   kind,
   jobs,
+  noVerify,
 }: {
   host: string;
   email?: string;
@@ -27,6 +53,7 @@ export async function main({
   workspace: string;
   kind: string;
   jobs: number;
+  noVerify?: boolean;
 }) {
   windmill.setClient("", host);
 
@@ -37,6 +64,9 @@ export async function main({
         host,
         email,
         workspace,
+        kind,
+        jobs,
+        noVerify,
       },
       null,
       4
@@ -65,11 +95,37 @@ export async function main({
   windmill.setClient(final_token, host);
   const enc = (s: string) => new TextEncoder().encode(s);
 
+  async function getQueueCount() {
+    return (
+      await (
+        await fetch(
+          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+  }
+
+  let pastJobs = 0;
+  async function getCompletedJobsCount(): Promise<number> {
+    const completedJobs = (
+      await (
+        await fetch(
+          host + "/api/w/" + config.workspace_id + "/jobs/completed/count",
+          { headers: { ["Authorization"]: "Bearer " + config.token } }
+        )
+      ).json()
+    ).database_length;
+    return completedJobs - pastJobs;
+  }
+
   if (["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)) {
     await createBenchScript(kind, workspace);
   }
 
-  let jobsSent = jobs;
+  pastJobs = await getCompletedJobsCount();
+
+  const jobsSent = jobs;
   console.log(`Bulk creating ${jobsSent} jobs`);
 
   const start_create = Date.now();
@@ -84,9 +140,8 @@ export async function main({
     body = JSON.stringify({
       kind: "script",
       path: "f/benchmarks/" + kind,
-      dedicated_worker: kind === "dedicated",
     });
-  } else if (["2steps", "onebranch", "branchallparrallel"].includes(kind)) {
+  } else if (["2steps"].includes(kind)) {
     const payload = getFlowPayload(kind);
     body = JSON.stringify({
       kind: "flow",
@@ -113,6 +168,7 @@ export async function main({
   if (!response.ok) {
     throw new Error("Failed to create jobs: " + response.statusText);
   }
+  const uuids = await response.json();
   const end_create = Date.now();
   const create_duration = end_create - start_create;
   console.log(
@@ -122,69 +178,66 @@ export async function main({
   );
   let start = Date.now();
 
-  let queue_length = jobsSent;
+  let completedJobs = 0;
   let lastElapsed = 0;
-  let lastQueueLength = queue_length;
-  const updateState = setInterval(async () => {
-    const elapsed = start ? Date.now() - start : 0;
-    queue_length = (
-      await (
-        await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } }
+  let lastCompletedJobs = 0;
+
+  let didStart = false;
+  while (completedJobs < jobsSent) {
+    const loopStart = Date.now();
+    if (!didStart) {
+      const actual_queue = await getQueueCount();
+      if (actual_queue < jobsSent) {
+        start = Date.now();
+        didStart = true;
+      }
+    } else {
+      const elapsed = start ? Date.now() - start : 0;
+      completedJobs = await getCompletedJobsCount();
+      if (kind === "2steps") {
+        completedJobs = Math.floor(completedJobs / 3);
+      }
+      const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
+      const instThr =
+        lastElapsed > 0
+          ? (
+              ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
+              1000
+            ).toFixed(2)
+          : 0;
+
+      lastElapsed = elapsed;
+      lastCompletedJobs = completedJobs;
+
+      await Deno.stdout.write(
+        enc(
+          `elapsed: ${(elapsed / 1000).toFixed(
+            2
+          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
+            jobsSent - completedJobs
+          }                          \r`
         )
-      ).json()
-    ).database_length;
-    const avgThr = (((jobsSent - queue_length) / elapsed) * 1000).toFixed(2);
-    const instThr =
-      lastElapsed > 0
-        ? (
-            ((lastQueueLength - queue_length) / (elapsed - lastElapsed)) *
-            1000
-          ).toFixed(2)
-        : 0;
-
-    lastElapsed = elapsed;
-    lastQueueLength = queue_length;
-
-    await Deno.stdout.write(
-      enc(
-        `elapsed: ${(elapsed / 1000).toFixed(2)} | jobs executed: ${
-          jobsSent - queue_length
-        }/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | queue: ${queue_length}                          \r`
-      )
-    );
-  }, 10);
-
-  while (queue_length > 0) {
-    if (queue_length < jobsSent && jobsSent === jobs) {
-      // reset start time to when the first job was picked up
-      start = Date.now();
-      jobsSent = queue_length;
+      );
     }
-    await sleep(0.01);
+    const loopDuration = (Date.now() - loopStart) / 1000.0;
+    if (loopDuration < 0.05) {
+      await sleep(0.05 - loopDuration);
+    }
   }
-
-  clearInterval(updateState);
 
   const total_duration_sec = (Date.now() - start) / 1000.0;
 
-  await sleep(0.1);
   console.log(`\njobs: ${jobsSent}`);
   console.log(`duration: ${total_duration_sec}s`);
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
-  console.log(
-    "queue length:",
-    (
-      await (
-        await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/queue/count",
-          { headers: { ["Authorization"]: "Bearer " + config.token } }
-        )
-      ).json()
-    ).database_length
-  );
+  console.log("completed jobs", completedJobs);
+  console.log("queue length:", await getQueueCount());
+
+  if (!noVerify && kind !== "noop") {
+    await verifyOutputs(uuids, config.workspace_id);
+  }
+
   console.log("done");
 
   return {
@@ -229,13 +282,16 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, onebranch, branchallparrallel",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps",
       {
         required: true,
       }
     )
     .option("-j --jobs <jobs:number>", "Number of jobs to create.", {
       default: 10000,
+    })
+    .option("--no-verify", "Do not verify the output of the jobs.", {
+      default: false,
     })
     .action(main)
     .command(

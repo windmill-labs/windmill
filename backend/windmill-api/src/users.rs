@@ -8,7 +8,7 @@
 
 #![allow(non_snake_case)]
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::db::ApiAuthed;
 
@@ -33,15 +33,16 @@ use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
+use quick_cache::sync::Cache;
 use rand::rngs::OsRng;
 use regex::Regex;
-use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::truncate_token;
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
@@ -50,7 +51,6 @@ use windmill_common::{
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 
-const TTL_TOKEN_CACHE_S: u64 = 60; // 60s
 pub const TTL_TOKEN_DB_H: u32 = 72;
 
 const COOKIE_NAME: &str = "token";
@@ -103,19 +103,24 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", get(logout))
 }
 
+#[derive(Clone)]
+pub struct ExpiringAuthCache {
+    pub authed: ApiAuthed,
+    pub expiry: Option<chrono::DateTime<chrono::Utc>>,
+}
 pub struct AuthCache {
-    cache: Cache<(String, String), ApiAuthed>,
+    cache: Cache<(String, String), ExpiringAuthCache>,
     db: DB,
     superadmin_secret: Option<String>,
 }
 
 impl AuthCache {
     pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
-        AuthCache { cache: Cache::new(), db, superadmin_secret }
+        AuthCache { cache: Cache::new(300), db, superadmin_secret }
     }
 
     pub async fn invalidate(&self, w_id: &str, token: String) {
-        self.cache.remove(&(w_id.to_string(), token)).await;
+        self.cache.remove(&(w_id.to_string(), token));
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
@@ -123,13 +128,17 @@ impl AuthCache {
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
         );
-        let s = self.cache.get(&key).await.map(|c| c.to_owned());
+        let s = self.cache.get(&key).map(|c| c.to_owned());
         match s {
-            a @ Some(_) => a,
-            None => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
+            Some(ExpiringAuthCache { authed, expiry })
+                if expiry.is_none() || expiry.unwrap() > chrono::Utc::now() =>
+            {
+                Some(authed)
+            }
+            _ => {
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<chrono::DateTime<chrono::Utc>>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, expiration",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -140,7 +149,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), Some(email), super_admin, _) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _, _) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let (is_admin, is_operator) = if super_admin {
@@ -219,7 +228,7 @@ impl AuthCache {
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin, scopes) => {
+                            (_, Some(email), super_admin, scopes, _) => {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool, bool)>(
                                         "SELECT username, is_admin, operator FROM usr where email = $1 AND \
@@ -289,9 +298,10 @@ impl AuthCache {
                         }
                     };
                     if let Some(authed) = authed_o.as_ref() {
-                        self.cache
-                            .insert(key, authed.clone(), Duration::from_secs(TTL_TOKEN_CACHE_S))
-                            .await;
+                        self.cache.insert(
+                            key,
+                            ExpiringAuthCache { authed: authed.clone(), expiry: user.4 },
+                        );
                     }
                     authed_o
                 } else if self
@@ -314,10 +324,6 @@ impl AuthCache {
                 }
             }
         }
-    }
-
-    pub async fn monitor(&self) {
-        self.cache.monitor(20, 0.25, Duration::from_secs(10)).await;
     }
 }
 
@@ -2358,10 +2364,4 @@ pub async fn login_externally(
     }
     tx.commit().await?;
     Ok(())
-}
-
-pub fn truncate_token(token: &str) -> String {
-    let mut s = token[..10].to_owned();
-    s.push_str("*****");
-    s
 }

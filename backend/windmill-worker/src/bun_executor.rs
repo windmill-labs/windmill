@@ -219,18 +219,19 @@ pub async fn handle_bun_job(
                     })?,
             )
             .await?;
+
+            install_lockfile(
+                logs,
+                &job.id,
+                &job.workspace_id,
+                db,
+                job_dir,
+                worker_name,
+                common_bun_proc_envs.clone(),
+            )
+            .await?;
+            remove_dir_all(format!("{}/node_modules", job_dir)).await?;
         }
-        install_lockfile(
-            logs,
-            &job.id,
-            &job.workspace_id,
-            db,
-            job_dir,
-            worker_name,
-            common_bun_proc_envs.clone(),
-        )
-        .await?;
-        remove_dir_all(format!("{}/node_modules", job_dir)).await?;
     } else if !*DISABLE_NSJAIL {
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         set_logs(&logs, &job.id, &db).await;
@@ -464,6 +465,10 @@ pub async fn start_worker(
     mut jobs_rx: Receiver<QueuedJob>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
+    use std::task::Poll;
+
+    use futures::{future, Future};
+
     let mut logs = "".to_string();
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
@@ -684,6 +689,21 @@ plugin(p)
     // let mut i = 0;
     // let mut j = 0;
     let mut alive = true;
+
+    fn conditional_polling<T>(
+        fut: impl Future<Output = T>,
+        predicate: bool,
+    ) -> impl Future<Output = T> {
+        let mut fut = Box::pin(fut);
+        future::poll_fn(move |cx| {
+            if predicate {
+                fut.as_mut().poll(cx)
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
     loop {
         tokio::select! {
             biased;
@@ -711,8 +731,8 @@ plugin(p)
                     tracing::info!("dedicated worker process exited");
                     break;
                 }
-            }
-            job = jobs_rx.recv(), if alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS => {
+            },
+            job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
                 // i += 1;
                 if let Some(job) = job {
                     tracing::debug!("received job");

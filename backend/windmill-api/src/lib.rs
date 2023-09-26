@@ -47,6 +47,7 @@ mod capture;
 mod configs;
 mod db;
 mod drafts;
+pub mod ee;
 mod favorite;
 mod flows;
 mod folders;
@@ -101,7 +102,9 @@ lazy_static::lazy_static! {
         slack: None
     }));
 
-    pub static ref LICENSE_KEY: Option<String> = std::env::var("LICENSE_KEY").ok();
+    pub static ref LICENSE_KEY_VALID: Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
+    pub static ref LICENSE_KEY_ID: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref LICENSE_KEY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
 }
 
 pub async fn run_server(
@@ -268,8 +271,6 @@ pub async fn run_server(
         println!("Graceful shutdown of server");
     });
 
-    tokio::spawn(async move { auth_cache.monitor().await });
-
     server.await?;
     Ok(())
 }
@@ -317,13 +318,7 @@ async fn ee_license() -> &'static str {
 
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    LICENSE_KEY
-        .as_ref()
-        .unwrap()
-        .split(".")
-        .next()
-        .unwrap()
-        .to_string()
+    LICENSE_KEY_ID.read().await.clone()
 }
 
 async fn openapi() -> &'static str {

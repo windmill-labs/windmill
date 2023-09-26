@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, Script } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
@@ -71,8 +71,12 @@
 				args,
 				$flowStore?.tag ?? script.tag
 			)
+		} else if (val.type == 'flow') {
+			await testJobLoader?.abstractRun(() =>
+				JobService.runFlowByPath({ workspace: $workspaceStore!, path: val.path, requestBody: args })
+			)
 		} else {
-			throw Error('not testable module type')
+			throw Error('Not supported module type')
 		}
 	}
 

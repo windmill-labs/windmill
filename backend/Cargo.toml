@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.175.0"
+version = "1.176.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.175.0"
+version = "1.176.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -54,7 +54,6 @@ tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
-rsa.workspace = true
 base64.workspace = true
 sha2.workspace = true
 rsmq_async.workspace = true
@@ -114,7 +113,7 @@ mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
-retainer = "^0"
+quick_cache = "^0"
 rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"

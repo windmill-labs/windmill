@@ -15,7 +15,7 @@
 
 	$: scriptModules = dfs($flowStore.value.modules, (x) => x)
 		.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
-		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript') as [
+		.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
 		PathScript | RawScript,
 		FlowModule
 	][]

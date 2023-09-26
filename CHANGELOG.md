@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.176.0](https://github.com/windmill-labs/windmill/compare/v1.175.0...v1.176.0) (2023-09-24)
+
+
+### Features
+
+* add license key as superadmin setting ([#2321](https://github.com/windmill-labs/windmill/issues/2321)) ([304a259](https://github.com/windmill-labs/windmill/commit/304a2596fd29fbd9a79c5cf9fe4df7b44d5c5254))
+* add running filter ([ea364ad](https://github.com/windmill-labs/windmill/commit/ea364ad9602647cbc9e8ee78fb5f17f0012105f6))
+* ai flow trigger menu ([#2317](https://github.com/windmill-labs/windmill/issues/2317)) ([95194ab](https://github.com/windmill-labs/windmill/commit/95194abeacc42416174ee9dd79b75f2204a40d33))
+* improved dedicated benchmarks + buffer fix ([#2313](https://github.com/windmill-labs/windmill/issues/2313)) ([fc93c2a](https://github.com/windmill-labs/windmill/commit/fc93c2a7cece95c00070a3a3391ae2bcb4513e85))
+* set instance settings from UI ([#2314](https://github.com/windmill-labs/windmill/issues/2314)) ([2f0e43b](https://github.com/windmill-labs/windmill/commit/2f0e43bfdbd1e196131f126c83b1d7dd2eea98d8))
+
+
+### Bug Fixes
+
+* add ability to test this step for flow step ([3585929](https://github.com/windmill-labs/windmill/commit/3585929bb758b0cfc2cbe43f66597b184e7b8ee0))
+* benchmark worker tags ([#2319](https://github.com/windmill-labs/windmill/issues/2319)) ([481bcd5](https://github.com/windmill-labs/windmill/commit/481bcd53cb07e4520d5fd81572cad74340c4eb64))
+* change cache implementation to remove async-timer ([4911b4b](https://github.com/windmill-labs/windmill/commit/4911b4b3fd6e3a9f6bccc4c8712b736e18dcb6e1))
+* fix upto preview issue with nested flows ([6492ff6](https://github.com/windmill-labs/windmill/commit/6492ff627a800832e12a31fd89a6070703988eb9))
+* flow steps appears in all static inputs ([c043847](https://github.com/windmill-labs/windmill/commit/c0438479aa3b6dc6349df01abdd9dcc434fe8781))
+* optimize performance for bun scripts without deps ([5b33f56](https://github.com/windmill-labs/windmill/commit/5b33f563e6e83605ae72338af351dcc97beb1a55))
+* overflow on workspace script picker ([5e4db0e](https://github.com/windmill-labs/windmill/commit/5e4db0ebab616305928cfa455af6833335e0fcf9))
+* tag id as flow ([#2318](https://github.com/windmill-labs/windmill/issues/2318)) ([f68cee4](https://github.com/windmill-labs/windmill/commit/f68cee4ebddbf6e774f80e91a8c89fb8dc213f91))
+
 ## [1.175.0](https://github.com/windmill-labs/windmill/compare/v1.174.0...v1.175.0) (2023-09-19)
 
 

@@ -37,8 +37,8 @@
 					}
 				}}
 			>
-				<ToggleButton value="trigger" label="Trigger" />
 				<ToggleButton value="sequence" label="Sequence" />
+				<ToggleButton value="trigger" label="Trigger" />
 			</ToggleButtonGroup>
 			{#each $modulesStore as copilotModule, i}
 				<div>

@@ -10,7 +10,7 @@
 
 	// Filters
 	export let path: string | null = null
-	export let success: boolean | undefined = undefined
+	export let success: "running"  | "success" | "failure" | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
 	export let argError: string
@@ -187,8 +187,9 @@
 			<span class="text-xs absolute -top-4">Status</span>
 			<ToggleButtonGroup bind:selected={success}>
 				<ToggleButton value={undefined} label="All" />
-				<ToggleButton value={true} label="Success" class="whitespace-nowrap" />
-				<ToggleButton value={false} label="Failure" class="whitespace-nowrap" />
+				<ToggleButton value={"running"} label="Running" class="whitespace-nowrap" />
+				<ToggleButton value={"success"} label="Success" class="whitespace-nowrap" />
+				<ToggleButton value={"failure"} label="Failure" class="whitespace-nowrap" />
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative w-32">
