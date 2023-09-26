@@ -21,8 +21,15 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		focusedGrid,
+		selectedComponent,
+		worldStore,
+		connectingInput,
+		mode,
+		componentControl
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['drawercomponent'].initialData.configuration,
@@ -31,6 +38,15 @@
 	initOutput($worldStore, id, {})
 
 	let appDrawer: Drawer
+
+	$componentControl[id] = {
+		openModal: () => {
+			appDrawer?.openDrawer()
+		},
+		closeModal: () => {
+			appDrawer?.closeDrawer()
+		}
+	}
 
 	let css = initCss($app.css?.drawercomponent, customCss)
 </script>

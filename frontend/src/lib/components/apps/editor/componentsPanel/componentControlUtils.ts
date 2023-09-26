@@ -71,6 +71,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [setTab]
 		case 'modalcomponent':
 			return [openModal, closeModal]
+		case 'drawercomponent':
+			return [openModal, closeModal]
 		case 'aggridcomponent':
 			return [getAgGrid, setSelectedIndex]
 		case 'displaycomponent':
