@@ -11,14 +11,15 @@
 
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
+	import { emptyFlowModuleState } from './utils'
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectedId, flowStateStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const driverObj = driver({
 		showProgress: true,
 		allowClose: true,
 		steps: [
-			/*
 			{
 				popover: {
 					title: 'Welcome in the Windmil Flow editor',
@@ -29,7 +30,16 @@
 			{
 				popover: {
 					title: 'Flows inputs',
-					description: 'Flows have inputs that can be used in the flow'
+					description: 'Flows have inputs that can be used in the flow',
+					onNextClick: () => {
+						const button = document.querySelector('#flow-editor-virtual-Input') as HTMLButtonElement
+						if (button) {
+							button.click()
+						}
+						setTimeout(() => {
+							driverObj.moveNext()
+						})
+					}
 				},
 				element: '#svelvet-Input'
 			},
@@ -58,7 +68,7 @@
 						const input = document.querySelector('#schema-modal-name') as HTMLInputElement
 
 						if (input) {
-							input.value = 'Hello World'
+							input.value = 'firstname'
 							input.dispatchEvent(new Event('input', { bubbles: true }))
 						}
 						driverObj.moveNext()
@@ -163,7 +173,73 @@
 					}
 				}
 			},
-			*/
+
+			{
+				element: '#flow-editor-editor',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
+
+			{
+				element: '#flow-editor-step-input',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
+
+			{
+				element: '#flow-editor-plug',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						const button = document.querySelector('#flow-editor-plug') as HTMLButtonElement
+
+						if (button) {
+							button?.click()
+						}
+
+						setTimeout(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '.key',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						if ($flowStore.value.modules[0].value.type === 'rawscript') {
+							$flowStore.value.modules[0].value.input_transforms = {
+								x: {
+									type: 'javascript',
+									expr: 'flow_input.firstname'
+								}
+							}
+						}
+
+						$flowStore = $flowStore
+						renderCount += 1
+
+						tick().then(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+
+			{
+				element: '#flow-editor-step-input',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
 			{
 				element: '#flow-editor-add-step-1',
 				popover: {
@@ -232,7 +308,9 @@
 					}
 				}
 			},
+
 			{
+				element: '#flow-editor-iterator-expression',
 				popover: {
 					title: 'Add a step',
 					description: 'Click here to add a step to your flow',
@@ -259,6 +337,16 @@
 							]
 						}
 
+						$flowStateStore['c'] = emptyFlowModuleState()
+
+						$flowStateStore['c'].schema.properties = {
+							letter: {
+								type: 'string',
+								description: '',
+								default: null
+							}
+						}
+
 						$flowStore = $flowStore
 
 						renderCount += 1
@@ -276,8 +364,136 @@
 					description: 'Click here to add a step to your flow',
 					onNextClick: () => {
 						$selectedId = 'c'
+						$flowStore = $flowStore
+
 						renderCount += 1
 						tick().then(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '#flow-editor-editor',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
+
+			{
+				element: '#flow-editor-step-input',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
+
+			{
+				element: '#flow-editor-plug',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						const button = document.querySelector('#flow-editor-plug') as HTMLButtonElement
+
+						if (button) {
+							button?.click()
+						}
+
+						setTimeout(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '.key',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						if (
+							$flowStore.value.modules[1].value.type === 'forloopflow' &&
+							$flowStore.value.modules[1].value.modules[0].value.type === 'rawscript'
+						) {
+							$flowStore.value.modules[1].value.modules[0].value.input_transforms = {
+								letter: {
+									type: 'javascript',
+									expr: 'flow_input.iter.value'
+								}
+							}
+						}
+
+						$flowStore = $flowStore
+						renderCount += 1
+
+						tick().then(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '#flow-editor-step-input',
+				popover: {
+					title: 'flow editor',
+					description: 'Description'
+				}
+			},
+			{
+				element: '#flow-editor-test-flow',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						const button = document.querySelector('#flow-editor-test-flow') as HTMLButtonElement
+
+						if (button) {
+							button?.click()
+						}
+
+						setTimeout(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+
+			{
+				element: 'textarea.w-full',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						const textarea = document.querySelector('textarea.w-full') as HTMLTextAreaElement
+
+						if (textarea) {
+							textarea.value = 'Hello World!'
+							textarea.dispatchEvent(new Event('input', { bubbles: true }))
+						}
+
+						setTimeout(() => {
+							driverObj.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '#flow-editor-test-flow-drawer',
+				popover: {
+					title: 'Add a step',
+					description: 'Click here to add a step to your flow',
+					onNextClick: () => {
+						const button = document.querySelector(
+							'#flow-editor-test-flow-drawer'
+						) as HTMLButtonElement
+
+						if (button) {
+							button?.click()
+						}
+
+						setTimeout(() => {
 							driverObj.moveNext()
 						})
 					}

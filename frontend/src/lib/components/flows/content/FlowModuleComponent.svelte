@@ -222,6 +222,7 @@
 				bind:this={panes}
 				class="h-full"
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
+				id="flow-editor-editor"
 			>
 				<Splitpanes horizontal>
 					<Pane bind:size={editorPanelSize} minSize={20}>
@@ -291,7 +292,7 @@
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto">
+								<div class="h-full overflow-auto" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}

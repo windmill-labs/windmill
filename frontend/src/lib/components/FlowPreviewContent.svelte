@@ -154,6 +154,7 @@
 				size="sm"
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
+				id="flow-editor-test-flow-drawer"
 			>
 				Test flow &nbsp;<Kbd small>{getModifierKey()}</Kbd>
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
