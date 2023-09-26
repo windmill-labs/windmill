@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.177.0](https://github.com/windmill-labs/windmill/compare/v1.176.0...v1.177.0) (2023-09-26)
+
+
+### Features
+
+* add custom oauth support ([#2336](https://github.com/windmill-labs/windmill/issues/2336)) ([01277f4](https://github.com/windmill-labs/windmill/commit/01277f4d3b8bb04b955d5bbb2ed69c1c7c8f4f9e))
+* support automatic reconnection to pg ([ccaa05d](https://github.com/windmill-labs/windmill/commit/ccaa05d4bf5954c3fb8678239d2962cac6550a5a))
+
+
+### Bug Fixes
+
+* fix resource type picker object reinitialization ([f0f15c4](https://github.com/windmill-labs/windmill/commit/f0f15c47cb35cc1e3cfa13549465803a1e970770))
+* **frontend:** Fix build ([#2330](https://github.com/windmill-labs/windmill/issues/2330)) ([46592af](https://github.com/windmill-labs/windmill/commit/46592affd3d51b54632a2a7a281c11141edcb4a5))
+* **frontend:** Fix markdown dark mode ([#2329](https://github.com/windmill-labs/windmill/issues/2329)) ([6c19740](https://github.com/windmill-labs/windmill/commit/6c197407185810f43c47d4107007bd69814a1d65))
+* set min size of components to 1 ([d298093](https://github.com/windmill-labs/windmill/commit/d298093e29bd9983c7631a8f8c80e47b768bb93c))
+
 ## [1.176.0](https://github.com/windmill-labs/windmill/compare/v1.175.0...v1.176.0) (2023-09-24)
 
 
