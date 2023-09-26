@@ -146,7 +146,13 @@
 	$: editor && setSelectionHandler()
 	$: selection && (isEdit = !selection.isEmpty())
 
-	$: dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')]
+	function updateSchema(lang, args) {
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (schemaRes instanceof String) {
+			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+		}
+	}
+	$: updateSchema(lang, args)
 </script>
 
 {#if $generatedCode.length > 0 && !genLoading}
