@@ -33,7 +33,7 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<label class="text-sm font-medium text-gray-700 flex gap-4 items-center"
+	<label class="text-sm font-medium text-primary flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name="okta" after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {

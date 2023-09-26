@@ -9,12 +9,11 @@
 
 	$: enabled = value != undefined
 
-	
 	let allowed_domains = value?.['allowed_domains'] ?? ''
 </script>
 
 <div class="flex flex-col gap-1">
-	<label class="text-sm flex gap-4 items-center font-medium text-gray-700"
+	<label class="text-sm flex gap-4 items-center font-medium text-primary"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -87,4 +86,3 @@
 		</div>
 	{/if}
 </div>
-
