@@ -18,7 +18,7 @@
 	export let size: 'sm' | 'xs' = 'sm'
 	const id = (Math.random() + 1).toString(36).substring(10)
 	const dispatch = createEventDispatcher()
-	const bothOptions = Boolean(options.left) && Boolean(options.right);
+	const bothOptions = Boolean(options.left) && Boolean(options.right)
 </script>
 
 <span class="{$$props.class} z-auto">
@@ -29,20 +29,21 @@
 			: 'cursor-pointer'}"
 	>
 		{#if Boolean(options?.left)}
-		<span
-			class={twMerge(
-				'mr-2 font-medium duration-50',
-				bothOptions ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
-				size === 'xs' ? 'text-xs' : 'text-sm',
-				textClass
-			)}
-			style={textStyle}
-		>
-			{options?.left}
-		</span>	
+			<span
+				class={twMerge(
+					'mr-2 font-medium duration-50',
+					bothOptions ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+					size === 'xs' ? 'text-xs' : 'text-sm',
+					textClass
+				)}
+				style={textStyle}
+			>
+				{options?.left}
+			</span>
 		{/if}
 
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class="relative" on:click|stopPropagation>
 			<input
 				on:focus
@@ -67,20 +68,20 @@
 			/>
 		</div>
 		{#if Boolean(options?.right)}
-		<span
-			class={twMerge(
-				'ml-2 font-medium duration-50',
-				bothOptions ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
-				size === 'xs' ? 'text-xs' : 'text-sm',
-				textClass
-			)}
-			style={textStyle}
-		>
-			{options?.right}
-			{#if options?.rightTooltip}
-				<Tooltip>{options?.rightTooltip}</Tooltip>
-			{/if}
-		</span>	
+			<span
+				class={twMerge(
+					'ml-2 font-medium duration-50',
+					bothOptions ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+					size === 'xs' ? 'text-xs' : 'text-sm',
+					textClass
+				)}
+				style={textStyle}
+			>
+				{options?.right}
+				{#if options?.rightTooltip}
+					<Tooltip>{options?.rightTooltip}</Tooltip>
+				{/if}
+			</span>
 		{/if}
 	</label>
 </span>

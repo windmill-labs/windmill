@@ -62,7 +62,11 @@
 
 	let resourceTypes: string[] | undefined = undefined
 
-	getResourceTypes()
+	async function loadResourceTypes() {
+		resourceTypes = await getResourceTypes()
+	}
+
+	loadResourceTypes()
 </script>
 
 <div class="w-full pt-2">
