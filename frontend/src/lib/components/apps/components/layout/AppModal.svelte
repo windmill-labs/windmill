@@ -148,7 +148,7 @@
 				<div>{resolvedConfig.modalTitle}</div>
 				<div class="w-8">
 					<button
-						on:click={() => {
+						on:click|stopPropagation={() => {
 							open = false
 						}}
 						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
