@@ -2,14 +2,13 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { RichConfigurations } from '../../types'
-	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import GroupManagementDrawer from '../componentsPanel/GroupManagementDrawer.svelte'
 
 	export let groupFields: RichConfigurations | undefined
-	export let component: AppComponent
+	export let item: GridItem
 
 	let groupManagementDrawer: GroupManagementDrawer | undefined = undefined
 
@@ -58,7 +57,7 @@
 			size="xs"
 			color="light"
 		>
-			Manage groups
+			Save group to workspace
 		</Button>
 	</div>
 	<PanelSection
@@ -80,7 +79,7 @@
 					delete groupFields[e.detail]
 					groupFields = groupFields
 				}}
-				id={component.id}
+				id={item.id}
 				shouldCapitalize={false}
 				displayType
 				deletable
@@ -115,4 +114,4 @@
 	</PanelSection>
 {/if}
 
-<GroupManagementDrawer bind:this={groupManagementDrawer} {component} />
+<GroupManagementDrawer bind:this={groupManagementDrawer} {item} />

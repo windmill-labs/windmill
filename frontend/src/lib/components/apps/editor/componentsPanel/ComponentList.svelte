@@ -10,7 +10,7 @@
 		type TypedComponent
 	} from '../component'
 	import ListItem from './ListItem.svelte'
-	import { appComponentFromType, insertNewGridItem } from '../appUtils'
+	import { appComponentFromType, copyComponent, insertNewGridItem } from '../appUtils'
 	import { push } from '$lib/history'
 	import { ClearableInput } from '../../../common'
 	import { workspaceStore } from '$lib/stores'
@@ -51,30 +51,19 @@
 		if (!$workspaceStore) return
 		const res = await getGroup($workspaceStore, group.path)
 
+		console.log(res)
 		if (!res) return
 
 		push(history, $app)
 
 		$dirtyStore = true
 
-		const id = insertNewGridItem($app, (id) => ({ ...res.value.component, id }), $focusedGrid)
+		const id = copyComponent($app, res.value.item, $focusedGrid, res.value.subgrids, [])
 
-		const subgrids = res.value?.subgrids ?? {}
-		const newSubgrids = Object.entries(subgrids).reduce((acc, [key, value]) => {
-			const newKey = key.replace(res.value.component.id, id)
-			return {
-				...acc,
-				[newKey]: value
-			}
-		}, {})
-
-		const [key, value] = newSubgrids[0]
-
-		// @ts-ignore
-		$app.subgrids[key] = value
-
-		$selectedComponent = [id]
-		$app = $app
+		if (id) {
+			$selectedComponent = [id]
+			$app = $app
+		}
 	}
 
 	function addPresetComponent(appComponentType: string): void {

@@ -1,4 +1,4 @@
-import { ResourceService, AppService } from '$lib/gen'
+import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 
 export interface Group {
@@ -14,7 +14,7 @@ export function createGroup(workspace: string, group: Group): Promise<string> {
 		workspace,
 		requestBody: {
 			...group,
-			resource_type: 'app_themes',
+			resource_type: 'app_group',
 			value: group.value || ''
 		}
 	}
@@ -25,11 +25,11 @@ export async function getGroup(
 	workspace: string,
 	path: string
 ): Promise<{
-	value?: any | undefined
-	name: string
+	name: string,
+	value: any
 }> {
 	try {
-		return AppService.getPublicResource({
+		return ResourceService.getResourceValue({
 			workspace,
 			path
 		})
@@ -67,7 +67,7 @@ export async function listGroups(workspace: string): Promise<
 > {
 	const listGroupsRequest = {
 		workspace,
-		name: 'app_themes'
+		name: 'app_group'
 	}
 	return ResourceService.listResourceNames(listGroupsRequest)
 }

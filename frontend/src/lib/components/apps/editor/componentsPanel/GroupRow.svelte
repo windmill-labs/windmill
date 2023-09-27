@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { deleteGroup } from './groupUtils'
 	import { workspaceStore } from '$lib/stores'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 
-	import { Eye, Trash } from 'lucide-svelte'
+	import { Trash } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
@@ -40,13 +39,6 @@
 
 	<Cell last>
 		<div class={twMerge('flex flex-row gap-1 justify-end ')}>
-			<Button color="light" size="xs" on:click={() => {}}>
-				<div class="flex flex-row gap-1 items-center">
-					<Eye size={16} />
-					Preview
-				</div>
-			</Button>
-
 			<button on:pointerdown|stopPropagation>
 				<ButtonDropdown hasPadding={false}>
 					<svelte:fragment slot="items">

@@ -1,15 +1,24 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import GroupList from './GroupList.svelte'
-	import type { AppComponent } from '../component'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, GridItem } from '../../types'
+	import { getAllSubgridsAndComponentIds } from '../appUtils'
 
-	export let component: AppComponent
+	export let item: GridItem
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: subgrids = Object.entries($app.subgrids ?? {}).filter(([id]) => id.startsWith(component.id))
+	$: subgrids = getSubgrids(item)
+
+	function getSubgrids(item: GridItem) {
+		let allSubgrids = {}
+		let subgrids = getAllSubgridsAndComponentIds($app, item.data)[0]
+		for (let key of subgrids) {
+			allSubgrids[key] = $app.subgrids?.[key]
+		}
+		return allSubgrids
+	}
 
 	let codeDrawer: Drawer
 
@@ -22,7 +31,7 @@
 	<DrawerContent title="Group manager" on:close={codeDrawer.closeDrawer}>
 		<GroupList
 			selectedGroup={{
-				component,
+				item,
 				subgrids
 			}}
 		/>

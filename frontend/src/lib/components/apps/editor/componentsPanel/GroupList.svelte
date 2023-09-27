@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { listGroups, type Group, createGroup } from './groupUtils'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -9,7 +9,6 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { ResourceService } from '$lib/gen'
-	import { Alert } from '$lib/components/common'
 	import GroupRow from './GroupRow.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 
@@ -31,11 +30,11 @@
 	async function addGroup(nameField: string) {
 		const groups = await ResourceService.listResourceNames({
 			workspace: $workspaceStore!,
-			name: 'app_themes'
+			name: 'app_group'
 		})
 
 		const group: Group = {
-			path: 'f/app_themes/group_' + groups.length,
+			path: 'f/app_groups/group_' + groups.length,
 			value: {
 				value: selectedGroup,
 				name: nameField
@@ -59,19 +58,8 @@
 </script>
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
-	{#if $enterpriseLicense === undefined}
-		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0" />
-		<Alert
-			type="warning"
-			title="Groups are available in the enterprise edition."
-			class="w-full z-50"
-			size="xs"
-		>
-			Upgrade to the enterprise edition to use groups.
-		</Alert>
-	{/if}
 	<div class="w-full flex flex-row gap-2 items-center">
-		<input bind:value={nameField} placeholder={'TODO'} />
+		<input bind:value={nameField} placeholder={'Group name'} />
 		<Button on:click={() => addGroup(nameField)} color="dark" size="xs">Create group</Button>
 	</div>
 

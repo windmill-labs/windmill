@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { updateGroup } from './groupUtils'
+	import { getGroup, updateGroup } from './groupUtils'
 	import { workspaceStore } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -39,9 +39,10 @@
 				size="xs"
 				on:click={async () => {
 					if (!$workspaceStore) return
+					const group = await getGroup($workspaceStore, row.path)
 					await updateGroup($workspaceStore, row.path, {
 						value: {
-							...row,
+							...group,
 							name: editedName
 						}
 					})
