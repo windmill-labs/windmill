@@ -297,8 +297,8 @@ const labels = {
 	setTab: 'Set the tab of a tabs component',
 	sendToast: 'Display a toast notification',
 	sendErrorToast: 'Display an error toast notification',
-	openModal: 'Open a modal',
-	closeModal: 'Close a modal'
+	open: 'Open a modal or a drawer',
+	close: 'Close a modal or a drawer'
 }
 
 const onSuccessClick = {
@@ -356,6 +356,22 @@ const onSuccessClick = {
 				type: 'static',
 				value: ''
 			}
+		},
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
 		}
 	}
 } as const
@@ -406,18 +422,18 @@ const onErrorClick = {
 				value: true
 			}
 		},
-		openModal: {
-			modalId: {
-				tooltip: 'The id of the modal to open',
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
 				fieldType: 'text',
 				type: 'static',
 				value: '',
 				noVariablePicker: true
 			}
 		},
-		closeModal: {
-			modalId: {
-				tooltip: 'The id of the modal to close',
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
 				fieldType: 'text',
 				type: 'static',
 				value: '',
@@ -457,8 +473,7 @@ const paginationOneOf = {
 	}
 } as const
 
-const documentationBaseUrl =
-	'https://www.windmill.dev/docs/apps/app_configuration_settings'
+const documentationBaseUrl = 'https://www.windmill.dev/docs/apps/app_configuration_settings'
 
 export const components = {
 	displaycomponent: {

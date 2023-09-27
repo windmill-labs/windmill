@@ -453,7 +453,7 @@
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div class="absolute bottom-4 left-4 z-50">
+									<div class="absolute bottom-2 left-4 z-50">
 										<div class="flex flex-row gap-2 text-xs items-center">
 											<Button
 												color="light"
@@ -466,7 +466,7 @@
 											>
 												<Minus size={14} />
 											</Button>
-											{$scale}
+											{$scale}%
 											<Button
 												color="light"
 												variant="border"
