@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import type { RichConfigurations } from '../../types'
+	import type { GridItem, RichConfigurations } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
