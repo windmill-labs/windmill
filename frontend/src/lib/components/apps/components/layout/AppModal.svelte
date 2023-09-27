@@ -64,6 +64,12 @@
 		},
 		closeModal: () => {
 			open = false
+		},
+		open: () => {
+			open = true
+		},
+		close: () => {
+			open = false
 		}
 	}
 </script>

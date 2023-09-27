@@ -29,7 +29,8 @@
 
 	export const staticOutputs: string[] = ['loading', 'result', 'jobId']
 
-	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, stateId, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -42,6 +43,12 @@
 		configuration
 	)
 
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			wrapper?.setArgs(nvalue)
+		}
+	}
+
 	let runnableComponent: RunnableComponent
 	let loading = false
 
@@ -50,6 +57,8 @@
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
 
 	let css = initCss($app.css?.formcomponent, customCss)
+
+	let wrapper: RunnableWrapper
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
@@ -74,6 +83,7 @@
 <RunnableWrapper
 	{recomputeIds}
 	{render}
+	bind:this={wrapper}
 	bind:runnableComponent
 	bind:loading
 	{componentInput}
