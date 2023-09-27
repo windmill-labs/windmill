@@ -74,7 +74,7 @@
 </ConfirmationModal>
 
 <div class="flex gap-2 items-center"
-	><h4 class="py-4 truncate w-40">{name}</h4>
+	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
 	{#if $superadmin}
 		<Popup
 			floatingConfig={{ strategy: 'absolute', placement: top ? 'top-start' : 'bottom-start' }}
