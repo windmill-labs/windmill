@@ -69,17 +69,19 @@
 		initialData: Array<any> | undefined = [],
 		page: number = 0
 	) {
+		const sanitizedData = Array.isArray(initialData) ? initialData : []
+
 		if (mode === 'auto') {
 			const pageSize: number = configuration.auto.pageSize ?? 0
-			const data = initialData?.slice(0 + page * pageSize, pageSize + page * pageSize) ?? []
-			const shouldDisplayPagination = pageSize < initialData?.length ?? false
-			const total = Math.ceil(initialData?.length / pageSize ?? 0)
+			const data = sanitizedData?.slice(0 + page * pageSize, pageSize + page * pageSize) ?? []
+			const shouldDisplayPagination = pageSize < sanitizedData?.length ?? false
+			const total = Math.ceil(sanitizedData.length / pageSize ?? 0)
 
 			return {
 				data,
 				shouldDisplayPagination,
 				indexOffset: page * pageSize,
-				disableNext: pageSize > 0 && (page + 1) * pageSize >= initialData?.length,
+				disableNext: pageSize > 0 && (page + 1) * pageSize >= sanitizedData?.length,
 				total: total
 			}
 		} else {
@@ -88,7 +90,7 @@
 
 			return {
 				shouldDisplayPagination: true,
-				data: initialData ?? [],
+				data: sanitizedData ?? [],
 				indexOffset: 0,
 				disableNext: page + 1 >= pageCount,
 				total: total
