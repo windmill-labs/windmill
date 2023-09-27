@@ -14,20 +14,6 @@ const setTab = {
 	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#settab'
 }
 
-const openModal = {
-	title: 'openModal',
-	description: 'Use the openModal function to open a modal.',
-	example: 'openModal(id: string)',
-	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#openmodal'
-}
-
-const closeModal = {
-	title: 'closeModal',
-	description: 'Use the closeModal function to close a modal.',
-	example: 'closeModal(id: string)',
-	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#closemodal'
-}
-
 const recompute = {
 	title: 'recompute',
 	description: 'Use the recompute function to recompute the value of a component.',
@@ -57,6 +43,20 @@ const setSelectedIndex = {
 	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#setselectedindex'
 }
 
+const open = {
+	title: 'open',
+	description: 'Use the open function to open a modal or a drawer.',
+	example: 'open(id: string)',
+	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#open'
+}
+
+const close = {
+	title: 'close',
+	description: 'Use the close function to close a modal or a drawer.',
+	example: 'close(id: string)',
+	documentation: 'https://www.windmill.dev/docs/apps/app-runnable-panel#close'
+}
+
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
 	switch (type) {
 		case 'tabscomponent':
@@ -70,9 +70,9 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'steppercomponent':
 			return [setTab]
 		case 'modalcomponent':
-			return [openModal, closeModal]
+			return [open, close]
 		case 'drawercomponent':
-			return [openModal, closeModal]
+			return [open, close]
 		case 'aggridcomponent':
 			return [getAgGrid, setSelectedIndex]
 		case 'displaycomponent':

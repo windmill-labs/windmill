@@ -234,6 +234,8 @@ export type AppViewerContext = {
 				setSelectedIndex?: (index: number) => void
 				openModal?: () => void
 				closeModal?: () => void
+				open?: () => void
+				close?: () => void
 			}
 		>
 	>

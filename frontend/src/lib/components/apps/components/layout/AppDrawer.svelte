@@ -40,10 +40,10 @@
 	let appDrawer: Drawer
 
 	$componentControl[id] = {
-		openModal: () => {
+		open: () => {
 			appDrawer?.openDrawer()
 		},
-		closeModal: () => {
+		close: () => {
 			appDrawer?.closeDrawer()
 		}
 	}

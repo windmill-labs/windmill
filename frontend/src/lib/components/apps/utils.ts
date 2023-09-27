@@ -180,6 +180,8 @@ declare function setValue(id: string, value: any): void;
 declare function setSelectedIndex(id: string, index: number): void;
 declare function openModal(id: string): void;
 declare function closeModal(id: string): void;
+declare function open(id: string): void;
+declare function close(id: string): void;
 `
 		: ''
 }

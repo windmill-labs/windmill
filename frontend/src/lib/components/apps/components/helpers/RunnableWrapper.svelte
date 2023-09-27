@@ -22,6 +22,8 @@
 					| 'errorOverlay'
 					| 'openModal'
 					| 'closeModal'
+					| 'open'
+					| 'close'
 				configuration: {
 					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
 					setTab: {
@@ -39,6 +41,12 @@
 					}
 					closeModal?: {
 						modalId: string | undefined
+					}
+					open?: {
+						id: string | undefined
+					}
+					close?: {
+						id: string | undefined
 					}
 				}
 		  }
@@ -166,6 +174,22 @@
 				if (!modalId) return
 
 				$componentControl[modalId].closeModal?.()
+				break
+			}
+			case 'open': {
+				const id = sideEffect?.configuration?.open?.id
+
+				if (!id) return
+
+				$componentControl[id].open?.()
+				break
+			}
+			case 'close': {
+				const id = sideEffect?.configuration?.close?.id
+
+				if (!id) return
+
+				$componentControl[id].close?.()
 				break
 			}
 			default:
