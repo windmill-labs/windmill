@@ -168,7 +168,7 @@
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
 	let befSelected: string | undefined = undefined
-	$: console.log($selectedComponent)
+
 	$: if ($selectedComponent?.[0] != befSelected && $selectedComponent?.[0] != undefined) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
