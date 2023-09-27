@@ -168,7 +168,8 @@
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
 	let befSelected: string | undefined = undefined
-	$: if ($selectedComponent?.[0] != befSelected) {
+	$: console.log($selectedComponent)
+	$: if ($selectedComponent?.[0] != befSelected && $selectedComponent?.[0] != undefined) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
 
@@ -569,7 +570,12 @@
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
-											<SettingsPanel />
+											<SettingsPanel
+												on:delete={() => {
+													befSelected = undefined
+													selectedTab = 'insert'
+												}}
+											/>
 											<SecondaryMenu right />
 										{:else}
 											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">
