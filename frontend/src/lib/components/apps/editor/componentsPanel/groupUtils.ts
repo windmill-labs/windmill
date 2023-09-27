@@ -14,7 +14,7 @@ export function createGroup(workspace: string, group: Group): Promise<string> {
 		workspace,
 		requestBody: {
 			...group,
-			resource_type: 'app_group',
+			resource_type: 'app_themes',
 			value: group.value || ''
 		}
 	}
@@ -25,7 +25,7 @@ export async function getGroup(
 	workspace: string,
 	path: string
 ): Promise<{
-	value?: string | undefined
+	value?: any | undefined
 	name: string
 }> {
 	try {
@@ -67,7 +67,7 @@ export async function listGroups(workspace: string): Promise<
 > {
 	const listGroupsRequest = {
 		workspace,
-		name: 'app_group'
+		name: 'app_themes'
 	}
 	return ResourceService.listResourceNames(listGroupsRequest)
 }

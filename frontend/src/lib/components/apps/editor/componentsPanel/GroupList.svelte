@@ -31,11 +31,11 @@
 	async function addGroup(nameField: string) {
 		const groups = await ResourceService.listResourceNames({
 			workspace: $workspaceStore!,
-			name: 'app_group'
+			name: 'app_themes'
 		})
 
 		const group: Group = {
-			path: 'f/app_groups/group_' + groups.length,
+			path: 'f/app_themes/group_' + groups.length,
 			value: {
 				value: selectedGroup,
 				name: nameField

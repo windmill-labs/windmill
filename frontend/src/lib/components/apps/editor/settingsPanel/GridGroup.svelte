@@ -6,10 +6,12 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
+	import GroupManagementDrawer from '../componentsPanel/GroupManagementDrawer.svelte'
 
 	export let groupFields: RichConfigurations | undefined
-
 	export let component: AppComponent
+
+	let groupManagementDrawer: GroupManagementDrawer | undefined = undefined
 
 	// const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -48,6 +50,17 @@
 	/>
 </div>
 {#if groupFields != undefined}
+	<div class="p-2">
+		<Button
+			on:click={() => {
+				groupManagementDrawer?.openDrawer()
+			}}
+			size="xs"
+			color="light"
+		>
+			Manage groups
+		</Button>
+	</div>
 	<PanelSection
 		title={`Group Fields ${
 			Object.keys(groupFields ?? {}).length > 0
@@ -101,3 +114,5 @@
 		</div>
 	</PanelSection>
 {/if}
+
+<GroupManagementDrawer bind:this={groupManagementDrawer} {component} />
