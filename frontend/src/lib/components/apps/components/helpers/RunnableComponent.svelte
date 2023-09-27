@@ -79,6 +79,10 @@
 
 	$runnableComponents = $runnableComponents
 
+	export function setArgs(value: any) {
+		args = value
+	}
+	
 	let args: Record<string, any> | undefined = undefined
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined

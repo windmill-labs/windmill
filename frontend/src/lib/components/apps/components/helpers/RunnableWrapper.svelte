@@ -77,6 +77,10 @@
 	export let errorHandledByComponent: boolean = false
 	export let hasChildrens: boolean = false
 
+	export function setArgs(value: any) {
+		runnableComponent?.setArgs(value)
+	}
+
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 

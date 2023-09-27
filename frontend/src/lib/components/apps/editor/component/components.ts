@@ -341,6 +341,22 @@ const onSuccessClick = {
 				placeholder: 'Hello there'
 			}
 		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
 		open: {
 			id: {
 				tooltip: 'The id of the modal or the drawer to open',
