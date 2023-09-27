@@ -54,6 +54,7 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
+	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -932,6 +933,7 @@
 				{#if $enterpriseLicense && initialPath != ''}
 					<Awareness />
 				{/if}
+				<FlowBuilderTutorials />
 
 				<FlowCopilotStatus
 					{copilotLoading}

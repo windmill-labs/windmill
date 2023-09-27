@@ -1,0 +1,527 @@
+<script lang="ts">
+	import { classNames } from '$lib/utils'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { driver } from 'driver.js'
+	import 'driver.js/dist/driver.css'
+	import { getContext, tick } from 'svelte'
+	import type { FlowEditorContext } from './flows/types'
+	import { emptyFlowModuleState } from './flows/utils'
+
+	const { flowStore, selectedId, flowStateStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let renderCount = 1
+
+	function runTutorial() {
+		const forloopTutorial = driver({
+			showProgress: true,
+			allowClose: true,
+			steps: [
+				{
+					popover: {
+						title: 'Welcome in the Windmil Flow editor',
+						description: 'Learn how to build powerfull flows in a few steps'
+					}
+				},
+
+				{
+					popover: {
+						title: 'Flows inputs',
+						description: 'Flows have inputs that can be used in the flow',
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-virtual-Input'
+							) as HTMLButtonElement
+							if (button) {
+								button.click()
+							}
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					},
+					element: '#svelvet-Input'
+				},
+				{
+					element: '#flow-editor-add-property',
+					popover: {
+						title: 'Add a property',
+						description: 'Click here to add a property to your schema',
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-add-property'
+							) as HTMLButtonElement
+							if (button) {
+								button.click()
+							}
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#schema-modal-name',
+					popover: {
+						title: 'Name your property',
+						description: 'Give a name to your property. Here we will call it firstname',
+						onNextClick: () => {
+							const input = document.querySelector('#schema-modal-name') as HTMLInputElement
+
+							if (input) {
+								input.value = 'firstname'
+								input.dispatchEvent(new Event('input', { bubbles: true }))
+							}
+							forloopTutorial.moveNext()
+						}
+					}
+				},
+				{
+					element: '#schema-modal-save',
+					popover: {
+						title: 'Save your property',
+						description: 'Click here to save your property',
+						onNextClick: () => {
+							const button = document.querySelector('#schema-modal-save') as HTMLButtonElement
+
+							if (button) {
+								button.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#flow-editor-add-step-0',
+					popover: {
+						title: 'Add a step',
+						description: 'Click here to add a step to your flow',
+						onNextClick: () => {
+							const button = document.querySelector('#flow-editor-add-step-0') as HTMLButtonElement
+							if (button) {
+								button.parentElement?.dispatchEvent(
+									new PointerEvent('pointerdown', { bubbles: true })
+								)
+							}
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+
+				{
+					popover: {
+						title: 'Steps kind',
+						description: "Choose the kind of step you want to add. Let's start with a simple action"
+					},
+					element: '#flow-editor-insert-module'
+				},
+				{
+					popover: {
+						title: 'Pick an action',
+						description: 'Let’s pick an action to add to your flow',
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-insert-module > div > button:nth-child(1)'
+							) as HTMLButtonElement
+
+							if (button) {
+								button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					},
+					element: '#flow-editor-insert-module > div > button:nth-child(1)'
+				},
+				{
+					element: '#flow-editor-flow-inputs',
+					popover: {
+						title: 'Action configuration',
+						description: 'An action can be inlined, imported from your workspace or the Hub.'
+					}
+				},
+				{
+					element: '#flow-editor-action-script',
+					popover: {
+						title: 'Supported languages',
+						description: 'Windmill support the following languages/runtimes.'
+					}
+				},
+				{
+					element: '#flow-editor-action-script > button:nth-child(1)',
+					popover: {
+						title: 'Typescript',
+						description: "Let's pick an action to add to your flow",
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-action-script > button > div > button:nth-child(1)'
+							) as HTMLButtonElement
+
+							if (button) {
+								button?.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+
+				{
+					element: '#flow-editor-editor',
+					popover: {
+						title: 'Action editor',
+						description: 'Windmill provides a full code editor to write your actions'
+					}
+				},
+
+				{
+					element: '#flow-editor-step-input',
+					popover: {
+						title: 'Autogenerated schema',
+						description: 'The schema and the UI is autogenerated from your code'
+					}
+				},
+
+				{
+					element: '#flow-editor-plug',
+					popover: {
+						title: 'Connect',
+						description:
+							'You can provide static values or connect to other nodes result. Here we will connect to the firstname input',
+						onNextClick: () => {
+							const button = document.querySelector('#flow-editor-plug') as HTMLButtonElement
+
+							if (button) {
+								button?.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '.key',
+					popover: {
+						title: 'Connection mode',
+						description: 'Once you pressed the connect button, you can choose what to connect to.',
+						onNextClick: () => {
+							if ($flowStore.value.modules[0].value.type === 'rawscript') {
+								$flowStore.value.modules[0].value.input_transforms = {
+									x: {
+										type: 'javascript',
+										expr: 'flow_input.firstname'
+									}
+								}
+							}
+
+							$flowStore = $flowStore
+							renderCount += 1
+
+							tick().then(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+
+				{
+					element: '#flow-editor-step-input',
+					popover: {
+						title: 'Input connected!',
+						description: 'The input is now connected to the firstname input'
+					}
+				},
+				{
+					element: '#flow-editor-add-step-1',
+					popover: {
+						title: 'Loops',
+						description: 'Windmill supports loops. Let’s add a loop to your flow',
+						onNextClick: () => {
+							const button = document.querySelector('#flow-editor-add-step-1') as HTMLButtonElement
+							if (button) {
+								button.parentElement?.dispatchEvent(
+									new PointerEvent('pointerdown', { bubbles: true })
+								)
+							}
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					popover: {
+						title: 'Steps kind',
+						description: 'Choose the kind of step you want to add.'
+					},
+					element: '#flow-editor-insert-module'
+				},
+				{
+					popover: {
+						title: 'Insert loop',
+						description: "Let's pick forloop",
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-insert-module > div > button:nth-child(3)'
+							) as HTMLButtonElement
+
+							if (button) {
+								button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					},
+					element: '#flow-editor-insert-module > div > button:nth-child(3)'
+				},
+
+				{
+					element: '#flow-editor-iterator-expression',
+					popover: {
+						title: 'Iterator expression',
+						description:
+							'The iterator expression is a javascript expression that respresents the array to iterate on. Here we will iterate on the firstname input letter by letter',
+						onNextClick: () => {
+							if ($flowStore.value.modules[1].value.type === 'forloopflow') {
+								if ($flowStore.value.modules[1].value.iterator.type === 'javascript') {
+									$flowStore.value.modules[1].value.iterator.expr = 'results.a.split("")'
+								}
+							}
+
+							$flowStore = $flowStore
+
+							renderCount += 1
+
+							tick().then(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+
+				{
+					element: '#flow-editor-iterator-expression',
+					popover: {
+						title: 'Iterator expression',
+						description:
+							'We can refer to the result of previous steps using the results object: results.a',
+						onNextClick: () => {
+							if ($flowStore.value.modules[1].value.type === 'forloopflow') {
+								$flowStore.value.modules[1].value.modules = [
+									{
+										id: 'c',
+										value: {
+											type: 'rawscript',
+											content: 'def main(letter: str):\n    return letter.capitalize()',
+											// @ts-ignore
+											language: 'python3',
+											input_transforms: {
+												letter: {
+													type: 'javascript',
+													// @ts-ignore
+													value: '',
+													expr: ''
+												}
+											}
+										}
+									}
+								]
+							}
+
+							$flowStateStore['c'] = emptyFlowModuleState()
+
+							$flowStateStore['c'].schema.properties = {
+								letter: {
+									type: 'string',
+									description: '',
+									default: null
+								}
+							}
+
+							$flowStore = $flowStore
+
+							renderCount += 1
+
+							tick().then(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#svelvet-c',
+					popover: {
+						title: 'Step of the loop',
+						description: 'We added an action to the loop. Let’s configure it',
+						onNextClick: () => {
+							$selectedId = 'c'
+							$flowStore = $flowStore
+
+							renderCount += 1
+							tick().then(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#flow-editor-editor',
+					popover: {
+						title: 'Python step',
+						description:
+							'We can write python code in the editor. In this example we will capitalize the letter'
+					}
+				},
+
+				{
+					element: '#flow-editor-step-input',
+					popover: {
+						title: 'flow editor',
+						description: 'Description'
+					}
+				},
+
+				{
+					element: '#flow-editor-plug',
+					popover: {
+						title: 'Input configuration',
+						description:
+							'UI is autogenerated from your code. Let’s connect the input to the letter input',
+						onNextClick: () => {
+							const button = document.querySelector('#flow-editor-plug') as HTMLButtonElement
+
+							if (button) {
+								button?.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '.key',
+					popover: {
+						title: 'Connect',
+						description: 'As we did before, we can connect to the iterator of the loop',
+						onNextClick: () => {
+							if (
+								$flowStore.value.modules[1].value.type === 'forloopflow' &&
+								$flowStore.value.modules[1].value.modules[0].value.type === 'rawscript'
+							) {
+								$flowStore.value.modules[1].value.modules[0].value.input_transforms = {
+									letter: {
+										type: 'javascript',
+										expr: 'flow_input.iter.value'
+									}
+								}
+							}
+
+							$flowStore = $flowStore
+							renderCount += 1
+
+							tick().then(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#flow-editor-step-input',
+					popover: {
+						title: 'Iterator',
+						description:
+							'Loops expose an iterator object that contains the current value of the loop and the index'
+					}
+				},
+				{
+					element: '#flow-editor-test-flow',
+					popover: {
+						title: 'Test your flow',
+						description: 'We can now test our flow',
+						onNextClick: () => {
+							const button = document.querySelector('#flow-editor-test-flow') as HTMLButtonElement
+
+							if (button) {
+								button?.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+
+				{
+					element: 'textarea.w-full',
+					popover: {
+						title: 'Flow input',
+						description: 'Let’s provide an input to our flow',
+						onNextClick: () => {
+							const textarea = document.querySelector('textarea.w-full') as HTMLTextAreaElement
+
+							if (textarea) {
+								textarea.value = 'Hello World!'
+								textarea.dispatchEvent(new Event('input', { bubbles: true }))
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				},
+				{
+					element: '#flow-editor-test-flow-drawer',
+					popover: {
+						title: 'Test your flow',
+						description: 'Finally we can test our flow, and view the results!',
+						onNextClick: () => {
+							const button = document.querySelector(
+								'#flow-editor-test-flow-drawer'
+							) as HTMLButtonElement
+
+							if (button) {
+								button?.click()
+							}
+
+							setTimeout(() => {
+								forloopTutorial.moveNext()
+							})
+						}
+					}
+				}
+			]
+		})
+		forloopTutorial.drive()
+	}
+</script>
+
+<MenuItem
+	on:click={() => {
+		runTutorial()
+	}}
+>
+	<div
+		class={classNames(
+			'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+		)}
+	>
+		For loops tutorial
+	</div>
+</MenuItem>
