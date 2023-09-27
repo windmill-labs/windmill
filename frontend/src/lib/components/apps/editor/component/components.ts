@@ -297,8 +297,6 @@ const labels = {
 	setTab: 'Set the tab of a tabs component',
 	sendToast: 'Display a toast notification',
 	sendErrorToast: 'Display an error toast notification',
-	openModal: 'Open a modal',
-	closeModal: 'Close a modal',
 	open: 'Open a modal or a drawer',
 	close: 'Close a modal or a drawer'
 }
