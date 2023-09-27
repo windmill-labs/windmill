@@ -172,20 +172,65 @@ export function buildExtraLib(
 	return `${cs}
 ${
 	goto
-		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
+		? `
+/** open a window or tab
+ * @param path path/url to go to
+ * @param open in a tab?
+*/
+declare async function goto(path: string, newTab?: boolean): Promise<void>;
+
+/** set tab
+ * @param id component's id
+ * @param index index of the tab to set
+*/
 declare function setTab(id: string, index: string): void;
+
+/** recompute a component's runnable or background runnable
+ * @param id component's id
+*/
 declare function recompute(id: string): void;
+
+/** get the ag grid api from an AgGridTable
+ * @param id component's id
+*/
 declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
+
+
+/** set value of a component
+ * @param id component's id
+ * @param value value to set
+ */
 declare function setValue(id: string, value: any): void;
+
+/** set selected index of a table
+ * @param id component's id
+ * @param index index to set
+ */
 declare function setSelectedIndex(id: string, index: number): void;
-declare function openModal(id: string): void;
-declare function closeModal(id: string): void;
+
+/** close a drawer or modal
+  * @param id component's id
+ */
+declare function open(id: string): void;
+
+/** close a drawer or modal
+  * @param id component's id
+ */
+declare function close(id: string): void;
 `
 		: ''
 }
+
+/** The current's app state */
 declare const state: ${JSON.stringify(state)};
+
+/** The iterator within the context of a list */
 declare const iter: {index: number, value: any};
+
+/** The row within the context of a table */
 declare const row: Record<string, any>;
+
+/** The group fields within the context of a container's group */
 declare const group: Record<string, any>;
 
 `
