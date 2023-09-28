@@ -60,6 +60,7 @@
                 "bash",
                 "postgresql",
                 "nativets",
+                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",
