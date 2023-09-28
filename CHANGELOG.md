@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.178.1](https://github.com/windmill-labs/windmill/compare/v1.178.0...v1.178.1) (2023-09-28)
+
+
+### Bug Fixes
+
+* improve license key check ([035bad5](https://github.com/windmill-labs/windmill/commit/035bad5268d182af3f30915b5356defd7f6ccbc0))
+
 ## [1.178.0](https://github.com/windmill-labs/windmill/compare/v1.177.1...v1.178.0) (2023-09-28)
 
 
