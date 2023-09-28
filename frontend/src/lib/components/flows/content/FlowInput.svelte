@@ -101,7 +101,7 @@
 			jsonPayload.closeDrawer()
 		}}
 	>
-		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" fixedOverflowWidgets={false} />
+		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
 		<svelte:fragment slot="actions">
 			<Button size="sm" on:click={importJson}>Import</Button>
 		</svelte:fragment>
