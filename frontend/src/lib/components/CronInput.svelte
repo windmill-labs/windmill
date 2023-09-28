@@ -2,7 +2,6 @@
 	import { ScheduleService } from '$lib/gen'
 	import { emptyString, formatCron } from '$lib/utils'
 	import Badge from './Badge.svelte'
-
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
 	import TimezonePicker from 'svelte-timezone-picker'
@@ -14,6 +13,11 @@
 	export let timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
 	export let disabled = false
 	export let validCRON = true
+
+	// If the timezone is not a valid timezone, default to Europe/Paris
+	$: if (!timezone.includes('/')) {
+		timezone = 'Europe/Paris'
+	}
 
 	let preview: string[] = []
 	// If the user has already entered a cron string, switching to the basic tab will override it.
