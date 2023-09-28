@@ -38,6 +38,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "gitlab" => "python-gitlab",
     "smbclient" => "smbprotocol",
     "playhouse" => "peewee",
+    "mosaicml_cli" => "mosaicml-cli"
 };
 
 fn replace_import(x: String) -> String {
