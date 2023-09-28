@@ -128,13 +128,7 @@
 					{/if}
 
 					{#each folders as { name, extra_perms, owners, canWrite } (name)}
-						<Row
-							hoverable
-							on:click={() => {
-								editFolderName = name
-								folderDrawer.openDrawer()
-							}}
-						>
+						<Row>
 							<Cell first>
 								<span class="text-blue-500">{name}</span>
 							</Cell>
