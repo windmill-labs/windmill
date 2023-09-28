@@ -128,14 +128,20 @@
 					{/if}
 
 					{#each folders as { name, extra_perms, owners, canWrite } (name)}
-						<Row>
+						<Row
+							hoverable
+							on:click={() => {
+								editFolderName = name
+								folderDrawer.openDrawer()
+							}}
+						>
 							<Cell first>
 								<span class="text-blue-500">{name}</span>
 							</Cell>
 							<FolderUsageInfo {name} tabular />
 
 							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-							<Cell>
+							<Cell shouldStopPropagation>
 								<Dropdown
 									placement="bottom-end"
 									dropdownItems={[

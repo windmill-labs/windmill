@@ -7,15 +7,20 @@
 	export let last: boolean = false
 	export let numeric: boolean = false
 	export let head: boolean = false
+	export let shouldStopPropagation: boolean = false
 
 	let Tag = head ? 'th' : 'td'
 
 	const { size } = getContext<DatatableContext>('datatable')
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <svelte:element
 	this={Tag}
 	{...$$restProps}
+	on:click={(e) => {
+		if (shouldStopPropagation) e.stopPropagation()
+	}}
 	class={twMerge(
 		'px-2 py-3.5 text-left text-xs text-primary font-normal whitespace-nowrap',
 		first ? 'sm:pl-6' : '',
