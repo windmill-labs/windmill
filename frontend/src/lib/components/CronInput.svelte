@@ -12,8 +12,13 @@
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
 	export let timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 	export let disabled = false
 	export let validCRON = true
+
+	$: if (timezone === 'CET') {
+		timezone = 'Europe/Paris'
+	}
 
 	let preview: string[] = []
 	// If the user has already entered a cron string, switching to the basic tab will override it.
