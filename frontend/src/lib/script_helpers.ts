@@ -128,8 +128,7 @@ export async function main(x: string) {
 }
 `
 
-export const DENO_FAILURE_MODULE_CODE = `// flow is considered recovered and a success unless an exception is thrown
-
+export const DENO_FAILURE_MODULE_CODE = `
 export async function main(message: string, name: string) {
   const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
   console.log("message", message)
