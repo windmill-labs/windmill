@@ -324,6 +324,12 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tracing::error!("Error verifying license key: {:?}", e);
             let mut l = LICENSE_KEY_VALID.write().await;
             *l = false;
+        } else {
+            let is_valid = LICENSE_KEY_VALID.read().await.clone();
+            if !is_valid {
+                let mut l = LICENSE_KEY_VALID.write().await;
+                *l = true;
+            }
         }
     };
 
