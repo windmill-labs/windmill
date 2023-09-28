@@ -141,7 +141,7 @@
 							<FolderUsageInfo {name} tabular />
 
 							<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-							<Cell>
+							<Cell shouldStopPropagation>
 								<Dropdown
 									placement="bottom-end"
 									dropdownItems={[
