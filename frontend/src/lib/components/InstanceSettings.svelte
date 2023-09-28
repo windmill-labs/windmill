@@ -429,7 +429,11 @@
 								<option value={name}>{capitalize(name)}</option>
 							{/each}
 						</select>
-						<input type="text" placeholder="client_id" bind:value={resourceName} />
+						{#if oauth_name == 'custom'}
+							<input type="text" placeholder="client_id" bind:value={resourceName} />
+						{:else}
+							<input type="text" value={oauth_name} disabled />
+						{/if}
 						<Button
 							variant="border"
 							color="blue"
