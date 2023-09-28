@@ -639,7 +639,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
                 flow: parent_job,
                 job_id_for_status: flow,
-                success,
+                success: success && !is_failure_step,
                 result: nresult,
                 stop_early_override: if stop_early {
                     Some(skip_if_stop_early)
