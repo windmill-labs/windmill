@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.178.0](https://github.com/windmill-labs/windmill/compare/v1.177.1...v1.178.0) (2023-09-28)
+
+
+### Features
+
+* **frontend:** add app groups management ([#2347](https://github.com/windmill-labs/windmill/issues/2347)) ([20e0427](https://github.com/windmill-labs/windmill/commit/20e0427a1303c1c32f41b198cd2d0f7f28b5bd32))
+* **frontend:** add AppDrawer controls ([#2339](https://github.com/windmill-labs/windmill/issues/2339)) ([3de6d44](https://github.com/windmill-labs/windmill/commit/3de6d446f281dcaac288deee19342a08e0ccf9af))
+* **frontend:** Switch to component list when deleting a component ([#2346](https://github.com/windmill-labs/windmill/issues/2346)) ([6fcd72c](https://github.com/windmill-labs/windmill/commit/6fcd72c79453dd9d60ca869cd9996cc0c25971fa))
+
+
+### Bug Fixes
+
+* add env tags to default worker group ([#2348](https://github.com/windmill-labs/windmill/issues/2348)) ([f5bed95](https://github.com/windmill-labs/windmill/commit/f5bed95ab15bc397f822b06816c43b4b13a84af3))
+
 ## [1.177.1](https://github.com/windmill-labs/windmill/compare/v1.177.0...v1.177.1) (2023-09-26)
 
 
