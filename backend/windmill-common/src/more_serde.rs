@@ -47,7 +47,7 @@ where
     enum NumericOrNull<'a, T> {
         String(String),
         Str(&'a str),
-        FromStr(T),
+        RawT(T),
         Null,
     }
 
@@ -60,7 +60,7 @@ where
             "" => Ok(None),
             _ => T::from_str(s).map(Some).map_err(serde::de::Error::custom),
         },
-        NumericOrNull::FromStr(i) => Ok(Some(i)),
+        NumericOrNull::RawT(i) => Ok(Some(i)),
         NumericOrNull::Null => Ok(None),
     }
 }
