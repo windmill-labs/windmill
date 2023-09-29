@@ -67,7 +67,13 @@ export const hubScripts = writable<
 	  }>
 	| undefined
 >(undefined)
-export const existsOpenaiResourcePath = writable<boolean>(false)
+export const copilotInfo = writable<{
+	exists_openai_resource_path: boolean
+	code_completion_enabled: boolean
+}>({
+	exists_openai_resource_path: false,
+	code_completion_enabled: false
+})
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
