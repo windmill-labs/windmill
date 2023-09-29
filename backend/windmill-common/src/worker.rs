@@ -162,6 +162,22 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             WorkspacedPath { workspace_id: workspace.to_string(), path: script_path.to_string() }
         }
     });
+    if *WORKER_GROUP == "default" {
+        let mut all_tags = config
+            .worker_tags
+            .unwrap_or_default()
+            .into_iter()
+            .chain(
+                std::env::var("WORKER_TAGS")
+                    .ok()
+                    .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
+                    .unwrap_or_default(),
+            )
+            .sorted()
+            .collect_vec();
+        all_tags.dedup();
+        config.worker_tags = Some(all_tags);
+    }
     Ok(WorkerConfig {
         worker_tags: config
             .worker_tags

@@ -168,7 +168,8 @@
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
 	let befSelected: string | undefined = undefined
-	$: if ($selectedComponent?.[0] != befSelected) {
+
+	$: if ($selectedComponent?.[0] != befSelected && $selectedComponent?.[0] != undefined) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
 
@@ -452,7 +453,7 @@
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div class="absolute bottom-4 left-4 z-50">
+									<div class="absolute bottom-2 left-4 z-50">
 										<div class="flex flex-row gap-2 text-xs items-center">
 											<Button
 												color="light"
@@ -465,7 +466,7 @@
 											>
 												<Minus size={14} />
 											</Button>
-											{$scale}
+											{$scale}%
 											<Button
 												color="light"
 												variant="border"
@@ -569,7 +570,12 @@
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
-											<SettingsPanel />
+											<SettingsPanel
+												on:delete={() => {
+													befSelected = undefined
+													selectedTab = 'insert'
+												}}
+											/>
 											<SecondaryMenu right />
 										{:else}
 											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">

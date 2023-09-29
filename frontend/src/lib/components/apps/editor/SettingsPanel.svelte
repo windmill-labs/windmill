@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems } from '../utils'
 	import { findComponentSettings, findGridItem } from './appUtils'
@@ -32,11 +32,18 @@
 			})
 			.find((x) => x)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if componentSettings}
 	{#key componentSettings?.item?.id}
-		<ComponentPanel bind:componentSettings />
+		<ComponentPanel
+			bind:componentSettings
+			onDelete={() => {
+				dispatch('delete')
+			}}
+		/>
 	{/key}
 {:else if tableActionSettings}
 	{#key tableActionSettings?.item?.data?.id}
