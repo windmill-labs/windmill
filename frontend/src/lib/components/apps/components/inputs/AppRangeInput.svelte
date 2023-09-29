@@ -41,8 +41,6 @@
 		values = [resolvedConfig?.defaultLow ?? 0, resolvedConfig?.defaultHigh ?? 1]
 	}
 
-	let disabled = false
-
 	let slider: HTMLElement
 
 	let outputs = initOutput($worldStore, id, {
@@ -117,7 +115,7 @@
 					min={resolvedConfig.min == undefined ? 0 : +resolvedConfig.min}
 					max={resolvedConfig.max == undefined ? 1 : +resolvedConfig.max}
 					range
-					{disabled}
+					disabled={resolvedConfig.disabled}
 				/>
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
