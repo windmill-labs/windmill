@@ -11,7 +11,7 @@
 	let renderCount = 1
 
 	function runTutorial() {
-		const branchOneTutorial = driver({
+		const branchAllTutorial = driver({
 			showProgress: true,
 			allowClose: true,
 			steps: [
@@ -34,7 +34,7 @@
 								button.click()
 							}
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					},
@@ -53,7 +53,7 @@
 								button.click()
 							}
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -70,7 +70,7 @@
 								input.value = 'condition'
 								input.dispatchEvent(new Event('input', { bubbles: true }))
 							}
-							branchOneTutorial.moveNext()
+							branchAllTutorial.moveNext()
 						}
 					}
 				},
@@ -87,7 +87,7 @@
 							if (button) {
 								button.click()
 							}
-							branchOneTutorial.moveNext()
+							branchAllTutorial.moveNext()
 						}
 					}
 				},
@@ -104,7 +104,7 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -123,7 +123,7 @@
 								)
 							}
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -141,7 +141,7 @@
 						description: "Let's pick forloop",
 						onNextClick: () => {
 							const button = document.querySelector(
-								'#flow-editor-insert-module > div > button:nth-child(5)'
+								'#flow-editor-insert-module > div > button:nth-child(6)'
 							) as HTMLButtonElement
 
 							if (button) {
@@ -149,11 +149,11 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					},
-					element: '#flow-editor-insert-module > div > button:nth-child(5)'
+					element: '#flow-editor-insert-module > div > button:nth-child(6)'
 				},
 
 				{
@@ -169,7 +169,7 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -190,7 +190,7 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -210,7 +210,7 @@
 							renderCount += 1
 
 							tick().then(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -228,7 +228,7 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -248,7 +248,7 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
@@ -268,14 +268,14 @@
 							}
 
 							setTimeout(() => {
-								branchOneTutorial.moveNext()
+								branchAllTutorial.moveNext()
 							})
 						}
 					}
 				}
 			]
 		})
-		branchOneTutorial.drive()
+		branchAllTutorial.drive()
 	}
 </script>
 
@@ -289,6 +289,6 @@
 			'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 hover:text-primary-inverse !text-xs font-semibold'
 		)}
 	>
-		Branch one tutorial
+		Branch all tutorial
 	</div>
 </MenuItem>

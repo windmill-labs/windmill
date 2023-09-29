@@ -8,6 +8,7 @@
 	import FlowBuilderTutorialSimpleFlow from './tutorials/FlowBuilderTutorialSimpleFlow.svelte'
 	import FlowBuilderTutorialsForLoop from './tutorials/FlowBuilderTutorialsForLoop.svelte'
 	import FlowBranchOne from './tutorials/FlowBranchOne.svelte'
+	import FlowBranchAll from './tutorials/FlowBranchAll.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -30,6 +31,7 @@
 				<FlowBuilderTutorialSimpleFlow />
 				<FlowBuilderTutorialsForLoop />
 				<FlowBranchOne />
+				<FlowBranchAll />
 			</svelte:fragment>
 		</ButtonDropdown>
 	</button>

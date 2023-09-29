@@ -307,7 +307,7 @@
 >
 	<div
 		class={classNames(
-			'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+			'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 hover:text-primary-inverse !text-xs font-semibold'
 		)}
 	>
 		Simple flow tutorial
