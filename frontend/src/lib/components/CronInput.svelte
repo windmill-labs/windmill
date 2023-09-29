@@ -167,7 +167,7 @@
 					return {
 						value: subKey,
 						label: subKey,
-						group: key
+						group: timezones[key][subKey][1]
 					}
 				})
 				.flat()
@@ -212,6 +212,7 @@
 					on:change={(w) => {
 						timezone = w.detail.label
 					}}
+					value={timezone}
 				/>
 			{/if}
 		</div>
