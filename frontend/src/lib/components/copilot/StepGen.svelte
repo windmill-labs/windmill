@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
-	import { existsOpenaiResourcePath, hubScripts } from '$lib/stores'
+	import { copilotInfo, hubScripts } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
@@ -52,7 +52,7 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$existsOpenaiResourcePath) {
+		if (!selectedCompletion && !$copilotInfo.exists_openai_resource_path) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
