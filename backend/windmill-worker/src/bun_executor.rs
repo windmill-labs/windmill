@@ -595,6 +595,7 @@ pub async fn start_worker(
         )
         .await?;
     } else if !*DISABLE_NSJAIL {
+        let trusted_deps = get_trusted_deps(inner_content);
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             &mut logs,
@@ -607,6 +608,7 @@ pub async fn start_worker(
             base_internal_url,
             worker_name,
             false,
+            trusted_deps,
         )
         .await?;
     }
