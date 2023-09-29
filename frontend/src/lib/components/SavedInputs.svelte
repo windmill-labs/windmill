@@ -15,6 +15,7 @@
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
+	export let canSaveInputs: boolean = true
 
 	let runnableId: string | undefined = scriptPath || flowPath || undefined
 	let runnableType: RunnableType | undefined = scriptHash
@@ -150,16 +151,18 @@
 							>Shared inputs are available to anyone with access to the script</Tooltip
 						></span
 					>
-					<Button
-						on:click={() => saveInput(args)}
-						disabled={!isValid}
-						loading={savingInputs}
-						startIcon={{ icon: faSave }}
-						color="light"
-						size="xs"
-					>
-						<span>Save Current Input</span>
-					</Button>
+					{#if canSaveInputs}
+						<Button
+							on:click={() => saveInput(args)}
+							disabled={!isValid}
+							loading={savingInputs}
+							startIcon={{ icon: faSave }}
+							color="light"
+							size="xs"
+						>
+							<span>Save Current Input</span>
+						</Button>
+					{/if}
 				</div>
 
 				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto p">
