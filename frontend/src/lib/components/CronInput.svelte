@@ -9,6 +9,8 @@
 	import { Button } from './common'
 	import Select from '../components/apps/svelte-select/lib/index'
 	import timezones from './timezones'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import { onMount } from 'svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -144,6 +146,20 @@
 		timeZoneName: 'short'
 	}).format
 
+	let darkMode: boolean = false
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
+
 	const items = Object.keys(timezones)
 		.map((key) => {
 			return Object.keys(timezones[key])
@@ -186,6 +202,11 @@
 				</div>
 			{:else}
 				<Select
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={'border-color: #999;' +
+						(darkMode
+							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+							: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
 					{items}
 					groupBy={(item) => item.group}
 					on:change={(w) => {
