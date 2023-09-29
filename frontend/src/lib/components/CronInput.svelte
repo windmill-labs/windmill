@@ -5,9 +5,10 @@
 
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
-	import TimezonePicker from 'svelte-timezone-picker'
 	import CollapseLink from './CollapseLink.svelte'
 	import { Button } from './common'
+	import Select from '../components/apps/svelte-select/lib/index'
+	import timezones from './timezones'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -142,6 +143,20 @@
 		timeZone: timezone,
 		timeZoneName: 'short'
 	}).format
+
+	const items = Object.keys(timezones)
+		.map((key) => {
+			return Object.keys(timezones[key])
+				.map((subKey) => {
+					return {
+						value: subKey,
+						label: subKey,
+						group: key
+					}
+				})
+				.flat()
+		})
+		.flat()
 </script>
 
 <div class="w-full flex space-x-16">
@@ -170,7 +185,13 @@
 					<Badge>{timezone}</Badge>
 				</div>
 			{:else}
-				<TimezonePicker {timezone} on:update={(e) => (timezone = e.detail.timezone)} />
+				<Select
+					{items}
+					groupBy={(item) => item.group}
+					on:change={(w) => {
+						timezone = w.detail.label
+					}}
+				/>
 			{/if}
 		</div>
 
