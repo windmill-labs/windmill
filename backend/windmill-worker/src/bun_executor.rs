@@ -118,18 +118,11 @@ pub async fn gen_lockfile(
     )
     .await?;
 
-    install_lockfile(
-        logs,
-        job_id,
-        w_id,
-        db,
-        job_dir,
-        worker_name,
-        common_bun_proc_envs,
-    )
-    .await?;
-
     if trusted_deps.len() > 0 {
+        logs.push_str(&format!(
+            "\ndetected trustedDependencies: {}\n",
+            trusted_deps.join(", ")
+        ));
         let mut content = "".to_string();
         {
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
@@ -155,6 +148,17 @@ pub async fn gen_lockfile(
             file.read_to_string(&mut content).await?;
         }
     }
+
+    install_lockfile(
+        logs,
+        job_id,
+        w_id,
+        db,
+        job_dir,
+        worker_name,
+        common_bun_proc_envs,
+    )
+    .await?;
 
     if export_pkg {
         let mut content = "".to_string();
@@ -256,16 +260,20 @@ pub async fn handle_bun_job(
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
-            let _ = write_file_binary(
-                job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
-            )
-            .await?;
+            let has_trusted_deps = &splitted[0].contains("trustedDependencies");
+
+            if !has_trusted_deps {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(&splitted[1])
+                        .map_err(|_| {
+                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+            }
 
             install_lockfile(
                 logs,
@@ -277,13 +285,15 @@ pub async fn handle_bun_job(
                 common_bun_proc_envs.clone(),
             )
             .await?;
-            remove_dir_all(format!("{}/node_modules", job_dir)).await?;
+            if !has_trusted_deps {
+                remove_dir_all(format!("{}/node_modules", job_dir)).await?;
+            }
         }
     } else {
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
-
-        if !*DISABLE_NSJAIL || trusted_deps.len() > 0 {
+        let empty_trusted_deps = trusted_deps.len() == 0;
+        if !*DISABLE_NSJAIL || !empty_trusted_deps {
             logs.push_str("\n\n--- BUN INSTALL ---\n");
             set_logs(&logs, &job.id, &db).await;
             let _ = gen_lockfile(
@@ -300,7 +310,14 @@ pub async fn handle_bun_job(
                 trusted_deps,
             )
             .await?;
-            remove_dir_all(format!("{}/node_modules", job_dir)).await?;
+        }
+
+        if empty_trusted_deps {
+            let node_modules_path = format!("{}/node_modules", job_dir);
+            let node_modules_exists = tokio::fs::metadata(&node_modules_path).await.is_ok();
+            if node_modules_exists {
+                remove_dir_all(&node_modules_path).await?;
+            }
         }
     }
 
