@@ -4,8 +4,8 @@
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
 	import { getContext, tick } from 'svelte'
-	import type { FlowEditorContext } from './flows/types'
-	import { emptyFlowModuleState } from './flows/utils'
+	import type { FlowEditorContext } from '../flows/types'
+	import { emptyFlowModuleState } from '../flows/utils'
 
 	const { flowStore, selectedId, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')

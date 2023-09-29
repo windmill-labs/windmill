@@ -5,7 +5,7 @@
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
 	import { getContext, tick } from 'svelte'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext } from '../flows/types'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 

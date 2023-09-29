@@ -5,8 +5,9 @@
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import FlowBuilderTutorialSimpleFlow from './FlowBuilderTutorialSimpleFlow.svelte'
-	import FlowBuilderTutorialsForLoop from './FlowBuilderTutorialsForLoop.svelte'
+	import FlowBuilderTutorialSimpleFlow from './tutorials/FlowBuilderTutorialSimpleFlow.svelte'
+	import FlowBuilderTutorialsForLoop from './tutorials/FlowBuilderTutorialsForLoop.svelte'
+	import FlowBranchOne from './tutorials/FlowBranchOne.svelte'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -28,6 +29,7 @@
 			<svelte:fragment slot="items">
 				<FlowBuilderTutorialSimpleFlow />
 				<FlowBuilderTutorialsForLoop />
+				<FlowBranchOne />
 			</svelte:fragment>
 		</ButtonDropdown>
 	</button>

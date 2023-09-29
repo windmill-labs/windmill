@@ -176,6 +176,7 @@
 									property.items = undefined
 								}
 							}}
+							id={`schema-modal-type-${argType}`}
 						>
 							{argType}
 						</Button>
