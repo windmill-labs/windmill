@@ -244,7 +244,7 @@
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
 		WORKSPACES_EDIT_AUTO_INVITE_DOMAIN: 'workspaces.edit_auto_invite_domain',
 		WORKSPACES_EDIT_WEBHOOK: 'workspaces.edit_webhook',
-		WORKSPACES_EDIT_OPENAI_RESOURCE_PATH: 'workspaces.edit_openai_resource_path',
+		WORKSPACES_EDIT_COPILOT_CONFIG: 'workspaces.edit_copilot_config',
 		WORKSPACES_EDIT_ERROR_HANDLER: 'workspaces.edit_error_handler',
 		WORKSPACES_CREATE: 'workspaces.create',
 		WORKSPACES_UPDATE: 'workspaces.update',
