@@ -678,6 +678,46 @@ paths:
               schema:
                 type: string
 
+
+  /users/tutorial_progress:
+    get:
+      summary: get tutorial progress
+      operationId: getTutorialProgress
+      tags:
+        - user
+      responses:
+        "200":
+          description: tutorial progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  progress:
+                    type: integer
+    post:
+      summary: update tutorial progress
+      operationId: updateTutorialProgress
+      tags:
+        - user
+      requestBody:
+        description: progress update
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                progress:
+                  type: integer
+      responses:
+        "200":
+          description: tutorial progress
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/usage:
     get:
       summary: get current usage outside of premium workspaces

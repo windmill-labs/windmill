@@ -37,6 +37,7 @@ use windmill_common::db::UserDB;
 use windmill_common::jobs::JobPayload;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
+use windmill_common::more_serde::maybe_number_opt;
 
 use crate::db::ApiAuthed;
 use crate::saml::SamlSsoLogin;
@@ -340,6 +341,8 @@ pub struct SlackTokenResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
+    #[serde(deserialize_with = "maybe_number_opt")]
+    #[serde(default)]
     expires_in: Option<u64>,
     refresh_token: Option<RefreshToken>,
     #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
