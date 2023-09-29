@@ -219,6 +219,10 @@ pub async fn install_lockfile(
 }
 
 pub fn get_trusted_deps(code: &str) -> Vec<String> {
+    // postinstall not allowed with nsjail
+    if !*DISABLE_NSJAIL {
+        return vec![];
+    }
     TRUSTED_DEP
         .captures(code)
         .map(|x| {
