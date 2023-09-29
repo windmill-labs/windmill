@@ -11,8 +11,8 @@
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
+		copilotInfo,
 		enterpriseLicense,
-		existsOpenaiResourcePath,
 		hubScripts,
 		userStore,
 		workspaceStore
@@ -639,7 +639,11 @@
 			try {
 				if (flowModule.value.type === 'rawscript') {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (module.source === 'hub' && pastModule !== undefined && $existsOpenaiResourcePath) {
+					if (
+						module.source === 'hub' &&
+						pastModule !== undefined &&
+						$copilotInfo.exists_openai_resource_path
+					) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const inputs = await glueCopilot(
@@ -678,7 +682,11 @@
 							}
 						})
 					} else {
-						if (module.source === 'hub' && pastModule !== undefined && !$existsOpenaiResourcePath) {
+						if (
+							module.source === 'hub' &&
+							pastModule !== undefined &&
+							!$copilotInfo.exists_openai_resource_path
+						) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

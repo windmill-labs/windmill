@@ -8,7 +8,7 @@
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { existsOpenaiResourcePath } from '$lib/stores'
+	import { copilotInfo } from '$lib/stores'
 	import Menu from '$lib/components/common/menu/Menu.svelte'
 	import InsertTriggerButton from './InsertTriggerButton.svelte'
 
@@ -150,7 +150,7 @@
 		<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
 			<button
 				title="AI Flow Builder"
-				on:pointerdown={$existsOpenaiResourcePath
+				on:pointerdown={$copilotInfo.exists_openai_resource_path
 					? (ev) => {
 							ev.preventDefault()
 							ev.stopPropagation()
@@ -163,7 +163,7 @@
 			>
 				<Icon data={faMagicWandSparkles} scale={1} />
 			</button>
-			{#if !$existsOpenaiResourcePath}
+			{#if !$copilotInfo.exists_openai_resource_path}
 				<div class="text-primary p-4">
 					<p class="text-sm w-80"
 						>Enable Windmill AI in the <a

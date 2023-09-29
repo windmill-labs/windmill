@@ -6,7 +6,7 @@
 	import type { FlowCopilotContext } from './flow'
 	import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
 	import { charsToNumber } from '../flows/idUtils'
-	import { existsOpenaiResourcePath } from '$lib/stores'
+	import { copilotInfo } from '$lib/stores'
 	import Popup from '../common/popup/Popup.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
@@ -30,7 +30,7 @@
 	$: copilotStatus && copilotPopover?.refresh()
 </script>
 
-{#if $existsOpenaiResourcePath}
+{#if $copilotInfo.exists_openai_resource_path}
 	<ManualPopover bind:this={copilotPopover}>
 		<Button
 			size="xs"

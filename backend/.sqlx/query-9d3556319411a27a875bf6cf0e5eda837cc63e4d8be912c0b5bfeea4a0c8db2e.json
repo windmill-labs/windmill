@@ -1,14 +1,8 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH uuid_table as (\n            select gen_random_uuid() as uuid from generate_series(1, $11)\n        )\n        INSERT INTO queue \n            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id)\n            (SELECT uuid, $1, $2, $3, $4, ('{ \"uuid\": \"' || uuid || '\" }')::jsonb, $5, $6, $7, $8, $9, $10 FROM uuid_table) \n        RETURNING id",
+  "query": "INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11))",
   "describe": {
-    "columns": [
-      {
-        "ordinal": 0,
-        "name": "id",
-        "type_info": "Uuid"
-      }
-    ],
+    "columns": [],
     "parameters": {
       "Left": [
         "Int8",
@@ -46,6 +40,7 @@
                 "bash",
                 "postgresql",
                 "nativets",
+                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",
@@ -65,9 +60,7 @@
         "Int4"
       ]
     },
-    "nullable": [
-      false
-    ]
+    "nullable": []
   },
-  "hash": "6b9ff3fbca9e825c95d14705082a10de88172c0c748a45aba4d2d03c3b58f54d"
+  "hash": "9d3556319411a27a875bf6cf0e5eda837cc63e4d8be912c0b5bfeea4a0c8db2e"
 }

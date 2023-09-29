@@ -89,6 +89,10 @@ pub fn global_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
+        .route(
+            "/tutorial_progress",
+            post(update_tutorial_progress).get(get_tutorial_progress),
+        )
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -759,6 +763,40 @@ async fn list_users_as_super_admin(
     .fetch_all(&db)
     .await?;
     Ok(Json(rows))
+}
+
+#[derive(Serialize, Deserialize)]
+struct Progress {
+    progress: u64,
+}
+async fn get_tutorial_progress(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Progress> {
+    let res = sqlx::query_scalar!(
+        "SELECT progress::bigint FROM tutorial_progress WHERE email = $1",
+        authed.email
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or_default() as u64;
+    Ok(Json(Progress { progress: res }))
+}
+
+async fn update_tutorial_progress(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(progress): Json<Progress>,
+) -> Result<String> {
+    sqlx::query_scalar!(
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        progress.progress as i64,
+        authed.email
+    )
+    .execute(&db)
+    .await?;
+    Ok("tutorial progress updated".to_string())
 }
 
 // async fn list_invite_codes(
