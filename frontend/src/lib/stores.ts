@@ -19,6 +19,7 @@ export interface UserExt {
 
 const persistedWorkspace = BROWSER && localStorage.getItem('workspace')
 
+export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
