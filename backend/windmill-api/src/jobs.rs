@@ -784,46 +784,45 @@ async fn list_jobs(
         return Err(error::Error::BadRequest(
             "cannot specify both success and running".to_string(),
         ));
-
     }
-    let sqlc = if lq.running.is_none() {  
+    let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
-        &w_id,
-        per_page + offset,
-        0,
-        &ListCompletedQuery { order_desc: Some(true), ..lqc },
-        &[
-            "'CompletedJob' as typ",
-            "id",
-            "workspace_id",
-            "parent_job",
-            "created_by",
-            "created_at",
-            "started_at",
-            "null as scheduled_for",
-            "null as running",
-            "script_hash",
-            "script_path",
-            "null as args",
-            "duration_ms",
-            "success",
-            "deleted",
-            "canceled",
-            "canceled_by",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
-            "is_flow_step",
-            "language",
-            "is_skipped",
-            "email",
-            "visible_to_owner",
-            "null as suspend",
-            "mem_peak",
-            "tag",
-            "null as concurrent_limit",
-            "null as concurrency_time_window_s",
-        ],
+            &w_id,
+            per_page + offset,
+            0,
+            &ListCompletedQuery { order_desc: Some(true), ..lqc },
+            &[
+                "'CompletedJob' as typ",
+                "id",
+                "workspace_id",
+                "parent_job",
+                "created_by",
+                "created_at",
+                "started_at",
+                "null as scheduled_for",
+                "null as running",
+                "script_hash",
+                "script_path",
+                "null as args",
+                "duration_ms",
+                "success",
+                "deleted",
+                "canceled",
+                "canceled_by",
+                "job_kind",
+                "schedule_path",
+                "permissioned_as",
+                "is_flow_step",
+                "language",
+                "is_skipped",
+                "email",
+                "visible_to_owner",
+                "null as suspend",
+                "mem_peak",
+                "tag",
+                "null as concurrent_limit",
+                "null as concurrency_time_window_s",
+            ],
         ))
     } else {
         None
@@ -887,13 +886,13 @@ async fn list_jobs(
         );
 
         if let Some(sqlc) = sqlc {
-        format!(
-            "{} UNION ALL {} LIMIT {} OFFSET {};",
-            &sqlq.subquery()?,
-            &sqlc.subquery()?,
-            per_page,
-            offset
-        )
+            format!(
+                "{} UNION ALL {} LIMIT {} OFFSET {};",
+                &sqlq.subquery()?,
+                &sqlc.subquery()?,
+                per_page,
+                offset
+            )
         } else {
             sqlq.query()?
         }
@@ -2674,7 +2673,7 @@ async fn get_job_update(
         )
         .fetch_optional(&mut *tx)
         .await?;
-        let logs = not_found_if_none(logs, "Job", id.to_string())?;
+        let logs = not_found_if_none(logs, "Job Update", id.to_string())?;
         tx.commit().await?;
         Ok(Json(JobUpdate {
             running: Some(false),

@@ -106,18 +106,22 @@
 				JobService.getJob({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: mod.job ?? ''
-				}).then((job) => {
-					const newState = {
-						type: mod.type,
-						scheduled_for: job?.['scheduled_for'],
-						job_id: job?.id,
-						parent_module: mod['parent_module'],
-						args: job?.args
-					}
-					if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
-						localFlowModuleStates[mod.id ?? ''] = newState
-					}
 				})
+					.then((job) => {
+						const newState = {
+							type: mod.type,
+							scheduled_for: job?.['scheduled_for'],
+							job_id: job?.id,
+							parent_module: mod['parent_module'],
+							args: job?.args
+						}
+						if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
+							localFlowModuleStates[mod.id ?? ''] = newState
+						}
+					})
+					.catch((e) => {
+						console.error(`Could not load inner module for job ${mod.job}`, e)
+					})
 			}
 		})
 	}
