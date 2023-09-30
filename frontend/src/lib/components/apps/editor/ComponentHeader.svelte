@@ -15,7 +15,7 @@
 	export let selected: boolean
 	export let locked: boolean = false
 	export let hover: boolean = false
-	export let shouldHideActions: boolean = false
+	export let connecting: boolean = false
 	export let hasInlineEditor: boolean = false
 	export let inlineEditorOpened: boolean = false
 	export let errorHandledByComponent: boolean = false
@@ -35,7 +35,11 @@
 </script>
 
 {#if selected || hover}
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<span
+		on:mouseover|stopPropagation={() => {
+			dispatch('mouseover')
+		}}
 		on:mousedown|stopPropagation|capture
 		draggable="false"
 		title={`Id: ${component.id}`}
@@ -52,7 +56,7 @@
 	</span>
 {/if}
 
-{#if selected && !shouldHideActions}
+{#if selected && !connecting}
 	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
 		{#if hasInlineEditor}
 			<button
@@ -102,6 +106,7 @@
 				<Anchor aria-label="Lock position" size={14} />
 			{/if}
 		</button>
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			draggable="false"
 			title="Move"

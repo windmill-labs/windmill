@@ -292,7 +292,7 @@
 												</div>
 												{#if values[setting.key]?.length > 0}
 													{#if parseDate(values[setting.key])}
-														<span class="text-gray-600 text-2xs"
+														<span class="text-tertiary text-2xs"
 															>License key expires on {parseDate(values[setting.key])}</span
 														>
 													{/if}

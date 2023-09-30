@@ -113,9 +113,8 @@
 	})
 </script>
 
-
 {#if component}
-  {#key component?.id}
+	{#key component?.id}
 		<div class="px-2 flex items-center gap-2 flex-row justify-between">
 			{#if !cssEditorOpen}
 				<Button
@@ -275,5 +274,5 @@
 		<CssMigrationModal bind:this={migrationModal} bind:component />
 	{/key}
 {:else}
-	<span class="text-sm text-gray-600 mx-2">Select a component to style it in this panel</span>
+	<span class="text-sm text-secondary mx-2">Select a component to style it in this panel</span>
 {/if}
