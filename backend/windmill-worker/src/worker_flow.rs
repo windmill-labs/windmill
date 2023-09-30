@@ -166,7 +166,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             (false, None)
         };
 
-        let is_failure_step = old_status.step >= old_status.modules.len() as i32;
+        let is_failure_step =
+            old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
         let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
             //do not stop early if module is a flow step
