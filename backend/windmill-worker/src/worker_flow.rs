@@ -166,6 +166,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             (false, None)
         };
 
+        // 0 length flows are not failure steps
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
