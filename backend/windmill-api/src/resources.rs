@@ -144,6 +144,31 @@ async fn list_names(
     Ok(Json(rows))
 }
 
+#[derive(Serialize, FromRow)]
+pub struct SearchResource {
+    path: String,
+    content: String,
+}
+async fn list_search_resources(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<NamePath>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
+        rt,
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
 async fn list_resources(
     authed: ApiAuthed,
     Query(lq): Query<ListResourceQuery>,
