@@ -755,7 +755,7 @@ async fn list_users_as_super_admin(
 
     let rows = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT \
+        "SELECT email, login_type::text, verified, super_admin, name, company from password ORDER BY super_admin DESC, email LIMIT \
          $1 OFFSET $2",
         per_page as i32,
         offset as i32
