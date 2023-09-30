@@ -71,8 +71,10 @@
 		secondInterval = setInterval(() => {
 			timeSinceLastPing += 1
 		}, 1000)
-		loadGlobalCache()
-		loadCustomTags()
+		if ($superadmin) {
+			loadGlobalCache()
+			loadCustomTags()
+		}
 	})
 
 	async function loadGlobalCache() {
