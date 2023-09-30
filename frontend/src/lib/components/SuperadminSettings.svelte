@@ -2,7 +2,7 @@
 	import { UserService, GlobalUserInfo } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Badge, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'

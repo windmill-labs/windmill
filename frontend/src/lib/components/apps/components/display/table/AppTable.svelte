@@ -28,12 +28,15 @@
 	import { components, type ButtonComponent } from '../../../editor/component'
 	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
-	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import { connectOutput, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
+	import { Popup } from '$lib/components/common'
+	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
+	import { Plug2 } from 'lucide-svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -50,8 +53,15 @@
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		componentControl,
+		selectedComponent,
+		hoverStore,
+		mode,
+		connectingInput
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let searchValue = ''
 
@@ -378,6 +388,7 @@
 									>
 										<div class="center-center h-full w-full flex-wrap gap-1.5">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
+												<!-- svelte-ignore a11y-no-static-element-interactions -->
 												<RowWrapper
 													bind:inputs
 													value={row.original}
@@ -403,11 +414,12 @@
 																$hoverStore === actionButton.id) &&
 																$mode !== 'preview'
 																? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
-																: ''
+																: 'relative'
 														)}
 													>
 														{#if $mode !== 'preview'}
 															<!-- svelte-ignore a11y-click-events-have-key-events -->
+															<!-- svelte-ignore a11y-no-static-element-interactions -->
 															<span
 																title={`Id: ${actionButton.id}`}
 																class={classNames(
@@ -424,6 +436,35 @@
 															>
 																{actionButton.id}
 															</span>
+
+															{#if $connectingInput.opened}
+																<div class="absolute z-50 left-8 -top-[10px]">
+																	<Popup
+																		floatingConfig={{
+																			strategy: 'absolute',
+																			placement: 'bottom-start'
+																		}}
+																	>
+																		<svelte:fragment slot="button">
+																			<button
+																				class="bg-red-500/70 border border-red-600 px-1 py-0.5"
+																				title="Outputs"
+																				aria-label="Open output"><Plug2 size={12} /></button
+																			>
+																		</svelte:fragment>
+																		<ComponentOutputViewer
+																			on:select={({ detail }) =>
+																				connectOutput(
+																					connectingInput,
+																					'buttoncomponent',
+																					actionButton.id,
+																					detail
+																				)}
+																			componentId={actionButton.id}
+																		/>
+																	</Popup>
+																</div>
+															{/if}
 														{/if}
 														{#if rowIndex == 0}
 															{@const controls = {
