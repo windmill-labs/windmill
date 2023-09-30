@@ -23,6 +23,7 @@
 	const moveAnimationDuration = 300
 
 	export let schema: Schema | any = emptySchema()
+
 	if (!schema) {
 		schema = emptySchema()
 	}
@@ -50,6 +51,31 @@
 			}
 		} catch (err) {
 			throw Error(`Error: input is not a valid schema: ${err}`)
+		}
+	}
+
+	reorder()
+
+	function reorder() {
+		if (schema.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				n[x] = schema.properties[x]
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+		}
+	}
+
+	function syncOrders() {
+		if (schema) {
+			schema.order = Object.keys(schema.properties ?? {})
 		}
 	}
 
@@ -101,6 +127,7 @@
 			schemaModal.closeDrawer()
 		}
 		schema = schema
+		syncOrders()
 		schemaString = JSON.stringify(schema, null, '\t')
 		jsonEditor?.setCode(schemaString)
 		dispatch('change', schema)
@@ -156,6 +183,7 @@
 			} else {
 				throw Error('Argument not found!')
 			}
+			syncOrders()
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
@@ -187,7 +215,9 @@
 		entries.splice(i, 1)
 		entries.splice(up ? i - 1 : i + 1, 0, element)
 		schema.properties = Object.fromEntries(entries)
+		syncOrders()
 	}
+
 	let isAnimated = false
 	let error = ''
 
