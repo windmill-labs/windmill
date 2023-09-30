@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.179.1](https://github.com/windmill-labs/windmill/compare/v1.179.0...v1.179.1) (2023-09-30)
+
+
+### Bug Fixes
+
+* fix 0 len flow module processing ([f97289a](https://github.com/windmill-labs/windmill/commit/f97289a3d8bc6ce978d0be1fec35a424211e4a20))
+
 ## [1.179.0](https://github.com/windmill-labs/windmill/compare/v1.178.1...v1.179.0) (2023-09-30)
 
 

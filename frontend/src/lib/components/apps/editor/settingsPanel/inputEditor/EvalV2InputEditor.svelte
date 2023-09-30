@@ -6,6 +6,8 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
 	import { inferDeps } from '../../appUtilsInfer'
+	import { Maximize2 } from 'lucide-svelte'
+	import { Drawer } from '$lib/components/common'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
@@ -39,25 +41,55 @@
 			inferDeps(code, $worldStore.outputsById, componentInput, app)
 		}
 	}
+
+	let fullscreen = false
 </script>
 
 {#if componentInput?.type === 'evalv2'}
-	<div class="border">
-		<SimpleEditor
-			bind:this={editor}
-			lang="javascript"
-			bind:code={componentInput.expr}
-			shouldBindKey={false}
-			{extraLib}
-			autoHeight
-			on:change={async (e) => {
-				if (onchange) {
-					onchange()
-				}
-				inferDepsFromCode(e.detail.code)
-			}}
-		/>
+	{#if fullscreen}
+		<Drawer placement="bottom" on:close={() => (fullscreen = false)} open>
+			<SimpleEditor
+				class="h-full w-full"
+				bind:this={editor}
+				lang="javascript"
+				bind:code={componentInput.expr}
+				shouldBindKey={false}
+				fixedOverflowWidgets={false}
+				{extraLib}
+				on:change={async (e) => {
+					if (onchange) {
+						onchange()
+					}
+					inferDepsFromCode(e.detail.code)
+				}}
+			/>
+		</Drawer>
+	{/if}
+	<div class="border relative">
+		{#if !fullscreen}
+			<SimpleEditor
+				bind:this={editor}
+				lang="javascript"
+				bind:code={componentInput.expr}
+				shouldBindKey={false}
+				{extraLib}
+				autoHeight
+				on:change={async (e) => {
+					if (onchange) {
+						onchange()
+					}
+					inferDepsFromCode(e.detail.code)
+				}}
+			/>
+			<button
+				class="border bg-surface absolute top-0.5 right-2 p-0.5"
+				on:click={() => (fullscreen = true)}><Maximize2 size={12} /></button
+			>
+		{:else}
+			<pre class="text-small border px-2">{componentInput.expr}</pre>
+		{/if}
 	</div>
+
 	{#if componentInput?.expr && componentInput.expr != '' && componentInput.expr
 			.trim()
 			.startsWith('{')}

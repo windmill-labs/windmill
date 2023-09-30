@@ -1,21 +1,22 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, Bug, Expand, Move, Pen } from 'lucide-svelte'
+	import { Anchor, Bug, Expand, Move, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, Popup } from '$lib/components/common'
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
-	import { getErrorFromLatestResult } from './appUtils'
+	import { connectOutput, getErrorFromLatestResult } from './appUtils'
 
 	import TabsDebug from './TabsDebug.svelte'
+	import ComponentOutputViewer from './contextPanel/ComponentOutputViewer.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let hover: boolean = false
-	export let shouldHideActions: boolean = false
+	export let connecting: boolean = false
 	export let hasInlineEditor: boolean = false
 	export let inlineEditorOpened: boolean = false
 	export let errorHandledByComponent: boolean = false
@@ -34,8 +35,32 @@
 	}
 </script>
 
+{#if connecting}
+	<div class="absolute z-50 left-6 -top-[11px]">
+		<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+			<svelte:fragment slot="button">
+				<button
+					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
+					title="Outputs"
+					aria-label="Open output"><Plug2 size={12} /></button
+				>
+			</svelte:fragment>
+			<ComponentOutputViewer
+				on:select={({ detail }) =>
+					connectOutput(connectingInput, component.type, component.id, detail)}
+				componentId={component.id}
+			/>
+		</Popup>
+	</div>
+{/if}
+
 {#if selected || hover}
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<span
+		on:mouseover|stopPropagation={() => {
+			dispatch('mouseover')
+		}}
 		on:mousedown|stopPropagation|capture
 		draggable="false"
 		title={`Id: ${component.id}`}
@@ -52,7 +77,7 @@
 	</span>
 {/if}
 
-{#if selected && !shouldHideActions}
+{#if selected && !connecting}
 	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
 		{#if hasInlineEditor}
 			<button
@@ -102,6 +127,7 @@
 				<Anchor aria-label="Lock position" size={14} />
 			{/if}
 		</button>
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			draggable="false"
 			title="Move"
