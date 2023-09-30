@@ -16,7 +16,7 @@
 	import { OauthService, Script, WorkspaceService } from '$lib/gen'
 	import {
 		enterpriseLicense,
-		existsOpenaiResourcePath,
+		copilotInfo,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
@@ -29,6 +29,7 @@
 	import { Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let initialPath: string
 	let scriptPath: string
@@ -42,6 +43,7 @@
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'script' = 'script'
 	let openaiResourceInitialPath: string | undefined = undefined
+	let codeCompletionEnabled: boolean = false
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -111,24 +113,35 @@
 		}
 	}
 
-	async function editOpenaiResourcePath(openaiResourcePath: string): Promise<void> {
+	async function editCopilotConfig(openaiResourcePath: string): Promise<void> {
 		// in JS, an empty string is also falsy
 		openaiResourceInitialPath = openaiResourcePath
 		if (openaiResourcePath) {
-			await WorkspaceService.editOpenaiResourcePath({
+			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
-				requestBody: { openai_resource_path: openaiResourcePath }
+				requestBody: {
+					openai_resource_path: openaiResourcePath,
+					code_completion_enabled: codeCompletionEnabled
+				}
 			})
-			existsOpenaiResourcePath.set(true)
-			sendUserToast('OpenAI resource set')
+			copilotInfo.set({
+				exists_openai_resource_path: true,
+				code_completion_enabled: codeCompletionEnabled
+			})
 		} else {
-			await WorkspaceService.editOpenaiResourcePath({
+			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
-				requestBody: { openai_resource_path: undefined }
+				requestBody: {
+					openai_resource_path: undefined,
+					code_completion_enabled: codeCompletionEnabled
+				}
 			})
-			existsOpenaiResourcePath.set(false)
-			sendUserToast(`OpenAI resource removed`)
+			copilotInfo.set({
+				exists_openai_resource_path: true,
+				code_completion_enabled: codeCompletionEnabled
+			})
 		}
+		sendUserToast(`Copilot settings updated`)
 	}
 
 	async function loadSettings(): Promise<void> {
@@ -147,6 +160,7 @@
 		openaiResourceInitialPath = settings.openai_resource_path
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialPath = errorHandlerScriptPath
+		codeCompletionEnabled = settings.code_completion_enabled
 	}
 
 	$: {
@@ -447,7 +461,8 @@
 			<PageHeader title="Windmill AI" primary={false} />
 			<div class="mt-2">
 				<Alert type="info" title="Select an OpenAI resource to unlock Windmill AI features!">
-					Windmill AI currently only supports OpenAI's GPT-4.
+					Windmill AI uses OpenAI's GPT-3.5-turbo for code completion and GPT-4 for all other AI
+					features.
 				</Alert>
 			</div>
 			<div class="mt-5">
@@ -456,10 +471,20 @@
 						resourceType="openai"
 						initialValue={openaiResourceInitialPath}
 						on:change={(ev) => {
-							editOpenaiResourcePath(ev.detail)
+							editCopilotConfig(ev.detail)
 						}}
 					/>
 				{/key}
+			</div>
+			<div class="mt-3">
+				<Toggle
+					class="mr-2"
+					bind:checked={codeCompletionEnabled}
+					options={{ right: 'Enable code completion' }}
+					on:change={() => {
+						editCopilotConfig(openaiResourceInitialPath || '')
+					}}
+				/>
 			</div>
 		{/if}
 	{:else}

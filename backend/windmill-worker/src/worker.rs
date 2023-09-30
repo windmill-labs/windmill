@@ -68,7 +68,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
-    bun_executor::{gen_lockfile, handle_bun_job},
+    bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
     common::{hash_args, read_result, save_in_cache, transform_json_value, write_file},
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -561,8 +561,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     #[cfg(feature = "enterprise")]
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-    tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
     let mut last_sync = Instant::now()
@@ -2673,6 +2671,8 @@ async fn capture_dependency_job(
         }
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
+            //TODO: remove once bun provides sane default fot it
+            let trusted_deps = get_trusted_deps(job_raw_code);
             let req = gen_lockfile(
                 logs,
                 job_id,
@@ -2684,6 +2684,7 @@ async fn capture_dependency_job(
                 base_internal_url,
                 worker_name,
                 true,
+                trusted_deps,
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))

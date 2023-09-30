@@ -36,7 +36,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Paintbrush, Plus } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -130,12 +130,15 @@
 		previewTheme
 	})
 
+	let scale = writable(100)
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
 		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined),
-		jobsDrawerOpen: writable(false)
+		jobsDrawerOpen: writable(false),
+		scale
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -165,7 +168,8 @@
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 
 	let befSelected: string | undefined = undefined
-	$: if ($selectedComponent?.[0] != befSelected) {
+
+	$: if ($selectedComponent?.[0] != befSelected && $selectedComponent?.[0] != undefined) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
 
@@ -443,17 +447,48 @@
 										$focusedGrid = undefined
 									}}
 									class={twMerge(
-										'bg-surface h-full w-full relative',
+										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
 										'wm-app-viewer'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
+									<div class="absolute bottom-2 left-4 z-50">
+										<div class="flex flex-row gap-2 text-xs items-center">
+											<Button
+												color="light"
+												variant="border"
+												size="xs2"
+												disabled={$scale <= 30}
+												on:click={() => {
+													$scale -= 10
+												}}
+											>
+												<Minus size={14} />
+											</Button>
+											{$scale}%
+											<Button
+												color="light"
+												variant="border"
+												size="xs2"
+												disabled={$scale >= 100}
+												on:click={() => {
+													$scale += 10
+												}}
+											>
+												<Plus size={14} />
+											</Button>
+										</div>
+									</div>
+
 									<div id="app-editor-top-level-drawer" />
 									<div
+										class="absolute inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+									/>
+									<div
 										class={classNames(
-											'bg-surface-secondary/80 relative mx-auto w-full h-full overflow-auto',
-											app.fullscreen ? '' : 'max-w-6xl'
+											'relative mx-auto w-full h-full overflow-auto',
+											$appStore.fullscreen ? '' : 'max-w-6xl border-x'
 										)}
 									>
 										{#if $appStore.grid}
@@ -485,7 +520,6 @@
 										size="xs"
 										class="h-full"
 										on:pointerdown={() => {
-											console.log('click', $cssEditorOpen)
 											if ($cssEditorOpen) {
 												$cssEditorOpen = false
 												selectedTab = 'insert'
@@ -536,7 +570,12 @@
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
-											<SettingsPanel />
+											<SettingsPanel
+												on:delete={() => {
+													befSelected = undefined
+													selectedTab = 'insert'
+												}}
+											/>
 											<SecondaryMenu right />
 										{:else}
 											<div class="min-w-[150px] text-sm text-secondary text-center py-8 px-2">

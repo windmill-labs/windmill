@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import {
+		copyComponent,
 		findGridItem,
 		findGridItemParentGrid,
 		getAllSubgridsAndComponentIds,
 		insertNewGridItem
 	} from '../appUtils'
-	import type { AppEditorContext, AppViewerContext, FocusedGrid, GridItem } from '../../types'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/toast'
 	import { gridColumns } from '../../gridUtils'
@@ -242,59 +243,13 @@
 		} else if (copiedGridItems) {
 			let nitems: string[] = []
 			for (let copiedGridItem of copiedGridItems) {
-				let newItem = copyComponent(copiedGridItem, $focusedGrid, subgrids, [])
+				let newItem = copyComponent($app, copiedGridItem, $focusedGrid, subgrids, [])
 				newItem && nitems.push(newItem)
 			}
 			$selectedComponent = nitems.map((x) => x)
 		}
 
 		$app = $app
-	}
-
-	function copyComponent(
-		item: GridItem,
-		parentGrid: FocusedGrid | undefined,
-		subgrids: Record<string, GridItem[]>,
-		alreadyVisited: string[]
-	) {
-		if (alreadyVisited.includes(item.id)) {
-			return
-		} else {
-			alreadyVisited.push(item.id)
-		}
-		const newItem = insertNewGridItem(
-			$app,
-			(id) => {
-				if (item.data.type === 'tablecomponent') {
-					return {
-						...item.data,
-						id,
-						actionButtons:
-							item.data.actionButtons.map((x) => ({
-								...x,
-								id: x.id.replace(`${item.id}_`, `${id}_`)
-							})) ?? []
-					}
-				} else {
-					return { ...item.data, id }
-				}
-			},
-			parentGrid,
-			Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
-		)
-
-		for (let i = 0; i < (item?.data?.numberOfSubgrids ?? 0); i++) {
-			subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
-				copyComponent(
-					subgridItem,
-					{ parentComponentId: newItem, subGridIndex: i },
-					subgrids,
-					alreadyVisited
-				)
-			})
-		}
-
-		return newItem
 	}
 
 	function keydown(event: KeyboardEvent) {

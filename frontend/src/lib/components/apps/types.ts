@@ -234,6 +234,8 @@ export type AppViewerContext = {
 				setSelectedIndex?: (index: number) => void
 				openModal?: () => void
 				closeModal?: () => void
+				open?: () => void
+				close?: () => void
 			}
 		>
 	>
@@ -250,6 +252,7 @@ export type AppEditorContext = {
 	selectedComponentInEditor: Writable<string | undefined>
 	movingcomponents: Writable<string[] | undefined>
 	jobsDrawerOpen: Writable<boolean>
+	scale: Writable<number>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

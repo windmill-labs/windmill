@@ -37,6 +37,7 @@ use windmill_common::db::UserDB;
 use windmill_common::jobs::JobPayload;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
+use windmill_common::more_serde::maybe_number_opt;
 
 use crate::db::ApiAuthed;
 use crate::saml::SamlSsoLogin;
@@ -182,7 +183,7 @@ pub fn build_oauth_clients(
                 .as_ref()
                 .map(|c| (x.0.clone(), (x.1, c.clone())))
         }))
-        .map(|(k, (client_params, config))| {
+        .filter_map(|(k, (client_params, config))| {
             let named_client = build_basic_client(
                 k.clone(),
                 config.clone(),
@@ -191,17 +192,25 @@ pub fn build_oauth_clients(
                 base_url,
                 None,
             );
-            (
-                named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: config.scopes.unwrap_or(vec![]),
-                    extra_params: config.extra_params,
-                    extra_params_callback: config.extra_params_callback,
-                    allowed_domains: client_params.allowed_domains.clone(),
-                    userinfo_url: config.userinfo_url,
-                },
-            )
+            named_client
+                .map(|named_client| {
+                    (
+                        named_client.0,
+                        ClientWithScopes {
+                            client: named_client.1,
+                            scopes: config.scopes.unwrap_or(vec![]),
+                            extra_params: config.extra_params,
+                            extra_params_callback: config.extra_params_callback,
+                            allowed_domains: client_params.allowed_domains.clone(),
+                            userinfo_url: config.userinfo_url,
+                        },
+                    )
+                })
+                .map_err(|e| {
+                    tracing::error!("Error building oauth client {k}: {e}");
+                    e
+                })
+                .ok()
         })
         .collect();
 
@@ -213,7 +222,7 @@ pub fn build_oauth_clients(
                 .as_ref()
                 .map(|c| (x.0.clone(), (x.1, c.clone())))
         }))
-        .map(|(k, (client_params, config))| {
+        .filter_map(|(k, (client_params, config))| {
             let named_client = build_basic_client(
                 k.clone(),
                 config.clone(),
@@ -226,43 +235,61 @@ pub fn build_oauth_clients(
                     None
                 },
             );
-            (
-                named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: config.scopes.unwrap_or(vec![]),
-                    extra_params: config.extra_params,
-                    extra_params_callback: config.extra_params_callback,
-                    allowed_domains: None,
-                    userinfo_url: None,
-                },
-            )
+            named_client
+                .map(|named_client| {
+                    (
+                        named_client.0,
+                        ClientWithScopes {
+                            client: named_client.1,
+                            scopes: config.scopes.unwrap_or(vec![]),
+                            extra_params: config.extra_params,
+                            extra_params_callback: config.extra_params_callback,
+                            allowed_domains: None,
+                            userinfo_url: None,
+                        },
+                    )
+                })
+                .map_err(|e| {
+                    tracing::error!("Error building oauth client {k}: {e}");
+                    e
+                })
+                .ok()
         })
         .collect();
 
-    let slack = oauths.get("slack").map(|v| {
-        build_basic_client(
-            "slack".to_string(),
-            OAuthConfig {
-                auth_url: "https://slack.com/oauth/authorize".to_string(),
-                token_url: "https://slack.com/api/oauth.access".to_string(),
-                userinfo_url: None,
-                scopes: None,
-                extra_params: None,
-                extra_params_callback: None,
-                req_body_auth: None,
-            },
-            v.clone(),
-            false,
-            base_url,
-            Some(format!("{base_url}/oauth/callback_slack")),
-        )
-        .1
-    });
-
-    Ok(AllClients { logins, connects, slack })
+    let slack = oauths
+        .get("slack")
+        .map(|v| {
+            build_basic_client(
+                "slack".to_string(),
+                OAuthConfig {
+                    auth_url: "https://slack.com/oauth/authorize".to_string(),
+                    token_url: "https://slack.com/api/oauth.access".to_string(),
+                    userinfo_url: None,
+                    scopes: None,
+                    extra_params: None,
+                    extra_params_callback: None,
+                    req_body_auth: None,
+                },
+                v.clone(),
+                false,
+                base_url,
+                Some(format!("{base_url}/oauth/callback_slack")),
+            )
+            .map(|x| x.1)
+            .map_err(|e| {
+                tracing::error!("Error building oauth slack client: {e}");
+                e
+            })
+            .ok()
+        })
+        .flatten();
+    let all_clients = AllClients { logins, connects, slack };
+    tracing::info!("Final oauth config: {all_clients:#?}");
+    Ok(all_clients)
 }
 
+use anyhow::anyhow;
 pub fn build_basic_client(
     name: String,
     config: OAuthConfig,
@@ -270,9 +297,11 @@ pub fn build_basic_client(
     login: bool,
     base_url: &str,
     override_callback: Option<String>,
-) -> (String, OClient) {
-    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
-    let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
+) -> error::Result<(String, OClient)> {
+    let auth_url = Url::parse(&config.auth_url)
+        .map_err(|e| anyhow!("Invalid authorization endpoint URL: {e}"))?;
+    let token_url =
+        Url::parse(&config.token_url).map_err(|e| anyhow!("Invalid token endpoint URL: {e}"))?;
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -287,9 +316,12 @@ pub fn build_basic_client(
         client.set_auth_type(AuthType::RequestBody);
     }
     client.set_client_secret(client_params.secret.clone());
-    client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
+    client.set_redirect_url(
+        Url::parse(&redirect_url).map_err(|e| anyhow!("Invalid redirect URL: {e}"))?,
+    );
+
     // Set up the config for the Github OAuth2 process.
-    (name.to_string(), client)
+    Ok((name.to_string(), client))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -309,6 +341,8 @@ pub struct SlackTokenResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
+    #[serde(deserialize_with = "maybe_number_opt")]
+    #[serde(default)]
     expires_in: Option<u64>,
     refresh_token: Option<RefreshToken>,
     #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]

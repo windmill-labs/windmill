@@ -67,9 +67,9 @@
 					resource_type: 'openai'
 				}
 			})
-			await WorkspaceService.editOpenaiResourcePath({
+			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: { openai_resource_path: path }
+				requestBody: { openai_resource_path: path, code_completion_enabled: false }
 			})
 		}
 
@@ -128,25 +128,28 @@
 </script>
 
 <CenteredModal title="New Workspace">
-	<label class="block pb-2 pt-4">
+	<label class="block pb-4 pt-4">
 		<span class="text-secondary text-sm">Workspace name</span>
-		<input type="text" bind:value={name} />
+		<span class="ml-4 text-tertiary text-xs">Displayable name</span>
+
+		<input autofocus type="text" bind:value={name} />
 	</label>
-	<label class="block pb-2">
+	<label class="block pb-4">
 		<span class="text-secondary text-sm">Workspace ID</span>
+		<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your workspace</span>
 		{#if errorId}
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
 		<input type="text" bind:value={id} class:input-error={errorId != ''} />
 	</label>
-	<label class="block pb-2">
+	<label class="block pb-4">
 		<span class="text-secondary text-sm">Your username in that workspace</span>
 		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
 	</label>
-	<label class="block pb-2">
+	<label class="block pb-4">
 		<span class="text-secondary text-sm"
 			>OpenAI key for codegen<span class="text-2xs text-tertiary ml-2"
 				>(optional but recommended)</span

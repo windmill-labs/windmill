@@ -14,7 +14,7 @@ if (!bo.success) {
   process.exit(1);
 } else {
   let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
-  const imports = new Bun.Transpiler().scanImports(content);
+  const imports = new Bun.Transpiler().scanImports(content.replaceAll("__require", "require"));
 
   const { intersect } = require("semver-intersect");
   const dependencies: Record<string, string[]> = {};

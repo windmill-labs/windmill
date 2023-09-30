@@ -162,6 +162,18 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 											type: 'static',
 											value: ''
 										}
+									},
+									open: {
+										id: {
+											type: 'static',
+											value: ''
+										}
+									},
+									close: {
+										id: {
+											type: 'static',
+											value: ''
+										}
 									}
 								}
 							},
@@ -204,6 +216,18 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 									},
 									closeModal: {
 										modalId: {
+											type: 'static',
+											value: ''
+										}
+									},
+									open: {
+										id: {
+											type: 'static',
+											value: ''
+										}
+									},
+									close: {
+										id: {
 											type: 'static',
 											value: ''
 										}
@@ -547,6 +571,18 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 											type: 'static',
 											value: ''
 										}
+									},
+									open: {
+										id: {
+											type: 'static',
+											value: ''
+										}
+									},
+									close: {
+										id: {
+											type: 'static',
+											value: ''
+										}
 									}
 								}
 							},
@@ -589,6 +625,18 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 									},
 									closeModal: {
 										modalId: {
+											type: 'static',
+											value: ''
+										}
+									},
+									open: {
+										id: {
+											type: 'static',
+											value: ''
+										}
+									},
+									close: {
+										id: {
 											type: 'static',
 											value: ''
 										}

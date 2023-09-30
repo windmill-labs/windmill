@@ -13,7 +13,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Popup from '../common/popup/Popup.svelte'
 	import { Icon } from 'svelte-awesome'
-	import { dbSchemas, existsOpenaiResourcePath, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type { Selection } from 'monaco-editor/esm/vs/editor/editor.api'
@@ -146,7 +146,13 @@
 	$: editor && setSelectionHandler()
 	$: selection && (isEdit = !selection.isEmpty())
 
-	$: dbSchema = $dbSchemas[(lang === 'graphql' ? args.api : args.database)?.replace('$res:', '')]
+	function updateSchema(lang, args) {
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (schemaRes instanceof String) {
+			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
+		}
+	}
+	$: updateSchema(lang, args)
 </script>
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -263,7 +269,7 @@
 						<LoadingIcon />
 					{/if}
 				</div>
-			{:else if $existsOpenaiResourcePath}
+			{:else if $copilotInfo.exists_openai_resource_path}
 				<div class="flex w-96">
 					<input
 						type="text"

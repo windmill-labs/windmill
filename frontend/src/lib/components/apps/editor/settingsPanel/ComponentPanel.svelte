@@ -299,9 +299,8 @@
 					{/if}
 				{/key}
 			</PanelSection>
-
 		{/if}
-	
+
 		<ComponentControl type={component.type} />
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
@@ -320,7 +319,7 @@
 		{:else if componentSettings.item.data.type === 'containercomponent'}
 			<GridGroup
 				bind:groupFields={componentSettings.item.data.groupFields}
-				bind:component={componentSettings.item.data}
+				item={componentSettings.item}
 			/>
 		{:else if componentSettings.item.data.type === 'conditionalwrapper'}
 			<GridCondition
@@ -434,6 +433,5 @@
 				</div>
 			</PanelSection>
 		{/if}
-
 	</div>
 {/if}

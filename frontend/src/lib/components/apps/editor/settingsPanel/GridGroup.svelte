@@ -1,16 +1,16 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import type { RichConfigurations } from '../../types'
-	import type { AppComponent } from '../component'
+	import type { GridItem, RichConfigurations } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import GroupManagementDrawer from '../componentsPanel/GroupManagementDrawer.svelte'
 
 	export let groupFields: RichConfigurations | undefined
+	export let item: GridItem
 
-	export let component: AppComponent
+	let groupManagementDrawer: GroupManagementDrawer | undefined = undefined
 
 	// const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -40,15 +40,26 @@
 			}
 			console.log(groupFields)
 		}}
-		options={{ right: 'container is a component group' }}
-	/>
-	<Tooltip
-		>Group fields allow inner components to depend on the group fields which make the container a
+		options={{
+			right: 'container is a component group',
+			rightTooltip: `Group fields allow inner components to depend on the group fields which make the container a
 		group of component that is encapsulated. Inside the group, it is possible to retrieve the values
-		using `group.<x />` where x is the group field name</Tooltip
-	>
+		using \`group.<x />\` where x is the group field name`
+		}}
+	/>
 </div>
 {#if groupFields != undefined}
+	<div class="p-2">
+		<Button
+			on:click={() => {
+				groupManagementDrawer?.openDrawer()
+			}}
+			size="xs"
+			color="light"
+		>
+			Save group to workspace
+		</Button>
+	</div>
 	<PanelSection
 		title={`Group Fields ${
 			Object.keys(groupFields ?? {}).length > 0
@@ -68,7 +79,7 @@
 					delete groupFields[e.detail]
 					groupFields = groupFields
 				}}
-				id={component.id}
+				id={item.id}
 				shouldCapitalize={false}
 				displayType
 				deletable
@@ -102,3 +113,5 @@
 		</div>
 	</PanelSection>
 {/if}
+
+<GroupManagementDrawer bind:this={groupManagementDrawer} {item} />

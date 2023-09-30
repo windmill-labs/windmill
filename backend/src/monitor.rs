@@ -89,11 +89,9 @@ pub async fn initial_load(
     };
 
     let reload_base_url_f = async {
-        
-            if let Err(e) = reload_base_url_setting(db).await {
-                tracing::error!("Error reloading base url: {:?}", e)
-            }
-        
+        if let Err(e) = reload_base_url_setting(db).await {
+            tracing::error!("Error reloading base url: {:?}", e)
+        }
     };
 
     let reload_server_config_f = async {
@@ -114,11 +112,9 @@ pub async fn initial_load(
     };
 
     let reload_license_key_f = async {
-        if server_mode {
-            #[cfg(feature = "enterprise")]
-            if let Err(e) = reload_license_key(&db).await {
-                tracing::error!("Error reloading license key: {:?}", e)
-            }
+        #[cfg(feature = "enterprise")]
+        if let Err(e) = reload_license_key(&db).await {
+            tracing::error!("Error reloading license key: {:?}", e)
         }
     };
 
@@ -323,12 +319,16 @@ pub async fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     };
 
     let verify_license_key_f = async {
-        if server_mode {
-            #[cfg(feature = "enterprise")]
-            if let Err(e) = verify_license_key().await {
-                tracing::error!("Error verifying license key: {:?}", e);
+        #[cfg(feature = "enterprise")]
+        if let Err(e) = verify_license_key().await {
+            tracing::error!("Error verifying license key: {:?}", e);
+            let mut l = LICENSE_KEY_VALID.write().await;
+            *l = false;
+        } else {
+            let is_valid = LICENSE_KEY_VALID.read().await.clone();
+            if !is_valid {
                 let mut l = LICENSE_KEY_VALID.write().await;
-                *l = false;
+                *l = true;
             }
         }
     };

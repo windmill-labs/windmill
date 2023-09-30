@@ -78,15 +78,12 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
 
     let custom_tags = process_custom_tags(tags);
 
-    {
-        let l = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        if l.clone() == custom_tags {
-            tracing::info!("Custom tags setting unchanged, skipping update");
-            return Ok(());
-        } else {
-            tracing::info!("Custom tags setting changed, updating");
-        }
-    }
+    tracing::info!(
+        "Loaded setting custom tags, common: {:?}, per-workspace: {:?}",
+        custom_tags.0,
+        custom_tags.1,
+    );
+
     {
         let mut l = CUSTOM_TAGS_PER_WORKSPACE.write().await;
         *l = custom_tags.clone()
@@ -165,6 +162,22 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             WorkspacedPath { workspace_id: workspace.to_string(), path: script_path.to_string() }
         }
     });
+    if *WORKER_GROUP == "default" {
+        let mut all_tags = config
+            .worker_tags
+            .unwrap_or_default()
+            .into_iter()
+            .chain(
+                std::env::var("WORKER_TAGS")
+                    .ok()
+                    .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
+                    .unwrap_or_default(),
+            )
+            .sorted()
+            .collect_vec();
+        all_tags.dedup();
+        config.worker_tags = Some(all_tags);
+    }
     Ok(WorkerConfig {
         worker_tags: config
             .worker_tags

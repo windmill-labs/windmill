@@ -114,7 +114,10 @@
 	}
 
 	function evalValueToRaw() {
-		rawValue = inputCat === 'object' ? JSON.stringify(value, null, 2) : undefined
+		rawValue =
+			inputCat === 'object' || inputCat === 'resource-object'
+				? JSON.stringify(value, null, 2)
+				: undefined
 	}
 
 	evalValueToRaw()
@@ -351,6 +354,8 @@
 						</Button>
 					</div>
 				</div>
+			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
+				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
 				<ObjectResourceInput {disablePortal} {format} bind:value {showSchemaExplorer} />
 			{:else if inputCat == 'object' || inputCat == 'resource-object'}

@@ -323,6 +323,55 @@ export function insertNewGridItem(
 	return id
 }
 
+export function copyComponent(
+	app: App,
+	item: GridItem,
+	parentGrid: FocusedGrid | undefined,
+	subgrids: Record<string, GridItem[]>,
+	alreadyVisited: string[]
+) {
+	if (alreadyVisited.includes(item.id)) {
+		return
+	} else {
+		alreadyVisited.push(item.id)
+	}
+	const newItem = insertNewGridItem(
+		app,
+		(id) => {
+			if (item.data.type === 'tablecomponent') {
+				return {
+					...item.data,
+					id,
+					actionButtons:
+						item.data.actionButtons.map((x) => ({
+							...x,
+							id: x.id.replace(`${item.id}_`, `${id}_`)
+						})) ?? []
+				}
+			} else {
+				return { ...item.data, id }
+			}
+		},
+		parentGrid,
+		Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
+	)
+
+	for (let i = 0; i < (item?.data?.numberOfSubgrids ?? 0); i++) {
+		subgrids[`${item.id}-${i}`].forEach((subgridItem) => {
+			copyComponent(
+				app,
+				subgridItem,
+				{ parentComponentId: newItem, subGridIndex: i },
+				subgrids,
+				alreadyVisited
+			)
+		})
+	}
+
+	return newItem
+}
+
+
 export function getAllSubgridsAndComponentIds(
 	app: App,
 	component: AppComponent

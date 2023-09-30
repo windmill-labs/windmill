@@ -21,12 +21,12 @@ use tokio::{
 };
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, OAUTH_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING, LICENSE_KEY_SETTING,
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, LICENSE_KEY_SETTING, OAUTH_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     utils::rd_string,
     worker::{reload_custom_tags_setting, WORKER_GROUP},
-    METRICS_ADDR,
+    DB, METRICS_ADDR,
 };
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
@@ -36,8 +36,8 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, monitor_db, reload_base_url_setting, reload_retention_period_setting,
-    reload_server_config, reload_worker_config, reload_license_key,
+    initial_load, monitor_db, reload_base_url_setting, reload_license_key,
+    reload_retention_period_setting, reload_server_config, reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -154,9 +154,7 @@ Windmill Community Edition {GIT_VERSION}
 
         initial_load(&db, tx.clone(), worker_mode, server_mode).await;
 
-        
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode).await;
-
 
         if std::env::var("BASE_INTERNAL_URL").is_ok() {
             tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored, you can remove it.");
@@ -203,21 +201,7 @@ Windmill Community Edition {GIT_VERSION}
                 //monitor_db is applied at start, no need to apply it twice
                 tokio::time::sleep(Duration::from_secs(rd_delay)).await;
 
-                let mut listener = match PgListener::connect_with(&db).await {
-                    Ok(l) => l,
-                    Err(e) => {
-                        tracing::error!(error = %e, "Could not connect to database");
-                        return;
-                    }
-                };
-
-                if let Err(e) = listener
-                    .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
-                    .await
-                {
-                    tracing::error!(error = %e, "Could not listen to database");
-                    return;
-                }
+                let mut listener = retry_listen_pg(&db).await;
 
                 loop {
                     tokio::select! {
@@ -303,7 +287,8 @@ Windmill Community Edition {GIT_VERSION}
                                     }
                                 },
                                 Err(e) => {
-                                    tracing::error!(error = %e, "Could not receive notification");
+                                    tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
+                                    listener = retry_listen_pg(&db).await;
                                     continue;
                                 }
                             };
@@ -337,6 +322,40 @@ Windmill Community Edition {GIT_VERSION}
     Ok(())
 }
 
+async fn listen_pg(db: &DB) -> Option<PgListener> {
+    let mut listener = match PgListener::connect_with(&db).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!(error = %e, "Could not connect to database");
+            return None;
+        }
+    };
+
+    if let Err(e) = listener
+        .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+        .await
+    {
+        tracing::error!(error = %e, "Could not listen to database");
+        return None;
+    }
+
+    return Some(listener);
+}
+
+async fn retry_listen_pg(db: &DB) -> PgListener {
+    let mut listener = listen_pg(db).await;
+    loop {
+        if listener.is_none() {
+            tracing::info!("Retrying listening to pg listen in 5 seconds");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            listener = listen_pg(db).await;
+        } else {
+            tracing::info!("Successfully connected to pg listen");
+            return listener.unwrap();
+        }
+    }
+}
+
 fn display_config(envs: &[&str]) {
     tracing::info!(
         "config: {}",
@@ -362,8 +381,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
 ) -> anyhow::Result<()> {
-
-
     let instance_name = gethostname()
         .to_str()
         .map(|x| {
