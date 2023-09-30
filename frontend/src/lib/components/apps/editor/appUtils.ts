@@ -104,6 +104,15 @@ export function selectId(
 	}
 }
 
+
+export function connectOutput(connectingInput: Writable<ConnectingInput>, typ:  TypedComponent['type'], id: string, spath: string) {
+	if (get(connectingInput).opened) {
+		let splitted = spath?.split('.')
+		let componentId = typ == 'containercomponent' ? splitted?.[0] : id
+		let path = typ == 'containercomponent' ? splitted?.[1] : spath
+		connectingInput.set(connectInput(get(connectingInput), componentId, path, typ))
+	}
+}
 function findGridItemById(
 	root: GridItem[],
 	subGrids: Record<string, GridItem[]> | undefined,

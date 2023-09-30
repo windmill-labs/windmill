@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
-	import { connectInput } from '../appUtils'
+	import { connectOutput } from '../appUtils'
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import TableActionsOutput from './components/TableActionsOutput.svelte'
@@ -38,13 +38,7 @@
 	<ComponentOutputViewer
 		componentId={gridItem.id}
 		on:select={({ detail }) => {
-			if ($connectingInput.opened) {
-				let typ = gridItem?.data?.type
-				let splitted = detail?.split('.')
-				let componentId = typ == 'containercomponent' ? splitted?.[0] : gridItem.id
-				let path = typ == 'containercomponent' ? splitted?.[1] : detail
-				$connectingInput = connectInput($connectingInput, componentId, path, typ)
-			}
+			connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
 		}}
 	/>
 
