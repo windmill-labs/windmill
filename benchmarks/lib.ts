@@ -88,7 +88,11 @@ export async function createBenchScript(
     scriptContent =
       'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
     language = "deno";
-  } else {
+  }  else if (scriptPattern === "nativets") {
+    scriptContent =
+      'export async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
+    language = "nativets";
+  }  else {
     throw new Error(
       "Could not create script for script pattern " + scriptPattern
     );
