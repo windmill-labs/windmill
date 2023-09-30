@@ -35,12 +35,7 @@ struct Config {
     config: serde_json::Value,
 }
 
-async fn list_worker_groups(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> error::JsonResult<Vec<Config>> {
-    require_super_admin(&db, &authed.email).await?;
-
+async fn list_worker_groups(Extension(db): Extension<DB>) -> error::JsonResult<Vec<Config>> {
     let rows = sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
         .fetch_all(&db)
         .await?;

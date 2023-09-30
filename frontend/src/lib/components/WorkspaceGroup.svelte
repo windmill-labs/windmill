@@ -241,5 +241,9 @@
 				delete config
 			</Button>
 		{/if}
+	{:else if config}
+		<span class="text-xs text-secondary"
+			>config <Tooltip>{JSON.stringify(config, null, 4)}</Tooltip></span
+		>
 	{/if}
 </div>
