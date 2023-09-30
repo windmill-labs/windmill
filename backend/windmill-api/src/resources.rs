@@ -31,6 +31,7 @@ use windmill_common::{
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
+        .route("/list_search", get(list_search_resources))
         .route("/list_names/:type", get(list_names))
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
@@ -147,23 +148,22 @@ async fn list_names(
 #[derive(Serialize, FromRow)]
 pub struct SearchResource {
     path: String,
-    content: String,
+    value: serde_json::Value,
 }
 async fn list_search_resources(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
-) -> JsonResult<Vec<NamePath>> {
+) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query!(
-        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
-        rt,
+    let rows = sqlx::query_as!(
+        SearchResource,
+        "SELECT path, value from resource WHERE workspace_id = $1",
         &w_id
     )
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
-    .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
