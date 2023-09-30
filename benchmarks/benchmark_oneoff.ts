@@ -119,7 +119,7 @@ export async function main({
     return completedJobs - pastJobs;
   }
 
-  if (["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)) {
+  if (["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)) {
     await createBenchScript(kind, workspace);
   }
 
@@ -135,7 +135,7 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun"].includes(kind)
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)
   ) {
     body = JSON.stringify({
       kind: "script",
@@ -234,7 +234,7 @@ export async function main({
   console.log("completed jobs", completedJobs);
   console.log("queue length:", await getQueueCount());
 
-  if (!noVerify && kind !== "noop") {
+  if (!noVerify && kind !== "noop" && kind !== 'nativets') {
     await verifyOutputs(uuids, config.workspace_id);
   }
 
@@ -282,7 +282,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets",
       {
         required: true,
       }

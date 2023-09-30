@@ -39,7 +39,12 @@
       "graph_title": "bash throughput benchmark (single worker)",
       "kind": "bash",
       "jobs": 500
-    }
+    },
+    {
+      "graph_title": "nativets throughput benchmark (single worker)",
+      "kind": "nativets",
+      "jobs": 500
+    },
   ],
   "extra_graphs": [
     {
