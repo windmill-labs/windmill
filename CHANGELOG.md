@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.180.0](https://github.com/windmill-labs/windmill/compare/v1.179.1...v1.180.0) (2023-10-01)
+
+
+### Features
+
+* code content search ([#2367](https://github.com/windmill-labs/windmill/issues/2367)) ([fb96059](https://github.com/windmill-labs/windmill/commit/fb960594fce265d5d4f4eb443e0c9cc19d14e025))
+
+
+### Bug Fixes
+
+* improve connection in apps ([a2fca17](https://github.com/windmill-labs/windmill/commit/a2fca17ae2ac8257154e2aec4a0ceabfe16fc46a))
+
 ## [1.179.1](https://github.com/windmill-labs/windmill/compare/v1.179.0...v1.179.1) (2023-09-30)
 
 
