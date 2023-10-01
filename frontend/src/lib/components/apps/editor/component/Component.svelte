@@ -74,28 +74,44 @@
 	let componentContainerHeight: number = 0
 
 	let inlineEditorOpened: boolean = false
+
+	let outTimeout: NodeJS.Timeout | undefined = undefined
+
+	function mouseOut() {
+		outTimeout && clearTimeout(outTimeout)
+		outTimeout = setTimeout(() => {
+			if ($hoverStore !== undefined) {
+				$hoverStore = undefined
+			}
+		}, 50)
+	}
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	on:mouseover|stopPropagation={() => {
+		outTimeout && clearTimeout(outTimeout)
 		if (component.id !== $hoverStore) {
 			$hoverStore = component.id
 		}
 	}}
-	on:mouseout|stopPropagation={() => {
-		if ($hoverStore !== undefined) {
-			$hoverStore = undefined
-		}
-	}}
+	on:mouseout|stopPropagation={mouseOut}
 	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
+			on:mouseover={() => {
+				outTimeout && clearTimeout(outTimeout)
+
+				if (component.id !== $hoverStore) {
+					$hoverStore = component.id
+				}
+			}}
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
-			shouldHideActions={$connectingInput.opened}
+			connecting={$connectingInput.opened}
 			on:lock
 			on:expand
 			{locked}

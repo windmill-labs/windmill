@@ -12,7 +12,7 @@
 		ScriptService,
 		UserService
 	} from '$lib/gen'
-	import { classNames, sendUserToast } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
@@ -20,7 +20,6 @@
 		enterpriseLicense,
 		starStore,
 		superadmin,
-		tutorialsToDo,
 		usageStore,
 		userStore,
 		workspaceStore
@@ -35,7 +34,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import MultiplayerMenu from '$lib/components/sidebar/MultiplayerMenu.svelte'
-	import { syncTutorialsTodos, updateProgress } from '$lib/tutorialUtils'
+	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false

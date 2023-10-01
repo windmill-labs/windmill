@@ -2,7 +2,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-export const VERSION = "v1.178.1";
+export const VERSION = "v1.179.1";
 
 export async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -88,7 +88,11 @@ export async function createBenchScript(
     scriptContent =
       'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
     language = "deno";
-  } else {
+  }  else if (scriptPattern === "nativets") {
+    scriptContent =
+      'export async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
+    language = "nativets";
+  }  else {
     throw new Error(
       "Could not create script for script pattern " + scriptPattern
     );

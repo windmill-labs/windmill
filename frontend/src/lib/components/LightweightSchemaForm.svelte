@@ -19,6 +19,25 @@
 	$: if (args === undefined) {
 		args = {}
 	}
+
+	reorder()
+
+	function reorder() {
+		if (schema.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				n[x] = schema.properties[x]
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+		}
+	}
 </script>
 
 <div

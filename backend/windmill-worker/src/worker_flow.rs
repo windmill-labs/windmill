@@ -166,10 +166,23 @@ pub async fn update_flow_status_after_job_completion_internal<
             (false, None)
         };
 
-        let is_failure_step = old_status.step >= old_status.modules.len() as i32;
+        // 0 length flows are not failure steps
+        let is_failure_step =
+            old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
         let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
-            (true, se)
+            //do not stop early if module is a flow step
+            let mut tx = db.begin().await?;
+            let flow_job = get_queued_job(flow, w_id, &mut tx)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
+            tx.commit().await?;
+            let module = get_module(&flow_job, module_index);
+            if module.is_some_and(|x| matches!(x.value, FlowModuleValue::Flow { .. })) {
+                (false, false)
+            } else {
+                (true, se)
+            }
         } else if is_failure_step {
             (false, false)
         } else {
@@ -488,22 +501,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let module = {
-            let raw_flow = flow_job.parse_raw_flow();
-            if let Some(raw_flow) = raw_flow {
-                if let Some(i) = module_index {
-                    if let Some(module) = raw_flow.modules.get(i) {
-                        Some(module.clone())
-                    } else {
-                        raw_flow.failure_module
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
         //     "UPDATE FLOW STATUS 3: {module:#?} {skip_failure} {is_last_step} {success}"
@@ -652,6 +650,23 @@ pub async fn update_flow_status_after_job_completion_internal<
         Ok(None)
     } else {
         Ok(None)
+    }
+}
+
+fn get_module(flow_job: &QueuedJob, module_index: Option<usize>) -> Option<FlowModule> {
+    let raw_flow = flow_job.parse_raw_flow();
+    if let Some(raw_flow) = raw_flow {
+        if let Some(i) = module_index {
+            if let Some(module) = raw_flow.modules.get(i) {
+                Some(module.clone())
+            } else {
+                raw_flow.failure_module
+            }
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 

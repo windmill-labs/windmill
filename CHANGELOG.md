@@ -1,6 +1,33 @@
 # Changelog
 
 
+## [1.179.1](https://github.com/windmill-labs/windmill/compare/v1.179.0...v1.179.1) (2023-09-30)
+
+
+### Bug Fixes
+
+* fix 0 len flow module processing ([f97289a](https://github.com/windmill-labs/windmill/commit/f97289a3d8bc6ce978d0be1fec35a424211e4a20))
+
+## [1.179.0](https://github.com/windmill-labs/windmill/compare/v1.178.1...v1.179.0) (2023-09-30)
+
+
+### Features
+
+* add trustedDependencies escape hatch for bun ([#2364](https://github.com/windmill-labs/windmill/issues/2364)) ([52df265](https://github.com/windmill-labs/windmill/commit/52df2650ea5d5c03e94c96af0b8a79275856fc37))
+* ai code completion ([#2361](https://github.com/windmill-labs/windmill/issues/2361)) ([0937706](https://github.com/windmill-labs/windmill/commit/093770692ac40b8ee0139f24d63bcccda9bf6ddb))
+* **backend:** parse expires_in from string in TokenResponse ([#2353](https://github.com/windmill-labs/windmill/issues/2353)) ([4621915](https://github.com/windmill-labs/windmill/commit/46219154de07ef5a6e071f1c2859cea35c7f9943))
+* **frontend:** copy schema from json and past runs in flow inputs ([#2352](https://github.com/windmill-labs/windmill/issues/2352)) ([3cb2977](https://github.com/windmill-labs/windmill/commit/3cb29778dd70199d9504aa7c1a12bfd7a02569d6))
+
+
+### Bug Fixes
+
+* error handler does not recover flow anymore and error handler is called only once up the flow ([445bf96](https://github.com/windmill-labs/windmill/commit/445bf965eddc6da39a125fce60b53e0903698664))
+* **frontend:** Properly handle click ([#2351](https://github.com/windmill-labs/windmill/issues/2351)) ([55b7f98](https://github.com/windmill-labs/windmill/commit/55b7f982c2bbbb5d4daa9752ec8ffc0c79c374fc))
+* **frontend:** timezone fix ([#2360](https://github.com/windmill-labs/windmill/issues/2360)) ([dcfa5fc](https://github.com/windmill-labs/windmill/commit/dcfa5fc0e40f5cd8dba5a26be31695ce765c7e23))
+* improve superadmin settings page ([b029027](https://github.com/windmill-labs/windmill/commit/b029027c1c75c0b6489966371db7d2f9c99d15f8))
+* non skipped failures stop even in presence of an error handler ([1c5cc0c](https://github.com/windmill-labs/windmill/commit/1c5cc0c237101caf6c5e6e34b11c967a27cd4112))
+* remove shared http clients in rest runtime ([4931ed9](https://github.com/windmill-labs/windmill/commit/4931ed95c4b12f63effa1dd7d6a5cd526a612302))
+
 ## [1.178.1](https://github.com/windmill-labs/windmill/compare/v1.178.0...v1.178.1) (2023-09-28)
 
 
