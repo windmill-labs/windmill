@@ -96,6 +96,7 @@ pub fn global_unauthed_service() -> Router {
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_scripts))
+        .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
@@ -109,6 +110,37 @@ pub fn workspaced_service() -> Router {
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchScript {
+    path: String,
+    content: String,
+}
+async fn list_search_scripts(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchScript>> {
+    let mut tx = user_db.begin(&authed).await?;
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 10;
+
+    let rows = sqlx::query_as!(
+        SearchScript,
+        "SELECT path, content from script WHERE workspace_id = $1 AND archived = false LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_scripts(
