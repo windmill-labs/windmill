@@ -156,10 +156,17 @@ async fn list_search_resources(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
     let rows = sqlx::query_as!(
         SearchResource,
-        "SELECT path, value from resource WHERE workspace_id = $1",
-        &w_id
+        "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
     )
     .fetch_all(&mut *tx)
     .await?

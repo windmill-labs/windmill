@@ -2135,6 +2135,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableResource"
 
+  /w/{workspace}/resources/list_search:
+    get:
+      summary: list resources for search
+      operationId: listSearchResource
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: resource list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
+
   /w/{workspace}/resources/list_names/{name}:
     get:
       summary: list resource names
@@ -2556,6 +2581,33 @@ paths:
                       type: string
                   required:
                     - id
+
+  /w/{workspace}/scripts/list_search:
+    get:
+      summary: list scripts for search
+      operationId: listSearchScript
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: script list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    content:
+                      type: string
+                  required:
+                    - path
+                    - content
+
 
   /w/{workspace}/scripts/list:
     get:
@@ -3202,6 +3254,31 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/flows/list_search:
+    get:
+      summary: list flows for search
+      operationId: listSearchFlow
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: flow list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
+
   /w/{workspace}/flows/list:
     get:
       summary: list all available flows
@@ -3504,6 +3581,31 @@ paths:
             text/javascript:
               schema:
                 type: string
+
+  /w/{workspace}/apps/list_search:
+    get:
+      summary: list apps for search
+      operationId: listSearchApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: app list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                  required:
+                    - path
+                    - value
 
   /w/{workspace}/apps/list:
     get:

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -15,7 +15,7 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import { Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
@@ -39,6 +39,7 @@
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
 	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
+	import ContentSearch from '../ContentSearch.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -254,6 +255,8 @@
 	$: items && resetScroll()
 
 	let archived = false
+
+	let contentSearch: ContentSearch
 </script>
 
 <SearchItems
@@ -285,6 +288,7 @@
 	}}
 />
 
+<ContentSearch bind:this={contentSearch} />
 <CenteredPage>
 	<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 		<div class="flex justify-start">
@@ -348,6 +352,13 @@
 				</svg>
 			</button>
 		</div>
+		<Button
+			on:click={contentSearch?.open}
+			variant="border"
+			btnClasses="py-2.5"
+			size="xs"
+			color="light">Content&nbsp;<SearchCode size={16} /></Button
+		>
 	</div>
 	<div class="relative">
 		<ListFilters
