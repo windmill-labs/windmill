@@ -63,7 +63,7 @@ async fn get_common_deno_proc_envs(
         ),
     ]);
 
-    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
+    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
         deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
     }
     return deno_envs;
@@ -92,6 +92,10 @@ pub async fn generate_deno_lock(
     write_file(job_dir, "import_map.json", &import_map).await?;
     write_file(job_dir, "empty.ts", "").await?;
 
+    let mut deno_envs = HashMap::new();
+    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    }
     let child = Command::new(DENO_PATH.as_str())
         .current_dir(job_dir)
         .args(vec![
@@ -103,6 +107,7 @@ pub async fn generate_deno_lock(
             &import_map_path,
             "main.ts",
         ])
+        .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
