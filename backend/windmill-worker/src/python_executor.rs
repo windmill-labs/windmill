@@ -25,7 +25,6 @@ lazy_static::lazy_static! {
 
 
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
-    static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_LOCAL_DEPENDENCIES: Option<Vec<String>> = {
         let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
@@ -62,7 +61,7 @@ use crate::{
         write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, TZ_ENV,
+    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, TZ_ENV,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -117,7 +116,8 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
-    if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
+    let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+    if let Some(url) = pip_extra_index_url.as_ref() {
         args.extend(["--extra-index-url", url]);
     }
     if let Some(url) = PIP_INDEX_URL.as_ref() {
@@ -497,8 +497,11 @@ pub async fn handle_python_reqs(
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
+    let pip_extra_index_url;
+
     if !*DISABLE_NSJAIL {
-        if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
+        pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+        if let Some(url) = pip_extra_index_url.as_ref() {
             vars.push(("EXTRA_INDEX_URL", url));
         }
         if let Some(url) = PIP_INDEX_URL.as_ref() {
@@ -595,7 +598,8 @@ pub async fn handle_python_reqs(
                 "-t",
                 venv_p.as_str(),
             ];
-            if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
+            let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+            if let Some(url) = pip_extra_index_url.as_ref() {
                 command_args.extend(["--extra-index-url", url]);
             }
             if let Some(url) = PIP_INDEX_URL.as_ref() {

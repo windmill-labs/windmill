@@ -226,11 +226,9 @@ From there, you can follow the setup app and create other users.
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>.
 
-### Postgres without superuser
+### OAuth, SSO & SMTP
 
-If you do not want, or cannot (for instance, in AWS Aurora or Cloud sql) use a
-postgres superuser, you can run `./init-db-as-superuser.sql` to init the
-required users for Windmill.
+Windmill Community Edition allows to configure the OAuth, SSO (including Google Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin settings. Do note that there is a limit of 50 SSO users on the community edition.
 
 ### Commercial license
 
@@ -249,76 +247,6 @@ your current infrastructure to Windmill, support with tight SLA, and our global
 cache sync for high-performance/no dependency cache miss of cluster from 10+
 nodes to 200+ nodes.
 
-### OAuth for self-hosting
-
-To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
-the following format:
-
-```json
-{
-  "<client>": {
-    "id": "<CLIENT_ID>",
-    "secret": "<CLIENT_SECRET>",
-    "allowed_domains": ["windmill.dev"] //restrict a client OAuth login to some domains
-  }
-}
-```
-
-and mount it at `/usr/src/app/oauth.json`.
-
-The redirect url for the oauth clients is:
-`<instance_url>/user/login_callback/<client>`
-
-Even if you setup oauth, you will still want to **login as admin@windmill.dev /
-changeme** to setup your instance as a super-admin and give yourself admin
-rights.
-
-[The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
-
-To add more "connect an app" OAuth clients to the Windmill project, read the
-[Contributor's guide](https://www.windmill.dev/docs/misc/contributing). We
-welcome contributions!
-
-You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
-
-```json
-{
-  "<client>": {
-    "id": "<CLIENT_ID>",
-    "secret": "<CLIENT_SECRET>",
-    // To add a new OAuth2 IdP
-    "login_config": {
-      "auth_url": "<auth_endpoint>",
-      "token_url": "<token_endpoint>",
-      "userinfo_url": "<userinfo endpoint>",
-      "scopes": ["scope1", "scope2"],
-      "extra_params": "<if_needed>"
-    },
-    // To add a new OAuth2 Resource
-    "connect_config": {
-      "auth_url": "<auth_endpoint>",
-      "token_url": "<token_endpoint>",
-      "scopes": ["scope1", "scope2"],
-      "extra_params": "<if_needed>"
-    }
-  }
-}
-```
-
-### smtp for self-hosting
-
-For users to receive emails when you invite them to workspaces or add them to
-the instances using their emails, configure the SMTP env variables in the
-servers:
-
-```
-SMTP_FROM=noreply@windmill.dev
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=ruben@windmill.dev
-SMTP_PASSWORD=yourpasswordapp
-```
-
 ### Resource types
 
 You will also want to import all the approved resource types from
@@ -330,7 +258,7 @@ it being synced automatically everyday.
 | Environment Variable name                     | Default                                    | Description                                                                                                                                                                                        | Api Server/Worker/All |
 | --------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL                                  |                                            | The Postgres database url.                                                                                                                                                                         | All                   |
-| DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
+| WORKER_GROUP                                  | default                                    | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
 | SERVER_BIND_ADDR                              | 0.0.0.0                                    | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
 | PORT                                          | 8000                                       | Exposed port                                                                                                                                                                                       | Server                |
 | NUM_WORKERS                                   | 1                                          | The number of worker per Worker instance (Set to 0 for API/Server instances, Set to 1 for normal workers, and > 1 for workers dedicated to native jobs)                                            | Worker                |
@@ -395,12 +323,13 @@ it being synced automatically everyday.
 | SMTP_USERNAME                                 | None                                       | username for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_PASSWORD                                 | None                                       | password for the smtp server to send invite emails                                                                                                                                                 | Server                |
 | SMTP_TLS_IMPLICIT                             | false                                      | https://docs.rs/mail-send/latest/mail_send/struct.SmtpClientBuilder.html#method.implicit_tlsemails                                                                                                 | Server                |
-| CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | true                                      | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
+| CREATE_WORKSPACE_REQUIRE_SUPERADMIN           | true                                       | If true, only superadmin can create workspaces                                                                                                                                                     | Server                |
 | GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE | None                                       | Path to a script to run when a root job fails. The script will be run in and from the admins workspace                                                                                             | Server                |
 | WHITELIST_ENVS                                | None                                       | List of envs variables, separated by a ',' that are whitelisted as being safe to passthrough the workers                                                                                           | Worker                |
 | SAML_METADATA                                 | None                                       | SAML Metadata URL to enable SAML SSO (EE only)                                                                                                                                                     | Server                |
 | SECRET_SALT                                   | None                                       | Secret Salt used for encryption and decryption of secrets. If defined, the secrets will not be decryptable unless the right salt is passed in, which is the case for the workers and the server    | Server + Worker       |
 | OPENAI_AZURE_BASE_PATH                        | None                                       | Azure OpenAI API base path (no trailing slash)                                                                                                                                                     | Server                |
+| DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
 
 ## Run a local dev setup
 

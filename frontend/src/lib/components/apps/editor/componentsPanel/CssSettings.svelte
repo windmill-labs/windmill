@@ -51,7 +51,7 @@
 						{#if $enterpriseLicense === undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row items-center text-yellow-500 text-xs">
-									<div class="flex whitespace-nowrap">
+									<div class="flex items-center whitespace-nowrap">
 										<AlertTriangle size={16} />
 										EE only
 									</div>
