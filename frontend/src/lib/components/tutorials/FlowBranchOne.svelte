@@ -1,14 +1,20 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
+	import TutorialItem from './TutorialItem.svelte'
+	import {
+		clickButtonBySelector,
+		setInputBySelector,
+		triggerAddFlowStep,
+		selectFlowStepKind
+	} from './utils'
+	import { updateProgress } from '$lib/tutorialUtils'
+	import { RawScript } from '$lib/gen'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	let renderCount = 1
+	const dispatch = createEventDispatcher()
 
 	function runTutorial() {
 		const branchOneTutorial = driver({
@@ -27,12 +33,8 @@
 						title: 'Flows inputs',
 						description: 'Flows have inputs that can be used in the flow',
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#flow-editor-virtual-Input'
-							) as HTMLButtonElement
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#flow-editor-virtual-Input')
+
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
 							})
@@ -46,12 +48,7 @@
 						title: 'Add a property',
 						description: 'Click here to add a property to your schema',
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#flow-editor-add-property'
-							) as HTMLButtonElement
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#flow-editor-add-property')
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
 							})
@@ -62,14 +59,9 @@
 					element: '#schema-modal-name',
 					popover: {
 						title: 'Name your property',
-						description: 'Give a name to your property. Here we will call it firstname',
+						description: 'Give a name to your property. Here we will call it condition',
 						onNextClick: () => {
-							const input = document.querySelector('#schema-modal-name') as HTMLInputElement
-
-							if (input) {
-								input.value = 'condition'
-								input.dispatchEvent(new Event('input', { bubbles: true }))
-							}
+							setInputBySelector('#schema-modal-name', 'condition')
 							branchOneTutorial.moveNext()
 						}
 					}
@@ -80,13 +72,7 @@
 						title: 'Property type',
 						description: 'Choose the type of your property. Here we will choose boolean',
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#schema-modal-type-boolean'
-							) as HTMLButtonElement
-
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#schema-modal-type-boolean')
 							branchOneTutorial.moveNext()
 						}
 					}
@@ -97,11 +83,7 @@
 						title: 'Save your property',
 						description: 'Click here to save your property',
 						onNextClick: () => {
-							const button = document.querySelector('#schema-modal-save') as HTMLButtonElement
-
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#schema-modal-save')
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
@@ -113,15 +95,11 @@
 				{
 					element: '#flow-editor-add-step-0',
 					popover: {
-						title: 'Loops',
-						description: 'Windmill supports loops. Let’s add a loop to your flow',
+						title: 'Branch one',
+						description: 'Windmill supports branches, let us add one',
 						onNextClick: () => {
-							const button = document.querySelector('#flow-editor-add-step-0') as HTMLButtonElement
-							if (button) {
-								button.parentElement?.dispatchEvent(
-									new PointerEvent('pointerdown', { bubbles: true })
-								)
-							}
+							triggerAddFlowStep(0)
+
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
 							})
@@ -137,16 +115,10 @@
 				},
 				{
 					popover: {
-						title: 'Insert loop',
-						description: "Let's pick forloop",
+						title: 'Insert Branch one',
+						description: "Let's pick branch one",
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#flow-editor-insert-module > div > button:nth-child(5)'
-							) as HTMLButtonElement
-
-							if (button) {
-								button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-							}
+							selectFlowStepKind(5)
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
@@ -162,11 +134,7 @@
 						title: 'Add branch',
 						description: 'Click here to add a branch to your loop',
 						onNextClick: () => {
-							const button = document.querySelector('#add-branch-button') as HTMLButtonElement
-
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#add-branch-button')
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
@@ -181,13 +149,7 @@
 						title: 'Edit predicate',
 						description: 'Click here to edit the predicate of your branch',
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#flow-editor-edit-predicate'
-							) as HTMLButtonElement
-
-							if (button) {
-								button.click()
-							}
+							clickButtonBySelector('#flow-editor-edit-predicate')
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
@@ -207,7 +169,7 @@
 							}
 
 							$flowStore = $flowStore
-							renderCount += 1
+							dispatch('reload')
 
 							tick().then(() => {
 								branchOneTutorial.moveNext()
@@ -215,17 +177,66 @@
 						}
 					}
 				},
+
+				//flow-editor-add-step-
+
+				{
+					popover: {
+						title: 'Branche modules',
+						description:
+							'We can now add modules to each branch, one in typescript and one in python',
+						onNextClick: () => {
+							if ($flowStore.value.modules[0].value.type === 'branchone') {
+								$flowStore.value.modules[0].value = {
+									type: 'branchone',
+									branches: [
+										{
+											summary: '',
+											expr: 'flow_input.condition',
+											modules: [
+												{
+													id: 'c',
+													value: {
+														type: 'rawscript',
+														content:
+															'export async function main() {\n  return "Entered the condition!";\n}\n',
+														language: RawScript.language.DENO,
+														input_transforms: {}
+													}
+												}
+											]
+										}
+									],
+									default: [
+										{
+											id: 'b',
+											value: {
+												type: 'rawscript',
+												content: '# import wmill\n\n\ndef main():\n    return "Default Branch"',
+												language: RawScript.language.PYTHON3,
+												input_transforms: {}
+											}
+										}
+									]
+								}
+							}
+							$flowStore = $flowStore
+							dispatch('reload')
+
+							tick().then(() => {
+								branchOneTutorial.moveNext()
+							})
+						}
+					}
+				},
+
 				{
 					element: '#flow-editor-test-flow',
 					popover: {
 						title: 'Test your flow',
 						description: 'We can now test our flow',
 						onNextClick: () => {
-							const button = document.querySelector('#flow-editor-test-flow') as HTMLButtonElement
-
-							if (button) {
-								button?.click()
-							}
+							clickButtonBySelector('#flow-editor-test-flow')
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
@@ -234,41 +245,17 @@
 					}
 				},
 
-				{
-					element: 'textarea.w-full',
-					popover: {
-						title: 'Flow input',
-						description: 'Let’s provide an input to our flow',
-						onNextClick: () => {
-							const textarea = document.querySelector('textarea.w-full') as HTMLTextAreaElement
-
-							if (textarea) {
-								textarea.value = 'Hello World!'
-								textarea.dispatchEvent(new Event('input', { bubbles: true }))
-							}
-
-							setTimeout(() => {
-								branchOneTutorial.moveNext()
-							})
-						}
-					}
-				},
 				{
 					element: '#flow-editor-test-flow-drawer',
 					popover: {
 						title: 'Test your flow',
 						description: 'Finally we can test our flow, and view the results!',
 						onNextClick: () => {
-							const button = document.querySelector(
-								'#flow-editor-test-flow-drawer'
-							) as HTMLButtonElement
-
-							if (button) {
-								button?.click()
-							}
+							clickButtonBySelector('#flow-editor-test-flow-drawer')
 
 							setTimeout(() => {
 								branchOneTutorial.moveNext()
+								updateProgress(2)
 							})
 						}
 					}
@@ -279,16 +266,4 @@
 	}
 </script>
 
-<MenuItem
-	on:click={() => {
-		runTutorial()
-	}}
->
-	<div
-		class={classNames(
-			'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 hover:text-primary-inverse !text-xs font-semibold'
-		)}
-	>
-		Branch one tutorial
-	</div>
-</MenuItem>
+<TutorialItem on:click={() => runTutorial()} label="Branch one tutorial" index={2} />

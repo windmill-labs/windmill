@@ -9,6 +9,9 @@
 	import FlowBuilderTutorialsForLoop from './tutorials/FlowBuilderTutorialsForLoop.svelte'
 	import FlowBranchOne from './tutorials/FlowBranchOne.svelte'
 	import FlowBranchAll from './tutorials/FlowBranchAll.svelte'
+	import MenuItem from './common/menu/MenuItem.svelte'
+	import { classNames } from '$lib/utils'
+	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -28,11 +31,52 @@
 				</Button>
 			</svelte:fragment>
 			<svelte:fragment slot="items">
-				<FlowBuilderTutorialSimpleFlow />
-				<FlowBuilderTutorialsForLoop />
-				<FlowBranchOne />
-				<FlowBranchAll />
+				<FlowBuilderTutorialSimpleFlow on:reload />
+				<FlowBuilderTutorialsForLoop on:reload />
+				<FlowBranchOne on:reload />
+				<FlowBranchAll on:reload />
+				<div class="border-t border-surface-hover" />
+				<MenuItem
+					on:click={() => {
+						resetAllTodos()
+					}}
+				>
+					<div
+						class={classNames(
+							'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+						)}
+					>
+						Reset tutorials
+					</div>
+				</MenuItem>
+				<MenuItem
+					on:click={() => {
+						skipAllTodos()
+					}}
+				>
+					<div
+						class={classNames(
+							'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+						)}
+					>
+						Skip tutorials
+					</div>
+				</MenuItem>
 			</svelte:fragment>
 		</ButtonDropdown>
 	</button>
 {/if}
+
+<style global>
+	.driver-popover-title {
+		@apply leading-6 text-primary text-base;
+	}
+
+	.driver-popover-description {
+		@apply text-secondary text-sm;
+	}
+
+	.driver-popover {
+		@apply p-6;
+	}
+</style>

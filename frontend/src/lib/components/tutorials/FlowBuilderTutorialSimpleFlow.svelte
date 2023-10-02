@@ -1,20 +1,23 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
+	import { updateProgress } from '$lib/tutorialUtils'
+	import TutorialItem from './TutorialItem.svelte'
+	import {
+		clickButtonBySelector,
+		selectFlowStepKind,
+		setInputBySelector,
+		triggerAddFlowStep
+	} from './utils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	let renderCount = 1
+	const dispatch = createEventDispatcher()
 
 	const simpleFlowTutorial = driver({
 		showProgress: true,
 		allowClose: true,
-
 		steps: [
 			{
 				popover: {
@@ -28,10 +31,7 @@
 					title: 'Flows inputs',
 					description: 'Flows have inputs that can be used in the flow',
 					onNextClick: () => {
-						const button = document.querySelector('#flow-editor-virtual-Input') as HTMLButtonElement
-						if (button) {
-							button.click()
-						}
+						clickButtonBySelector('#flow-editor-virtual-Input')
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
 						})
@@ -45,10 +45,8 @@
 					title: 'Add a property',
 					description: 'Click here to add a property to your schema',
 					onNextClick: () => {
-						const button = document.querySelector('#flow-editor-add-property') as HTMLButtonElement
-						if (button) {
-							button.click()
-						}
+						clickButtonBySelector('#flow-editor-add-property')
+
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
 						})
@@ -61,12 +59,8 @@
 					title: 'Name your property',
 					description: 'Give a name to your property. Here we will call it firstname',
 					onNextClick: () => {
-						const input = document.querySelector('#schema-modal-name') as HTMLInputElement
+						setInputBySelector('#schema-modal-name', 'firstname')
 
-						if (input) {
-							input.value = 'firstname'
-							input.dispatchEvent(new Event('input', { bubbles: true }))
-						}
 						simpleFlowTutorial.moveNext()
 					}
 				}
@@ -77,11 +71,7 @@
 					title: 'Save your property',
 					description: 'Click here to save your property',
 					onNextClick: () => {
-						const button = document.querySelector('#schema-modal-save') as HTMLButtonElement
-
-						if (button) {
-							button.click()
-						}
+						clickButtonBySelector('#schema-modal-save')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -95,12 +85,8 @@
 					title: 'Add a step',
 					description: 'Click here to add a step to your flow',
 					onNextClick: () => {
-						const button = document.querySelector('#flow-editor-add-step-0') as HTMLButtonElement
-						if (button) {
-							button.parentElement?.dispatchEvent(
-								new PointerEvent('pointerdown', { bubbles: true })
-							)
-						}
+						triggerAddFlowStep(0)
+
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
 						})
@@ -120,13 +106,7 @@
 					title: 'Pick an action',
 					description: 'Let’s pick an action to add to your flow',
 					onNextClick: () => {
-						const button = document.querySelector(
-							'#flow-editor-insert-module > div > button:nth-child(1)'
-						) as HTMLButtonElement
-
-						if (button) {
-							button?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-						}
+						selectFlowStepKind(1)
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -155,13 +135,7 @@
 					title: 'Typescript',
 					description: "Let's pick an action to add to your flow",
 					onNextClick: () => {
-						const button = document.querySelector(
-							'#flow-editor-action-script > button > div > button:nth-child(1)'
-						) as HTMLButtonElement
-
-						if (button) {
-							button?.click()
-						}
+						clickButtonBySelector('#flow-editor-action-script > button > div > button:nth-child(1)')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -193,11 +167,7 @@
 					description:
 						'You can provide static values or connect to other nodes result. Here we will connect to the firstname input',
 					onNextClick: () => {
-						const button = document.querySelector('#flow-editor-plug') as HTMLButtonElement
-
-						if (button) {
-							button?.click()
-						}
+						clickButtonBySelector('#flow-editor-plug')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -221,7 +191,7 @@
 						}
 
 						$flowStore = $flowStore
-						renderCount += 1
+						dispatch('reload')
 
 						tick().then(() => {
 							simpleFlowTutorial.moveNext()
@@ -244,11 +214,7 @@
 					title: 'Test your flow',
 					description: 'We can now test our flow',
 					onNextClick: () => {
-						const button = document.querySelector('#flow-editor-test-flow') as HTMLButtonElement
-
-						if (button) {
-							button?.click()
-						}
+						clickButtonBySelector('#flow-editor-test-flow')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -263,12 +229,7 @@
 					title: 'Flow input',
 					description: 'Let’s provide an input to our flow',
 					onNextClick: () => {
-						const textarea = document.querySelector('textarea.w-full') as HTMLTextAreaElement
-
-						if (textarea) {
-							textarea.value = 'Hello World!'
-							textarea.dispatchEvent(new Event('input', { bubbles: true }))
-						}
+						setInputBySelector('textarea.w-full', 'Hello World!')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
@@ -282,16 +243,12 @@
 					title: 'Test your flow',
 					description: 'Finally we can test our flow, and view the results!',
 					onNextClick: () => {
-						const button = document.querySelector(
-							'#flow-editor-test-flow-drawer'
-						) as HTMLButtonElement
-
-						if (button) {
-							button?.click()
-						}
+						clickButtonBySelector('#flow-editor-test-flow-drawer')
 
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
+
+							updateProgress(0)
 						})
 					}
 				}
@@ -300,16 +257,4 @@
 	})
 </script>
 
-<MenuItem
-	on:click={() => {
-		simpleFlowTutorial.drive()
-	}}
->
-	<div
-		class={classNames(
-			'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 hover:text-primary-inverse !text-xs font-semibold'
-		)}
-	>
-		Simple flow tutorial
-	</div>
-</MenuItem>
+<TutorialItem on:click={() => simpleFlowTutorial.drive()} label="Simple flow tutorial" index={0} />
