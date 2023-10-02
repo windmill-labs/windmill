@@ -43,6 +43,7 @@ use windmill_queue::{push, PushIsolationLevel, QueueTransaction};
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
+        .route("/list_search", get(list_search_apps))
         .route("/get/p/*path", get(get_app))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
@@ -158,6 +159,38 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<serde_json::Value>,
     pub policy: Option<Policy>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchApp {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_apps(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchApp>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let rows = sqlx::query_as!(
+        SearchApp,
+        "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_apps(
