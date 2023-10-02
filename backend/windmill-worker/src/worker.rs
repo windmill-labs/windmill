@@ -1531,9 +1531,10 @@ async fn do_nativets(
     logs: String,
     client: &AuthedClient,
     code: String,
+    db: &Pool<Postgres>,
 ) -> windmill_common::error::Result<(serde_json::Value, String)> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
     } else {
         None
     };
@@ -1919,9 +1920,9 @@ async fn handle_code_execution_job(
     };
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_postgresql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Mysql) {
-        return do_mysql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_mysql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -1932,7 +1933,7 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job.clone(), &client.get_authed().await, &inner_content).await;
+            return do_bigquery(job.clone(), &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -1944,10 +1945,10 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job.clone(), &client.get_authed().await, &inner_content).await;
+            return do_snowflake(job.clone(), &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_graphql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(
@@ -1955,8 +1956,14 @@ async fn handle_code_execution_job(
             &client.get_token().await,
             inner_content
         );
-        let (result, ts_logs) =
-            do_nativets(job.clone(), logs.clone(), &client.get_authed().await, code).await?;
+        let (result, ts_logs) = do_nativets(
+            job.clone(),
+            logs.clone(),
+            &client.get_authed().await,
+            code,
+            db,
+        )
+        .await?;
         *logs = ts_logs;
         return Ok(result);
     }

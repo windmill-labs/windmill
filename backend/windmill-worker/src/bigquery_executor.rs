@@ -55,9 +55,10 @@ pub async fn do_bigquery(
     job: QueuedJob,
     client: &AuthedClient,
     query: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
     } else {
         None
     };
