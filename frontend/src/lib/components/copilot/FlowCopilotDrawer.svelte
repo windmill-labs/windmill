@@ -40,6 +40,24 @@
 				<ToggleButton value="sequence" label="Sequence" />
 				<ToggleButton value="trigger" label="Trigger" />
 			</ToggleButtonGroup>
+			{#if flowCopilotMode === 'trigger'}
+				<Alert title="Trigger flow builder">
+					Build a flow with two scripts, one that regularly checks for changes in an external system
+					and a second that is executed for each change using a for-loop. For both steps, you can
+					either choose a script from the hub or generate one from scratch using Windmill AI. The
+					inputs of the for-loop action are automatically filled in with the ouputs of the trigger
+					step. At the end of the process, flow inputs are inferred and you just need to fill them
+					in. <br /><br />
+					The flow is automatically set to run every 15 minutes when deployed.
+				</Alert>{:else}
+				<Alert title="Sequence flow builder">
+					Build a flow with a sequence of scripts that are executed one after the other. For each
+					step, you can either choose a script from the hub or generate one from scratch using
+					Windmill AI. Each step inputs are automatically filled in with the previous step's
+					outputs. At the end of the process, flow inputs are inferred and you just need to fill
+					them in.
+				</Alert>
+			{/if}
 			{#each $modulesStore as copilotModule, i}
 				<div>
 					{#if i === 1 && $modulesStore[i - 1].type === 'trigger'}
@@ -141,7 +159,7 @@
 								name="description"
 								type="text"
 								placeholder={copilotModule.type === 'trigger'
-									? 'describe what should trigger your flow'
+									? 'describe what should trigger your flow e.g. "new slack message"'
 									: 'describe what this step should do'}
 								bind:value={copilotModule.description}
 								on:input={() => {
