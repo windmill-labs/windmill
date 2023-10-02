@@ -330,10 +330,10 @@ pub async fn reload_option_string_setting(
         }
     };
 
-    if value == Some("".to_string()) {
-        value = None;
-    }
     {
+        if value.is_none() {
+            tracing::info!("Loaded {setting_name} setting to None");
+        }
         let mut l = lock.write().await;
         *l = value;
     }

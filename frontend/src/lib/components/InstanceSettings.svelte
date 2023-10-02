@@ -174,7 +174,7 @@
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			const newServerConfig = Object.fromEntries(
 				allSettings
-					.filter((x) => x[1].storage == 'config')
+					.filter((x) => x[1].storage == 'config' && values?.[x[1].key] && values?.[x[1].key] != '')
 					.map((x) => [x[1].key, values?.[x[1].key]])
 			)
 			if (!deepEqual(newServerConfig, serverConfig)) {
@@ -186,19 +186,20 @@
 			}
 			await Promise.all(
 				allSettings
-					.filter(
-						(x) =>
+					.filter((x) => {
+						return (
 							x[1].storage == 'setting' &&
 							!deepEqual(initialValues?.[x[1].key], values?.[x[1].key]) &&
-							values?.[x[1].key] != undefined &&
-							values?.[x[1].key] != null &&
-							values?.[x[1].key] != ''
-					)
+							(values?.[x[1].key] != '' ||
+								initialValues?.[x[1].key] != undefined ||
+								initialValues?.[x[1].key] != null)
+						)
+					})
 					.map(async ([_, x]) => {
 						await SettingService.setGlobal({ key: x.key, requestBody: { value: values?.[x.key] } })
 					})
 			)
-			initialValues = JSON.parse(JSON.stringify(initialValues))
+			initialValues = JSON.parse(JSON.stringify(values))
 
 			if (!deepEqual(initialOauths, oauths)) {
 				await SettingService.setGlobal({

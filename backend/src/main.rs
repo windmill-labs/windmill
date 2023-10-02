@@ -222,58 +222,49 @@ Windmill Community Edition {GIT_VERSION}
                                     tracing::info!("Received new pg notification: {n:?}");
                                     match n.channel() {
                                         "notify_config_change" => {
-                                            tracing::info!("Config change detected");
+                                            tracing::info!("Config change detected: {}", n.payload());
                                             match n.payload() {
                                                 "server" if server_mode => {
-                                                    tracing::info!("Server config change detected");
                                                     reload_server_config(&db).await;
                                                 },
                                                 a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
-                                                    tracing::info!("Worker config change detected");
                                                     reload_worker_config(&db, tx.clone(), true).await;
                                                 },
                                                 _ => {
-                                                    ()
+                                                    tracing::error!("config target neither a server or a worker");
                                                 }
                                             }
                                         },
                                         "notify_global_setting_change" => {
-                                            tracing::info!("Global setting change detected");
+                                            tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
                                                 BASE_URL_SETTING => {
-                                                    tracing::info!("Base URL setting change detected");
                                                     if let Err(e) = reload_base_url_setting(&db).await {
                                                         tracing::error!(error = %e, "Could not reload base url setting");
                                                     }
                                                 },
                                                 OAUTH_SETTING => {
-                                                    tracing::info!("OAuth setting change detected");
                                                     if let Err(e) = reload_base_url_setting(&db).await {
                                                         tracing::error!(error = %e, "Could not reload oauth setting");
                                                     }
                                                 },
                                                 CUSTOM_TAGS_SETTING => {
-                                                    tracing::info!("Custom tags setting change detected");
                                                     if let Err(e) = reload_custom_tags_setting(&db).await {
                                                         tracing::error!(error = %e, "Could not reload custom tags setting");
                                                     }
                                                 },
                                                 LICENSE_KEY_SETTING => {
-                                                    tracing::info!("License Key setting change detected");
                                                     if let Err(e) = reload_license_key(&db).await {
                                                         tracing::error!(error = %e, "Could not reload license key setting");
                                                     }
                                                 },
                                                 RETENTION_PERIOD_SECS_SETTING => {
-                                                    tracing::info!("Retention period setting change detected");
                                                     reload_retention_period_setting(&db).await
                                                 },
                                                 EXTRA_PIP_INDEX_URL_SETTING => {
-                                                    tracing::info!("Extra Pip Index url setting change detected");
                                                     reload_extra_pip_index_url_setting(&db).await
                                                 },
                                                 NPM_CONFIG_REGISTRY_SETTING => {
-                                                    tracing::info!("npm_config_registry setting change detected");
                                                     reload_npm_config_registry_setting(&db).await
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {

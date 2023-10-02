@@ -297,7 +297,8 @@ pub async fn handle_bun_job(
         // TODO: remove once bun implement a reasonable set of trusted deps
         let trusted_deps = get_trusted_deps(inner_content);
         let empty_trusted_deps = trusted_deps.len() == 0;
-        if !*DISABLE_NSJAIL || !empty_trusted_deps {
+        let has_custom_config_registry = common_bun_proc_envs.contains_key("NPM_CONFIG_REGISTRY");
+        if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
             logs.push_str("\n\n--- BUN INSTALL ---\n");
             set_logs(&logs, &job.id, &db).await;
             let _ = gen_lockfile(
@@ -316,7 +317,7 @@ pub async fn handle_bun_job(
             .await?;
         }
 
-        if empty_trusted_deps {
+        if empty_trusted_deps && !has_custom_config_registry {
             let node_modules_path = format!("{}/node_modules", job_dir);
             let node_modules_exists = tokio::fs::metadata(&node_modules_path).await.is_ok();
             if node_modules_exists {
