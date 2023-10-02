@@ -17,6 +17,7 @@
 	import { capitalize } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -61,6 +62,26 @@
 				fieldType: 'license_key',
 				placeholder: 'only needed to prepare upgrade to EE',
 				storage: 'setting'
+			},
+			{
+				label: 'Pip Extra Index Url',
+				description: 'Add private PIP registry',
+				key: 'pip_extra_index_url',
+				fieldType: 'text',
+				placeholder: 'https://username:password@pypi.company.com/simple',
+				storage: 'setting',
+				ee_only:
+					'You can still set this setting by using PIP_EXTRA_INDEX_URL as env variable to the worker containers'
+			},
+			{
+				label: 'Npm Config Registry',
+				description: 'Add private NPM registry',
+				key: 'npm_config_registry',
+				fieldType: 'text',
+				placeholder: 'https://yourregistry',
+				storage: 'setting',
+				ee_only:
+					'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
 			}
 		],
 		SMTP: [
@@ -251,6 +272,12 @@
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
 								{#if !setting.cloudonly || isCloudHosted()}
+									{#if setting.ee_only != undefined && !$enterpriseLicense}
+										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
+											<AlertTriangle size={16} />
+											EE only <Tooltip>{setting.ee_only}</Tooltip>
+										</div>
+									{/if}
 									<label class="block pb-2">
 										<span class="text-primary font-semibold text-sm">{setting.label}</span>
 										{#if setting.description}
@@ -262,6 +289,7 @@
 										{#if values}
 											{#if setting.fieldType == 'text'}
 												<input
+													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
