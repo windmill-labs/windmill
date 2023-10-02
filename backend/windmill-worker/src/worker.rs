@@ -223,7 +223,8 @@ lazy_static::lazy_static! {
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
 
-    pub static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
+    pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
 
 

@@ -93,7 +93,7 @@ pub async fn gen_lockfile(
     .await?;
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url);
+        get_common_bun_proc_envs(&base_internal_url).await;
 
     let child = Command::new(&*BUN_PATH)
         .current_dir(job_dir)
@@ -252,7 +252,7 @@ pub async fn handle_bun_job(
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
 
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url);
+        get_common_bun_proc_envs(&base_internal_url).await;
 
     if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
@@ -498,8 +498,8 @@ plugin(p)
     read_result(job_dir).await
 }
 
-pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
-    let mut deno_envs: HashMap<String, String> = HashMap::from([
+pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
+    let mut bun_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
@@ -517,10 +517,10 @@ pub fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, Stri
         ),
     ]);
 
-    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
+        bun_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
     }
-    return deno_envs;
+    return bun_envs;
 }
 
 #[cfg(feature = "enterprise")]
@@ -546,7 +546,7 @@ pub async fn start_worker(
     let mut logs = "".to_string();
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
-        get_common_bun_proc_envs(&base_internal_url);
+        get_common_bun_proc_envs(&base_internal_url).await;
     let context = variables::get_reserved_variables(
         w_id,
         &token,

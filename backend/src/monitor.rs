@@ -15,7 +15,8 @@ use windmill_api::{
 use windmill_common::{
     error,
     global_settings::{
-        BASE_URL_SETTING, LICENSE_KEY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        BASE_URL_SETTING, EXTRA_PIP_INDEX_URL_SETTING, LICENSE_KEY_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         RETENTION_PERIOD_SECS_SETTING,
     },
     jobs::{JobKind, QueuedJob},
@@ -25,7 +26,8 @@ use windmill_common::{
     BASE_URL, DB, METRICS_ENABLED,
 };
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, NPM_CONFIG_REGISTRY,
+    PIP_EXTRA_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "enterprise")]
@@ -118,6 +120,18 @@ pub async fn initial_load(
         }
     };
 
+    let reload_extra_pip_index_url_f = async {
+        if worker_mode {
+            reload_extra_pip_index_url_setting(&db).await;
+        }
+    };
+
+    let reload_npm_config_registry_f = async {
+        if worker_mode {
+            reload_npm_config_registry_setting(&db).await;
+        }
+    };
+
     join!(
         reload_worker_config_f,
         reload_server_config_f,
@@ -125,7 +139,9 @@ pub async fn initial_load(
         reload_request_size_f,
         reload_base_url_f,
         reload_retention_period_f,
-        reload_license_key_f
+        reload_license_key_f,
+        reload_extra_pip_index_url_f,
+        reload_npm_config_registry_f
     );
 }
 
@@ -201,6 +217,32 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 }
 
+pub async fn reload_extra_pip_index_url_setting(db: &DB) {
+    if let Err(e) = reload_option_string_setting(
+        db,
+        EXTRA_PIP_INDEX_URL_SETTING,
+        "PIP_EXTRA_INDEX_URL",
+        PIP_EXTRA_INDEX_URL.clone(),
+    )
+    .await
+    {
+        tracing::error!("Error reloading extra_pip_index_url period: {:?}", e)
+    }
+}
+
+pub async fn reload_npm_config_registry_setting(db: &DB) {
+    if let Err(e) = reload_option_string_setting(
+        db,
+        NPM_CONFIG_REGISTRY_SETTING,
+        "NPM_CONFIG_REGISTRY",
+        NPM_CONFIG_REGISTRY.clone(),
+    )
+    .await
+    {
+        tracing::error!("Error reloading npm_config_registry period: {:?}", e)
+    }
+}
+
 pub async fn reload_retention_period_setting(db: &DB) {
     if let Err(e) = reload_setting(
         db,
@@ -257,6 +299,44 @@ pub async fn reload_license_key(db: &DB) -> error::Result<()> {
     };
 
     set_license_key(value).await?;
+
+    Ok(())
+}
+
+pub async fn reload_option_string_setting(
+    db: &DB,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<String>>>,
+) -> error::Result<()> {
+    let q = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        setting_name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut value = std::env::var(std_env_var).ok();
+
+    if let Some(q) = q {
+        if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
+            tracing::info!(
+                "Loaded setting {setting_name} from db config: {:#?}",
+                &q.value
+            );
+            value = Some(v)
+        } else {
+            tracing::error!("Could not parse {setting_name} found: {:#?}", &q.value);
+        }
+    };
+
+    if value == Some("".to_string()) {
+        value = None;
+    }
+    {
+        let mut l = lock.write().await;
+        *l = value;
+    }
 
     Ok(())
 }

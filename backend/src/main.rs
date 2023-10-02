@@ -21,7 +21,8 @@ use tokio::{
 };
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, LICENSE_KEY_SETTING, OAUTH_SETTING,
+        BASE_URL_SETTING, CUSTOM_TAGS_SETTING, ENV_SETTINGS, EXTRA_PIP_INDEX_URL_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, RETENTION_PERIOD_SECS_SETTING,
     },
     utils::rd_string,
@@ -36,8 +37,9 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, monitor_db, reload_base_url_setting, reload_license_key,
-    reload_retention_period_setting, reload_server_config, reload_worker_config,
+    initial_load, monitor_db, reload_base_url_setting, reload_extra_pip_index_url_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_retention_period_setting,
+    reload_server_config, reload_worker_config,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -265,6 +267,14 @@ Windmill Community Edition {GIT_VERSION}
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     tracing::info!("Retention period setting change detected");
                                                     reload_retention_period_setting(&db).await
+                                                },
+                                                EXTRA_PIP_INDEX_URL_SETTING => {
+                                                    tracing::info!("Extra Pip Index url setting change detected");
+                                                    reload_extra_pip_index_url_setting(&db).await
+                                                },
+                                                NPM_CONFIG_REGISTRY_SETTING => {
+                                                    tracing::info!("npm_config_registry setting change detected");
+                                                    reload_npm_config_registry_setting(&db).await
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
                                                     tracing::info!("Request limit size change detected, killing server expecting to be restarted");
