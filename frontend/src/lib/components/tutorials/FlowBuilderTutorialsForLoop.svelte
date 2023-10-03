@@ -14,15 +14,56 @@
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
+	export let shouldRenderButton: boolean = true
+
 	const { flowStore, selectedId, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
-	function runTutorial() {
+	export function runTutorial() {
 		const forloopTutorial = driver({
 			showProgress: true,
 			allowClose: true,
+			onPopoverRender: (popover, { config, state }) => {
+				if (state.activeIndex == 0) {
+					const skipThisButton = document.createElement('button')
+					skipThisButton.innerText = 'Skip this'
+					skipThisButton.addEventListener('click', () => {
+						updateProgress(1)
+						forloopTutorial.destroy()
+					})
+					skipThisButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const skipAllButton = document.createElement('button')
+					skipAllButton.innerText = 'Skip all'
+					skipAllButton.addEventListener('click', () => {
+						dispatch('skipAll')
+						forloopTutorial.destroy()
+					})
+
+					skipAllButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const popoverDescription = document.querySelector('#driver-popover-description')
+
+					const div = document.createElement('div')
+
+					div.setAttribute('class', 'flex flex-row gap-2')
+
+					if (popoverDescription) {
+						div.appendChild(skipThisButton)
+						div.appendChild(skipAllButton)
+
+						popoverDescription.appendChild(div)
+					}
+				}
+			},
 			steps: [
 				{
 					popover: {
@@ -364,4 +405,11 @@
 	}
 </script>
 
-<TutorialItem on:click={() => runTutorial()} label="For loops tutorial" index={1} />
+{#if shouldRenderButton}
+	<TutorialItem
+		on:click={() => runTutorial()}
+		label="For loops tutorial"
+		index={1}
+		id="flow-builder-tutorial-forloops"
+	/>
+{/if}

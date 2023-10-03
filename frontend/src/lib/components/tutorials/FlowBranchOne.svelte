@@ -13,13 +13,55 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
 
+	export let shouldRenderButton: boolean = true
+
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
-	function runTutorial() {
+	export function runTutorial() {
 		const branchOneTutorial = driver({
 			showProgress: true,
 			allowClose: true,
+			onPopoverRender: (popover, { config, state }) => {
+				if (state.activeIndex == 0) {
+					const skipThisButton = document.createElement('button')
+					skipThisButton.innerText = 'Skip this'
+					skipThisButton.addEventListener('click', () => {
+						updateProgress(2)
+
+						branchOneTutorial.destroy()
+					})
+					skipThisButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const skipAllButton = document.createElement('button')
+					skipAllButton.innerText = 'Skip all'
+					skipAllButton.addEventListener('click', () => {
+						dispatch('skipAll')
+						branchOneTutorial.destroy()
+					})
+
+					skipAllButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const popoverDescription = document.querySelector('#driver-popover-description')
+
+					const div = document.createElement('div')
+
+					div.setAttribute('class', 'flex flex-row gap-2')
+
+					if (popoverDescription) {
+						div.appendChild(skipThisButton)
+						div.appendChild(skipAllButton)
+
+						popoverDescription.appendChild(div)
+					}
+				}
+			},
 			steps: [
 				{
 					popover: {
@@ -266,4 +308,11 @@
 	}
 </script>
 
-<TutorialItem on:click={() => runTutorial()} label="Branch one tutorial" index={2} />
+{#if shouldRenderButton}
+	<TutorialItem
+		on:click={() => runTutorial()}
+		label="Branch one tutorial"
+		index={2}
+		id="flow-builder-tutorial-branchone"
+	/>
+{/if}

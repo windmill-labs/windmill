@@ -21,6 +21,45 @@
 	const simpleFlowTutorial = driver({
 		showProgress: true,
 		allowClose: true,
+		onPopoverRender: (popover, { config, state }) => {
+			if (state.activeIndex == 0) {
+				const skipThisButton = document.createElement('button')
+				skipThisButton.innerText = 'Skip this'
+				skipThisButton.addEventListener('click', () => {
+					updateProgress(0)
+					simpleFlowTutorial.destroy()
+				})
+				skipThisButton.setAttribute(
+					'class',
+					'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+				)
+
+				const skipAllButton = document.createElement('button')
+				skipAllButton.innerText = 'Skip all'
+				skipAllButton.addEventListener('click', () => {
+					dispatch('skipAll')
+					simpleFlowTutorial.destroy()
+				})
+
+				skipAllButton.setAttribute(
+					'class',
+					'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+				)
+
+				const popoverDescription = document.querySelector('#driver-popover-description')
+
+				const div = document.createElement('div')
+
+				div.setAttribute('class', 'flex flex-row gap-2')
+
+				if (popoverDescription) {
+					div.appendChild(skipThisButton)
+					div.appendChild(skipAllButton)
+
+					popoverDescription.appendChild(div)
+				}
+			}
+		},
 		steps: [
 			{
 				popover: {
@@ -270,4 +309,9 @@
 	$: $tutorialsToDo.includes(0) && simpleFlowTutorial.drive()
 </script>
 
-<TutorialItem on:click={() => simpleFlowTutorial.drive()} label="Simple flow tutorial" index={0} />
+<TutorialItem
+	on:click={() => simpleFlowTutorial.drive()}
+	label="Simple flow tutorial"
+	index={0}
+	id="flow-builder-tutorial-action"
+/>

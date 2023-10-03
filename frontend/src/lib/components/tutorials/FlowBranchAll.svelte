@@ -8,15 +8,63 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
 
+	export let shouldRenderButton: boolean = true
+
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
-	function runTutorial() {
+	export function runTutorial() {
 		const branchAllTutorial = driver({
 			showProgress: true,
 			allowClose: true,
+			onPopoverRender: (popover, { config, state }) => {
+				if (state.activeIndex == 0) {
+					const skipThisButton = document.createElement('button')
+					skipThisButton.innerText = 'Skip this'
+					skipThisButton.addEventListener('click', () => {
+						updateProgress(3)
+
+						branchAllTutorial.destroy()
+					})
+					skipThisButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const skipAllButton = document.createElement('button')
+					skipAllButton.innerText = 'Skip all'
+					skipAllButton.addEventListener('click', () => {
+						dispatch('skipAll')
+						branchAllTutorial.destroy()
+					})
+
+					skipAllButton.setAttribute(
+						'class',
+						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					)
+
+					const popoverDescription = document.querySelector('#driver-popover-description')
+
+					const div = document.createElement('div')
+
+					div.setAttribute('class', 'flex flex-row gap-2')
+
+					if (popoverDescription) {
+						div.appendChild(skipThisButton)
+						div.appendChild(skipAllButton)
+
+						popoverDescription.appendChild(div)
+					}
+				}
+			},
 			steps: [
+				{
+					popover: {
+						title: 'Welcome in the Windmil Flow editor',
+						description: 'Learn how to build our first branch to be executed on a condition'
+					}
+				},
 				{
 					element: '#flow-editor-add-step-0',
 					popover: {
@@ -167,4 +215,11 @@
 	}
 </script>
 
-<TutorialItem on:click={() => runTutorial()} label="Branch all tutorial" index={3} />
+{#if shouldRenderButton}
+	<TutorialItem
+		on:click={() => runTutorial()}
+		label="Branch all tutorial"
+		index={3}
+		id="flow-builder-tutorial-branchall"
+	/>
+{/if}
