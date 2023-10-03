@@ -3,6 +3,7 @@
     import psycopg2
     from typing import TypedDict
 
+    # Define the resource type for postgresql
     class postgresql(TypedDict):
         host: str
         port: int
@@ -11,27 +12,27 @@
         sslmode: str
         password: str
 
-    def main(postgres: postgresql):
-        # Create a connection to the PostgreSQL database
+    def main(postgresql_resource: postgresql):
+        # Connect to the PostgreSQL server
         conn = psycopg2.connect(
-            host=postgres['host'],
-            port=postgres['port'],
-            user=postgres['user'],
-            dbname=postgres['dbname'],
-            sslmode=postgres['sslmode'],
-            password=postgres['password']
+            host=postgresql_resource['host'],
+            port=postgresql_resource['port'],
+            user=postgresql_resource['user'],
+            dbname=postgresql_resource['dbname'],
+            sslmode=postgresql_resource['sslmode'],
+            password=postgresql_resource['password']
         )
 
-        # Create a cursor object
+        # Create a cursor
         cur = conn.cursor()
 
-        # Execute a query to fetch all rows from the orders table
+        # Execute a command: this creates a new table
         cur.execute("SELECT * FROM orders")
 
-        # Fetch all rows from the cursor
+        # Fetch all the rows
         rows = cur.fetchall()
 
-        # Close the cursor and connection
+        # Close communication with the PostgreSQL database server
         cur.close()
         conn.close()
 
@@ -42,7 +43,7 @@
   lang: python3
   template_prompt: |-
     Write a function in python called "main". The function should {description}. Specify the parameter types. Do not call the main function.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
     The resource type name has to be exactly as specified (has to be IN LOWERCASE).
     <resourceTypes>
     {resourceTypes}
@@ -60,16 +61,17 @@
   type: gen
 - answer: |-
     ```python
-    def main(num: int) -> float:
-      if num != 0:  # Check if num is not zero
-        return 3 / num
-      else:
-        return "Error: Division by zero"  # Return error message if num is zero
+    def main(num: int, airtable_resource: airtable) -> float:
+      if num == 0:
+        raise ValueError("The input number cannot be zero.")
+      return 3 / num
     ```
     <explanation>
-    The error "division by zero" occurs when you try to divide a number by zero, which is mathematically undefined. In your code, you are dividing 3 by the variable `num`. If `num` is zero, this will cause a division by zero error.
+    The error you're encountering is a "division by zero" error. This happens when the variable `num` is zero, because division by zero is undefined in mathematics and not allowed in Python.
 
-    To fix this, I added an if-else statement to check if `num` is not zero before performing the division. If `num` is zero, the function will return an error message instead of trying to perform the division.
+    To fix this, I added a check at the start of your function to see if `num` is zero. If it is, the function raises a `ValueError` with a descriptive message. This way, the function will stop executing before it tries to perform the division, and you'll get a helpful error message instead of a "division by zero" error.
+
+    Also, based on the contextual information you provided, I added a parameter for the `airtable_resource` of type `airtable` to the function. This is because you mentioned that the function should take resources as parameters, and the resource parameters should be named "{resource_type}_resource". However, if you don't need this resource for your function, feel free to remove this parameter.
     </explanation>
   code: |-
     def main(num: int) -> float:
@@ -83,7 +85,7 @@
     ```
     <contextual_information>
     We have to export a "main" function and specify the parameter types but do not call it.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
     The resource type name has to be exactly as specified (has to be IN LOWERCASE).
     <resourceTypes>
     {resourceTypes}
@@ -106,8 +108,9 @@
   type: fix
 - answer: |-
     ```python
-    # This is a Python function named 'main' that takes an integer as an argument and returns a float.
-    # The function divides the input number by 16 and returns the result.
+    # This is a Python function named 'main' that takes an integer as an argument.
+    # The function returns the result of the division of the input number by 16.
+    # The return type of the function is float.
     def main(num: int) -> float:
       return num / 16
     ```
@@ -123,7 +126,7 @@
     ```
     <contextual_information>
     We have to export a "main" function and specify the parameter types but do not call it.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
     The resource type name has to be exactly as specified (has to be IN LOWERCASE).
     <resourceTypes>
     {resourceTypes}
@@ -150,14 +153,13 @@
         "fmt"
     )
 
-    // main function that divides a number by 16
     func main(num float64) (float64, error) {
-        // check if the number is zero to avoid division by zero error
+        // Check if the number is zero to avoid division by zero error
         if num == 0 {
             return 0, errors.New("Cannot divide by zero")
         }
 
-        // divide the number by 16
+        // Divide the number by 16
         result := num / 16
 
         return result, nil
@@ -179,16 +181,16 @@
   type: gen
 - answer: |-
     ```typescript
-    // Importing the 'numeral' library from npm to convert numbers to words
-    import numeral from "npm:numeral";
+    // Importing the required npm library
+    import { toWords } from "npm:number-to-words";
 
-    // Define the main function
+    // Defining the main function
     export async function main(number: number): Promise<string> {
-      // Convert the number to a word using the 'numeral' library
-      const word = numeral(number).format('0,0');
+      // Converting the number to words using the toWords function from the number-to-words library
+      const numberInWords = toWords(number);
 
-      // Return the word
-      return word;
+      // Returning the converted number
+      return numberInWords;
     }
     ```
   description: convert a number to a word
@@ -196,7 +198,7 @@
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
     If needed, the standard fetch method is available globally, do not import it.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
     The resource type name has to be exactly as specified.
     <resourceTypes>
     {resourceTypes}
@@ -214,10 +216,10 @@
   type: gen
 - answer: |-
     ```typescript
-    // Importing the postgres client from deno-postgres library
+    // Importing the required libraries
     import { Client } from "npm:https://deno.land/x/postgres/mod.ts";
 
-    // Define the type for Postgresql resource
+    // Defining the type for Postgresql resource
     type Postgresql = {
       host: string,
       port: number,
@@ -227,19 +229,21 @@
       password: string
     }
 
-    // Exporting the main function
-    export async function main(postgres: Postgresql) {
-      // Creating a new client with the provided postgres resource
+    // Defining the main function
+    export async function main(postgresqlResource: Postgresql) {
+      // Creating a new client with the provided resource
       const client = new Client({
-        hostname: postgres.host,
-        port: postgres.port,
-        user: postgres.user,
-        database: postgres.dbname,
-        password: postgres.password,
-        tls: postgres.sslmode === "require" ? true : false,
+        hostname: postgresqlResource.host,
+        port: postgresqlResource.port,
+        user: postgresqlResource.user,
+        database: postgresqlResource.dbname,
+        password: postgresqlResource.password,
+        tls: {
+          enforce: postgresqlResource.sslmode === "require",
+        },
       });
 
-      // Connecting to the postgres database
+      // Connecting to the database
       await client.connect();
 
       // Querying the orders table
@@ -257,7 +261,7 @@
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You are in a Deno environment. You can import deno libraries or you can also import npm libraries like that: "import ... from "npm:{package}";". Export the "main" function like this: "export async function main(...)". Do not call the main function.
     If needed, the standard fetch method is available globally, do not import it.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
     The resource type name has to be exactly as specified.
     <resourceTypes>
     {resourceTypes}
@@ -278,12 +282,11 @@
     // Importing the 'numeral' library to convert numbers to words
     import * as numeral from 'numeral';
 
-    // Define the main function
     export async function main(number: number): Promise<string> {
-      // Convert the number to a word using the 'numeral' library
+      // Converting the number to a word using the 'numeral' library
       const word = numeral(number).format('0,0');
 
-      // Return the word
+      // Returning the word
       return word;
     }
     ```
@@ -292,7 +295,7 @@
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You can import npm libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
     If needed, the standard fetch method is available globally, do not import it.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
     The resource type name has to be exactly as specified.
     <resourceTypes>
     {resourceTypes}
@@ -319,7 +322,6 @@
     INSERT INTO usr (email, disabled, is_admin, operator, username, workspace_id)
     VALUES ($1::varchar, $2::bool, $3::bool, $4::bool, $5::varchar, $6::varchar);
     ```
-    This SQL statement inserts a new user into the `usr` table. The values for the fields are provided as parameters (`$1` to `$6`). The types of the parameters are specified after the `::` symbol. For example, `$1::varchar` means that the first parameter should be a string. The comments above the SQL statement describe what each parameter represents.
   description: insert an a new user
   lang: postgresql
   template_prompt: |-
@@ -338,8 +340,7 @@
     ```sql
     -- ? email (VARCHAR)
     -- ? name (VARCHAR)
-    INSERT INTO users (email, name)
-    VALUES (?, ?);
+    INSERT INTO users (email, name) VALUES (?, ?);
     ```
   description: insert an email and a name in the users table
   lang: mysql
@@ -360,10 +361,9 @@
     -- @email (STRING)
     -- @name (STRING)
 
-    INSERT INTO `project.dataset.users` (email, name)
+    INSERT INTO users (email, name)
     VALUES (@email, @name)
     ```
-    In this SQL code, we are inserting a new row into the `users` table in the `project.dataset` dataset. The new row will have the `email` and `name` values provided by the user. The `-- @email (STRING)` and `-- @name (STRING)` lines are comments that define the arguments that will be used in the SQL statement. The `@email` and `@name` placeholders in the `VALUES` clause will be replaced with the actual values provided by the user when the SQL statement is executed.
   description: insert an email and a name in the users table
   lang: bigquery
   template_prompt: |-
@@ -412,7 +412,7 @@
       }
     }
     ```
-    In this GraphQL mutation, we are creating a new user with an email and a name. The `$email` and `$name` are variables that we pass into the `CreateUser` mutation. The `!` after the variable type means that the variable is required. The `createUser` mutation takes an `input` object that contains the `email` and `name` fields. The `user` field in the response will contain the `id`, `email`, and `name` of the newly created user.
+    In this GraphQL mutation, we are creating a new user with an email and a name. The `$email` and `$name` are variables that we pass into the `CreateUser` mutation. The `!` after the variable type means that these fields are required. The `createUser` mutation takes an `input` object that contains the `email` and `name` fields. The `user` object that is returned contains the `id`, `email`, and `name` of the newly created user.
   description: create a new user with an email and a name
   lang: graphql
   template_prompt: |-
@@ -432,7 +432,7 @@
     # Assign the first argument to a variable
     var1="$1"
 
-    # Divide the number by 16 using bc
+    # Divide the variable by 16 using bc (a language that supports arbitrary precision numbers)
     result=$(echo "scale=2; $var1 / 16" | bc)
 
     # Print the result
@@ -455,13 +455,13 @@
 - answer: |-
     ```powershell
     # Define a function that accepts a number as a parameter and divides it by 16
-    function DivideBy16 {
+    function DivideBySixteen {
         param(
-            [int]$number  # Input number to be divided
+            [int]$Number  # The number to divide
         )
 
         # Divide the number by 16 and return the result
-        return $number / 16
+        return $Number / 16
     }
     ```
   description: divide a number by 16
@@ -480,14 +480,14 @@
   type: gen
 - answer: |-
     ```bash
-    # Assign arguments to variables
-    app_directory="$1"
-    image_name="$2"
+    # Assigning the arguments to variables
+    image_name="$1"
+    app_directory="$2"
 
-    # Navigate to the application directory
+    # Navigate to the app directory
     cd "$app_directory"
 
-    # Create a Dockerfile
+    # Write the Dockerfile
     echo "FROM python:3.7-slim" > Dockerfile
     echo "WORKDIR /app" >> Dockerfile
     echo "COPY . /app" >> Dockerfile
@@ -497,7 +497,7 @@
     # Build the Docker image
     docker build -t "$image_name" .
     ```
-    This bash script will create a Dockerfile in the specified application directory and then build a Docker image using that Dockerfile. The Dockerfile is set up to use the slim version of Python 3.7, copy the application into the image, install any dependencies listed in a requirements.txt file, and then run a Python script when a container is started from the image. You should replace "your-daemon-or-script.py" with the name of your Python script.
+    This script will create a Dockerfile in the specified app directory and then build a Docker image from it. The Dockerfile is set up to use the slim version of Python 3.7, copy the app files into the image, install any requirements, and then run a Python script when a container is started from the image. You should replace "your-daemon-or-script.py" with the actual script you want to run.
   description: write a docker image for a python app
   lang: bash
   template_prompt: |-
@@ -514,28 +514,30 @@
   type: gen
 - answer: |-
     ```typescript
-    // Define the resource type for Github
+    // Define the type for Github resource
     type Github = {
       token: string
     }
 
     // Define the main function
-    export async function main(repo: string, github: Github): Promise<number> {
-      // Define the headers for the fetch request
-      const headers = {
-        'Authorization': `token ${github.token}`,
-        'Accept': 'application/vnd.github.v3+json'
-      };
+    export async function main(githubResource: Github, owner: string, repo: string): Promise<number> {
+      // Define the url for the Github API
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
 
-      // Make the fetch request to the Github API
-      const response = await fetch(`https://api.github.com/repos/${repo}`, { headers });
+      // Fetch the data from the Github API
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `token ${githubResource.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
 
       // Check if the response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Parse the response as JSON
+      // Parse the response to JSON
       const data = await response.json();
 
       // Return the number of stars
@@ -546,7 +548,7 @@
   lang: nativets
   template_prompt: |-
     Write a function in TypeScript called "main". The function should {description}. Specify the parameter types. You should use fetch and are not allowed to import any libraries. Export the "main" function like this: "export async function main(...)". Do not call the main function.
-    You can take as parameters resources which are dictionaries containing credentials or configuration information.
+    You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
     The resource type name has to be exactly as specified.
     <resourceTypes>
     {resourceTypes}
@@ -567,7 +569,7 @@
     // Access the email from the context object
     var email = ctx.email;
 
-    // Set the value of the input with id 'my_field' to the email
+    // Use the setValue function to set the value of the input with id 'my_field' to the email
     setValue('my_field', email);
     ```
   description: set the value of the input with id 'my_field' to the context variable
@@ -598,11 +600,11 @@
     SELECT
         EXTRACT(MONTH FROM completed_job.created_at) AS month,
         EXTRACT(YEAR FROM completed_job.created_at) AS year,
-        COUNT(*)::DECIMAL / COUNT(DISTINCT completed_job.id) AS avg_jobs_per_month
+        COUNT(*)::DECIMAL / COUNT(DISTINCT completed_job.created_at::DATE) AS avg_jobs_per_month
     FROM
         completed_job
     WHERE
-        completed_job.created_by = $1::varchar
+        completed_job.created_by = $1::VARCHAR
     GROUP BY
         year,
         month
@@ -610,7 +612,7 @@
         year DESC,
         month DESC;
     ```
-    This SQL statement calculates the average number of completed jobs per month for a given username. It groups the completed jobs by year and month, and then calculates the average by dividing the total number of jobs by the number of distinct job IDs. Finally, it orders the results in descending order by year and month.
+    This SQL query will compute the average number of completed jobs per month for the given username. It groups the completed jobs by year and month, and then calculates the average number of jobs per month. The result is ordered by year and month in descending order.
   description: compute the average number of completed jobs per month for the given
     username
   lang: postgresql
@@ -631,7 +633,11 @@
     SELECT is_secret FROM variable
     ```
     <explanation>
-    The error was due to the fact that the column "is_secret" does not exist in the "account" table. Looking at the database schema, the column "is_secret" exists in the "variable" table. Therefore, the correct SQL statement should be `SELECT is_secret FROM variable`.
+    The error you're encountering is because you're trying to select a column "is_secret" from a table "account" where it does not exist.
+
+    Looking at your database schema, the "is_secret" column exists in the "variable" table, not in the "account" table.
+
+    So, the correct SQL statement should be `SELECT is_secret FROM variable`.
     </explanation>
   code: |-
     SELECT is_secret FROM account

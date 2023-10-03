@@ -79,11 +79,11 @@ const triggerPrompts: {
 	python3: string
 } = {
 	bun: `I'm building a workflow which is a sequence of script steps. Write the first script in {codeLang} which should check for {description} and return an array.
-You can use "const {state_name}: {state_type} = await getState(...)" and "await setState(...)" from "windmill-client@1" to maintain state across runs.
+You can use "const {state_name}: {state_type} = await getState()" and "await setState(value: any)" from "windmill-client@1" to maintain state across runs.
 
 {additionalInformation}`,
 	python3: `I'm building a workflow which is a sequence of script steps. Write the first script in {codeLang} which should check for {description} and return an array.
-You can use get_state and set_state from wmill to maintain state across runs.
+You can use get_state() and set_state(value) from wmill to maintain state across runs.
 
 {additionalInformation}`
 }
