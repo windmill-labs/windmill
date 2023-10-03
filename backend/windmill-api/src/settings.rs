@@ -79,7 +79,6 @@ pub struct TestKey {
     pub license_key: String,
 }
 
-
 pub async fn test_license_key(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -109,6 +108,14 @@ pub async fn get_local_settings(
 pub struct Value {
     pub value: serde_json::Value,
 }
+
+pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
+    sqlx::query!("DELETE FROM global_settings WHERE name = $1", key,)
+        .execute(db)
+        .await?;
+    tracing::info!("Unset global setting {}", key);
+    Ok(())
+}
 pub async fn set_global_setting(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -116,14 +123,25 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
-    sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
-        key,
-        value.value
-    )
-    .execute(&db)
-    .await?;
-    tracing::info!("Set global setting {} to {}", key, value.value);
+    match value.value {
+        serde_json::Value::Null => {
+            delete_global_setting(&db, &key).await?;
+        }
+        serde_json::Value::String(x) if x.is_empty() => {
+            delete_global_setting(&db, &key).await?;
+        }
+        v => {
+            sqlx::query!(
+            "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+            key,
+            v
+        )
+        .execute(&db)
+        .await?;
+            tracing::info!("Set global setting {} to {}", key, v);
+        }
+    };
+
     Ok(())
 }
 

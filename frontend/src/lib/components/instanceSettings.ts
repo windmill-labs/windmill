@@ -3,6 +3,7 @@ export interface Setting {
 	description?: string
 	placeholder?: string
 	cloudonly?: boolean
+	ee_only?: string
 	tooltip?: string
 	key: string
 	fieldType:
