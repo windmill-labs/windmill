@@ -331,22 +331,8 @@ async fn get_resource_value_interpolated(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        let job = if let Some(job_id) = job_info.job_id {
-            let mut tx = user_db.clone().begin(&authed).await?;
-            let result = sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(job_id)
-            .bind(&w_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            result
-        } else {
-            None
-        };
         Ok(Json(Some(
-            transform_json_value(&authed, &user_db, &w_id, value, &job, &token).await?,
+            transform_json_value(&authed, &user_db, &w_id, value, &job_info.job_id, &token).await?,
         )))
     } else {
         Ok(Json(None))
@@ -361,7 +347,7 @@ pub async fn transform_json_value<'c>(
     user_db: &UserDB,
     workspace: &str,
     v: Value,
-    job: &Option<QueuedJob>,
+    job_id: &Option<Uuid>,
     token: &str,
 ) -> Result<Value> {
     match v {
@@ -388,14 +374,23 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db, workspace, v, job, token).await
+                transform_json_value(authed, user_db, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
         }
-        Value::String(y) if y.starts_with("$") && job.is_some() => {
-            let job = job.as_ref().unwrap();
-            tracing::info!("using reserved variable");
+        Value::String(y) if y.starts_with("$") && job_id.is_some() => {
+            let mut tx = user_db.clone().begin(authed).await?;
+            let job = sqlx::query_as::<_, QueuedJob>(
+                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(job_id.unwrap())
+            .bind(workspace)
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+
+            let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
                 let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
@@ -437,7 +432,7 @@ pub async fn transform_json_value<'c>(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(authed, user_db, workspace, b, job, token).await?,
+                    transform_json_value(authed, user_db, workspace, b, job_id, token).await?,
                 );
             }
             Ok(Value::Object(m))
