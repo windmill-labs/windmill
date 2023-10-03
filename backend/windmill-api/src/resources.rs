@@ -10,6 +10,7 @@ use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -25,8 +26,17 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        list_elems_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
+        Pagination, StripPath,
+    },
 };
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/type/hub/list", get(list_hub_resource_types))
+        .route("/type/hub/query", get(query_hub_resource_types))
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -837,4 +847,37 @@ async fn update_resource_type(
     );
 
     Ok(format!("resource_type {} updated", name))
+}
+
+async fn list_hub_resource_types(
+    ApiAuthed { email, .. }: ApiAuthed,
+) -> JsonResult<serde_json::Value> {
+    let asks = list_elems_from_hub(
+        &HTTP_CLIENT,
+        "https://hub.windmill.dev/resource_types/list",
+        &email,
+    )
+    .await?;
+    Ok(Json(asks))
+}
+
+#[derive(Deserialize)]
+struct HubResourceTypesQuery {
+    text: String,
+    limit: Option<i64>,
+}
+async fn query_hub_resource_types(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Query(query): Query<HubResourceTypesQuery>,
+) -> JsonResult<serde_json::Value> {
+    let asks = query_elems_from_hub(
+        &HTTP_CLIENT,
+        "https://hub.windmill.dev/resource_types/query",
+        &email,
+        &query.text,
+        &None,
+        &query.limit,
+    )
+    .await?;
+    Ok(Json(asks))
 }

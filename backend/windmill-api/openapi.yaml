@@ -678,7 +678,6 @@ paths:
               schema:
                 type: string
 
-
   /users/tutorial_progress:
     get:
       summary: get tutorial progress
@@ -2321,6 +2320,65 @@ paths:
                 items:
                   type: string
 
+  /resources/type/hub/list:
+    get:
+      summary: list hub resource types
+      operationId: listHubResourceTypes
+      tags:
+        - resource
+      responses:
+        "200":
+          description: resource type details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    schema: {}
+                  required:
+                    - id
+                    - name
+
+  /resources/type/hub/query:
+    get:
+      summary: query hub resource types by similarity
+      operationId: queryHubResourceTypes
+      tags:
+        - resource
+      parameters:
+        - name: text
+          description: query text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+      responses:
+        "200":
+          description: resource type details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                  required:
+                    - id
+
   /scripts/hub/list:
     get:
       summary: list all available hub scripts
@@ -2607,7 +2665,6 @@ paths:
                   required:
                     - path
                     - content
-
 
   /w/{workspace}/scripts/list:
     get:

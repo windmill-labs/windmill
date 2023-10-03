@@ -74,17 +74,53 @@ interface FixScriptOpions extends BaseOptions {
 
 type CopilotOptions = ScriptGenerationOptions | EditScriptOptions | FixScriptOpions
 
-export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
+async function getResourceTypes(scriptOptions: CopilotOptions) {
 	if (!workspace) {
 		throw new Error('Workspace not initialized')
 	}
 
+	let resourceTypes = await ResourceService.listResourceType({ workspace })
+
+	const elems =
+		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
+
+	if (scriptOptions.type === 'edit' || scriptOptions.type === 'fix') {
+		const { code } = scriptOptions
+
+		const matches = code.matchAll(/^type\s+([a-zA-Z0-9_]+)/gm) ?? []
+
+		for (const match of matches) {
+			elems.push(match[1])
+		}
+	}
+
+	const hubResourceTypes = await ResourceService.listHubResourceTypes()
+	const queriedIds = (
+		await ResourceService.queryHubResourceTypes({
+			text: elems.join(';')
+		})
+	).map((rt) => rt.id)
+	const customResourceTypes = resourceTypes.filter((rt) => rt.name.startsWith('c_'))
+	resourceTypes = [
+		...hubResourceTypes
+			.filter((rt) => queriedIds.includes(String(rt.id)))
+			.map((rt) => ({
+				...rt,
+				schema: JSON.parse(rt.schema)
+			})),
+		...customResourceTypes
+	]
+
+	return resourceTypes
+}
+
+export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
 	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
+		const resourceTypes = await getResourceTypes(scriptOptions)
 		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	} else if (scriptOptions.language === 'python3') {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
+		const resourceTypes = await getResourceTypes(scriptOptions)
 		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	}
