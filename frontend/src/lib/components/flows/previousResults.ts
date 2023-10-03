@@ -55,16 +55,19 @@ function getFlowInput(
 ) {
 	const parentModule = parentModules.shift()
 
+	const topFlowInput = schemaToObject(schema, args)
+
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
 		if (parentState.previewArgs) {
-			return parentState.previewArgs
+			return {...topFlowInput, ...parentState.previewArgs }
 		} else {
 			const parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 
 			if (parentModule.value.type === 'forloopflow') {
 				return {
+					...topFlowInput,
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
@@ -72,11 +75,13 @@ function getFlowInput(
 					...parentFlowInput
 				}
 			} else {
-				return parentFlowInput
+
+				return {...topFlowInput,  ...parentFlowInput }
 			}
 		}
 	} else {
-		return schemaToObject(schema, args)
+
+		return topFlowInput
 	}
 }
 
