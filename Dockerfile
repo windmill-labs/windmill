@@ -1,4 +1,4 @@
-FROM debian:buster-slim as nsjail
+FROM debian:bookworm-slim as nsjail
 
 WORKDIR /nsjail
 
@@ -6,23 +6,23 @@ ARG nsjail=""
 
 RUN  if [ "$nsjail" = "true" ]; then apt-get -y update \
     && apt-get install -y \
-    bison=2:3.3.* \
+    bison=2:3.8.* \
     flex=2.6.* \
-    g++=4:8.3.* \
-    gcc=4:8.3.* \
-    git=1:2.20.* \
-    libprotobuf-dev=3.6.* \
-    libnl-route-3-dev=3.4.* \
-    make=4.2.* \
-    pkg-config=0.29-6 \
-    protobuf-compiler=3.6.*; fi
+    g++=4:12.2.* \
+    gcc=4:12.2.* \
+    git=1:2.39.* \
+    libprotobuf-dev=3.21.* \
+    libnl-route-3-dev=3.7.* \
+    make=4.3-4.1 \
+    pkg-config=1.8.* \
+    protobuf-compiler=3.21.*; fi
 
 
 RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
 RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
 
-FROM rust:slim-buster AS rust_base
+FROM rust:slim-bookworm AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
@@ -87,7 +87,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM debian:buster-slim as downloader
+FROM debian:bookworm-slim as downloader
 
 ARG TARGETPLATFORM
 
@@ -101,7 +101,7 @@ RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denol
 
 RUN unzip deno.zip && rm deno.zip
 
-FROM python:3.11.4-slim-buster
+FROM python:3.12.0-slim-bookworm
 
 ARG TARGETPLATFORM
 
