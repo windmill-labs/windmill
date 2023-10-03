@@ -24,7 +24,7 @@
 				{
 					popover: {
 						title: 'Welcome in the Windmil Flow editor',
-						description: 'Learn how to build powerfull flows in a few steps'
+						description: 'Learn how to build our first branch to be executed on a condition'
 					}
 				},
 
@@ -132,7 +132,7 @@
 					element: '#add-branch-button',
 					popover: {
 						title: 'Add branch',
-						description: 'Click here to add a branch to your loop',
+						description: 'Click here to add a branch',
 						onNextClick: () => {
 							clickButtonBySelector('#add-branch-button')
 

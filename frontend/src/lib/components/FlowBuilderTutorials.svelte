@@ -12,18 +12,28 @@
 	import MenuItem from './common/menu/MenuItem.svelte'
 	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import { tutorialsToDo } from '$lib/stores'
+	import { clickButtonBySelector } from './tutorials/utils'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: tainted =
 		$flowStore.value.modules.length > 0 || Object.keys($flowStore.schema?.properties).length > 0
+
+	let buttonDropdown: ButtonDropdown | undefined = undefined
+
+	$: {
+		if (buttonDropdown && $tutorialsToDo.includes(0)) {
+			clickButtonBySelector('#tutorials-button')
+		}
+	}
 </script>
 
 {#if !tainted}
 	<button on:pointerdown|stopPropagation>
-		<ButtonDropdown hasPadding={false}>
+		<ButtonDropdown hasPadding={false} bind:this={buttonDropdown}>
 			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light" variant="border">
+				<Button nonCaptureEvent size="xs" color="light" variant="border" id="tutorials-button">
 					<div class="flex flex-row gap-2 items-center">
 						<BookOpen size={16} />
 						Tutorials
@@ -49,11 +59,7 @@
 						Reset tutorials
 					</div>
 				</MenuItem>
-				<MenuItem
-					on:click={() => {
-						skipAllTodos()
-					}}
-				>
+				<MenuItem on:click={() => skipAllTodos()}>
 					<div
 						class={classNames(
 							'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'

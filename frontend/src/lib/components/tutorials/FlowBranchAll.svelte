@@ -42,8 +42,8 @@
 
 				{
 					popover: {
-						title: 'Insert loop',
-						description: "Let's pick forloop",
+						title: 'Insert Branch all',
+						description: "Let's pick branch all",
 						onNextClick: () => {
 							selectFlowStepKind(6)
 							setTimeout(() => {
@@ -58,7 +58,7 @@
 					element: '#add-branch-button',
 					popover: {
 						title: 'Add branch',
-						description: 'Click here to add a branch to your loop',
+						description: 'Click here to add a branch',
 						onNextClick: () => {
 							clickButtonBySelector('#add-branch-button')
 
@@ -156,7 +156,7 @@
 
 							setTimeout(() => {
 								branchAllTutorial.moveNext()
-								updateProgress(1)
+								updateProgress(3)
 							})
 						}
 					}
@@ -167,4 +167,4 @@
 	}
 </script>
 
-<TutorialItem on:click={() => runTutorial()} label="Branch all tutorial" index={1} />
+<TutorialItem on:click={() => runTutorial()} label="Branch all tutorial" index={3} />

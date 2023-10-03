@@ -11,9 +11,12 @@
 		setInputBySelector,
 		triggerAddFlowStep
 	} from './utils'
+	import { tutorialsToDo } from '$lib/stores'
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
+
+	const queue: string[] = []
 
 	const simpleFlowTutorial = driver({
 		showProgress: true,
@@ -22,10 +25,9 @@
 			{
 				popover: {
 					title: 'Welcome in the Windmil Flow editor',
-					description: 'Learn how to build powerfull flows in a few steps'
+					description: 'Learn how to build powerful flows in a few steps'
 				}
 			},
-
 			{
 				popover: {
 					title: 'Flows inputs',
@@ -71,6 +73,8 @@
 					title: 'Save your property',
 					description: 'Click here to save your property',
 					onNextClick: () => {
+						queue.push(JSON.stringify($flowStore))
+
 						clickButtonBySelector('#schema-modal-save')
 
 						setTimeout(() => {
@@ -90,6 +94,13 @@
 						setTimeout(() => {
 							simpleFlowTutorial.moveNext()
 						})
+					},
+
+					onPrevClick: () => {
+						simpleFlowTutorial.moveTo(1)
+						debugger
+						$flowStore = JSON.parse(queue.pop() || '{}')
+						dispatch('reload')
 					}
 				}
 			},
@@ -224,7 +235,7 @@
 			},
 
 			{
-				element: 'textarea.w-full',
+				element: '#flow-preview-content',
 				popover: {
 					title: 'Flow input',
 					description: 'Let’s provide an input to our flow',
@@ -255,6 +266,8 @@
 			}
 		]
 	})
+
+	$: $tutorialsToDo.includes(0) && simpleFlowTutorial.drive()
 </script>
 
 <TutorialItem on:click={() => simpleFlowTutorial.drive()} label="Simple flow tutorial" index={0} />

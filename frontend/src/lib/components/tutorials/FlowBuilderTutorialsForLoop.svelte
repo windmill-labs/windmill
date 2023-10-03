@@ -27,7 +27,7 @@
 				{
 					popover: {
 						title: 'Welcome in the Windmil Flow editor',
-						description: 'Learn how to build powerfull flows in a few steps'
+						description: 'Learn how to build our first for loop to iterate on'
 					}
 				},
 
