@@ -16,7 +16,7 @@ import { buildClientSchema, printSchema } from 'graphql'
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
 const openaiConfig: CompletionCreateParamsStreaming = {
-	temperature: 0.3,
+	temperature: 0,
 	max_tokens: 2048,
 	model: 'gpt-4',
 	stream: true,
