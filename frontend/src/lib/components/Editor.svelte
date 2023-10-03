@@ -240,7 +240,7 @@
 
 	function updateSchema(lang, args) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (schemaRes instanceof String) {
+		if (typeof schemaRes === 'string') {
 			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
 		}
 	}
