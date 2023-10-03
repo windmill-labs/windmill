@@ -7182,6 +7182,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "urlencoding",
+ "uuid 1.4.1",
  "windmill-audit",
  "windmill-common",
  "windmill-parser",
