@@ -35,7 +35,7 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} />
+					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} on:reload />
 				{/if}
 			</div>
 		</Pane>
