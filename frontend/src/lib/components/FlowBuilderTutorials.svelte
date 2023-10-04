@@ -19,13 +19,16 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	let flowBuilderTutorialSimpleFlow: FlowBuilderTutorialSimpleFlow | undefined = undefined
+
 	$: tainted =
 		$flowStore.value.modules.length > 0 || Object.keys($flowStore?.schema?.properties).length > 0
 
-	$: {
-		if (buttonDropdown && $tutorialsToDo.includes(0)) {
-			clickButtonBySelector('#tutorials-button')
-		}
+	let automaticallyRan: boolean = false
+
+	$: if (!automaticallyRan && $tutorialsToDo.includes(0)) {
+		automaticallyRan = true
+		flowBuilderTutorialSimpleFlow?.runTutorial()
 	}
 </script>
 
@@ -72,6 +75,11 @@
 		</ButtonDropdown>
 	</button>
 {/if}
+
+<FlowBuilderTutorialSimpleFlow
+	bind:this={flowBuilderTutorialSimpleFlow}
+	shouldRenderButton={false}
+/>
 
 <style global>
 	.driver-popover-title {
