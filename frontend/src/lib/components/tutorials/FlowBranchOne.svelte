@@ -3,22 +3,25 @@
 	import 'driver.js/dist/driver.css'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import TutorialItem from './TutorialItem.svelte'
 	import {
 		clickButtonBySelector,
 		setInputBySelector,
 		triggerAddFlowStep,
-		selectFlowStepKind
+		selectFlowStepKind,
+		tainted
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
-
-	export let shouldRenderButton: boolean = true
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	export function runTutorial() {
+		if (tainted($flowStore)) {
+			dispatch('error', { detail: 'branchone' })
+			return
+		}
+
 		const branchOneTutorial = driver({
 			showProgress: true,
 			allowClose: true,
@@ -308,12 +311,3 @@
 		branchOneTutorial.drive()
 	}
 </script>
-
-{#if shouldRenderButton}
-	<TutorialItem
-		on:click={() => runTutorial()}
-		label="Branch one tutorial"
-		index={2}
-		id="flow-builder-tutorial-branchone"
-	/>
-{/if}

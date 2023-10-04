@@ -14,6 +14,7 @@
 		copilotInfo,
 		enterpriseLicense,
 		hubScripts,
+		tutorialsToDo,
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
@@ -55,6 +56,9 @@
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
+
+	import FlowTutorials from './FlowTutorials.svelte'
+	import { tainted } from './tutorials/utils'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -847,6 +851,18 @@
 	$: $copilotCurrentStepStore === undefined && blurCopilot()
 
 	let renderCount = 0
+	let flowTutorials: FlowTutorials | undefined = undefined
+
+	$: if (!tainted($flowStore) && loading === false) {
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial) {
+			flowTutorials?.runTutorialById(tutorial)
+		} else if ($tutorialsToDo.includes(0)) {
+			flowTutorials?.runTutorialById('action')
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -983,7 +999,12 @@
 
 			<!-- metadata -->
 			{#if $flowStateStore}
-				<FlowEditor {loading} />
+				<FlowEditor
+					{loading}
+					on:reload={() => {
+						renderCount += 1
+					}}
+				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
 			{/if}
@@ -992,3 +1013,10 @@
 		Flow Builder not available to operators
 	{/if}
 {/key}
+
+<FlowTutorials
+	bind:this={flowTutorials}
+	on:reload={() => {
+		renderCount += 1
+	}}
+/>

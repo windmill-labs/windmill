@@ -1,3 +1,5 @@
+import type { Flow } from '$lib/gen'
+
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement
 
@@ -40,4 +42,8 @@ export function selectOptionsBySelector(selector: string, value: string) {
 		select.value = value
 		select.dispatchEvent(new Event('change', { bubbles: true }))
 	}
+}
+
+export function tainted(flow: Flow) {
+	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
 }
