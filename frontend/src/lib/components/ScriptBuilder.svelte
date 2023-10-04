@@ -316,31 +316,37 @@
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8 my-1.5">
 								<Section label="Metadata">
-									<span class="text-secondary text-sm leading-none">Summary</span>
-									<input
-										type="text"
-										autofocus
-										bind:value={script.summary}
-										placeholder="Short summary to be displayed when listed"
-										on:keyup={() => {
-											if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-												path?.setName(
-													script.summary
-														.toLowerCase()
-														.replace(/[^a-z0-9_]/g, '_')
-														.replace(/-+/g, '_')
-														.replace(/^-|-$/g, '')
-												)
-											}
-										}}
-									/>
-									<span class="text-secondary text-sm leading-none">Description</span>
-									<textarea
-										use:autosize
-										bind:value={script.description}
-										placeholder="Description displayed in the details page"
-										class="text-sm"
-									/>
+									<div class="flex flex-col gap-4">
+										<div>
+											<span class="text-secondary text-sm leading-none">Summary</span>
+											<input
+												type="text"
+												autofocus
+												bind:value={script.summary}
+												placeholder="Short summary to be displayed when listed"
+												on:keyup={() => {
+													if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
+														path?.setName(
+															script.summary
+																.toLowerCase()
+																.replace(/[^a-z0-9_]/g, '_')
+																.replace(/-+/g, '_')
+																.replace(/^-|-$/g, '')
+														)
+													}
+												}}
+											/>
+										</div>
+										<div>
+											<span class="text-secondary text-sm leading-none">Description</span>
+											<textarea
+												use:autosize
+												bind:value={script.description}
+												placeholder="Description displayed in the details page"
+												class="text-sm"
+											/>
+										</div>
+									</div>
 								</Section>
 
 								<Section label="Path">
@@ -451,6 +457,7 @@
 												tooltip={desc}
 												{documentationLink}
 												icon={Icon}
+												showTooltipIcon={Boolean(desc)}
 											/>
 										{/each}
 									</ToggleButtonGroup>
