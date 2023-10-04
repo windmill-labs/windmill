@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import TutorialItem from './TutorialItem.svelte'
 	import { emptyFlowModuleState } from '../flows/utils'
@@ -202,7 +202,7 @@
 
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								forloopTutorial.moveNext()
 							})
 						}
@@ -252,7 +252,7 @@
 
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								forloopTutorial.moveNext()
 							})
 						}
@@ -268,7 +268,7 @@
 							$flowStore = $flowStore
 
 							dispatch('reload')
-							tick().then(() => {
+							setTimeout(() => {
 								forloopTutorial.moveNext()
 							})
 						}
@@ -327,7 +327,7 @@
 							$flowStore = $flowStore
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								forloopTutorial.moveNext()
 							})
 						}

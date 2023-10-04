@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import TutorialItem from './TutorialItem.svelte'
 	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind } from './utils'
@@ -174,7 +174,7 @@
 							$flowStore = $flowStore
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								branchAllTutorial.moveNext()
 							})
 						}
