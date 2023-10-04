@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import TutorialItem from './TutorialItem.svelte'
 	import {
@@ -25,7 +25,7 @@
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Skip this'
+					skipThisButton.innerText = 'Skip this tutorials'
 					skipThisButton.addEventListener('click', () => {
 						updateProgress(2)
 
@@ -37,7 +37,7 @@
 					)
 
 					const skipAllButton = document.createElement('button')
-					skipAllButton.innerText = 'Skip all'
+					skipAllButton.innerText = 'Skip all tutorials'
 					skipAllButton.addEventListener('click', () => {
 						dispatch('skipAll')
 						branchOneTutorial.destroy()
@@ -52,11 +52,11 @@
 
 					const div = document.createElement('div')
 
-					div.setAttribute('class', 'flex flex-row gap-2')
+					div.setAttribute('class', 'flex flex-row gap-2 justify-between w-full pt-2')
 
 					if (popoverDescription) {
-						div.appendChild(skipThisButton)
 						div.appendChild(skipAllButton)
+						div.appendChild(skipThisButton)
 
 						popoverDescription.appendChild(div)
 					}
@@ -65,8 +65,9 @@
 			steps: [
 				{
 					popover: {
-						title: 'Welcome in the Windmil Flow editor',
-						description: 'Learn how to build our first branch to be executed on a condition'
+						title: 'Welcome to the Windmil Flow editor',
+						description:
+							'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
 					}
 				},
 
@@ -213,7 +214,7 @@
 							$flowStore = $flowStore
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								branchOneTutorial.moveNext()
 							})
 						}
@@ -265,7 +266,7 @@
 							$flowStore = $flowStore
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								branchOneTutorial.moveNext()
 							})
 						}
