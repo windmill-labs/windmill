@@ -16,7 +16,7 @@
 			? 'text-tertiary-inverse'
 			: 'text-tertiary'} {$$props.class} relative"
 	>
-		<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 16} />
+		<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 	</div>
 	<svelte:fragment slot="text">
 		<slot />
