@@ -85,6 +85,9 @@
 	on:error={({ detail }) => {
 		targetTutorial = detail.detail
 	}}
+	on:skipAll={() => {
+		skipAllTodos()
+	}}
 />
 
 <ConfirmationModal

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { skipAllTodos } from '$lib/tutorialUtils'
 	import FlowBranchAll from './tutorials/FlowBranchAll.svelte'
 	import FlowBranchOne from './tutorials/FlowBranchOne.svelte'
 	import FlowBuilderTutorialSimpleFlow from './tutorials/FlowBuilderTutorialSimpleFlow.svelte'
@@ -20,9 +21,21 @@
 			flowBuilderTutorialSimpleFlow?.runTutorial()
 		}
 	}
+
+	function skipAll() {
+		skipAllTodos()
+	}
 </script>
 
-<FlowBuilderTutorialSimpleFlow bind:this={flowBuilderTutorialSimpleFlow} on:error />
-<FlowBuilderTutorialsForLoop bind:this={flowBuilderTutorialsForLoop} on:error />
-<FlowBranchOne bind:this={flowBranchOne} on:error />
-<FlowBranchAll bind:this={flowBranchAll} on:error />
+<FlowBuilderTutorialSimpleFlow
+	bind:this={flowBuilderTutorialSimpleFlow}
+	on:error
+	on:skipAll={skipAll}
+/>
+<FlowBuilderTutorialsForLoop
+	bind:this={flowBuilderTutorialsForLoop}
+	on:error
+	on:skipAll={skipAll}
+/>
+<FlowBranchOne bind:this={flowBranchOne} on:error on:skipAll={skipAll} />
+<FlowBranchAll bind:this={flowBranchAll} on:error on:skipAll={skipAll} />
