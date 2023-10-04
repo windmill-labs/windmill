@@ -121,7 +121,7 @@
 		"svelte-tiny-virtual-list": "^2.0.5",
 		"tailwind-merge": "^1.13.2",
 		"vscode-ws-jsonrpc": "3.0.0",
-		"windmill-parser-wasm": "file:../backend/parsers/windmill-parser-wasm/pkg",
+		"windmill-parser-wasm": "^1.180.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yjs": "^13.6.7"
