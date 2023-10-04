@@ -3,7 +3,7 @@
 	import 'driver.js/dist/driver.css'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind } from './utils'
+	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind, tainted } from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
 
@@ -12,10 +12,7 @@
 	const dispatch = createEventDispatcher()
 
 	export function runTutorial() {
-		if (
-			$flowStore.value.modules.length > 0 ||
-			Object.keys($flowStore?.schema?.properties).length > 0
-		) {
+		if (tainted($flowStore)) {
 			dispatch('error', { detail: 'branchall' })
 			return
 		}

@@ -88,6 +88,7 @@
 	on:skipAll={() => {
 		skipAllTodos()
 	}}
+	on:reload
 />
 
 <ConfirmationModal

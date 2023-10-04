@@ -11,6 +11,7 @@
 	let flowBranchAll: FlowBranchAll | undefined = undefined
 
 	export function runTutorialById(id: string) {
+		console.log(id, flowBranchOne)
 		if (id === 'forloop') {
 			flowBuilderTutorialsForLoop?.runTutorial()
 		} else if (id === 'branchone') {
@@ -31,11 +32,13 @@
 	bind:this={flowBuilderTutorialSimpleFlow}
 	on:error
 	on:skipAll={skipAll}
+	on:reload
 />
 <FlowBuilderTutorialsForLoop
 	bind:this={flowBuilderTutorialsForLoop}
 	on:error
 	on:skipAll={skipAll}
+	on:reload
 />
-<FlowBranchOne bind:this={flowBranchOne} on:error on:skipAll={skipAll} />
-<FlowBranchAll bind:this={flowBranchAll} on:error on:skipAll={skipAll} />
+<FlowBranchOne bind:this={flowBranchOne} on:error on:skipAll={skipAll} on:reload />
+<FlowBranchAll bind:this={flowBranchAll} on:error on:skipAll={skipAll} on:reload />

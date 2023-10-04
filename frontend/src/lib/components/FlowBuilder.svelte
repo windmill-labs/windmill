@@ -1002,7 +1002,12 @@
 
 			<!-- metadata -->
 			{#if $flowStateStore}
-				<FlowEditor {loading} />
+				<FlowEditor
+					{loading}
+					on:reload={() => {
+						renderCount += 1
+					}}
+				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
 			{/if}
@@ -1012,4 +1017,9 @@
 	{/if}
 {/key}
 
-<FlowTutorials bind:this={flowTutorials} />
+<FlowTutorials
+	bind:this={flowTutorials}
+	on:reload={() => {
+		renderCount += 1
+	}}
+/>

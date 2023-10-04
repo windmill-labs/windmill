@@ -9,7 +9,8 @@
 		setInputBySelector,
 		triggerAddFlowStep,
 		selectFlowStepKind,
-		selectOptionsBySelector
+		selectOptionsBySelector,
+		tainted
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
@@ -19,10 +20,7 @@
 	const dispatch = createEventDispatcher()
 
 	export function runTutorial() {
-		if (
-			$flowStore.value.modules.length > 0 ||
-			Object.keys($flowStore?.schema?.properties).length > 0
-		) {
+		if (tainted($flowStore)) {
 			dispatch('error', { detail: 'forloop' })
 			return
 		}

@@ -25,6 +25,7 @@
 	import { tutorialsToDo } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
+	import { tainted } from '$lib/components/tutorials/utils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -212,12 +213,27 @@
 			}}
 			on:insert={async ({ detail }) => {
 				const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-
-				if ($tutorialsToDo.includes(1) && detail.detail == 'forloop' && svg.length === 0) {
+				const isTainted = tainted($flowStore)
+				if (
+					$tutorialsToDo.includes(1) &&
+					detail.detail == 'forloop' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
 					flowTutorials?.runTutorialById('forloop')
-				} else if ($tutorialsToDo.includes(2) && detail.detail == 'branchone' && svg.length === 0) {
+				} else if (
+					$tutorialsToDo.includes(2) &&
+					detail.detail == 'branchone' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
 					flowTutorials?.runTutorialById('branchone')
-				} else if ($tutorialsToDo.includes(3) && detail.detail == 'branchall' && svg.length === 0) {
+				} else if (
+					$tutorialsToDo.includes(3) &&
+					detail.detail == 'branchall' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
 					if (detail.modules) {
@@ -269,4 +285,4 @@
 	</div>
 </div>
 
-<FlowTutorials bind:this={flowTutorials} />
+<FlowTutorials bind:this={flowTutorials} on:reload />

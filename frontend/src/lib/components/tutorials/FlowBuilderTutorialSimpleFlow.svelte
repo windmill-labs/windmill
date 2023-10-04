@@ -8,6 +8,7 @@
 		clickButtonBySelector,
 		selectFlowStepKind,
 		setInputBySelector,
+		tainted,
 		triggerAddFlowStep
 	} from './utils'
 
@@ -17,10 +18,7 @@
 	const queue: string[] = []
 
 	export function runTutorial() {
-		if (
-			$flowStore.value.modules.length > 0 ||
-			Object.keys($flowStore?.schema?.properties).length > 0
-		) {
+		if (tainted($flowStore)) {
 			dispatch('error', { detail: 'action' })
 			return
 		}
