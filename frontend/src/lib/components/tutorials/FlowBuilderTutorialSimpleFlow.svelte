@@ -24,7 +24,7 @@
 		onPopoverRender: (popover, { config, state }) => {
 			if (state.activeIndex == 0) {
 				const skipThisButton = document.createElement('button')
-				skipThisButton.innerText = 'Skip this'
+				skipThisButton.innerText = 'Skip this tutorials'
 				skipThisButton.addEventListener('click', () => {
 					updateProgress(0)
 					simpleFlowTutorial.destroy()
@@ -35,7 +35,7 @@
 				)
 
 				const skipAllButton = document.createElement('button')
-				skipAllButton.innerText = 'Skip all'
+				skipAllButton.innerText = 'Skip all tutorials'
 				skipAllButton.addEventListener('click', () => {
 					dispatch('skipAll')
 					simpleFlowTutorial.destroy()
@@ -50,11 +50,11 @@
 
 				const div = document.createElement('div')
 
-				div.setAttribute('class', 'flex flex-row gap-2')
+				div.setAttribute('class', 'flex flex-row gap-2 justify-between w-full pt-2')
 
 				if (popoverDescription) {
-					div.appendChild(skipThisButton)
 					div.appendChild(skipAllButton)
+					div.appendChild(skipThisButton)
 
 					popoverDescription.appendChild(div)
 				}
@@ -63,7 +63,7 @@
 		steps: [
 			{
 				popover: {
-					title: 'Welcome in the Windmil Flow editor',
+					title: 'Welcome to the Windmil Flow editor',
 					description: 'Learn how to build powerful flows in a few steps'
 				}
 			},

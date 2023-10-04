@@ -74,6 +74,6 @@
 	}
 
 	.driver-popover {
-		@apply p-6;
+		@apply p-6 bg-surface;
 	}
 </style>
