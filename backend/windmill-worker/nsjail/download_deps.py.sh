@@ -19,6 +19,7 @@ then
       echo "\$TRUSTED_HOST is set to $TRUSTED_HOST"
 fi
 
-CMD="/usr/local/bin/python3 -m pip install -v $REQ -I -t $TARGET --no-cache --no-color --no-deps --isolated --no-warn-conflicts --disable-pip-version-check $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG"
+mkdir -p /tmp/windmill/cache/tmp
+CMD="TMPDIR=/tmp/windmill/cache/tmp /usr/local/bin/python3 -m pip install -v $REQ -I -t $TARGET --no-cache --no-color --no-deps --isolated --no-warn-conflicts --disable-pip-version-check $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG"
 echo $CMD
 eval $CMD
