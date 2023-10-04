@@ -11,11 +11,8 @@
 	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { tutorialsToDo } from '$lib/stores'
-	import { clickButtonBySelector } from './tutorials/utils'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-
-	let buttonDropdown: ButtonDropdown | undefined = undefined
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -34,7 +31,7 @@
 
 {#if !tainted}
 	<button on:pointerdown|stopPropagation>
-		<ButtonDropdown hasPadding={false} bind:this={buttonDropdown}>
+		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
 				<Button nonCaptureEvent size="xs" color="light" variant="border" id="tutorials-button">
 					<div class="flex flex-row gap-2 items-center">
