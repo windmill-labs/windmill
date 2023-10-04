@@ -23,16 +23,14 @@
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
 	import { tutorialsToDo } from '$lib/stores'
-	import FlowBuilderTutorialsForLoop from '$lib/components/tutorials/FlowBuilderTutorialsForLoop.svelte'
-	import FlowBranchOne from '$lib/components/tutorials/FlowBranchOne.svelte'
-	import FlowBranchAll from '$lib/components/tutorials/FlowBranchAll.svelte'
+
+	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
+	import { tainted } from '$lib/components/tutorials/utils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
 
-	let flowBuilderTutorialsForLoop: FlowBuilderTutorialsForLoop | undefined = undefined
-	let flowBranchOne: FlowBranchOne | undefined = undefined
-	let flowBranchAll: FlowBranchAll | undefined = undefined
+	let flowTutorials: FlowTutorials | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -214,12 +212,29 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if ($tutorialsToDo.includes(1) && detail.detail == 'forloop') {
-					flowBuilderTutorialsForLoop?.runTutorial()
-				} else if ($tutorialsToDo.includes(2) && detail.detail == 'branchone') {
-					flowBranchOne?.runTutorial()
-				} else if ($tutorialsToDo.includes(3) && detail.detail == 'branchall') {
-					flowBranchAll?.runTutorial()
+				const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+				const isTainted = tainted($flowStore)
+				if (
+					$tutorialsToDo.includes(1) &&
+					detail.detail == 'forloop' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('forloop')
+				} else if (
+					$tutorialsToDo.includes(2) &&
+					detail.detail == 'branchone' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('branchone')
+				} else if (
+					$tutorialsToDo.includes(3) &&
+					detail.detail == 'branchall' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('branchall')
 				} else {
 					if (detail.modules) {
 						await tick()
@@ -270,6 +285,4 @@
 	</div>
 </div>
 
-<FlowBuilderTutorialsForLoop bind:this={flowBuilderTutorialsForLoop} shouldRenderButton={false} />
-<FlowBranchOne bind:this={flowBranchOne} shouldRenderButton={false} />
-<FlowBranchAll bind:this={flowBranchAll} shouldRenderButton={false} />
+<FlowTutorials bind:this={flowTutorials} on:reload />

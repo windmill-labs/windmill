@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { driver } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import { updateProgress } from '$lib/tutorialUtils'
-	import TutorialItem from './TutorialItem.svelte'
 	import {
 		clickButtonBySelector,
 		selectFlowStepKind,
 		setInputBySelector,
+		tainted,
 		triggerAddFlowStep
 	} from './utils'
-
-	export let shouldRenderButton: boolean = true
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -20,6 +18,11 @@
 	const queue: string[] = []
 
 	export function runTutorial() {
+		if (tainted($flowStore)) {
+			dispatch('error', { detail: 'action' })
+			return
+		}
+
 		const simpleFlowTutorial = driver({
 			showProgress: true,
 			allowClose: true,
@@ -247,7 +250,7 @@
 							$flowStore = $flowStore
 							dispatch('reload')
 
-							tick().then(() => {
+							setTimeout(() => {
 								simpleFlowTutorial.moveNext()
 							})
 						}
@@ -312,12 +315,3 @@
 		simpleFlowTutorial.drive()
 	}
 </script>
-
-{#if shouldRenderButton}
-	<TutorialItem
-		on:click={() => runTutorial()}
-		label="Simple flow tutorial"
-		index={0}
-		id="flow-builder-tutorial-action"
-	/>
-{/if}
