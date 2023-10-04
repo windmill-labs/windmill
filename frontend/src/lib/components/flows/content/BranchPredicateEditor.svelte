@@ -55,10 +55,15 @@
 	</PropPickerWrapper>
 {:else}
 	<div class="flex justify-between gap-4 p-2">
-		<div><pre class="text-sm">{branch.expr}</pre></div><div
-			><Button startIcon={{ icon: faPen }} variant="border" on:click={() => (open = !open)}
-				>Edit Predicate</Button
-			></div
-		>
+		<div><pre class="text-sm">{branch.expr}</pre></div><div>
+			<Button
+				startIcon={{ icon: faPen }}
+				variant="border"
+				on:click={() => (open = !open)}
+				id="flow-editor-edit-predicate"
+			>
+				Edit Predicate
+			</Button>
+		</div>
 	</div>
 {/if}

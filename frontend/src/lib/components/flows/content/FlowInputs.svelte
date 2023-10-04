@@ -30,7 +30,7 @@
 	let filter = ''
 </script>
 
-<div class="p-4 h-full flex flex-col">
+<div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
 	{#if summary == 'Terminate flow'}
 		<Alert role="info" title="The flow stops here"
 			>This is an identity step with an early stop that has 'true' for expression</Alert
@@ -78,7 +78,7 @@
 			</Tooltip>
 		</h3>
 		<div class="flex flex-row">
-			<div class="flex flex-row flex-wrap gap-2">
+			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
 				<FlowScriptPicker
 					label="TypeScript (Deno)"
 					lang={Script.language.DENO}
