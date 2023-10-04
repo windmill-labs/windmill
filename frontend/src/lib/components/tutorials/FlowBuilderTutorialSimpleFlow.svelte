@@ -64,7 +64,8 @@
 			{
 				popover: {
 					title: 'Welcome to the Windmil Flow editor',
-					description: 'Learn how to build powerful flows in a few steps'
+					description:
+						'Learn how to build powerful flows in a few steps. You can use arrow keys to navigate.'
 				}
 			},
 			{
