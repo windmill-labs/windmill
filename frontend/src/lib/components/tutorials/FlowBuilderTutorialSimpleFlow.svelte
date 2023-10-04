@@ -140,7 +140,6 @@
 
 						onPrevClick: () => {
 							simpleFlowTutorial.moveTo(1)
-							debugger
 							$flowStore = JSON.parse(queue.pop() || '{}')
 							dispatch('reload')
 						}
