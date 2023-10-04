@@ -12,8 +12,15 @@
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { tutorialsToDo } from '$lib/stores'
 	import { clickButtonBySelector } from './tutorials/utils'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './flows/types'
 
 	let buttonDropdown: ButtonDropdown | undefined = undefined
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	$: tainted =
+		$flowStore.value.modules.length > 0 || Object.keys($flowStore?.schema?.properties).length > 0
 
 	$: {
 		if (buttonDropdown && $tutorialsToDo.includes(0)) {
@@ -22,47 +29,49 @@
 	}
 </script>
 
-<button on:pointerdown|stopPropagation>
-	<ButtonDropdown hasPadding={false} bind:this={buttonDropdown}>
-		<svelte:fragment slot="buttonReplacement">
-			<Button nonCaptureEvent size="xs" color="light" variant="border" id="tutorials-button">
-				<div class="flex flex-row gap-2 items-center">
-					<BookOpen size={16} />
-					Tutorials
-				</div>
-			</Button>
-		</svelte:fragment>
-		<svelte:fragment slot="items">
-			<FlowBuilderTutorialSimpleFlow on:reload on:skipAll={skipAllTodos} />
-			<FlowBuilderTutorialsForLoop on:reload on:skipAll={skipAllTodos} />
-			<FlowBranchOne on:reload on:skipAll={skipAllTodos} />
-			<FlowBranchAll on:reload on:skipAll={skipAllTodos} />
-			<div class="border-t border-surface-hover" />
-			<MenuItem
-				on:click={() => {
-					resetAllTodos()
-				}}
-			>
-				<div
-					class={classNames(
-						'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-					)}
+{#if !tainted}
+	<button on:pointerdown|stopPropagation>
+		<ButtonDropdown hasPadding={false} bind:this={buttonDropdown}>
+			<svelte:fragment slot="buttonReplacement">
+				<Button nonCaptureEvent size="xs" color="light" variant="border" id="tutorials-button">
+					<div class="flex flex-row gap-2 items-center">
+						<BookOpen size={16} />
+						Tutorials
+					</div>
+				</Button>
+			</svelte:fragment>
+			<svelte:fragment slot="items">
+				<FlowBuilderTutorialSimpleFlow on:reload on:skipAll={skipAllTodos} />
+				<FlowBuilderTutorialsForLoop on:reload on:skipAll={skipAllTodos} />
+				<FlowBranchOne on:reload on:skipAll={skipAllTodos} />
+				<FlowBranchAll on:reload on:skipAll={skipAllTodos} />
+				<div class="border-t border-surface-hover" />
+				<MenuItem
+					on:click={() => {
+						resetAllTodos()
+					}}
 				>
-					Reset tutorials
-				</div>
-			</MenuItem>
-			<MenuItem on:click={() => skipAllTodos()}>
-				<div
-					class={classNames(
-						'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-					)}
-				>
-					Skip tutorials
-				</div>
-			</MenuItem>
-		</svelte:fragment>
-	</ButtonDropdown>
-</button>
+					<div
+						class={classNames(
+							'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+						)}
+					>
+						Reset tutorials
+					</div>
+				</MenuItem>
+				<MenuItem on:click={() => skipAllTodos()}>
+					<div
+						class={classNames(
+							'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+						)}
+					>
+						Skip tutorials
+					</div>
+				</MenuItem>
+			</svelte:fragment>
+		</ButtonDropdown>
+	</button>
+{/if}
 
 <style global>
 	.driver-popover-title {
