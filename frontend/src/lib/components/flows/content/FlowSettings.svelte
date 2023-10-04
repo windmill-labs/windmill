@@ -209,7 +209,7 @@
 							</Slider>
 						</div>
 					</TabContent>
-					<TabContent value="settings-schedule" class="p-4">
+					<TabContent value="settings-schedule" class="p-4 h-full overflow-scroll">
 						<Alert
 							type="info"
 							title="Primary Schedule"

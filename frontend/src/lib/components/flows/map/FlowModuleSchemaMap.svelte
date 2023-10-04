@@ -214,11 +214,13 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if ($tutorialsToDo.includes(1) && detail.detail == 'forloop') {
+				const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+
+				if ($tutorialsToDo.includes(1) && detail.detail == 'forloop' && svg.length === 0) {
 					flowBuilderTutorialsForLoop?.runTutorial()
-				} else if ($tutorialsToDo.includes(2) && detail.detail == 'branchone') {
+				} else if ($tutorialsToDo.includes(2) && detail.detail == 'branchone' && svg.length === 0) {
 					flowBranchOne?.runTutorial()
-				} else if ($tutorialsToDo.includes(3) && detail.detail == 'branchall') {
+				} else if ($tutorialsToDo.includes(3) && detail.detail == 'branchall' && svg.length === 0) {
 					flowBranchAll?.runTutorial()
 				} else {
 					if (detail.modules) {

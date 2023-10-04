@@ -56,6 +56,8 @@
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
+	import FlowTutorials from './FlowTutorials.svelte'
+
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
@@ -847,6 +849,20 @@
 	$: $copilotCurrentStepStore === undefined && blurCopilot()
 
 	let renderCount = 0
+	let flowTutorials: FlowTutorials | undefined = undefined
+
+	$: if (
+		$flowStore.value.modules.length === 0 &&
+		Object.keys($flowStore?.schema?.properties).length === 0 &&
+		loading === false
+	) {
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial) {
+			flowTutorials?.runTutorialById(tutorial)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -992,3 +1008,5 @@
 		Flow Builder not available to operators
 	{/if}
 {/key}
+
+<FlowTutorials bind:this={flowTutorials} />

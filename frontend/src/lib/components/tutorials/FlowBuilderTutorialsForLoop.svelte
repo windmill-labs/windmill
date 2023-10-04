@@ -3,7 +3,6 @@
 	import 'driver.js/dist/driver.css'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import TutorialItem from './TutorialItem.svelte'
 	import { emptyFlowModuleState } from '../flows/utils'
 	import {
 		clickButtonBySelector,
@@ -14,14 +13,20 @@
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	export let shouldRenderButton: boolean = true
-
 	const { flowStore, selectedId, flowStateStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
 	export function runTutorial() {
+		if (
+			$flowStore.value.modules.length > 0 ||
+			Object.keys($flowStore?.schema?.properties).length > 0
+		) {
+			dispatch('error')
+			return
+		}
+
 		const forloopTutorial = driver({
 			showProgress: true,
 			allowClose: true,
@@ -405,12 +410,3 @@
 		forloopTutorial.drive()
 	}
 </script>
-
-{#if shouldRenderButton}
-	<TutorialItem
-		on:click={() => runTutorial()}
-		label="For loops tutorial"
-		index={1}
-		id="flow-builder-tutorial-forloops"
-	/>
-{/if}
