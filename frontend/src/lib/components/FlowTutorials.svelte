@@ -22,7 +22,7 @@
 	}
 </script>
 
-<FlowBuilderTutorialSimpleFlow bind:this={flowBuilderTutorialSimpleFlow} />
-<FlowBuilderTutorialsForLoop bind:this={flowBuilderTutorialsForLoop} />
-<FlowBranchOne bind:this={flowBranchOne} />
-<FlowBranchAll bind:this={flowBranchAll} />
+<FlowBuilderTutorialSimpleFlow bind:this={flowBuilderTutorialSimpleFlow} on:error />
+<FlowBuilderTutorialsForLoop bind:this={flowBuilderTutorialsForLoop} on:error />
+<FlowBranchOne bind:this={flowBranchOne} on:error />
+<FlowBranchAll bind:this={flowBranchAll} on:error />

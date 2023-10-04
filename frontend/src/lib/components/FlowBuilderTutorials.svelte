@@ -80,7 +80,12 @@
 	</ButtonDropdown>
 </button>
 
-<FlowTutorials bind:this={flowTutorials} />
+<FlowTutorials
+	bind:this={flowTutorials}
+	on:error={({ detail }) => {
+		targetTutorial = detail.detail
+	}}
+/>
 
 <ConfirmationModal
 	open={targetTutorial !== undefined}

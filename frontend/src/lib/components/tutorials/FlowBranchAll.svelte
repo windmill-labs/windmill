@@ -16,7 +16,7 @@
 			$flowStore.value.modules.length > 0 ||
 			Object.keys($flowStore?.schema?.properties).length > 0
 		) {
-			dispatch('error')
+			dispatch('error', { detail: 'branchall' })
 			return
 		}
 

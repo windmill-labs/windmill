@@ -14,6 +14,7 @@
 		copilotInfo,
 		enterpriseLicense,
 		hubScripts,
+		tutorialsToDo,
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
@@ -861,6 +862,8 @@
 
 		if (tutorial) {
 			flowTutorials?.runTutorialById(tutorial)
+		} else if ($tutorialsToDo.includes(0)) {
+			flowTutorials?.runTutorialById('action')
 		}
 	}
 </script>
