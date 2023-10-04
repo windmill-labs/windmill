@@ -22,6 +22,12 @@
 			}
 		]
 	}
+
+	let menuRef: Menu<any> | undefined = undefined
+
+	export function toggleOpen() {
+		menuRef?.openMenu()
+	}
 </script>
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
@@ -29,8 +35,12 @@
 		<MenuButton
 			class={twMerge('h-full w-full flex flex-row gap-2 items-center', hasPadding ? 'px-2' : '')}
 		>
-			<slot name="label" />
-			<ChevronDown class="w-5 h-5" />
+			{#if $$slots.buttonReplacement}
+				<slot name="buttonReplacement" />
+			{:else}
+				<slot name="label" />
+				<ChevronDown class="w-5 h-5" />
+			{/if}
 		</MenuButton>
 	</span>
 

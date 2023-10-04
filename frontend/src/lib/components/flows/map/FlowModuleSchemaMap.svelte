@@ -22,9 +22,17 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
+	import { tutorialsToDo } from '$lib/stores'
+	import FlowBuilderTutorialsForLoop from '$lib/components/tutorials/FlowBuilderTutorialsForLoop.svelte'
+	import FlowBranchOne from '$lib/components/tutorials/FlowBranchOne.svelte'
+	import FlowBranchAll from '$lib/components/tutorials/FlowBranchAll.svelte'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
+
+	let flowBuilderTutorialsForLoop: FlowBuilderTutorialsForLoop | undefined = undefined
+	let flowBranchOne: FlowBranchOne | undefined = undefined
+	let flowBranchAll: FlowBranchAll | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -206,20 +214,28 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if (detail.modules) {
-					await tick()
-					if ($moving) {
-						push(history, $flowStore)
-						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-						$moving.modules.splice(indexToRemove, 1)
-						detail.modules.splice(detail.index, 0, $moving.module)
-						$selectedId = $moving.module.id
-						$moving = undefined
-					} else {
-						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
-						$selectedId = detail.modules[detail.index ?? 0].id
+				if ($tutorialsToDo.includes(1) && detail.detail == 'forloop') {
+					flowBuilderTutorialsForLoop?.runTutorial()
+				} else if ($tutorialsToDo.includes(2) && detail.detail == 'branchone') {
+					flowBranchOne?.runTutorial()
+				} else if ($tutorialsToDo.includes(3) && detail.detail == 'branchall') {
+					flowBranchAll?.runTutorial()
+				} else {
+					if (detail.modules) {
+						await tick()
+						if ($moving) {
+							push(history, $flowStore)
+							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
+							$moving.modules.splice(indexToRemove, 1)
+							detail.modules.splice(detail.index, 0, $moving.module)
+							$selectedId = $moving.module.id
+							$moving = undefined
+						} else {
+							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+							$selectedId = detail.modules[detail.index ?? 0].id
+						}
+						$flowStore = $flowStore
 					}
-					$flowStore = $flowStore
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
@@ -253,3 +269,7 @@
 		<FlowErrorHandlerItem />
 	</div>
 </div>
+
+<FlowBuilderTutorialsForLoop bind:this={flowBuilderTutorialsForLoop} shouldRenderButton={false} />
+<FlowBranchOne bind:this={flowBranchOne} shouldRenderButton={false} />
+<FlowBranchAll bind:this={flowBranchAll} shouldRenderButton={false} />

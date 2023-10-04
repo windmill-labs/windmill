@@ -402,7 +402,7 @@ async fn op_resource(
     if let Some(client) = client {
         let result = client
             .get_client()
-            .get_resource_value_interpolated(&client.workspace, path)
+            .get_resource_value_interpolated(&client.workspace, path, None)
             .await?;
         Ok(result.into_inner())
     } else {
