@@ -54,6 +54,7 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
+	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -844,141 +845,150 @@
 	}
 
 	$: $copilotCurrentStepStore === undefined && blurCopilot()
+
+	let renderCount = 0
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-{#if !$userStore?.operator}
-	<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
-	<FlowCopilotInputsModal
-		on:confirmed={async () => {
-			applyCopilotFlowInputs()
-			finishStepGen()
-		}}
-		on:canceled={async () => {
-			clearFlowInputsFromStep($copilotModulesStore[0]?.id)
-			finishStepGen()
-		}}
-		bind:open={openCopilotInputsModal}
-		inputs={Object.keys(copilotFlowInputs)}
-	/>
-	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+{#key renderCount}
+	{#if !$userStore?.operator}
+		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
+		<FlowCopilotInputsModal
+			on:confirmed={async () => {
+				applyCopilotFlowInputs()
+				finishStepGen()
+			}}
+			on:canceled={async () => {
+				clearFlowInputsFromStep($copilotModulesStore[0]?.id)
+				finishStepGen()
+			}}
+			bind:open={openCopilotInputsModal}
+			inputs={Object.keys(copilotFlowInputs)}
+		/>
+		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 
-	<div class="flex flex-col flex-1 h-screen">
-		<!-- Nav between steps-->
-		<div
-			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full relative"
-		>
-			{#if $copilotCurrentStepStore !== undefined}
-				<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
-			{/if}
-			<div class="flex w-full max-w-md gap-4 items-center">
-				<div class="min-w-64 w-full">
-					<input
-						type="text"
-						placeholder="Flow summary"
-						class="text-sm w-full font-semibold"
-						bind:value={$flowStore.summary}
+		<div class="flex flex-col flex-1 h-screen">
+			<!-- Nav between steps-->
+			<div
+				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full relative"
+			>
+				{#if $copilotCurrentStepStore !== undefined}
+					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+				{/if}
+				<div class="flex w-full max-w-md gap-4 items-center">
+					<div class="min-w-64 w-full">
+						<input
+							type="text"
+							placeholder="Flow summary"
+							class="text-sm w-full font-semibold"
+							bind:value={$flowStore.summary}
+						/>
+					</div>
+					<UndoRedo
+						undoProps={{ disabled: $history.index === 0 }}
+						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
+						on:undo={() => {
+							$flowStore = undo(history, $flowStore)
+							$selectedIdStore = 'Input'
+						}}
+						on:redo={() => {
+							$flowStore = redo(history)
+						}}
 					/>
 				</div>
-				<UndoRedo
-					undoProps={{ disabled: $history.index === 0 }}
-					redoProps={{ disabled: $history.index === $history.history.length - 1 }}
-					on:undo={() => {
-						$flowStore = undo(history, $flowStore)
-						$selectedIdStore = 'Input'
-					}}
-					on:redo={() => {
-						$flowStore = redo(history)
-					}}
-				/>
-			</div>
 
-			<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-				{#if $scheduleStore.enabled}
-					<Button
-						btnClasses="hidden lg:inline-flex"
-						startIcon={{ icon: faCalendarAlt }}
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={async () => {
-							select('settings-schedule')
-						}}
-					>
-						{$scheduleStore.cron ?? ''}
-					</Button>
-				{/if}
-				<div class="flex justify-start w-full">
-					<div>
-						<button
+				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
+					{#if $scheduleStore.enabled}
+						<Button
+							btnClasses="hidden lg:inline-flex"
+							startIcon={{ icon: faCalendarAlt }}
+							variant="contained"
+							color="light"
+							size="xs"
 							on:click={async () => {
-								select('settings-metadata')
-								document.getElementById('path')?.focus()
+								select('settings-schedule')
 							}}
 						>
-							<Badge
-								color="gray"
-								class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
+							{$scheduleStore.cron ?? ''}
+						</Button>
+					{/if}
+					<div class="flex justify-start w-full">
+						<div>
+							<button
+								on:click={async () => {
+									select('settings-metadata')
+									document.getElementById('path')?.focus()
+								}}
 							>
-								<Pen size={12} class="mr-2" /> Path
-							</Badge>
-						</button>
+								<Badge
+									color="gray"
+									class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
+								>
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
+						</div>
+						<input
+							type="text"
+							readonly
+							value={$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
+							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+							on:focus={({ currentTarget }) => {
+								currentTarget.select()
+							}}
+						/>
 					</div>
-					<input
-						type="text"
-						readonly
-						value={$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
-						class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
-						on:focus={({ currentTarget }) => {
-							currentTarget.select()
+				</div>
+				<div class="flex flex-row space-x-2">
+					{#if $enterpriseLicense && initialPath != ''}
+						<Awareness />
+					{/if}
+					<FlowBuilderTutorials
+						on:reload={() => {
+							renderCount += 1
 						}}
 					/>
+
+					<FlowCopilotStatus
+						{copilotLoading}
+						bind:copilotStatus
+						{genFlow}
+						{finishCopilotFlowBuilder}
+						{abortController}
+					/>
+
+					<FlowImportExportMenu />
+
+					<FlowPreviewButtons />
+					<Button
+						loading={loadingDraft}
+						size="xs"
+						startIcon={{ icon: faSave }}
+						on:click={() => saveDraft()}
+					>
+						Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
+					</Button>
+					<Button
+						loading={loadingSave}
+						size="xs"
+						startIcon={{ icon: faSave }}
+						on:click={() => saveFlow()}
+						dropdownItems={initialPath != '' ? dropdownItems : undefined}
+					>
+						Deploy
+					</Button>
 				</div>
 			</div>
-			<div class="flex flex-row space-x-2">
-				{#if $enterpriseLicense && initialPath != ''}
-					<Awareness />
-				{/if}
 
-				<FlowCopilotStatus
-					{copilotLoading}
-					bind:copilotStatus
-					{genFlow}
-					{finishCopilotFlowBuilder}
-					{abortController}
-				/>
-
-				<FlowImportExportMenu />
-
-				<FlowPreviewButtons />
-				<Button
-					loading={loadingDraft}
-					size="xs"
-					startIcon={{ icon: faSave }}
-					on:click={() => saveDraft()}
-				>
-					Save draft&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
-				</Button>
-				<Button
-					loading={loadingSave}
-					size="xs"
-					startIcon={{ icon: faSave }}
-					on:click={() => saveFlow()}
-					dropdownItems={initialPath != '' ? dropdownItems : undefined}
-				>
-					Deploy
-				</Button>
-			</div>
+			<!-- metadata -->
+			{#if $flowStateStore}
+				<FlowEditor {loading} />
+			{:else}
+				<CenteredPage>Loading...</CenteredPage>
+			{/if}
 		</div>
-
-		<!-- metadata -->
-		{#if $flowStateStore}
-			<FlowEditor {loading} />
-		{:else}
-			<CenteredPage>Loading...</CenteredPage>
-		{/if}
-	</div>
-{:else}
-	Flow Builder not available to operators
-{/if}
+	{:else}
+		Flow Builder not available to operators
+	{/if}
+{/key}

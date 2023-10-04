@@ -9,9 +9,9 @@
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
 
-	export let loading: boolean
-
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	export let loading: boolean
 
 	let size = 40
 
