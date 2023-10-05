@@ -34,6 +34,9 @@
 				updateApp(e.detail)
 			}}
 			{versions}
+			on:close={() => {
+				historyBrowserDrawerOpen = false
+			}}
 		/>
 	</DrawerContent>
 </Drawer>

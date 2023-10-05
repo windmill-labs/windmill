@@ -35,9 +35,9 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::jobs::JobPayload;
+use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
-use windmill_common::more_serde::maybe_number_opt;
 
 use crate::db::ApiAuthed;
 use crate::saml::SamlSsoLogin;
@@ -659,7 +659,7 @@ pub async fn _refresh_token<'c>(
 
 async fn _exchange_token(client: OClient, refresh_token: &str) -> Result<TokenResponse, Error> {
     let token_json = client
-        .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
+        .exchange_refresh_token(&RefreshToken::from(refresh_token))
         .with_client(&HTTP_CLIENT)
         .execute::<serde_json::Value>()
         .await
