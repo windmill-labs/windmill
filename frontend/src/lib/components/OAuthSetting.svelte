@@ -57,7 +57,7 @@
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://console.cloud.google.com/apis/credentials"
-							target="_blank">in google console</a
+							target="_blank">in Google console</a
 						>
 						and set the redirect URI to <code>BASE_URL/user/login_callback/google</code>
 						where BASE_URL is what you configured as core BASE_URL
@@ -72,7 +72,7 @@
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-							target="_blank">in microsoft portal</a
+							target="_blank">in Microsoft portal</a
 						>
 						and in the "Authentication" tab, set the redirect URI to
 						<code>BASE_URL/user/login_callback/microsoft</code>, the logout channel to
