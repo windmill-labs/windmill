@@ -35,7 +35,9 @@ use windmill_common::{
     worker::{update_ping, CLOUD_HOSTED, WORKER_CONFIG},
     DB, IS_READY, METRICS_ENABLED,
 };
-use windmill_queue::{canceled_job_to_result, get_queued_job, pull, HTTP_CLIENT};
+use windmill_queue::{
+    canceled_job_to_result, get_queued_job, pull, push, PushIsolationLevel, HTTP_CLIENT,
+};
 
 use serde_json::{json, Value};
 
@@ -281,7 +283,6 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
-
 
 
 }
@@ -896,6 +897,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "benchmark")]
     tracing::info!("pre loop time {}s", start.elapsed().as_secs_f64());
 
+    if i_worker == 1 {
+        if let Err(e) =
+            queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name, rsmq.clone()).await
+        {
+            tracing::error!("Error queuing init bash script for worker {worker_name}: {e}");
+        }
+    }
     loop {
         #[cfg(feature = "benchmark")]
         let loop_start = Instant::now();
@@ -1272,6 +1280,52 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     send_result.await.expect("send result failed");
     println!("worker {} exited", i_worker);
+}
+
+async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    db: &Pool<Postgres>,
+    same_worker_tx: Sender<Uuid>,
+    worker_name: &str,
+    rsmq: Option<R>,
+) -> error::Result<()> {
+    if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+        let (uuid, inner_tx) = push(
+            &db,
+            tx,
+            "admins",
+            windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+                content: content.clone(),
+                path: Some(format!("init_script_{worker_name}")),
+                language: ScriptLang::Bash,
+                lock: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+            }),
+            serde_json::Map::new(),
+            worker_name,
+            "worker@windmill.dev",
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            true,
+            None,
+            true,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        inner_tx.commit().await?;
+        same_worker_tx.send(uuid).await.map_err(to_anyhow)?;
+        tracing::info!("Creating initial job {uuid} from initial script script: {content}");
+    }
+    Ok(())
 }
 
 // async fn process_result<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -2283,7 +2337,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2304,7 +2358,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2324,7 +2378,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2339,7 +2393,7 @@ async fn lock_modules(
                         db,
                         worker_name,
                         worker_dir,
-                        job_path.clone(),
+                        job_path,
                         base_internal_url,
                         token,
                     )

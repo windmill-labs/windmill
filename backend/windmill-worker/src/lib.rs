@@ -5,7 +5,7 @@ mod snowflake_executor;
 
 mod bash_executor;
 mod bun_executor;
-mod common;
+pub mod common;
 mod config;
 mod dedicated_worker;
 mod deno_executor;

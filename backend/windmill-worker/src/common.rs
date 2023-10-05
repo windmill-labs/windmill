@@ -40,7 +40,8 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, TIMEOUT_DURATION, WHITELIST_ENVS,
+    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TIMEOUT_DURATION,
+    WHITELIST_ENVS,
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -678,4 +679,11 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
+}
+
+pub async fn clean_cache() -> error::Result<()> {
+    tracing::info!("Started cleaning cache");
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished cleaning cache");
+    Ok(())
 }

@@ -13,6 +13,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
+    worker::WORKER_CONFIG,
 };
 
 lazy_static::lazy_static! {
@@ -26,20 +27,7 @@ lazy_static::lazy_static! {
 
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
-    static ref PIP_LOCAL_DEPENDENCIES: Option<Vec<String>> = {
-        let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
-            .ok()
-            .map(|x| x.split(',').map(|x| x.to_string()).collect());
-        if pip_local_dependencies == Some(vec!["".to_string()]) {
-            None
-        } else {
-            pip_local_dependencies
-        }
-    };
 
-    static ref ADDITIONAL_PYTHON_PATHS: Option<Vec<String>> = std::env::var("ADDITIONAL_PYTHON_PATHS")
-        .ok()
-        .map(|x| x.split(':').map(|x| x.to_string()).collect());
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -84,7 +72,9 @@ pub async fn pip_compile(
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
-    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
+    let requirements = if let Some(pip_local_dependencies) =
+        WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
+    {
         let deps = pip_local_dependencies.clone();
         requirements
             .lines()
@@ -182,8 +172,13 @@ pub async fn handle_python_job(
 ) -> windmill_common::error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_paths: Vec<String> =
-        ADDITIONAL_PYTHON_PATHS.to_owned().unwrap_or_else(|| vec![]);
+    let mut additional_python_paths: Vec<String> = WORKER_CONFIG
+        .read()
+        .await
+        .additional_python_paths
+        .clone()
+        .unwrap_or_else(|| vec![])
+        .clone();
 
     let requirements = match requirements_o {
         Some(r) => r,
