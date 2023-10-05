@@ -68,7 +68,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
-    bun_executor::{gen_lockfile, handle_bun_job},
+    bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
     common::{hash_args, read_result, save_in_cache, transform_json_value, write_file},
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -223,7 +223,8 @@ lazy_static::lazy_static! {
     pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
 
 
-    pub static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
+    pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
 
 
@@ -1531,9 +1532,10 @@ async fn do_nativets(
     logs: String,
     client: &AuthedClient,
     code: String,
+    db: &Pool<Postgres>,
 ) -> windmill_common::error::Result<(serde_json::Value, String)> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
     } else {
         None
     };
@@ -1919,9 +1921,9 @@ async fn handle_code_execution_job(
     };
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_postgresql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Mysql) {
-        return do_mysql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_mysql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -1932,7 +1934,7 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job.clone(), &client.get_authed().await, &inner_content).await;
+            return do_bigquery(job.clone(), &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -1944,10 +1946,10 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job.clone(), &client.get_authed().await, &inner_content).await;
+            return do_snowflake(job.clone(), &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(job.clone(), &client.get_authed().await, &inner_content).await;
+        return do_graphql(job.clone(), &client.get_authed().await, &inner_content, db).await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(
@@ -1955,8 +1957,14 @@ async fn handle_code_execution_job(
             &client.get_token().await,
             inner_content
         );
-        let (result, ts_logs) =
-            do_nativets(job.clone(), logs.clone(), &client.get_authed().await, code).await?;
+        let (result, ts_logs) = do_nativets(
+            job.clone(),
+            logs.clone(),
+            &client.get_authed().await,
+            code,
+            db,
+        )
+        .await?;
         *logs = ts_logs;
         return Ok(result);
     }
@@ -2671,6 +2679,8 @@ async fn capture_dependency_job(
         }
         ScriptLang::Bun => {
             let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
+            //TODO: remove once bun provides sane default fot it
+            let trusted_deps = get_trusted_deps(job_raw_code);
             let req = gen_lockfile(
                 logs,
                 job_id,
@@ -2682,6 +2692,7 @@ async fn capture_dependency_job(
                 base_internal_url,
                 worker_name,
                 true,
+                trusted_deps,
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))

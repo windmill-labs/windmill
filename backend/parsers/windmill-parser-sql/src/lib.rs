@@ -48,7 +48,7 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+))?"#).unwrap();
+    static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *[\r\n$]"#).unwrap();
@@ -213,27 +213,35 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
 }
 
 pub fn parse_pg_typ(typ: &str) -> Typ {
-    match typ {
-        "varchar" => Typ::Str(None),
-        "text" => Typ::Str(None),
-        "int" => Typ::Int,
-        "bigint" => Typ::Int,
-        "bool" => Typ::Bool,
-        "char" => Typ::Str(None),
-        "smallint" => Typ::Int,
-        "smallserial" => Typ::Int,
-        "serial" => Typ::Int,
-        "bigserial" => Typ::Int,
-        "real" => Typ::Float,
-        "double precision" => Typ::Float,
-        "oid" => Typ::Int,
-        _ => Typ::Str(None),
+    if typ.ends_with("[]") {
+        let base_typ = parse_pg_typ(typ.strip_suffix("[]").unwrap());
+        Typ::List(Box::new(base_typ))
+    } else {
+        match typ {
+            "varchar" => Typ::Str(None),
+            "text" => Typ::Str(None),
+            "int" => Typ::Int,
+            "bigint" => Typ::Int,
+            "bool" => Typ::Bool,
+            "char" => Typ::Str(None),
+            "smallint" => Typ::Int,
+            "smallserial" => Typ::Int,
+            "serial" => Typ::Int,
+            "bigserial" => Typ::Int,
+            "real" => Typ::Float,
+            "double precision" => Typ::Float,
+            "numeric" => Typ::Float,
+            "decimal" => Typ::Float,
+            "oid" => Typ::Int,
+            "date" | "time" | "timestamp" => Typ::Datetime,
+            _ => Typ::Str(None),
+        }
     }
 }
 
 pub fn parse_bigquery_typ(typ: &str) -> Typ {
     if typ.ends_with("[]") {
-        let base_typ = parse_bigquery_typ(typ.strip_suffix("[]").unwrap_or(typ));
+        let base_typ = parse_bigquery_typ(typ.strip_suffix("[]").unwrap());
         Typ::List(Box::new(base_typ))
     } else {
         match typ {

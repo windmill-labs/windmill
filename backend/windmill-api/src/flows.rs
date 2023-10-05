@@ -24,7 +24,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
-use sqlx::{Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -42,6 +42,7 @@ use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, Que
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_flows))
+        .route("/list_search", get(list_search_flows))
         .route("/create", post(create_flow))
         .route("/update/*path", post(update_flow))
         .route("/archive/*path", post(archive_flow_by_path))
@@ -56,6 +57,38 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_flows))
         .route("/hub/get/:id", get(get_hub_flow_by_id))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchFlow {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_flows(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchFlow>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let rows = sqlx::query_as!(
+        SearchFlow,
+        "SELECT path, value from flow WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn list_flows(

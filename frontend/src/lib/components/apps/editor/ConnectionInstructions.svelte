@@ -3,6 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import { secondaryMenuRight } from './settingsPanel/secondaryMenu'
+	import { Plug2 } from 'lucide-svelte'
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -17,13 +18,13 @@
 <div class="m-2">
 	<Alert title="Connecting" type="info">
 		<div class="flex gap-2 flex-col">
-			Click on the output of the component you want to connect to on the left panel.
-			<div class="my-2">
-				<ol class="list-disc flex gap-2 flex-col">
-					<li> App is in a frozen state. </li>
-					<li> Clicking on a component will open the component's output on the left. </li>
-					<li> Hover on a component to see its output</li>
-				</ol>
+			<div>
+				Click on the output of the component you want to connect to on the left panel 'Outputs' or
+				in the popup by clicking the <span
+					><div class="inline-flex"
+						><div class="bg-red-500/90 border-red-600 px-1 py-0.5"><Plug2 size={12} /></div></div
+					></span
+				>
 			</div>
 			<div>
 				<Button color="blue" variant="border" size="xs" on:click={stopConnecting}>

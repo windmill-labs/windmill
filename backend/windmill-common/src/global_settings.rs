@@ -5,6 +5,8 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
 pub const LICENSE_KEY_SETTING: &str = "license_key";
+pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
+pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 
 pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",

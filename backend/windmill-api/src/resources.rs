@@ -8,7 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    users::{maybe_refresh_folders, require_owner_of_path},
+    users::{maybe_refresh_folders, require_owner_of_path, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -21,16 +21,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
+use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    jobs::QueuedJob,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    variables,
 };
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
+        .route("/list_search", get(list_search_resources))
         .route("/list_names/:type", get(list_names))
         .route("/get/*path", get(get_resource))
         .route("/exists/*path", get(exists_resource))
@@ -139,6 +143,37 @@ async fn list_names(
     .await?
     .into_iter()
     .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchResource {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_resources(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchResource>> {
+    let mut tx = user_db.begin(&authed).await?;
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let rows = sqlx::query_as!(
+        SearchResource,
+        "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -271,10 +306,16 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+#[derive(Deserialize)]
+struct JobInfo {
+    job_id: Option<Uuid>,
+}
 async fn get_resource_value_interpolated(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Tokened { token }: Tokened,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(job_info): Query<JobInfo>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -291,7 +332,7 @@ async fn get_resource_value_interpolated(
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
         Ok(Json(Some(
-            transform_json_value(&authed, &user_db, &w_id, value).await?,
+            transform_json_value(&authed, &user_db, &w_id, value, &job_info.job_id, &token).await?,
         )))
     } else {
         Ok(Json(None))
@@ -306,6 +347,8 @@ pub async fn transform_json_value<'c>(
     user_db: &UserDB,
     workspace: &str,
     v: Value,
+    job_id: &Option<Uuid>,
+    token: &str,
 ) -> Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -331,16 +374,65 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db, workspace, v).await
+                transform_json_value(authed, user_db, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
+        }
+        Value::String(y) if y.starts_with("$") && job_id.is_some() => {
+            let mut tx = user_db.clone().begin(authed).await?;
+            let job = sqlx::query_as::<_, QueuedJob>(
+                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(job_id.unwrap())
+            .bind(workspace)
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+
+            let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
+
+            let flow_path = if let Some(uuid) = job.parent_job {
+                let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
+                let p = sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+                tx.commit().await?;
+                p
+            } else {
+                None
+            };
+
+            let variables = variables::get_reserved_variables(
+                &job.workspace_id,
+                token,
+                &job.email,
+                &job.created_by,
+                &job.id.to_string(),
+                &job.permissioned_as,
+                job.script_path.clone(),
+                job.parent_job.map(|x| x.to_string()),
+                flow_path,
+                job.schedule_path.clone(),
+                job.flow_step_id.clone(),
+            )
+            .await;
+
+            let name = y.strip_prefix("$").unwrap();
+
+            let value = variables
+                .iter()
+                .find(|x| x.name == name)
+                .map(|x| x.value.clone())
+                .unwrap_or_else(|| y);
+            Ok(serde_json::json!(value))
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(authed, user_db, workspace, b).await?,
+                    transform_json_value(authed, user_db, workspace, b, job_id, token).await?,
                 );
             }
             Ok(Value::Object(m))

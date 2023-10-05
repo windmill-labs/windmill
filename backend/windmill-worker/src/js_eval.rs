@@ -27,7 +27,6 @@ use tokio::{
 };
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
-use windmill_queue::HTTP_CLIENT;
 
 use crate::AuthedClient;
 
@@ -403,7 +402,7 @@ async fn op_resource(
     if let Some(client) = client {
         let result = client
             .get_client()
-            .get_resource_value_interpolated(&client.workspace, path)
+            .get_resource_value_interpolated(&client.workspace, path, None)
             .await?;
         Ok(result.into_inner())
     } else {
@@ -505,7 +504,8 @@ pub async fn eval_fetch_timeout(
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 op_state.put(PermissionsContainer{});
-                op_state.put(HTTP_CLIENT.clone());
+                //reqwest client seems to not be sharable between runtimes unfortunately
+                // op_state.put(HTTP_CLIENT.clone());
                 op_state.put(MainArgs { args: spread });
                 op_state.put(LogString { s: String::new() });
             }

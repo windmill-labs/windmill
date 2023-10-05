@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import { faCheck, faClose, faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons'
-	import { dbSchemas, existsOpenaiResourcePath, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
@@ -106,7 +106,7 @@
 
 	function updateSchema(lang, args) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (schemaRes instanceof String) {
+		if (typeof schemaRes === 'string') {
 			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
 		}
 	}
@@ -187,12 +187,12 @@
 					</Button>
 				</svelte:fragment>
 				{@const fixAction = (_) => {
-					if ($existsOpenaiResourcePath) {
+					if ($copilotInfo.exists_openai_resource_path) {
 						onFix(() => close(null))
 					}
 				}}
 				<div use:fixAction>
-					{#if $existsOpenaiResourcePath}
+					{#if $copilotInfo.exists_openai_resource_path}
 						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
 							{#if $generatedCode.length > 0}
 								<div class="overflow-x-scroll">

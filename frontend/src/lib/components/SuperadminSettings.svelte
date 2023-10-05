@@ -2,7 +2,7 @@
 	import { UserService, GlobalUserInfo } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Badge, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
@@ -11,6 +11,10 @@
 	import Uptodate from './Uptodate.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
 	import InstanceSettings from './InstanceSettings.svelte'
+	import { truncate } from '$lib/utils'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { userStore } from '$lib/stores'
 
 	let drawer: Drawer
 	let filter = ''
@@ -68,7 +72,7 @@
 						<div class="pt-4" />
 						<TabContent value="users">
 							<div class="h-full">
-								<div class="p-2 border mb-4">
+								<div class="py-2 mb-4">
 									<InviteGlobalUser on:new={listUsers} />
 								</div>
 								<div class="pb-1" />
@@ -81,37 +85,41 @@
 											<th>email</th>
 											<th>auth</th>
 											<th>name</th>
-											<th>company</th>
 											<th />
 											<th />
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers as { email, super_admin, login_type, name, company } (email)}
+												{#each filteredUsers as { email, super_admin, login_type, name } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
-														<td><span class="break-words">{name ?? ''}</span></td>
-														<td><span class="break-words">{company ?? ''}</span></td>
-														<td
-															>{#if super_admin}<Badge>Superadmin</Badge>{/if}</td
-														>
+														<td><span class="break-words">{truncate(name ?? '', 30)}</span></td>
+														<td>
+															<ToggleButtonGroup
+																selected={super_admin}
+																on:selected={async (e) => {
+																	if (email == $userStore?.email) {
+																		sendUserToast('You cannot demote yourself', true)
+																		listUsers()
+																		return
+																	}
+																	await UserService.globalUserUpdate({
+																		email,
+																		requestBody: {
+																			is_super_admin: !super_admin
+																		}
+																	})
+																	sendUserToast('User updated')
+																	listUsers()
+																}}
+															>
+																<ToggleButton value={false} size="xs" label="User" />
+																<ToggleButton value={true} size="xs" label="Superdmin" />
+															</ToggleButtonGroup>
+														</td>
 														<td>
 															<div class="flex flex-row gap-x-1">
-																<button
-																	class="text-blue-500 whitespace-nowrap"
-																	on:click={async () => {
-																		await UserService.globalUserUpdate({
-																			email,
-																			requestBody: {
-																				is_super_admin: !super_admin
-																			}
-																		})
-																		sendUserToast('User updated')
-																		listUsers()
-																	}}>make {super_admin ? 'non-superadmin' : 'superadmin'}</button
-																>
-																|
 																<button
 																	class="text-red-500 whitespace-nowrap"
 																	on:click={async () => {

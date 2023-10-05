@@ -90,7 +90,7 @@ pub async fn handle_go_job(
 
         logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
         set_logs(logs, &job.id, db).await;
-        create_args_and_out_file(client, job, job_dir).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
 
@@ -212,7 +212,7 @@ func Run(req Req) (interface{{}}, error){{
         tokio::fs::copy(path, format!("{job_dir}/main")).await?;
         logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
         set_logs(logs, &job.id, db).await;
-        create_args_and_out_file(client, job, job_dir).await?;
+        create_args_and_out_file(client, job, job_dir, db).await?;
     }
 
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;

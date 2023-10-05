@@ -1,6 +1,64 @@
 # Changelog
 
 
+## [1.181.0](https://github.com/windmill-labs/windmill/compare/v1.180.0...v1.181.0) (2023-10-05)
+
+
+### Features
+
+* add npm_config_registry support for bun, deno and being settable from UI ([#2373](https://github.com/windmill-labs/windmill/issues/2373)) ([c42b875](https://github.com/windmill-labs/windmill/commit/c42b8750f1d41c9b4de6c96f1ea82239c5325495))
+* **frontend:** add driverjs ([#2327](https://github.com/windmill-labs/windmill/issues/2327)) ([bda6f1f](https://github.com/windmill-labs/windmill/commit/bda6f1fe5d44a3c1d925c1b8a8e872d9f5fba484))
+
+
+### Bug Fixes
+
+* add numeric, array and date types ([#2379](https://github.com/windmill-labs/windmill/issues/2379)) ([768f972](https://github.com/windmill-labs/windmill/commit/768f972cbf578b3394f89120d172b02bcaac5413))
+* add reserved variables in args ([#2371](https://github.com/windmill-labs/windmill/issues/2371)) ([e7165f3](https://github.com/windmill-labs/windmill/commit/e7165f3357a2ba7a690accd78a03c2518aa61860))
+* ai flow prompt fix + explanation in ui ([#2374](https://github.com/windmill-labs/windmill/issues/2374)) ([66d15f0](https://github.com/windmill-labs/windmill/commit/66d15f0c17698077c5bf299af8368e9cfdbf3ecb))
+* flow trigger prompt + lower temp ([#2377](https://github.com/windmill-labs/windmill/issues/2377)) ([733bfe3](https://github.com/windmill-labs/windmill/commit/733bfe3f14e6eb0237c6a528ab64ae71082a4679))
+* **frontend:** fix flow tutorials ([#2383](https://github.com/windmill-labs/windmill/issues/2383)) ([63ad53f](https://github.com/windmill-labs/windmill/commit/63ad53fa70c4f1769d873bff962bfb2d66081163))
+* schema autocomplete/ai ([#2372](https://github.com/windmill-labs/windmill/issues/2372)) ([9ed748a](https://github.com/windmill-labs/windmill/commit/9ed748a0dac95f152f91de6e25b63d841af0dd50))
+* trigger bun prompt ([#2368](https://github.com/windmill-labs/windmill/issues/2368)) ([fc9adbe](https://github.com/windmill-labs/windmill/commit/fc9adbe56081065fa3de662e664fcebe0f4c25ee))
+
+## [1.180.0](https://github.com/windmill-labs/windmill/compare/v1.179.1...v1.180.0) (2023-10-01)
+
+
+### Features
+
+* code content search ([#2367](https://github.com/windmill-labs/windmill/issues/2367)) ([fb96059](https://github.com/windmill-labs/windmill/commit/fb960594fce265d5d4f4eb443e0c9cc19d14e025))
+
+
+### Bug Fixes
+
+* improve connection in apps ([a2fca17](https://github.com/windmill-labs/windmill/commit/a2fca17ae2ac8257154e2aec4a0ceabfe16fc46a))
+
+## [1.179.1](https://github.com/windmill-labs/windmill/compare/v1.179.0...v1.179.1) (2023-09-30)
+
+
+### Bug Fixes
+
+* fix 0 len flow module processing ([f97289a](https://github.com/windmill-labs/windmill/commit/f97289a3d8bc6ce978d0be1fec35a424211e4a20))
+
+## [1.179.0](https://github.com/windmill-labs/windmill/compare/v1.178.1...v1.179.0) (2023-09-30)
+
+
+### Features
+
+* add trustedDependencies escape hatch for bun ([#2364](https://github.com/windmill-labs/windmill/issues/2364)) ([52df265](https://github.com/windmill-labs/windmill/commit/52df2650ea5d5c03e94c96af0b8a79275856fc37))
+* ai code completion ([#2361](https://github.com/windmill-labs/windmill/issues/2361)) ([0937706](https://github.com/windmill-labs/windmill/commit/093770692ac40b8ee0139f24d63bcccda9bf6ddb))
+* **backend:** parse expires_in from string in TokenResponse ([#2353](https://github.com/windmill-labs/windmill/issues/2353)) ([4621915](https://github.com/windmill-labs/windmill/commit/46219154de07ef5a6e071f1c2859cea35c7f9943))
+* **frontend:** copy schema from json and past runs in flow inputs ([#2352](https://github.com/windmill-labs/windmill/issues/2352)) ([3cb2977](https://github.com/windmill-labs/windmill/commit/3cb29778dd70199d9504aa7c1a12bfd7a02569d6))
+
+
+### Bug Fixes
+
+* error handler does not recover flow anymore and error handler is called only once up the flow ([445bf96](https://github.com/windmill-labs/windmill/commit/445bf965eddc6da39a125fce60b53e0903698664))
+* **frontend:** Properly handle click ([#2351](https://github.com/windmill-labs/windmill/issues/2351)) ([55b7f98](https://github.com/windmill-labs/windmill/commit/55b7f982c2bbbb5d4daa9752ec8ffc0c79c374fc))
+* **frontend:** timezone fix ([#2360](https://github.com/windmill-labs/windmill/issues/2360)) ([dcfa5fc](https://github.com/windmill-labs/windmill/commit/dcfa5fc0e40f5cd8dba5a26be31695ce765c7e23))
+* improve superadmin settings page ([b029027](https://github.com/windmill-labs/windmill/commit/b029027c1c75c0b6489966371db7d2f9c99d15f8))
+* non skipped failures stop even in presence of an error handler ([1c5cc0c](https://github.com/windmill-labs/windmill/commit/1c5cc0c237101caf6c5e6e34b11c967a27cd4112))
+* remove shared http clients in rest runtime ([4931ed9](https://github.com/windmill-labs/windmill/commit/4931ed95c4b12f63effa1dd7d6a5cd526a612302))
+
 ## [1.178.1](https://github.com/windmill-labs/windmill/compare/v1.178.0...v1.178.1) (2023-09-28)
 
 

@@ -30,7 +30,7 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
-	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import { dbSchemas, type DBSchema, copilotInfo } from '$lib/stores'
 
 	import {
 		createHash as randomHash,
@@ -47,6 +47,8 @@
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api'
+	import { sleep } from '$lib/utils'
+	import { editorCodeCompletion } from './copilot/completion'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -238,7 +240,7 @@
 
 	function updateSchema(lang, args) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (schemaRes instanceof String) {
+		if (typeof schemaRes === 'string') {
 			dbSchema = $dbSchemas[schemaRes.replace('$res:', '')]
 		}
 	}
@@ -353,6 +355,78 @@
 			})
 		}
 	}
+
+	let copilotCompletor: Disposable | undefined = undefined
+	let copilotTs = Date.now()
+	let abortController: AbortController | undefined = undefined
+	function addCopilotSuggestions() {
+		if (copilotCompletor) {
+			copilotCompletor.dispose()
+		}
+		copilotCompletor = languages.registerInlineCompletionsProvider(
+			{ pattern: '**' },
+			{
+				freeInlineCompletions(completions) {},
+				async provideInlineCompletions(model, position, context, token) {
+					abortController?.abort()
+					const textUntilPosition = model.getValueInRange({
+						startLineNumber: 1,
+						startColumn: 1,
+						endLineNumber: position.lineNumber,
+						endColumn: position.column
+					})
+
+					let items: languages.InlineCompletions<languages.InlineCompletion>['items'] = []
+
+					const lastChar = textUntilPosition[textUntilPosition.length - 1]
+					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
+						const textAfterPosition = model.getValueInRange({
+							startLineNumber: position.lineNumber,
+							startColumn: position.column,
+							endLineNumber: model.getLineCount() + 1,
+							endColumn: 1
+						})
+						const thisTs = Date.now()
+						copilotTs = thisTs
+						await sleep(500)
+						if (copilotTs === thisTs) {
+							abortController?.abort()
+							abortController = new AbortController()
+							const insertText = await editorCodeCompletion(
+								textUntilPosition,
+								textAfterPosition,
+								lang,
+								abortController
+							)
+							if (insertText) {
+								items = [
+									{
+										insertText,
+										range: {
+											startLineNumber: position.lineNumber,
+											startColumn: position.column,
+											endLineNumber: position.lineNumber,
+											endColumn: position.column
+										},
+										completeBracketPairs: false
+									}
+								]
+							}
+						}
+					}
+
+					return {
+						items,
+						commands: []
+					}
+				}
+			}
+		)
+	}
+
+	$: $copilotInfo.exists_openai_resource_path &&
+		$copilotInfo.code_completion_enabled &&
+		addCopilotSuggestions()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -922,6 +996,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
+		copilotCompletor && copilotCompletor.dispose()
 	})
 </script>
 

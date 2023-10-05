@@ -67,9 +67,9 @@
 					resource_type: 'openai'
 				}
 			})
-			await WorkspaceService.editOpenaiResourcePath({
+			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: { openai_resource_path: path }
+				requestBody: { openai_resource_path: path, code_completion_enabled: false }
 			})
 		}
 

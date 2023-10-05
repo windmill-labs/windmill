@@ -125,7 +125,7 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.3,
+            temperature=0,
             max_tokens=2048,
         )
 

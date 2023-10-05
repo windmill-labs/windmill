@@ -243,8 +243,11 @@
 								connectProperty(path)
 								return true
 							})
-						}}><Plug size={16} /> &rightarrow;</Button
+						}}
+						id="flow-editor-plug"
 					>
+						<Plug size={16} /> &rightarrow;
+					</Button>
 				</div>
 			</div>
 		{/if}

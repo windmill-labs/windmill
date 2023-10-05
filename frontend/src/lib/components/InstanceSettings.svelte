@@ -17,6 +17,7 @@
 	import { capitalize } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	export const settings: Record<string, Setting[]> = {
 		Core: [
@@ -61,6 +62,26 @@
 				fieldType: 'license_key',
 				placeholder: 'only needed to prepare upgrade to EE',
 				storage: 'setting'
+			},
+			{
+				label: 'Pip Extra Index Url',
+				description: 'Add private PIP registry',
+				key: 'pip_extra_index_url',
+				fieldType: 'text',
+				placeholder: 'https://username:password@pypi.company.com/simple',
+				storage: 'setting',
+				ee_only:
+					'You can still set this setting by using PIP_EXTRA_INDEX_URL as env variable to the worker containers'
+			},
+			{
+				label: 'Npm Config Registry',
+				description: 'Add private NPM registry',
+				key: 'npm_config_registry',
+				fieldType: 'text',
+				placeholder: 'https://yourregistry',
+				storage: 'setting',
+				ee_only:
+					'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
 			}
 		],
 		SMTP: [
@@ -153,7 +174,7 @@
 			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
 			const newServerConfig = Object.fromEntries(
 				allSettings
-					.filter((x) => x[1].storage == 'config')
+					.filter((x) => x[1].storage == 'config' && values?.[x[1].key] && values?.[x[1].key] != '')
 					.map((x) => [x[1].key, values?.[x[1].key]])
 			)
 			if (!deepEqual(newServerConfig, serverConfig)) {
@@ -165,19 +186,20 @@
 			}
 			await Promise.all(
 				allSettings
-					.filter(
-						(x) =>
+					.filter((x) => {
+						return (
 							x[1].storage == 'setting' &&
 							!deepEqual(initialValues?.[x[1].key], values?.[x[1].key]) &&
-							values?.[x[1].key] != undefined &&
-							values?.[x[1].key] != null &&
-							values?.[x[1].key] != ''
-					)
+							(values?.[x[1].key] != '' ||
+								initialValues?.[x[1].key] != undefined ||
+								initialValues?.[x[1].key] != null)
+						)
+					})
 					.map(async ([_, x]) => {
 						await SettingService.setGlobal({ key: x.key, requestBody: { value: values?.[x.key] } })
 					})
 			)
-			initialValues = JSON.parse(JSON.stringify(initialValues))
+			initialValues = JSON.parse(JSON.stringify(values))
 
 			if (!deepEqual(initialOauths, oauths)) {
 				await SettingService.setGlobal({
@@ -251,6 +273,12 @@
 						<div class="flex-col flex gap-2 pb-4">
 							{#each settings[category] as setting}
 								{#if !setting.cloudonly || isCloudHosted()}
+									{#if setting.ee_only != undefined && !$enterpriseLicense}
+										<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
+											<AlertTriangle size={16} />
+											EE only <Tooltip>{setting.ee_only}</Tooltip>
+										</div>
+									{/if}
 									<label class="block pb-2">
 										<span class="text-primary font-semibold text-sm">{setting.label}</span>
 										{#if setting.description}
@@ -262,6 +290,7 @@
 										{#if values}
 											{#if setting.fieldType == 'text'}
 												<input
+													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
@@ -292,7 +321,7 @@
 												</div>
 												{#if values[setting.key]?.length > 0}
 													{#if parseDate(values[setting.key])}
-														<span class="text-gray-600 text-2xs"
+														<span class="text-tertiary text-2xs"
 															>License key expires on {parseDate(values[setting.key])}</span
 														>
 													{/if}
@@ -429,7 +458,11 @@
 								<option value={name}>{capitalize(name)}</option>
 							{/each}
 						</select>
-						<input type="text" placeholder="client_id" bind:value={resourceName} />
+						{#if oauth_name == 'custom'}
+							<input type="text" placeholder="client_id" bind:value={resourceName} />
+						{:else}
+							<input type="text" value={oauth_name} disabled />
+						{/if}
 						<Button
 							variant="border"
 							color="blue"

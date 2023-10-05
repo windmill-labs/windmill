@@ -53,6 +53,8 @@ pub async fn handle_bash_job(
         &client,
         &job.workspace_id,
         job.args.clone().unwrap_or_else(|| json!({})),
+        job,
+        db,
     )
     .await?
     {
@@ -173,6 +175,8 @@ pub async fn handle_powershell_job(
             &client,
             &job.workspace_id,
             job.args.clone().unwrap_or_else(|| json!({})),
+            job,
+            db,
         )
         .await?
         {

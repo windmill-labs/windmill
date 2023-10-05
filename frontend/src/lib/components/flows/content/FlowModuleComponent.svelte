@@ -84,6 +84,7 @@
 			return modules
 		})
 	}
+
 	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker = failureModule
@@ -222,6 +223,7 @@
 				bind:this={panes}
 				class="h-full"
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
+				id="flow-editor-editor"
 			>
 				<Splitpanes horizontal>
 					<Pane bind:size={editorPanelSize} minSize={20}>
@@ -291,7 +293,7 @@
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
-								<div class="h-full overflow-auto">
+								<div class="h-full overflow-auto" id="flow-editor-step-input">
 									<PropPickerWrapper
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
@@ -359,16 +361,16 @@
 										</div>
 									{:else if advancedSelected === 'concurrency'}
 										<div>
-											<h2 class="pb-4">
+											<h2 class="leading-10 !text-sm font-bold">
 												Concurrency Limits
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 											</h2>
 										</div>
 										{#if flowModule.value.type == 'rawscript'}
 											<div>
-												<div class="text-xs font-bold !mt-2"
-													>Max number of executions within the time window</div
-												>
+												<div class="text-xs !mt-2 font-semibold leading-6">
+													Max number of executions within the time window
+												</div>
 												<div class="flex flex-row gap-2 max-w-sm"
 													><input bind:value={flowModule.value.concurrent_limit} type="number" />
 													<Button
@@ -399,17 +401,19 @@
 												btnClasses="mt-4"
 												on:click={() => {
 													$selectedId = 'settings-same-worker'
-												}}>Set shared directory in the flow settings</Button
+												}}
 											>
+												Set shared directory in the flow settings
+											</Button>
 										</div>
 									{:else if advancedSelected === 's3'}
 										<div>
 											<h2 class="pb-4">
 												S3 snippets
-												<Tooltip
-													>Pull, push and aggregate snippets for S3, particularly useful for ETL
-													processes.</Tooltip
-												>
+												<Tooltip>
+													Pull, push and aggregate snippets for S3, particularly useful for ETL
+													processes.
+												</Tooltip>
 											</h2>
 										</div>
 										<div class="flex gap-2 justify-between mb-4 items-center">
@@ -424,7 +428,8 @@
 												size="xs"
 												on:click={() =>
 													editor.setCode(s3Scripts[flowModule.value['language']][s3Kind])}
-												>Apply snippet
+											>
+												Apply snippet
 											</Button>
 										</div>
 										<HighlightCode

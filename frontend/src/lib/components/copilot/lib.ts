@@ -3,7 +3,7 @@ import { OpenAPI } from '../../gen/core/OpenAPI'
 import { ResourceService, Script, WorkspaceService } from '../../gen'
 import type { Writable } from 'svelte/store'
 
-import { existsOpenaiResourcePath, workspaceStore, type DBSchema } from '$lib/stores'
+import { copilotInfo, workspaceStore, type DBSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
@@ -16,7 +16,7 @@ import { buildClientSchema, printSchema } from 'graphql'
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
 const openaiConfig: CompletionCreateParamsStreaming = {
-	temperature: 0.3,
+	temperature: 0,
 	max_tokens: 2048,
 	model: 'gpt-4',
 	stream: true,
@@ -39,12 +39,13 @@ workspaceStore.subscribe(async (value) => {
 	})
 	if (value) {
 		try {
-			existsOpenaiResourcePath.set(
-				await WorkspaceService.existsOpenaiResourcePath({ workspace: value })
-			)
+			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace: value }))
 		} catch (err) {
-			existsOpenaiResourcePath.set(false)
-			console.error('Could not get if OpenAI resource exists')
+			copilotInfo.set({
+				exists_openai_resource_path: false,
+				code_completion_enabled: false
+			})
+			console.error('Could not get copilot info')
 		}
 	}
 })
@@ -175,7 +176,8 @@ const PROMPTS_CONFIGS = {
 
 export async function getNonStreamingCompletion(
 	messages: CreateChatCompletionRequestMessage[],
-	abortController: AbortController
+	abortController: AbortController,
+	model: string = 'gpt-4'
 ) {
 	if (!openai) {
 		throw new Error('OpenAI not initialized')
@@ -185,12 +187,18 @@ export async function getNonStreamingCompletion(
 		{
 			...openaiConfig,
 			messages,
-			stream: false
+			stream: false,
+			model
 		},
 		{
 			signal: abortController.signal
 		}
 	)
+
+	// if (completion.usage) {
+	// 	const { prompt_tokens, completion_tokens } = completion.usage
+	// 	console.log('Cost: ', (prompt_tokens * 0.0015 + completion_tokens * 0.002) / 1000)
+	// }
 
 	return completion.choices[0]?.message.content || ''
 }

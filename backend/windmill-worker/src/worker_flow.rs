@@ -70,6 +70,7 @@ pub async fn update_flow_status_after_job_completion<
         same_worker_tx.clone(),
         worker_dir,
         stop_early_override,
+        false,
         rsmq.clone(),
     )
     .await?;
@@ -87,6 +88,7 @@ pub async fn update_flow_status_after_job_completion<
             same_worker_tx.clone(),
             worker_dir,
             nrec.stop_early_override,
+            nrec.skip_error_handler,
             rsmq.clone(),
         )
         .await?;
@@ -99,6 +101,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     success: bool,
     result: serde_json::Value,
     stop_early_override: Option<bool>,
+    skip_error_handler: bool,
 }
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal<
@@ -116,9 +119,10 @@ pub async fn update_flow_status_after_job_completion_internal<
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
+    skip_error_handler: bool,
     rsmq: Option<R>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
-    let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
+    let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult, is_failure_step) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
         let old_status_json = sqlx::query_scalar!(
@@ -162,10 +166,23 @@ pub async fn update_flow_status_after_job_completion_internal<
             (false, None)
         };
 
-        let is_failure_step = old_status.step >= old_status.modules.len() as i32;
+        // 0 length flows are not failure steps
+        let is_failure_step =
+            old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
         let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
-            (true, se)
+            //do not stop early if module is a flow step
+            let mut tx = db.begin().await?;
+            let flow_job = get_queued_job(flow, w_id, &mut tx)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
+            tx.commit().await?;
+            let module = get_module(&flow_job, module_index);
+            if module.is_some_and(|x| matches!(x.value, FlowModuleValue::Flow { .. })) {
+                (false, false)
+            } else {
+                (true, se)
+            }
         } else if is_failure_step {
             (false, false)
         } else {
@@ -203,8 +220,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .unwrap_or(false),
             _ => false,
         };
-
-        let skip_failure = skip_branch_failure || skip_loop_failures;
 
         let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
@@ -327,6 +342,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     _ => (None, None),
                 };
                 if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
+                    success = true;
                     (
                         true,
                         Some(FlowStatusModule::Success {
@@ -485,22 +501,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let module = {
-            let raw_flow = flow_job.parse_raw_flow();
-            if let Some(raw_flow) = raw_flow {
-                if let Some(i) = module_index {
-                    if let Some(module) = raw_flow.modules.get(i) {
-                        Some(module.clone())
-                    } else {
-                        raw_flow.failure_module
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
         //     "UPDATE FLOW STATUS 3: {module:#?} {skip_failure} {is_last_step} {success}"
@@ -510,7 +511,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             _ if flow_job.canceled => false,
             true => !is_last_step,
             false if unrecoverable => false,
-            false if skip_failure => !is_last_step,
+            false if skip_branch_failure || skip_loop_failures => !is_last_step,
             false
                 if next_retry(
                     &module.and_then(|m| m.retry.clone()).unwrap_or_default(),
@@ -520,7 +521,11 @@ pub async fn update_flow_status_after_job_completion_internal<
             {
                 true
             }
-            false if has_failure_module(flow, tx.transaction_mut()).await? && !is_failure_step => {
+            false
+                if !is_failure_step
+                    && !skip_error_handler
+                    && has_failure_module(flow, tx.transaction_mut()).await? =>
+            {
                 true
             }
             false => false,
@@ -548,6 +553,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             stop_early,
             skip_if_stop_early,
             nresult,
+            is_failure_step,
         )
     };
 
@@ -584,7 +590,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             add_completed_job(
                 db,
                 &flow_job,
-                success,
+                success && !is_failure_step && !skip_error_handler,
                 stop_early && skip_if_stop_early,
                 &nresult,
                 logs,
@@ -631,18 +637,36 @@ pub async fn update_flow_status_after_job_completion_internal<
             return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
                 flow: parent_job,
                 job_id_for_status: flow,
-                success,
+                success: success && !is_failure_step,
                 result: nresult,
                 stop_early_override: if stop_early {
                     Some(skip_if_stop_early)
                 } else {
                     None
                 },
+                skip_error_handler: skip_error_handler || is_failure_step,
             }));
         }
         Ok(None)
     } else {
         Ok(None)
+    }
+}
+
+fn get_module(flow_job: &QueuedJob, module_index: Option<usize>) -> Option<FlowModule> {
+    let raw_flow = flow_job.parse_raw_flow();
+    if let Some(raw_flow) = raw_flow {
+        if let Some(i) = module_index {
+            if let Some(module) = raw_flow.modules.get(i) {
+                Some(module.clone())
+            } else {
+                raw_flow.failure_module
+            }
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 

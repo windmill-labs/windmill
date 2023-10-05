@@ -5,9 +5,12 @@
 
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
-	import TimezonePicker from 'svelte-timezone-picker'
 	import CollapseLink from './CollapseLink.svelte'
 	import { Button } from './common'
+	import Select from '../components/apps/svelte-select/lib/index'
+	import timezones from './timezones'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import { onMount } from 'svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -142,6 +145,34 @@
 		timeZone: timezone,
 		timeZoneName: 'short'
 	}).format
+
+	let darkMode: boolean = false
+
+	function onThemeChange() {
+		if (document.documentElement.classList.contains('dark')) {
+			darkMode = true
+		} else {
+			darkMode = false
+		}
+	}
+
+	onMount(() => {
+		onThemeChange()
+	})
+
+	const items = Object.keys(timezones)
+		.map((key) => {
+			return Object.keys(timezones[key])
+				.map((subKey) => {
+					return {
+						value: subKey,
+						label: subKey,
+						group: timezones[key][subKey][1]
+					}
+				})
+				.flat()
+		})
+		.flat()
 </script>
 
 <div class="w-full flex space-x-16">
@@ -170,7 +201,19 @@
 					<Badge>{timezone}</Badge>
 				</div>
 			{:else}
-				<TimezonePicker {timezone} on:update={(e) => (timezone = e.detail.timezone)} />
+				<Select
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={'border-color: #999;' +
+						(darkMode
+							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+							: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
+					{items}
+					groupBy={(item) => item.group}
+					on:change={(w) => {
+						timezone = w.detail.label
+					}}
+					value={timezone}
+				/>
 			{/if}
 		</div>
 
