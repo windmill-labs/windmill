@@ -58,7 +58,6 @@
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	import FlowTutorials from './FlowTutorials.svelte'
-	import { tainted } from './tutorials/utils'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -853,7 +852,7 @@
 	let renderCount = 0
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	$: if (!tainted($flowStore) && loading === false) {
+	export function triggerTutorial() {
 		const urlParams = new URLSearchParams(window.location.search)
 		const tutorial = urlParams.get('tutorial')
 
