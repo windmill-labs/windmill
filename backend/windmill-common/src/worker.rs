@@ -227,6 +227,7 @@ pub struct WorkspacedPath {
     pub workspace_id: String,
     pub path: String,
 }
+
 #[derive(Serialize, Deserialize)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
