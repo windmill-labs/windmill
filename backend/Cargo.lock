@@ -7402,6 +7402,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "base64 0.21.4",
+ "bytes",
  "chrono",
  "const_format",
  "deno_ast",
