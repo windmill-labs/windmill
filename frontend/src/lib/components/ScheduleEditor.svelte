@@ -374,7 +374,7 @@
 			<h2 class="border-b pb-1 mt-8 mb-2"
 				>Error Handler <Tooltip>
 					<div class="flex gap-20 items-start mt-3">
-						<div class="text-tertiary text-sm"
+						<div class="text-sm"
 							>The following args will be passed to the error handler:
 							<ul class="mt-1 ml-2">
 								<li><b>path</b>: The path of the script or flow that failed.</li>
@@ -468,7 +468,7 @@
 						>(ee only)</span
 					>{/if}
 				<Tooltip
-					><div class="text-tertiary text-sm"
+					><div class="text-sm"
 						>The following args will be passed to the recovery handler:
 						<ul class="mt-1 ml-2">
 							<li><b>path</b>: The path of the script or flow that recovered.</li>

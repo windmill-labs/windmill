@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { X } from 'lucide-svelte'
-	import { Button, Popup } from './common'
+	import { Alert, Button, Drawer } from './common'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService } from '$lib/gen'
@@ -9,6 +9,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
+	import Editor from './Editor.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	export let name: string
 	export let config:
@@ -16,8 +18,9 @@
 		| {
 				dedicated_worker?: string
 				worker_tags?: string[]
+				cache_clear?: number
+				init_bash?: string
 		  }
-	export let top: boolean
 
 	let nconfig: any = config
 		? config.worker_tags != undefined || config.dedicated_worker != undefined
@@ -53,19 +56,22 @@
 		dispatch('reload')
 	}
 	let dirty = false
-	let open = false
+	let openDelete = false
+	let openClean = false
+
+	let drawer: Drawer
 </script>
 
 <ConfirmationModal
-	{open}
+	open={openDelete}
 	title="Delete worker group"
 	confirmationText="Remove"
 	on:canceled={() => {
-		open = false
+		openDelete = false
 	}}
 	on:confirmed={async () => {
 		deleteWorkerGroup()
-		open = false
+		openDelete = false
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
@@ -73,71 +79,94 @@
 	</div>
 </ConfirmationModal>
 
-<div class="flex gap-2 items-center"
-	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
-	{#if $superadmin}
-		<Popup
-			floatingConfig={{ strategy: 'absolute', placement: top ? 'top-start' : 'bottom-start' }}
-			containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+<ConfirmationModal
+	open={openClean}
+	title="Clear cache"
+	confirmationText="Remove"
+	on:canceled={() => {
+		openClean = false
+	}}
+	on:confirmed={async () => {
+		const ndate = Math.floor(Date.now() / 1000)
+		const withCacheConfig = { ...nconfig, cache_clear: ndate }
+		await ConfigService.updateConfig({
+			name: 'worker__' + name,
+			requestBody: withCacheConfig
+		})
+		if (config) {
+			config.cache_clear = ndate
+		}
+		sendUserToast('Worker caches clearing in 5s. Require a restart.')
+		dispatch('reload')
+		openClean = false
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to clean the cache of all workers of this worker group (will also
+			restart the workers and expect supervisor to restart them) ?</span
 		>
-			<svelte:fragment slot="button">
-				<Button color="light" size="xs" nonCaptureEvent={true}>
-					<div class="flex flex-row gap-1 items-center"
-						>{config == undefined ? 'create' : 'edit'} config</div
-					>
-				</Button>
-			</svelte:fragment>
-			<ToggleButtonGroup
-				{selected}
-				on:selected={(e) => {
-					dirty = true
-					if (nconfig == undefined) {
-						nconfig = {}
-					}
-					console.log(e.detail)
-					if (e.detail == 'dedicated') {
-						nconfig.dedicated_worker = ''
-						nconfig.worker_tags = undefined
-					} else {
-						nconfig.dedicated_worker = undefined
-						nconfig.worker_tags = []
-					}
-				}}
-				class="mb-4"
-			>
-				<ToggleButton
-					position="left"
-					value="normal"
-					size="sm"
-					label="Any jobs within worker tags"
-				/>
-				<ToggleButton
-					position="dedicated"
-					value="dedicated"
-					size="sm"
-					label="Dedicated to a script"
-				/>
-			</ToggleButtonGroup>
-			{#if selected == 'normal'}
-				{#if nconfig?.worker_tags != undefined}
-					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-						{#each nconfig.worker_tags as tag}
-							<div class="flex gap-0.5 items-center"
-								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
-								<button
-									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-									aria-label="Remove item"
-									on:click|preventDefault|stopPropagation={() => {
-										if (nconfig != undefined) {
-											nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
-										}
-									}}
-								>
-									<X size={12} />
-								</button></div
+	</div>
+</ConfirmationModal>
+
+<Drawer bind:this={drawer} size="800px">
+	<DrawerContent title="Edit worker config '{name}'">
+		{#if !$enterpriseLicense || true}
+			<Alert type="warning" title="Worker management UI is EE only">
+				Workers can still have their WORKER_TAGS passed as env. Dedicated workers are an enterprise
+				only feature.
+			</Alert>
+			<div class="pb-4" />
+		{/if}
+
+		<ToggleButtonGroup
+			{selected}
+			on:selected={(e) => {
+				dirty = true
+				if (nconfig == undefined) {
+					nconfig = {}
+				}
+				console.log(e.detail)
+				if (e.detail == 'dedicated') {
+					nconfig.dedicated_worker = ''
+					nconfig.worker_tags = undefined
+				} else {
+					nconfig.dedicated_worker = undefined
+					nconfig.worker_tags = []
+				}
+			}}
+			class="mb-4"
+		>
+			<ToggleButton position="left" value="normal" size="sm" label="Any jobs within worker tags" />
+			<ToggleButton
+				position="dedicated"
+				value="dedicated"
+				size="sm"
+				label="Dedicated to a script"
+			/>
+		</ToggleButtonGroup>
+		{#if selected == 'normal'}
+			{#if nconfig?.worker_tags != undefined}
+				<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
+					{#each nconfig.worker_tags as tag}
+						<div class="flex gap-0.5 items-center"
+							><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
+							<button
+								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+								aria-label="Remove item"
+								on:click|preventDefault|stopPropagation={() => {
+									if (nconfig != undefined) {
+										dirty = true
+										nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
+									}
+								}}
 							>
-						{/each}
-					</div>
+								<X size={12} />
+							</button></div
+						>
+					{/each}
+				</div>
+				<div class="max-w-md">
 					<input type="text" placeholder="new tag" bind:value={newTag} />
 					<div class="mt-1" />
 					<Button
@@ -155,92 +184,138 @@
 					>
 						Add tag
 					</Button>
-					<div class="flex flex-wrap mt-2 items-center gap-1">
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags = defaultTags.concat(nativeTags)
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags = defaultTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags = nativeTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
-						</Button>
-					</div>
-				{/if}
-			{:else if selected == 'dedicated'}
-				{#if nconfig?.dedicated_worker != undefined}
-					<input
-						placeholder="<workspace>:<script path>"
-						type="text"
-						on:change={() => {
-							dirty = true
+				</div>
+				<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = defaultTags.concat(nativeTags)
+								dirty = true
+							}
 						}}
-						bind:value={nconfig.dedicated_worker}
-					/>
-					<p class="text-2xs text-tertiary max-w-md mt-2"
-						>Workers will get killed upon detecting this setting change. It is assumed they are in
-						an environment where the supervisor will restart them. Upon restart, they will pick the
-						new dedicated worker config.</p
 					>
-				{/if}
+						Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
+					</Button>
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = defaultTags
+								dirty = true
+							}
+						}}
+					>
+						Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
+					</Button>
+					<Button
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							if (nconfig != undefined) {
+								nconfig.worker_tags = nativeTags
+								dirty = true
+							}
+						}}
+					>
+						Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
+					</Button>
+				</div>
 			{/if}
-			<div class="mt-4" />
-			<div class="flex gap-1 items-center">
-				<Button
-					variant="contained"
-					color="dark"
-					size="xs"
-					on:click={async () => {
-						await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
-						sendUserToast('Configuration set')
-						dispatch('reload')
+		{:else if selected == 'dedicated'}
+			{#if nconfig?.dedicated_worker != undefined}
+				<input
+					placeholder="<workspace>:<script path>"
+					type="text"
+					on:change={() => {
+						dirty = true
 					}}
-					disabled={!dirty || !$enterpriseLicense}
+					bind:value={nconfig.dedicated_worker}
+				/>
+				<p class="text-2xs text-tertiary max-w-md mt-2"
+					>Workers will get killed upon detecting this setting change. It is assumed they are in an
+					environment where the supervisor will restart them. Upon restart, they will pick the new
+					dedicated worker config.</p
 				>
-					Apply changes {#if !$enterpriseLicense}(ee only){/if}
-				</Button>
-				{#if !$enterpriseLicense}<Tooltip
-						>{selected == 'dedicated'
-							? 'Dedicated workers are an enterprise only feature'
-							: 'The Worker Group Manager UI is an enterprise only feature. However, workers can still have their WORKER_TAGS passed as env'}</Tooltip
-					>{/if}
+			{/if}
+		{/if}
+		<div class="mt-4" />
+
+		<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
+			<div class="border w-full h-40">
+				<Editor
+					class="flex flex-1 grow h-full w-full"
+					automaticLayout
+					lang="shell"
+					deno={false}
+					code={config?.init_bash ?? 'X'}
+					on:change={(e) => {
+						if (config) {
+							const code = e.detail
+							if (code != '') {
+								config.init_bash = e.detail
+							} else {
+								config.init_bash = undefined
+							}
+						}
+					}}
+				/>
 			</div>
-		</Popup>
+		</div>
+		<svelte:fragment slot="actions">
+			<div class="flex gap-4 items-center">
+				<div class="flex gap-2 items-center">
+					{#if dirty}
+						<div class="text-red-600 text-xs">Non applied changes</div>
+					{/if}
+
+					<Button
+						variant="contained"
+						color="dark"
+						on:click={async () => {
+							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
+							sendUserToast('Configuration set')
+							dispatch('reload')
+							dirty = false
+						}}
+						disabled={!dirty || !$enterpriseLicense}
+					>
+						Apply changes
+					</Button>
+				</div>
+			</div>
+		</svelte:fragment>
+	</DrawerContent>
+</Drawer>
+
+<div class="flex gap-2 items-center"
+	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
+	{#if $superadmin}
+		<Button color="light" size="xs" on:click={drawer.openDrawer}>
+			<div class="flex flex-row gap-1 items-center"
+				>{config == undefined ? 'create' : 'edit'} config</div
+			>
+		</Button>
+
 		{#if config}
-			<Button color="light" size="xs" on:click={() => (open = true)} btnClasses="text-red-400">
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => (openDelete = true)}
+				btnClasses="text-red-400"
+			>
 				delete config
 			</Button>
 		{/if}
+
+		<Button color="light" size="xs" on:click={() => (openClean = true)} btnClasses="text-red-400">
+			clean cache
+		</Button>
 	{:else if config}
 		<span class="text-xs text-secondary"
 			>config <Tooltip>{JSON.stringify(config, null, 4)}</Tooltip></span
