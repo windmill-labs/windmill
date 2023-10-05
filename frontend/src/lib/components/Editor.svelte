@@ -83,6 +83,7 @@
 	export let awareness: any | undefined = undefined
 	export let folding = false
 	export let args: Record<string, any> | undefined = undefined
+	export let useWebsockets: boolean = true
 
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
@@ -629,220 +630,222 @@
 		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 
 		let encodedImportMap = ''
-		if (lang == 'typescript' && deno) {
-			if (filePath && filePath.split('/').length > 2) {
-				let expiration = new Date()
-				expiration.setHours(expiration.getHours() + 2)
-				const token = await UserService.createToken({
-					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-				})
-				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				let path_splitted = filePath.split('/')
-				for (let c = 0; c < path_splitted.length; c++) {
-					let key = 'file://./'
-					for (let i = 0; i < c; i++) {
-						key += '../'
-					}
-					let url = path_splitted.slice(0, -c - 1).join('/')
-					let ending = c == path_splitted.length - 1 ? '' : '/'
-					importMap['imports'][key] = `${root}/${url}${ending}`
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
-			}
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/deno`,
-				'deno',
-				{
-					certificateStores: null,
-					enablePaths: [],
-					config: null,
-					importMap: encodedImportMap,
-					internalDebug: false,
-					lint: false,
-					path: null,
-					tlsCertificate: null,
-					unsafelyIgnoreCertificateErrors: null,
-					unstable: true,
-					enable: true,
-					codeLens: {
-						implementations: true,
-						references: true,
-						referencesAllFunction: false
-					},
-					suggest: {
-						autoImports: true,
-						completeFunctionCalls: false,
-						names: true,
-						paths: true,
+		if (useWebsockets) {
+			if (lang == 'typescript' && deno) {
+				if (filePath && filePath.split('/').length > 2) {
+					let expiration = new Date()
+					expiration.setHours(expiration.getHours() + 2)
+					const token = await UserService.createToken({
+						requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+					})
+					let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+					const importMap = {
 						imports: {
-							autoDiscover: true,
-							hosts: {
-								'https://deno.land': true
+							'file:///': root + '/'
+						}
+					}
+					let path_splitted = filePath.split('/')
+					for (let c = 0; c < path_splitted.length; c++) {
+						let key = 'file://./'
+						for (let i = 0; i < c; i++) {
+							key += '../'
+						}
+						let url = path_splitted.slice(0, -c - 1).join('/')
+						let ending = c == path_splitted.length - 1 ? '' : '/'
+						importMap['imports'][key] = `${root}/${url}${ending}`
+					}
+					encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
+				}
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/deno`,
+					'deno',
+					{
+						certificateStores: null,
+						enablePaths: [],
+						config: null,
+						importMap: encodedImportMap,
+						internalDebug: false,
+						lint: false,
+						path: null,
+						tlsCertificate: null,
+						unsafelyIgnoreCertificateErrors: null,
+						unstable: true,
+						enable: true,
+						codeLens: {
+							implementations: true,
+							references: true,
+							referencesAllFunction: false
+						},
+						suggest: {
+							autoImports: true,
+							completeFunctionCalls: false,
+							names: true,
+							paths: true,
+							imports: {
+								autoDiscover: true,
+								hosts: {
+									'https://deno.land': true
+								}
 							}
 						}
-					}
-				},
-				() => {
-					return [
-						{
-							enable: true
-						}
-					]
-				}
-			)
-		} else if (lang === 'typescript' && !deno) {
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/bun`,
-				'bun',
-				{},
-				(params, token, next) => {
-					return [
-						{
-							diagnostics: {
-								ignoredCodes: [2307]
-							},
-							enable: true
-						}
-					]
-				}
-			)
-		} else if (lang === 'python') {
-			await connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/pyright`,
-				'pyright',
-				{},
-				(params, token, next) => {
-					if (params.items.find((x) => x.section === 'python')) {
+					},
+					() => {
 						return [
 							{
-								analysis: {
+								enable: true
+							}
+						]
+					}
+				)
+			} else if (lang === 'typescript' && !deno) {
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/bun`,
+					'bun',
+					{},
+					(params, token, next) => {
+						return [
+							{
+								diagnostics: {
+									ignoredCodes: [2307]
+								},
+								enable: true
+							}
+						]
+					}
+				)
+			} else if (lang === 'python') {
+				await connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/pyright`,
+					'pyright',
+					{},
+					(params, token, next) => {
+						if (params.items.find((x) => x.section === 'python')) {
+							return [
+								{
+									analysis: {
+										useLibraryCodeForTypes: true,
+										autoImportCompletions: true,
+										diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+										typeCheckingMode: 'basic'
+									}
+								}
+							]
+						}
+						if (params.items.find((x) => x.section === 'python.analysis')) {
+							return [
+								{
 									useLibraryCodeForTypes: true,
 									autoImportCompletions: true,
 									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
 									typeCheckingMode: 'basic'
 								}
-							}
-						]
+							]
+						}
+						return next(params, token)
 					}
-					if (params.items.find((x) => x.section === 'python.analysis')) {
-						return [
-							{
-								useLibraryCodeForTypes: true,
-								autoImportCompletions: true,
-								diagnosticSeverityOverrides: { reportMissingImports: 'none' },
-								typeCheckingMode: 'basic'
-							}
-						]
-					}
-					return next(params, token)
-				}
-			)
+				)
 
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/ruff`,
-				'ruff',
-				{},
-				undefined
-			)
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
-				'black',
-				{
-					formatters: {
-						black: {
-							command: 'black',
-							args: ['--quiet', '-']
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/ruff`,
+					'ruff',
+					{},
+					undefined
+				)
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					'black',
+					{
+						formatters: {
+							black: {
+								command: 'black',
+								args: ['--quiet', '-']
+							}
+						},
+						formatFiletypes: {
+							python: 'black'
 						}
 					},
-					formatFiletypes: {
-						python: 'black'
-					}
-				},
-				undefined
-			)
-		} else if (lang === 'go') {
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/go`,
-				'go',
-				{
-					'build.allowImplicitNetworkAccess': true
-				},
-				undefined
-			)
-		} else if (lang === 'shell') {
-			connectToLanguageServer(
-				`${wsProtocol}://${window.location.host}/ws/diagnostic`,
-				'shellcheck',
-				{
-					linters: {
-						shellcheck: {
-							command: 'shellcheck',
-							debounce: 100,
-							args: ['--format=gcc', '-'],
-							offsetLine: 0,
-							offsetColumn: 0,
-							sourceName: 'shellcheck',
-							formatLines: 1,
-							formatPattern: [
-								'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
-								{
-									line: 1,
-									column: 2,
-									message: 4,
-									security: 3
+					undefined
+				)
+			} else if (lang === 'go') {
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/go`,
+					'go',
+					{
+						'build.allowImplicitNetworkAccess': true
+					},
+					undefined
+				)
+			} else if (lang === 'shell') {
+				connectToLanguageServer(
+					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					'shellcheck',
+					{
+						linters: {
+							shellcheck: {
+								command: 'shellcheck',
+								debounce: 100,
+								args: ['--format=gcc', '-'],
+								offsetLine: 0,
+								offsetColumn: 0,
+								sourceName: 'shellcheck',
+								formatLines: 1,
+								formatPattern: [
+									'^[^:]+:(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$',
+									{
+										line: 1,
+										column: 2,
+										message: 4,
+										security: 3
+									}
+								],
+								securities: {
+									error: 'error',
+									warning: 'warning',
+									note: 'info'
 								}
-							],
-							securities: {
-								error: 'error',
-								warning: 'warning',
-								note: 'info'
 							}
+						},
+						filetypes: {
+							shell: 'shellcheck'
 						}
 					},
-					filetypes: {
-						shell: 'shellcheck'
-					}
-				},
-				undefined
-			)
-		} else {
-			closeWebsockets()
-		}
+					undefined
+				)
+			} else {
+				closeWebsockets()
+			}
 
-		websocketInterval && clearInterval(websocketInterval)
-		websocketInterval = setInterval(() => {
-			if (document.visibilityState == 'visible') {
-				if (
-					!lastWsAttempt ||
-					(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
-				) {
+			websocketInterval && clearInterval(websocketInterval)
+			websocketInterval = setInterval(() => {
+				if (document.visibilityState == 'visible') {
 					if (
-						!websocketAlive.black &&
-						!websocketAlive.deno &&
-						!websocketAlive.pyright &&
-						!websocketAlive.go &&
-						!websocketAlive.bun &&
-						!websocketAlive.shellcheck &&
-						!websocketAlive.ruff
+						!lastWsAttempt ||
+						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
-						console.log('reconnecting to language servers')
-						lastWsAttempt = new Date()
-						nbWsAttempt++
-						reloadWebsocket()
-					} else {
-						if (nbWsAttempt >= 2) {
-							sendUserToast('Giving up on establishing smart assistant connection', true)
-							clearInterval(websocketInterval)
+						if (
+							!websocketAlive.black &&
+							!websocketAlive.deno &&
+							!websocketAlive.pyright &&
+							!websocketAlive.go &&
+							!websocketAlive.bun &&
+							!websocketAlive.shellcheck &&
+							!websocketAlive.ruff
+						) {
+							console.log('reconnecting to language servers')
+							lastWsAttempt = new Date()
+							nbWsAttempt++
+							reloadWebsocket()
+						} else {
+							if (nbWsAttempt >= 2) {
+								sendUserToast('Giving up on establishing smart assistant connection', true)
+								clearInterval(websocketInterval)
+							}
 						}
 					}
 				}
-			}
-		}, 5000)
+			}, 5000)
+		}
 	}
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined

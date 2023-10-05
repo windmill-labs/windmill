@@ -14,15 +14,16 @@
 </script>
 
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
-	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
-		<div class="flex items-center gap-2 justify-between w-full">
+	<div class="flex justify-between w-full items-center px-2 py-2 gap-2">
+		<div class="flex items-center gap-2 w-full">
+			<CloseButton on:close noBg />
+
 			<span class="font-semibold truncate text-primary !text-lg"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
 				{/if}</span
 			>
-			<CloseButton on:close noBg />
 		</div>
 		{#if $$slots.actions}
 			<div class="flex gap-2 items-center justify-end">

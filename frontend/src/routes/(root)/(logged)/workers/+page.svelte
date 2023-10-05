@@ -358,7 +358,7 @@
 
 		<div class="pb-4" />
 
-		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group, i}
+		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group}
 			<WorkspaceGroup
 				on:reload={() => {
 					loadWorkerGroups()

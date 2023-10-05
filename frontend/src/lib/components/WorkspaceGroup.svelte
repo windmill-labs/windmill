@@ -11,6 +11,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Section from './Section.svelte'
 
 	export let name: string
 	export let config:
@@ -56,6 +57,7 @@
 		dispatch('reload')
 	}
 	let dirty = false
+	let dirtyCode = false
 	let openDelete = false
 	let openClean = false
 
@@ -110,8 +112,8 @@
 </ConfirmationModal>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Edit worker config '{name}'">
-		{#if !$enterpriseLicense || true}
+	<DrawerContent on:close={() => drawer.closeDrawer()} title="Edit worker config '{name}'">
+		{#if !$enterpriseLicense}
 			<Alert type="warning" title="Worker management UI is EE only">
 				Workers can still have their WORKER_TAGS passed as env. Dedicated workers are an enterprise
 				only feature.
@@ -126,7 +128,6 @@
 				if (nconfig == undefined) {
 					nconfig = {}
 				}
-				console.log(e.detail)
 				if (e.detail == 'dedicated') {
 					nconfig.dedicated_worker = ''
 					nconfig.worker_tags = undefined
@@ -146,93 +147,99 @@
 			/>
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
-			{#if nconfig?.worker_tags != undefined}
-				<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-					{#each nconfig.worker_tags as tag}
-						<div class="flex gap-0.5 items-center"
-							><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
-							<button
-								class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-								aria-label="Remove item"
-								on:click|preventDefault|stopPropagation={() => {
-									if (nconfig != undefined) {
-										dirty = true
-										nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
-									}
-								}}
+			<Section label="Tags to listen to">
+				{#if nconfig?.worker_tags != undefined}
+					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
+						{#each nconfig.worker_tags as tag}
+							<div class="flex gap-0.5 items-center"
+								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
+								<button
+									class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+									aria-label="Remove item"
+									on:click|preventDefault|stopPropagation={() => {
+										if (nconfig != undefined) {
+											dirty = true
+											nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
+										}
+									}}
+								>
+									<X size={12} />
+								</button></div
 							>
-								<X size={12} />
-							</button></div
+						{/each}
+					</div>
+					<div class="max-w-md">
+						<input type="text" placeholder="new tag" bind:value={newTag} />
+						<div class="mt-1" />
+						<Button
+							variant="contained"
+							color="blue"
+							size="xs"
+							disabled={newTag == '' || nconfig.worker_tags?.includes(newTag)}
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags = [
+										...(nconfig?.worker_tags ?? []),
+										newTag.replaceAll(' ', '_')
+									]
+									newTag = ''
+									dirty = true
+								}
+							}}
 						>
-					{/each}
-				</div>
-				<div class="max-w-md">
-					<input type="text" placeholder="new tag" bind:value={newTag} />
-					<div class="mt-1" />
-					<Button
-						variant="contained"
-						color="blue"
-						size="xs"
-						disabled={newTag == '' || nconfig.worker_tags?.includes(newTag)}
-						on:click={() => {
-							if (nconfig != undefined) {
-								nconfig.worker_tags = [...(nconfig?.worker_tags ?? []), newTag.replaceAll(' ', '_')]
-								newTag = ''
-								dirty = true
-							}
-						}}
-					>
-						Add tag
-					</Button>
-				</div>
-				<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
-					<Button
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={() => {
-							if (nconfig != undefined) {
-								nconfig.worker_tags = defaultTags.concat(nativeTags)
-								dirty = true
-							}
-						}}
-					>
-						Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
-					</Button>
-					<Button
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={() => {
-							if (nconfig != undefined) {
-								nconfig.worker_tags = defaultTags
-								dirty = true
-							}
-						}}
-					>
-						Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
-					</Button>
-					<Button
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={() => {
-							if (nconfig != undefined) {
-								nconfig.worker_tags = nativeTags
-								dirty = true
-							}
-						}}
-					>
-						Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
-					</Button>
-				</div>
-			{/if}
+							Add tag
+						</Button>
+					</div>
+					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags = defaultTags.concat(nativeTags)
+									dirty = true
+								}
+							}}
+						>
+							Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
+						</Button>
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags = defaultTags
+									dirty = true
+								}
+							}}
+						>
+							Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
+						</Button>
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags = nativeTags
+									dirty = true
+								}
+							}}
+						>
+							Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
+						</Button>
+					</div>
+				{/if}
+			</Section>
 		{:else if selected == 'dedicated'}
 			{#if nconfig?.dedicated_worker != undefined}
 				<input
 					placeholder="<workspace>:<script path>"
 					type="text"
 					on:change={() => {
+						dirtyCode = true
 						dirty = true
 					}}
 					bind:value={nconfig.dedicated_worker}
@@ -246,32 +253,46 @@
 		{/if}
 		<div class="mt-4" />
 
-		<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
-			<div class="border w-full h-40">
-				<Editor
-					class="flex flex-1 grow h-full w-full"
-					automaticLayout
-					lang="shell"
-					deno={false}
-					code={config?.init_bash ?? 'X'}
-					on:change={(e) => {
-						if (config) {
-							const code = e.detail
-							if (code != '') {
-								config.init_bash = e.detail
-							} else {
-								config.init_bash = undefined
+		<Section
+			label="Init Script"
+			tooltip="Bash scripts run at start of the workers. More lightweight than having to require the worker images at the cost of being run on every start."
+		>
+			<div class="flex gap-4 py-2 pb-6 items-baseline w-full">
+				<div class="border w-full h-40">
+					{#if dirtyCode}
+						<div class="text-red-600 text-sm"
+							>Init script has changed, once applied, the workers will restart to apply it.</div
+						>
+					{/if}
+					<Editor
+						class="flex flex-1 grow h-full w-full"
+						automaticLayout
+						lang="shell"
+						deno={false}
+						useWebsockets={false}
+						fixedOverflowWidgets={false}
+						code={config?.init_bash ?? ''}
+						on:change={(e) => {
+							if (config) {
+								dirty = true
+								dirtyCode = true
+								const code = e.detail
+								if (code != '') {
+									nconfig.init_bash = code
+								} else {
+									nconfig.init_bash = undefined
+								}
 							}
-						}
-					}}
-				/>
+						}}
+					/>
+				</div>
 			</div>
-		</div>
+		</Section>
 		<svelte:fragment slot="actions">
 			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
 					{#if dirty}
-						<div class="text-red-600 text-xs">Non applied changes</div>
+						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>
 					{/if}
 
 					<Button
@@ -282,6 +303,7 @@
 							sendUserToast('Configuration set')
 							dispatch('reload')
 							dirty = false
+							dirtyCode = false
 						}}
 						disabled={!dirty || !$enterpriseLicense}
 					>
@@ -306,7 +328,13 @@
 			<Button
 				color="light"
 				size="xs"
-				on:click={() => (openDelete = true)}
+				on:click={() => {
+					if (!enterpriseLicense) {
+						sendUserToast('Worker Management UI is an EE feature', true)
+					} else {
+						openDelete = true
+					}
+				}}
 				btnClasses="text-red-400"
 			>
 				delete config

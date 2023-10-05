@@ -198,16 +198,7 @@ Windmill Community Edition {GIT_VERSION}
 
             let mut rx = rx.resubscribe();
             let base_internal_url = base_internal_url.to_string();
-            let rd_delay = rand::thread_rng().gen_range(0..30);
             let h = tokio::spawn(async move {
-                //monitor_db is applied at start, no need to apply it twice
-                tokio::select! {
-                    _ =  tokio::time::sleep(Duration::from_secs(rd_delay)) => (),
-                    _ = rx.recv() => {
-                        println!("received killpill for monitor job");
-                        return
-                }}
-
                 let mut listener = retry_listen_pg(&db).await;
 
                 loop {
