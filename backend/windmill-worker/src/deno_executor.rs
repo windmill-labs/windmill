@@ -248,7 +248,7 @@ run().catch(async (e) => {{
     let reserved_variables_args_out_f = async {
         let client = client.get_authed().await;
         let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir).await?;
+            create_args_and_out_file(&client, job, job_dir, db).await?;
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {

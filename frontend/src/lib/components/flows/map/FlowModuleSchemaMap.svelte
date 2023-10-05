@@ -22,9 +22,15 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
+	import { tutorialsToDo } from '$lib/stores'
+
+	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
+	import { tainted } from '$lib/components/tutorials/utils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
+
+	let flowTutorials: FlowTutorials | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -206,20 +212,45 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if (detail.modules) {
-					await tick()
-					if ($moving) {
-						push(history, $flowStore)
-						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-						$moving.modules.splice(indexToRemove, 1)
-						detail.modules.splice(detail.index, 0, $moving.module)
-						$selectedId = $moving.module.id
-						$moving = undefined
-					} else {
-						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
-						$selectedId = detail.modules[detail.index ?? 0].id
+				const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+				const isTainted = tainted($flowStore)
+				if (
+					$tutorialsToDo.includes(1) &&
+					detail.detail == 'forloop' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('forloop')
+				} else if (
+					$tutorialsToDo.includes(2) &&
+					detail.detail == 'branchone' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('branchone')
+				} else if (
+					$tutorialsToDo.includes(3) &&
+					detail.detail == 'branchall' &&
+					svg.length === 0 &&
+					!isTainted
+				) {
+					flowTutorials?.runTutorialById('branchall')
+				} else {
+					if (detail.modules) {
+						await tick()
+						if ($moving) {
+							push(history, $flowStore)
+							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
+							$moving.modules.splice(indexToRemove, 1)
+							detail.modules.splice(detail.index, 0, $moving.module)
+							$selectedId = $moving.module.id
+							$moving = undefined
+						} else {
+							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+							$selectedId = detail.modules[detail.index ?? 0].id
+						}
+						$flowStore = $flowStore
 					}
-					$flowStore = $flowStore
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
@@ -253,3 +284,5 @@
 		<FlowErrorHandlerItem />
 	</div>
 </div>
+
+<FlowTutorials bind:this={flowTutorials} on:reload />

@@ -63,6 +63,7 @@
 		previewOpen = !previewOpen
 	}}
 	startIcon={{ icon: faPlay }}
+	id="flow-editor-test-flow"
 >
 	Test flow
 </Button>

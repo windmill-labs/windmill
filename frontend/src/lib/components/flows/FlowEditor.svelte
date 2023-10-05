@@ -9,9 +9,9 @@
 	import type { FlowCopilotContext } from '../copilot/flow'
 	import { classNames } from '$lib/utils'
 
-	export let loading: boolean
-
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	export let loading: boolean
 
 	let size = 40
 
@@ -35,7 +35,7 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} />
+					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} on:reload />
 				{/if}
 			</div>
 		</Pane>

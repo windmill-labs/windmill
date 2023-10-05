@@ -229,6 +229,7 @@
 					dispatch('newBranch', { module: mod })
 				}}
 				type="button"
+				id="add-branch-button"
 				class=" text-primary bg-surface border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 			>
 				<GitBranchPlus size={12} />

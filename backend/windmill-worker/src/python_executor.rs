@@ -284,7 +284,7 @@ pub async fn handle_python_job(
         .collect::<Vec<String>>()
         .join("");
     let client = client.get_authed().await;
-    create_args_and_out_file(&client, job, job_dir).await?;
+    create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let import_loader = if relative_imports {
         "import loader"

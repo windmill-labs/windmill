@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.180.0
+  version: 1.181.0
   title: Windmill API
 
   contact:
@@ -677,7 +677,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /users/tutorial_progress:
     get:
@@ -2065,6 +2064,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: job_id
+          description: job id
+          in: query
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: resource value
@@ -2607,7 +2612,6 @@ paths:
                   required:
                     - path
                     - content
-
 
   /w/{workspace}/scripts/list:
     get:

@@ -49,9 +49,10 @@ pub async fn create_args_and_out_file(
     client: &AuthedClient,
     job: &QueuedJob,
     job_dir: &str,
+    db: &Pool<Postgres>,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), job, db).await?)
     } else {
         None
     };
@@ -85,6 +86,8 @@ pub async fn transform_json_value(
     client: &AuthedClient,
     workspace: &str,
     v: Value,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -105,16 +108,50 @@ pub async fn transform_json_value(
             }
             Ok(client
                 .get_client()
-                .get_resource_value_interpolated(workspace, path)
+                .get_resource_value_interpolated(workspace, path, Some(&job.id))
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
                 .into_inner())
+        }
+        Value::String(y) if y.starts_with("$") => {
+            let flow_path = if let Some(uuid) = job.parent_job {
+                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+            } else {
+                None
+            };
+
+            let variables = variables::get_reserved_variables(
+                &job.workspace_id,
+                &client.token,
+                &job.email,
+                &job.created_by,
+                &job.id.to_string(),
+                &job.permissioned_as,
+                job.script_path.clone(),
+                job.parent_job.map(|x| x.to_string()),
+                flow_path,
+                job.schedule_path.clone(),
+                job.flow_step_id.clone(),
+            )
+            .await;
+
+            let name = y.strip_prefix("$").unwrap();
+
+            let value = variables
+                .iter()
+                .find(|x| x.name == name)
+                .map(|x| x.value.clone())
+                .unwrap_or_else(|| y);
+            Ok(json!(value))
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(&a, client, workspace, b).await?,
+                    transform_json_value(&a, client, workspace, b, job, &db).await?,
                 );
             }
             Ok(Value::Object(m))
