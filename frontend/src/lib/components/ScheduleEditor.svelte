@@ -266,8 +266,6 @@
 	$: recoveryHandlerSelected === 'custom' && (recoveryHandlerPath = undefined)
 
 	let drawer: Drawer
-
-	$: if (drawer) drawer.openDrawer()
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
