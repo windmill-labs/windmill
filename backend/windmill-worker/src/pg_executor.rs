@@ -3,11 +3,15 @@ use chrono::Utc;
 use futures::TryStreamExt;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::{json, Value};
-use tokio_postgres::{types::ToSql, NoTls, Row};
+use tokio_postgres::types::IsNull;
+use tokio_postgres::{
+    types::{to_sql_checked, ToSql},
+    NoTls, Row,
+};
 use tokio_postgres::{
     types::{FromSql, Type},
     Column,
@@ -19,6 +23,7 @@ use windmill_parser_sql::parse_pgsql_sig;
 
 use crate::common::transform_json_value;
 use crate::AuthedClient;
+use bytes::BytesMut;
 use urlencoding::encode;
 
 #[derive(Deserialize)]
@@ -128,42 +133,7 @@ pub async fn do_postgresql(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
                 .to_owned();
-            let boxed: windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> = match value {
-                Value::Null => Ok(Box::new(None::<bool>)),
-                Value::Bool(b) => Ok(Box::new(b.clone())),
-                Value::Number(n) if n.is_i64() && arg_t == "char" => {
-                    Ok(Box::new(n.as_i64().unwrap() as i8))
-                }
-                Value::Number(n)
-                    if n.is_i64() && (arg_t == "smallint" || arg_t == "smallserial") =>
-                {
-                    Ok(Box::new(n.as_i64().unwrap() as i16))
-                }
-                Value::Number(n) if n.is_i64() && (arg_t == "int" || arg_t == "serial") => {
-                    Ok(Box::new(n.as_i64().unwrap() as i32))
-                }
-                Value::Number(n) if n.is_i64() => Ok(Box::new(n.as_i64().unwrap())),
-                Value::Number(n) if n.is_u64() && arg_t == "oid" => {
-                    Ok(Box::new(n.as_u64().unwrap() as u32))
-                }
-                Value::Number(n) if n.is_u64() && (arg_t == "bigint" || arg_t == "bigserial") => {
-                    Ok(Box::new(n.as_u64().unwrap() as i64))
-                }
-                Value::Number(n) if n.is_f64() && arg_t == "real" => {
-                    Ok(Box::new(n.as_f64().unwrap() as f32))
-                }
-                Value::Number(n) if n.is_f64() && arg_t == "double" => {
-                    Ok(Box::new(n.as_f64().unwrap()))
-                }
-                Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
-                Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
-                Value::String(s) => Ok(Box::new(s.clone())),
-                _ => Err(Error::ExecutionErr(format!(
-                    "Unsupported type in query: {:?} and signature {arg_t:?}",
-                    value
-                ))),
-            };
-            boxed
+            convert_val(value, arg_t)
         })
         .collect::<windmill_common::error::Result<Vec<_>>>()?;
     // Now we can execute a simple statement that just returns its parameter.
@@ -183,6 +153,122 @@ pub async fn do_postgresql(
     handle.abort();
     // And then check that we got back the same string we sent over.
     return Ok(result);
+}
+
+#[derive(Debug)]
+enum PgType {
+    String(String),
+    Bool(bool),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U32(u32),
+    F32(f32),
+    F64(f64),
+    Uuid(Uuid),
+    Decimal(Decimal),
+    Date(chrono::NaiveDate),
+    Time(chrono::NaiveTime),
+    Timestamp(chrono::NaiveDateTime),
+    None(Option<bool>),
+    Array(Vec<PgType>),
+}
+
+impl ToSql for PgType {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        match *self {
+            PgType::String(ref val) => val.to_sql(ty, out),
+            PgType::Bool(ref val) => val.to_sql(ty, out),
+            PgType::I8(ref val) => val.to_sql(ty, out),
+            PgType::I16(ref val) => val.to_sql(ty, out),
+            PgType::I32(ref val) => val.to_sql(ty, out),
+            PgType::I64(ref val) => val.to_sql(ty, out),
+            PgType::U32(ref val) => val.to_sql(ty, out),
+            PgType::F32(ref val) => val.to_sql(ty, out),
+            PgType::F64(ref val) => val.to_sql(ty, out),
+            PgType::Uuid(ref val) => val.to_sql(ty, out),
+            PgType::Decimal(ref val) => val.to_sql(ty, out),
+            PgType::Date(ref val) => val.to_sql(ty, out),
+            PgType::Time(ref val) => val.to_sql(ty, out),
+            PgType::Timestamp(ref val) => val.to_sql(ty, out),
+            PgType::None(ref val) => val.to_sql(ty, out),
+            PgType::Array(ref val) => val.to_sql(ty, out),
+        }
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+
+    to_sql_checked!();
+}
+
+fn convert_val(value: &Value, arg_t: &String) -> windmill_common::error::Result<PgType> {
+    match value {
+        Value::Array(vec) if arg_t.ends_with("[]") => {
+            let arg_t = arg_t.trim_end_matches("[]").to_string();
+            let mut result = vec![];
+            for val in vec {
+                result.push(convert_val(val, &arg_t)?);
+            }
+            Ok(PgType::Array(result))
+        }
+        Value::Null => Ok(PgType::None(None::<bool>)),
+        Value::Bool(b) => Ok(PgType::Bool(b.clone())),
+        Value::Number(n) if n.is_i64() && arg_t == "char" => {
+            Ok(PgType::I8(n.as_i64().unwrap() as i8))
+        }
+        Value::Number(n) if n.is_i64() && (arg_t == "smallint" || arg_t == "smallserial") => {
+            Ok(PgType::I16(n.as_i64().unwrap() as i16))
+        }
+        Value::Number(n) if n.is_i64() && (arg_t == "int" || arg_t == "serial") => {
+            Ok(PgType::I32(n.as_i64().unwrap() as i32))
+        }
+        Value::Number(n) if n.is_i64() && (arg_t == "numeric" || arg_t == "decimal") => Ok(
+            PgType::Decimal(Decimal::from_i64(n.as_i64().unwrap()).unwrap()),
+        ),
+        Value::Number(n) if n.is_i64() => Ok(PgType::I64(n.as_i64().unwrap())),
+        Value::Number(n) if n.is_u64() && arg_t == "oid" => {
+            Ok(PgType::U32(n.as_u64().unwrap() as u32))
+        }
+        Value::Number(n) if n.is_u64() && (arg_t == "bigint" || arg_t == "bigserial") => {
+            Ok(PgType::I64(n.as_u64().unwrap() as i64))
+        }
+        Value::Number(n) if n.is_f64() && arg_t == "real" => {
+            Ok(PgType::F32(n.as_f64().unwrap() as f32))
+        }
+        Value::Number(n) if n.is_f64() && arg_t == "double" => Ok(PgType::F64(n.as_f64().unwrap())),
+        Value::Number(n) if n.is_f64() && (arg_t == "numeric" || arg_t == "decimal") => Ok(
+            PgType::Decimal(Decimal::from_f64(n.as_f64().unwrap()).unwrap()),
+        ),
+        Value::Number(n) => Ok(PgType::F64(n.as_f64().unwrap())),
+        Value::String(s) if arg_t == "uuid" => Ok(PgType::Uuid(Uuid::parse_str(s)?)),
+        Value::String(s) if arg_t == "date" => {
+            let date =
+                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            Ok(PgType::Date(date))
+        }
+        Value::String(s) if arg_t == "time" => {
+            let time =
+                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            Ok(PgType::Time(time))
+        }
+        Value::String(s) if arg_t == "timestamp" => {
+            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
+                .unwrap_or_default();
+            Ok(PgType::Timestamp(datetime))
+        }
+        Value::String(s) => Ok(PgType::String(s.clone())),
+        _ => Err(Error::ExecutionErr(format!(
+            "Unsupported type in query: {:?} and signature {arg_t:?}",
+            value
+        ))),
+    }
 }
 
 pub fn pg_cell_to_json_value(
