@@ -2337,7 +2337,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2358,7 +2358,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2378,7 +2378,7 @@ async fn lock_modules(
                             db,
                             worker_name,
                             worker_dir,
-                            job_path.clone(),
+                            job_path,
                             base_internal_url,
                             token,
                         )
@@ -2393,7 +2393,7 @@ async fn lock_modules(
                         db,
                         worker_name,
                         worker_dir,
-                        job_path.clone(),
+                        job_path,
                         base_internal_url,
                         token,
                     )
