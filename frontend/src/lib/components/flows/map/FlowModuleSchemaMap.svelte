@@ -26,13 +26,14 @@
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { tainted } from '$lib/components/tutorials/utils'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore, ignoredTutorials } =
+	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(

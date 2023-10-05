@@ -5,13 +5,14 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import { tainted } from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { ignoredTutorials } from './ignoredTutorials'
 
 	export let index: number = 0
 	export let name: string = 'action'
 
 	export let getSteps: (driver: Driver) => DriveStep[] = () => []
 
-	const { flowStore, ignoredTutorials } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	function createTutorialButton(text: string, onClick: () => void) {
