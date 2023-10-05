@@ -11,7 +11,6 @@
 	let flowBranchAll: FlowBranchAll | undefined = undefined
 
 	export function runTutorialById(id: string) {
-		console.log(id, flowBranchOne)
 		if (id === 'forloop') {
 			flowBuilderTutorialsForLoop?.runTutorial()
 		} else if (id === 'branchone') {
