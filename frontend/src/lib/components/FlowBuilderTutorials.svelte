@@ -29,28 +29,24 @@
 				on:click={() => flowTutorials?.runTutorialById('action')}
 				label="Simple flow tutorial"
 				index={0}
-				id="flow-builder-tutorial-action"
 			/>
 
 			<TutorialItem
 				on:click={() => flowTutorials?.runTutorialById('forloop')}
 				label="For loops tutorial"
 				index={1}
-				id="flow-builder-tutorial-forloops"
 			/>
 
 			<TutorialItem
 				on:click={() => flowTutorials?.runTutorialById('branchone')}
 				label="Branch one tutorial"
 				index={2}
-				id="flow-builder-tutorial-branchone"
 			/>
 
 			<TutorialItem
 				on:click={() => flowTutorials?.runTutorialById('branchall')}
 				label="Branch all tutorial"
 				index={3}
-				id="flow-builder-tutorial-branchall"
 			/>
 
 			<div class="border-t border-surface-hover" />
