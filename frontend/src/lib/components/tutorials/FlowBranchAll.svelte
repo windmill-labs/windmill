@@ -65,7 +65,7 @@
 			},
 			onDestroyed: () => {
 				if (!done) {
-					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, 1]))
+					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, 3]))
 				}
 			},
 			steps: [
