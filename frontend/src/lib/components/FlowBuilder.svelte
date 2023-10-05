@@ -852,14 +852,17 @@
 
 	let renderCount = 0
 	let flowTutorials: FlowTutorials | undefined = undefined
+	let tutorialInProgress = false
 
-	$: if (!tainted($flowStore) && loading === false) {
+	$: if (!tainted($flowStore) && loading === false && !tutorialInProgress && flowTutorials) {
 		const urlParams = new URLSearchParams(window.location.search)
 		const tutorial = urlParams.get('tutorial')
 
 		if (tutorial) {
+			tutorialInProgress = true
 			flowTutorials?.runTutorialById(tutorial)
 		} else if ($tutorialsToDo.includes(0)) {
+			tutorialInProgress = true
 			flowTutorials?.runTutorialById('action')
 		}
 	}
