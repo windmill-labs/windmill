@@ -176,9 +176,14 @@
 </script>
 
 <div class="w-full flex space-x-16">
-	<div class="w-full flex flex-col space-y-2">
-		<div class="w-full flex flex-col gap-1">
-			<small class="font-bold">Cron</small>
+	<div class="w-full flex flex-col gap-4">
+		<div class="w-full flex flex-col">
+			<div class="flex flex-row items-center justify-between">
+				<div class="text-secondary text-sm leading-6">Cron</div>
+				{#if !validCRON}
+					<div class="text-red-600 text-xs"> Invalid cron syntax </div>
+				{/if}
+			</div>
 			<input
 				class="inline-block"
 				type="text"
@@ -188,13 +193,10 @@
 				bind:value={schedule}
 				{disabled}
 			/>
-			{#if !validCRON}
-				<small class="text-red-600"> Invalid cron syntax </small>
-			{/if}
 		</div>
 
-		<div class="w-full flex flex-col gap-1">
-			<small class="font-bold">Timezone</small>
+		<div class="w-full flex flex-col">
+			<div class="text-secondary text-sm leading-6">Timezone</div>
 
 			{#if disabled}
 				<div>
@@ -203,7 +205,7 @@
 			{:else}
 				<Select
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={'border-color: #999;' +
+					containerStyles={'border-color: lightgray;' +
 						(darkMode
 							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 							: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
@@ -358,15 +360,12 @@
 	</div>
 
 	<div class="w-full flex flex-col space-y-2">
-		<h3>Execution summary</h3>
-		<hr />
+		<div class="text-sm font-semibold leading-none">Execution summary</div>
 		<div class="flex flex-col space-y-2">
-			<small>Estimated upcoming events ({timezone})</small>
-			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary">
+			<div class="text-sm">Estimated upcoming events ({timezone})</div>
+			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary gap-0.5">
 				{#each preview as date}
-					<div class="flex items-center space-x-2 text-sm">
-						<span>{dateFormatter(new Date(date))}</span>
-					</div>
+					<span class="text-sm">{dateFormatter(new Date(date))}</span>
 				{/each}
 			</div>
 		</div>

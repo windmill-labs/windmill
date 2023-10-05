@@ -26,6 +26,7 @@
 		Pen,
 		Plus,
 		Rocket,
+		Settings,
 		X
 	} from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
@@ -314,7 +315,7 @@
 				<svelte:fragment slot="content">
 					<div class="p-4">
 						<TabContent value="metadata">
-							<div class="flex flex-col gap-8 my-1.5">
+							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
 									<div class="flex flex-col gap-4">
 										<div>
@@ -465,7 +466,7 @@
 							</div>
 						</TabContent>
 						<TabContent value="runtime">
-							<div class="flex flex-col gap-8 my-1.5">
+							<div class="flex flex-col gap-8">
 								<Section label="Concurency limits">
 									<div class="flex gap-x-4 shrink">
 										<label class="block shrink min-w-0">
@@ -654,7 +655,7 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-full max-h-12 items-center pl-2.5 pr-6 border-b shadow-sm">
+		<div class="flex h-full max-h-12 items-center px-4 border-b">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
 				<div class="flex flex-row gap-2">
 					<div class="center-center">
@@ -718,7 +719,10 @@
 							metadataOpen = true
 						}}
 					>
-						Settings
+						<div class="flex flex-row gap-2 items-center">
+							<Settings size={14} />
+							Settings
+						</div>
 					</Button>
 					<Button
 						loading={loadingDraft}

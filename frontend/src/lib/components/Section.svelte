@@ -4,7 +4,7 @@
 
 <div>
 	<div class="flex flex-row justify-between">
-		<h2 class="text-base font-semibold leading-non mb-2">
+		<h2 class="text-base font-semibold mb-2">
 			{label}
 			<slot name="header" />
 		</h2>

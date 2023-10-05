@@ -16,6 +16,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema, SupportedLanguage } from '$lib/common'
+	import Section from '$lib/components/Section.svelte'
 
 	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
@@ -265,6 +266,8 @@
 	$: recoveryHandlerSelected === 'custom' && (recoveryHandlerPath = undefined)
 
 	let drawer: Drawer
+
+	$: if (drawer) drawer.openDrawer()
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -309,6 +312,16 @@
 				{edit ? 'Save' : 'Schedule'}
 			</Button>
 		</svelte:fragment>
+
+		<div class="flex flex-col gap-8">
+			<Section label="Schedule">
+				<svelte:fragment slot="header">
+					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+				</svelte:fragment>
+				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+			</Section>
+		</div>
+
 		<div>
 			{#if !edit}
 				<Path
@@ -321,13 +334,6 @@
 				/>
 				<div class="mb-8" />
 			{/if}
-
-			<div class="flex flex-row items-center mb-2 gap-1">
-				<div class="text-xl font-extrabold">Schedule</div>
-				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
-			</div>
-
-			<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
 
 			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
 			{#if !edit}
