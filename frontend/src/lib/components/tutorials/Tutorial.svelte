@@ -14,6 +14,17 @@
 	const { flowStore, ignoredTutorials } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
+	function createTutorialButton(text: string, onClick: () => void) {
+		const button = document.createElement('button')
+		button.innerHTML = text
+		button.addEventListener('click', onClick)
+		button.setAttribute(
+			'class',
+			'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+		)
+		return button
+	}
+
 	export const runTutorial = () => {
 		if (tainted($flowStore)) {
 			dispatch('error', { detail: name })
@@ -25,28 +36,17 @@
 			allowClose: true,
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
-					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Mark this tutorial as completed'
-					skipThisButton.addEventListener('click', () => {
+					const skipThisButton = createTutorialButton('Mark this tutorial as completed', () => {
 						updateProgress(index)
-
-						tutorial.destroy()
-					})
-					skipThisButton.setAttribute(
-						'class',
-						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
-					)
-
-					const skipAllButton = document.createElement('button')
-					skipAllButton.innerHTML = 'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed'
-					skipAllButton.addEventListener('click', () => {
-						dispatch('skipAll')
 						tutorial.destroy()
 					})
 
-					skipAllButton.setAttribute(
-						'class',
-						'border px-2 py-1 !text-xs font-normal rounded-md hover:bg-surface-hover transition-all flex items-center'
+					const skipAllButton = createTutorialButton(
+						'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed',
+						() => {
+							dispatch('skipAll')
+							tutorial.destroy()
+						}
 					)
 
 					const popoverDescription = document.querySelector('#driver-popover-description')
