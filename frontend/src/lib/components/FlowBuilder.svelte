@@ -260,6 +260,7 @@
 	const history = initHistory($flowStore)
 
 	const testStepStore = writable<Record<string, any>>({})
+	const ignoredTutorials = writable<number[]>([])
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -276,7 +277,8 @@
 		flowStore,
 		testStepStore,
 		saveDraft,
-		initialPath
+		initialPath,
+		ignoredTutorials
 	})
 
 	async function loadSchedule() {

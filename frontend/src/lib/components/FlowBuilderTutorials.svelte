@@ -117,6 +117,6 @@
 	}
 
 	.driver-popover {
-		@apply p-6 bg-surface;
+		@apply p-6 bg-surface max-w-2xl;
 	}
 </style>

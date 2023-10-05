@@ -17,4 +17,5 @@ export type FlowEditorContext = {
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
 	initialPath: string
+	ignoredTutorials: Writable<number[]>
 }

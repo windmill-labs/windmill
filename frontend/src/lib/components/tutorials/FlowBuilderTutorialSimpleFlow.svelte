@@ -29,7 +29,7 @@
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Skip this tutorials'
+					skipThisButton.innerText = 'Mark this tutorial as completed'
 					skipThisButton.addEventListener('click', () => {
 						updateProgress(0)
 						simpleFlowTutorial.destroy()
@@ -40,7 +40,7 @@
 					)
 
 					const skipAllButton = document.createElement('button')
-					skipAllButton.innerText = 'Skip all tutorials'
+					skipAllButton.innerHTML = 'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed'
 					skipAllButton.addEventListener('click', () => {
 						dispatch('skipAll')
 						simpleFlowTutorial.destroy()

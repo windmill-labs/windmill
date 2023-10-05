@@ -7,7 +7,7 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, ignoredTutorials } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -17,13 +17,15 @@
 			return
 		}
 
+		let done: boolean = false
+
 		const branchAllTutorial = driver({
 			showProgress: true,
 			allowClose: true,
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Skip this tutorial'
+					skipThisButton.innerText = 'Mark this tutorial as completed'
 					skipThisButton.addEventListener('click', () => {
 						updateProgress(3)
 
@@ -35,7 +37,7 @@
 					)
 
 					const skipAllButton = document.createElement('button')
-					skipAllButton.innerText = 'Skip all tutorials'
+					skipAllButton.innerHTML = 'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed'
 					skipAllButton.addEventListener('click', () => {
 						dispatch('skipAll')
 						branchAllTutorial.destroy()
@@ -59,6 +61,11 @@
 
 						popoverDescription.appendChild(div)
 					}
+				}
+			},
+			onDestroyed: () => {
+				if (!done) {
+					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, 1]))
 				}
 			},
 			steps: [
@@ -207,6 +214,7 @@
 						onNextClick: () => {
 							clickButtonBySelector('#flow-editor-test-flow-drawer')
 
+							done = true
 							setTimeout(() => {
 								branchAllTutorial.moveNext()
 								updateProgress(3)

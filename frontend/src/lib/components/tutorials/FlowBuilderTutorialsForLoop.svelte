@@ -14,7 +14,7 @@
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	const { flowStore, selectedId, flowStateStore } =
+	const { flowStore, selectedId, flowStateStore, ignoredTutorials } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -25,13 +25,21 @@
 			return
 		}
 
+		let done = false
+
 		const forloopTutorial = driver({
 			showProgress: true,
 			allowClose: true,
+			onDestroyed: () => {
+				if (!done) {
+					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, 1]))
+				}
+			},
+
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Skip this tutorials'
+					skipThisButton.innerText = 'Mark this tutorial as completed'
 					skipThisButton.addEventListener('click', () => {
 						updateProgress(1)
 						forloopTutorial.destroy()
@@ -42,7 +50,7 @@
 					)
 
 					const skipAllButton = document.createElement('button')
-					skipAllButton.innerText = 'Skip all tutorials'
+					skipAllButton.innerHTML = 'Mark&nbsp;<b>all</b>&nbsp;tutorials as completed'
 					skipAllButton.addEventListener('click', () => {
 						dispatch('skipAll')
 						forloopTutorial.destroy()
@@ -395,7 +403,7 @@
 						description: 'Finally we can test our flow, and view the results!',
 						onNextClick: () => {
 							clickButtonBySelector('#flow-editor-test-flow-drawer')
-
+							done = true
 							setTimeout(() => {
 								forloopTutorial.moveNext()
 								updateProgress(1)
