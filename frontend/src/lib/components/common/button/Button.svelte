@@ -144,7 +144,7 @@
 			{download}
 			class={twMerge(
 				buttonClass,
-				disabled ? '!bg-surface-disabled !text-tertiary !cursor-not-allowed' : ''
+				disabled ? '!bg-surface-disabled border !text-tertiary !cursor-not-allowed' : ''
 			)}
 			{id}
 			{target}
