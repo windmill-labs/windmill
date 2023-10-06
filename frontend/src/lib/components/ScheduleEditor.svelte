@@ -312,241 +312,246 @@
 		</svelte:fragment>
 
 		<div class="flex flex-col gap-8">
+			{#if !edit}
+				<Section label="Metadata">
+					<Path
+						checkInitialPathExistence
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						namePlaceholder="schedule"
+						kind="schedule"
+					/>
+				</Section>
+			{/if}
 			<Section label="Schedule">
 				<svelte:fragment slot="header">
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
 			</Section>
-		</div>
-
-		<div>
-			{#if !edit}
-				<Path
-					checkInitialPathExistence
-					bind:error={pathError}
-					bind:path
-					{initialPath}
-					namePlaceholder="schedule"
-					kind="schedule"
-				/>
-				<div class="mb-8" />
-			{/if}
-
-			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
-			{#if !edit}
-				<p class="text-xs mb-1 text-tertiary">
-					Pick a script or flow to be triggered by the schedule<Required required={true} />
-				</p>
-				<ScriptPicker
-					disabled={initialScriptPath != '' || !can_write}
-					initialPath={initialScriptPath}
-					kind={Script.kind.SCRIPT}
-					allowFlow={true}
-					bind:itemKind
-					bind:scriptPath={script_path}
-				/>
-			{:else}
-				<Alert type="info" title="Runnable path cannot be edited">
-					Once a schedule is created, the runnable path cannot be changed. However, when renaming a
-					script or a flow, the runnable path will automatically update itself.
-				</Alert>
-				<div class="my-2" />
-				<ScriptPicker
-					disabled
-					initialPath={script_path}
-					scriptPath={script_path}
-					allowFlow={true}
-					{itemKind}
-				/>
-			{/if}
-			<div class="mt-6">
-				{#if runnable}
-					{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-						<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />
+			<Section label="Runnable">
+				{#if !edit}
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a script or flow to be triggered by the schedule<Required required={true} />
+					</p>
+					<ScriptPicker
+						disabled={initialScriptPath != '' || !can_write}
+						initialPath={initialScriptPath}
+						kind={Script.kind.SCRIPT}
+						allowFlow={true}
+						bind:itemKind
+						bind:scriptPath={script_path}
+					/>
+				{:else}
+					<Alert type="info" title="Runnable path cannot be edited">
+						Once a schedule is created, the runnable path cannot be changed. However, when renaming
+						a script or a flow, the runnable path will automatically update itself.
+					</Alert>
+					<div class="my-2" />
+					<ScriptPicker
+						disabled
+						initialPath={script_path}
+						scriptPath={script_path}
+						allowFlow={true}
+						{itemKind}
+					/>
+				{/if}
+				<div class="mt-6">
+					{#if runnable}
+						{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
+							<SchemaForm disabled={!can_write} schema={runnable.schema} bind:isValid bind:args />
+						{:else}
+							<div class="text-xs texg-gray-700">
+								This {is_flow ? 'flow' : 'script'} takes no argument
+							</div>
+						{/if}
 					{:else}
-						<div class="text-xs texg-gray-700">
-							This {is_flow ? 'flow' : 'script'} takes no argument
+						<div class="text-xs texg-gray-700 my-2">
+							Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 						</div>
 					{/if}
-				{:else}
-					<div class="text-xs texg-gray-700 my-2">
-						Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
-					</div>
-				{/if}
-			</div>
-			<h2 class="border-b pb-1 mt-8 mb-2"
-				>Error Handler <Tooltip>
-					<div class="flex gap-20 items-start mt-3">
-						<div class="text-tertiary text-sm"
-							>The following args will be passed to the error handler:
-							<ul class="mt-1 ml-2">
-								<li><b>path</b>: The path of the script or flow that failed.</li>
-								<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-								<li><b>schedule_path</b>: The path of the schedule.</li>
-								<li><b>error</b>: The error details.</li>
-								<li
-									><b>failed_times</b>: Minimum number of times the schedule failed before calling
-									the error handler.</li
-								>
-								<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
-							</ul>
+				</div>
+			</Section>
+			<Section label="Error handler">
+				<svelte:fragment slot="header">
+					<Tooltip>
+						<div class="flex gap-20 items-start mt-3">
+							<div class="text-tertiary text-sm"
+								>The following args will be passed to the error handler:
+								<ul class="mt-1 ml-2">
+									<li><b>path</b>: The path of the script or flow that failed.</li>
+									<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+									<li><b>schedule_path</b>: The path of the schedule.</li>
+									<li><b>error</b>: The error details.</li>
+									<li
+										><b>failed_times</b>: Minimum number of times the schedule failed before calling
+										the error handler.</li
+									>
+									<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
+								</ul>
+							</div>
 						</div>
-					</div>
-				</Tooltip></h2
-			>
+					</Tooltip>
+				</svelte:fragment>
+				<div>
+					<Tabs bind:selected={errorHandlerSelected} class="mt-2 mb-4">
+						<Tab value="custom">Custom</Tab>
+						<Tab value="slack">Slack</Tab>
+					</Tabs>
+				</div>
 
-			<div>
-				<Tabs bind:selected={errorHandlerSelected} class="mt-2 mb-4">
+				{#if errorHandlerSelected === 'custom'}
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={!can_write}
+							initialPath={errorHandlerPath}
+							kind={Script.kind.SCRIPT}
+							allowFlow={true}
+							bind:scriptPath={errorHandlerPath}
+							bind:itemKind={errorHandleritemKind}
+							allowRefresh
+						/>
+
+						{#if errorHandlerPath === undefined}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
+								target="_blank">Create from template</Button
+							>
+						{/if}
+					</div>
+				{:else if errorHandlerSelected === 'slack'}
+					<Alert type="info" title="Slack schedule error handler"
+						>You will receive a notification on the selected slack channel.
+					</Alert>
+				{/if}
+
+				<div class="flex flex-row items-center justify-between">
+					<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
+						<p
+							>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
+							when schedule failed</p
+						>
+						<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
+							<option value={false}>&gt;=</option>
+							<option value={true}>==</option>
+						</select>
+						<input
+							type="number"
+							class="!w-14 text-center"
+							bind:value={failedTimes}
+							disabled={!$enterpriseLicense}
+							min="1"
+						/>
+						<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
+					</div>
+				</div>
+				{#if errorHandlerPath}
+					<p class="font-semibold text-sm mt-4 mb-2"
+						>{errorHandlerSelected !== 'custom' ? 'Configuration' : 'Extra arguments'}</p
+					>
+					<SchemaForm
+						disabled={!can_write}
+						schema={errorHandlerSchema}
+						bind:args={errorHandlerExtraArgs}
+						shouldHideNoInputs
+						class="text-xs"
+					/>
+					{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
+						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+					{/if}
+				{/if}
+			</Section>
+			<Section label="Recovery handler">
+				<svelte:fragment slot="header">
+					<div class="flex flex-row gap-2">
+						{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+						<Tooltip>
+							<div class=" text-sm"
+								>The following args will be passed to the recovery handler:
+								<ul class="mt-1 ml-2">
+									<li><b>path</b>: The path of the script or flow that recovered.</li>
+									<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+									<li><b>schedule_path</b>: The path of the schedule.</li>
+									<li><b>error</b>: The error of the last job that errored</li>
+									<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
+									<li
+										><b>success_times</b>: The number of times the schedule succeeded before calling
+										the recovery handler.</li
+									>
+									<li><b>success_result</b>: The result of the latest successful job</li>
+									<li><b>success_started_at</b>: The start datetime of the latest successful job</li
+									>
+								</ul>
+							</div>
+						</Tooltip>
+					</div>
+				</svelte:fragment>
+				<Tabs bind:selected={recoveryHandlerSelected} class="mt-2 mb-4">
 					<Tab value="custom">Custom</Tab>
 					<Tab value="slack">Slack</Tab>
 				</Tabs>
-			</div>
 
-			{#if errorHandlerSelected === 'custom'}
-				<div class="flex flex-row mb-2">
-					<ScriptPicker
-						disabled={!can_write}
-						initialPath={errorHandlerPath}
-						kind={Script.kind.SCRIPT}
-						allowFlow={true}
-						bind:scriptPath={errorHandlerPath}
-						bind:itemKind={errorHandleritemKind}
-						allowRefresh
-					/>
+				{#if recoveryHandlerSelected === 'custom'}
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={!can_write || !$enterpriseLicense}
+							initialPath={recoveryHandlerPath}
+							kind={Script.kind.SCRIPT}
+							allowFlow={true}
+							bind:scriptPath={recoveryHandlerPath}
+							bind:itemKind={recoveryHandlerItemKind}
+							allowRefresh
+						/>
 
-					{#if errorHandlerPath === undefined}
-						<Button
-							btnClasses="ml-4 mt-2"
-							color="dark"
-							size="xs"
-							href="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
-							target="_blank">Create from template</Button
-						>
-					{/if}
-				</div>
-			{:else if errorHandlerSelected === 'slack'}
-				<Alert type="info" title="Slack schedule error handler"
-					>You will receive a notification on the selected slack channel.
-				</Alert>
-			{/if}
-
-			<div class="flex flex-row items-center justify-between">
-				<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-					<p
-						>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
-						when schedule failed</p
-					>
-					<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
-						<option value={false}>&gt;=</option>
-						<option value={true}>==</option>
-					</select>
-					<input
-						type="number"
-						class="!w-14 text-center"
-						bind:value={failedTimes}
-						disabled={!$enterpriseLicense}
-						min="1"
-					/>
-					<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
-				</div>
-			</div>
-			{#if errorHandlerPath}
-				<p class="font-semibold text-sm mt-4 mb-2"
-					>{errorHandlerSelected !== 'custom' ? 'Configuration' : 'Extra arguments'}</p
-				>
-				<SchemaForm
-					disabled={!can_write}
-					schema={errorHandlerSchema}
-					bind:args={errorHandlerExtraArgs}
-					shouldHideNoInputs
-					class="text-xs"
-				/>
-				{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
-					<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
-				{/if}
-			{/if}
-
-			<h2 class="border-b pb-1 mt-8 mb-2"
-				>Recovery Handler {#if !$enterpriseLicense}<span class="text-normal text-2xs"
-						>(ee only)</span
-					>{/if}
-				<Tooltip
-					><div class="text-tertiary text-sm"
-						>The following args will be passed to the recovery handler:
-						<ul class="mt-1 ml-2">
-							<li><b>path</b>: The path of the script or flow that recovered.</li>
-							<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-							<li><b>schedule_path</b>: The path of the schedule.</li>
-							<li><b>error</b>: The error of the last job that errored</li>
-							<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
-							<li
-								><b>success_times</b>: The number of times the schedule succeeded before calling the
-								recovery handler.</li
+						{#if recoveryHandlerPath === undefined}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
+								target="_blank">Create from template</Button
 							>
-							<li><b>success_result</b>: The result of the latest successful job</li>
-							<li><b>success_started_at</b>: The start datetime of the latest successful job</li>
-						</ul>
-					</div></Tooltip
-				></h2
-			>
-
-			<Tabs bind:selected={recoveryHandlerSelected} class="mt-2 mb-4">
-				<Tab value="custom">Custom</Tab>
-				<Tab value="slack">Slack</Tab>
-			</Tabs>
-
-			{#if recoveryHandlerSelected === 'custom'}
-				<div class="flex flex-row mb-2">
-					<ScriptPicker
-						disabled={!can_write || !$enterpriseLicense}
-						initialPath={recoveryHandlerPath}
-						kind={Script.kind.SCRIPT}
-						allowFlow={true}
-						bind:scriptPath={recoveryHandlerPath}
-						bind:itemKind={recoveryHandlerItemKind}
-						allowRefresh
-					/>
-
-					{#if recoveryHandlerPath === undefined}
-						<Button
-							btnClasses="ml-4 mt-2"
-							color="dark"
-							size="xs"
-							href="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
-							target="_blank">Create from template</Button
-						>
-					{/if}
-				</div>
-			{:else if recoveryHandlerSelected === 'slack'}
-				<Alert type="info" title="Slack schedule recovery handler"
-					>You will receive a notification on the selected slack channel.
-				</Alert>
-			{/if}
-
-			<div class="flex flex-row items-center justify-between">
-				<div class="flex flex-row items-center mt-5 font-semibold text-sm">
-					<p>Triggered when schedule recovered</p>
-					<input type="number" class="!w-14 mx-2 text-center" bind:value={recoveredTimes} min="1" />
-					<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
-				</div>
-			</div>
-
-			{#if recoveryHandlerPath}
-				<p class="font-semibold text-sm mt-4 mb-2"
-					>{recoveryHandlerSelected === 'custom' ? 'Extra arguments' : 'Configuration'}</p
-				>
-				<SchemaForm
-					disabled={!can_write}
-					schema={recoveryHandlerSchema}
-					bind:args={recoveryHandlerExtraArgs}
-					shouldHideNoInputs
-					class="text-xs"
-				/>
-				{#if recoveryHandlerSchema && recoveryHandlerSchema.properties && Object.keys(recoveryHandlerSchema.properties).length === 0}
-					<div class="text-xs texg-gray-700">This recovery handler takes no extra arguments</div>
+						{/if}
+					</div>
+				{:else if recoveryHandlerSelected === 'slack'}
+					<Alert type="info" title="Slack schedule recovery handler"
+						>You will receive a notification on the selected slack channel.
+					</Alert>
 				{/if}
-			{/if}
+
+				<div class="flex flex-row items-center justify-between">
+					<div class="flex flex-row items-center mt-5 font-semibold text-sm">
+						<p>Triggered when schedule recovered</p>
+						<input
+							type="number"
+							class="!w-14 mx-2 text-center"
+							bind:value={recoveredTimes}
+							min="1"
+						/>
+						<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+					</div>
+				</div>
+
+				{#if recoveryHandlerPath}
+					<p class="font-semibold text-sm mt-4 mb-2"
+						>{recoveryHandlerSelected === 'custom' ? 'Extra arguments' : 'Configuration'}</p
+					>
+					<SchemaForm
+						disabled={!can_write}
+						schema={recoveryHandlerSchema}
+						bind:args={recoveryHandlerExtraArgs}
+						shouldHideNoInputs
+						class="text-xs"
+					/>
+					{#if recoveryHandlerSchema && recoveryHandlerSchema.properties && Object.keys(recoveryHandlerSchema.properties).length === 0}
+						<div class="text-xs texg-gray-700">This recovery handler takes no extra arguments</div>
+					{/if}
+				{/if}
+			</Section>
 		</div>
 	</DrawerContent>
 </Drawer>

@@ -5,12 +5,12 @@
 
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
-	import CollapseLink from './CollapseLink.svelte'
 	import { Button } from './common'
 	import Select from '../components/apps/svelte-select/lib/index'
 	import timezones from './timezones'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import { onMount } from 'svelte'
+	import CronBuilder from './CronBuilder.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -221,10 +221,10 @@
 
 		{#if !disabled}
 			<div class="w-full">
-				<CollapseLink text="Use simplified builder">
-					<div class="w-full flex flex-col gap-4 mt-4">
+				<CronBuilder let:close>
+					<div class="w-full flex flex-col">
 						<div class="w-full flex flex-col gap-1">
-							<small class="font-bold">Execute schedule every</small>
+							<div class="text-secondary text-sm leading-none">Execute schedule every</div>
 
 							<div class="w-full flex gap-4">
 								<div class="w-full flex flex-col gap-1">
@@ -341,7 +341,7 @@
 						</div>
 
 						<div class="w-full flex flex-col gap-1">
-							<small class="font-bold">Preview New Cron</small>
+							<div class="text-secondary text-sm leading-none">Preview New Cron</div>
 
 							<div class="flex p-2 px-4 rounded-md bg-surface-secondary">
 								<span>{nschedule}</span>
@@ -350,11 +350,18 @@
 					</div>
 
 					<div class="mt-4">
-						<Button color="dark" size="xs" on:click={() => (schedule = nschedule)}>
+						<Button
+							color="dark"
+							size="xs"
+							on:click={() => {
+								schedule = nschedule
+								close(null)
+							}}
+						>
 							Set Cron Schedule
 						</Button>
 					</div>
-				</CollapseLink>
+				</CronBuilder>
 			</div>
 		{/if}
 	</div>
