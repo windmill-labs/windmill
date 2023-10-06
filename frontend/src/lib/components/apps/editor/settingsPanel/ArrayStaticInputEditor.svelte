@@ -8,6 +8,7 @@
 	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	const flipDurationMs = 200
 
@@ -120,11 +121,23 @@
 	function handleItemsChange() {
 		componentInput.value = items.map((item) => item.value)
 	}
+
+	let raw: boolean = false
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
 	{#if Array.isArray(items) && componentInput.value}
-		<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
+		<div class="flex flex-row items-center justify-between">
+			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
+
+			<Toggle
+				options={{
+					right: 'Raw'
+				}}
+				size="xs"
+				bind:checked={raw}
+			/>
+		</div>
 		<section
 			use:dndzone={{
 				items,
@@ -141,7 +154,11 @@
 
 					<div class="flex flex-row gap-2 items-center relative my-1 w-full">
 						<div class="grow min-w-0">
-							<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
+							<SubTypeEditor
+								subFieldType={raw ? 'object' : subFieldType}
+								bind:componentInput
+								bind:value={item.value}
+							/>
 						</div>
 						<div class="flex justify-between flex-col items-center">
 							<div

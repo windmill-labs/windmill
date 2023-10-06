@@ -1361,7 +1361,7 @@ This is a paragraph.
 				columnDefs: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'object',
+					subFieldType: 'ag-grid',
 					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
 				} as StaticAppInput,
 				flex: {
