@@ -55,6 +55,7 @@
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
+	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -281,6 +282,15 @@
 			/>
 		{:else if component.type === 'aggridcomponent'}
 			<AppAggridTable
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				{render}
+			/>
+		{:else if component.type === 'aggridcomponentee'}
+			<AppAggridTableEe
+				license={component.license}
 				id={component.id}
 				configuration={component.configuration}
 				bind:initializing
