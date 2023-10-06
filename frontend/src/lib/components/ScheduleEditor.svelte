@@ -377,7 +377,7 @@
 				<svelte:fragment slot="header">
 					<Tooltip>
 						<div class="flex gap-20 items-start mt-3">
-							<div class="text-tertiary text-sm"
+							<div class="text-sm"
 								>The following args will be passed to the error handler:
 								<ul class="mt-1 ml-2">
 									<li><b>path</b>: The path of the script or flow that failed.</li>
