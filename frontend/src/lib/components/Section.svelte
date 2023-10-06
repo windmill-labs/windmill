@@ -10,6 +10,7 @@
 		</h2>
 		<slot name="action" />
 	</div>
-
-	<slot />
+	<div class={$$props.class}>
+		<slot />
+	</div>
 </div>

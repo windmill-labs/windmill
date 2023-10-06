@@ -5,7 +5,6 @@
 
 	import { BROWSER } from 'esm-env'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -25,6 +24,7 @@
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
+	import Label from '$lib/components/Label.svelte'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -66,11 +66,8 @@
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
-						<div class="overflow-auto h-full">
-							<label class="block mb-10 mt-2">
-								<span class="text-secondary text-sm leading-none"
-									>Summary <Required required={false} /></span
-								>
+						<div class="h-full gap-8 flex flex-col">
+							<Label label="Summary">
 								<input
 									type="text"
 									autofocus
@@ -89,25 +86,21 @@
 										}
 									}}
 								/>
-							</label>
+							</Label>
 
-							<span class="text-secondary text-sm font-bold"> Path </span>
-							<Path
-								autofocus={false}
-								bind:this={path}
-								bind:dirty={dirtyPath}
-								bind:path={$flowStore.path}
-								{initialPath}
-								namePlaceholder="flow"
-								kind="flow"
-							/>
+							<Label label="Path">
+								<Path
+									autofocus={false}
+									bind:this={path}
+									bind:dirty={dirtyPath}
+									bind:path={$flowStore.path}
+									{initialPath}
+									namePlaceholder="flow"
+									kind="flow"
+								/>
+							</Label>
 
-							<label class="block mt-10 mb-6" for="inp">
-								<span class="text-secondary text-sm leading-none">
-									Description
-									<Required required={false} />
-								</span>
-
+							<Label label="Description">
 								<textarea
 									use:autosize
 									type="text"
@@ -117,7 +110,7 @@
 									placeholder="What this flow does and how to use it."
 									rows="3"
 								/>
-							</label>
+							</Label>
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">
 									On-demand:
@@ -225,20 +218,21 @@
 					</TabContent>
 
 					<TabContent value="settings-same-worker" class="p-4 flex flex-col">
-						<Alert type="info" title="Shared Directory">
-							Steps will share a folder at `./shared` in which they can store heavier data and pass
-							them to the next step. <br /><br />Beware that the `./shared` folder is not preserved
-							across suspends and sleeps. <br /><br />
-							Furthermore, steps' worker groups is not respected and only the flow's worker group will
-							be respected.
-						</Alert>
-						<span class="my-4 text-lg font-bold">Shared Directory</span>
-						<Toggle
-							bind:checked={$flowStore.value.same_worker}
-							options={{
-								right: 'Shared Directory on `./shared`'
-							}}
-						/>
+						<Section label="Shared Directory" class="flex flex-col gap-4">
+							<Alert type="info" title="Shared Directory">
+								Steps will share a folder at `./shared` in which they can store heavier data and
+								pass them to the next step. <br /><br />Beware that the `./shared` folder is not
+								preserved across suspends and sleeps. <br /><br />
+								Furthermore, steps' worker groups is not respected and only the flow's worker group will
+								be respected.
+							</Alert>
+							<Toggle
+								bind:checked={$flowStore.value.same_worker}
+								options={{
+									right: 'Shared Directory on `./shared`'
+								}}
+							/>
+						</Section>
 					</TabContent>
 					<TabContent value="settings-cache" class="p-4 flex flex-col">
 						<h2 class="border-b pb-1 mb-4 flex items-center gap-4"
@@ -362,10 +356,7 @@
 								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 							</svelte:fragment>
 							<div class="flex flex-col gap-4">
-								<div>
-									<div class="text-secondary text-sm leading-6">
-										Max number of executions within the time window
-									</div>
+								<Label label="Max number of executions within the time window">
 									<div class="flex flex-row gap-2 max-w-sm">
 										<input bind:value={$flowStore.value.concurrent_limit} type="number" />
 										<Button
@@ -377,11 +368,10 @@
 											variant="border">Remove Limits</Button
 										>
 									</div>
-								</div>
-								<div>
-									<div class="text-secondary text-sm leading-6">Time window in seconds</div>
+								</Label>
+								<Label label="Time window in seconds">
 									<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
-								</div>
+								</Label>
 							</div>
 						</Section>
 					</TabContent>

@@ -287,8 +287,8 @@
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
-							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
+							<Tab value="inputs">Step Input</Tab>
+							<Tab value="test">Test this step</Tab>
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
@@ -374,16 +374,18 @@
 												<div class="flex flex-row gap-2 max-w-sm"
 													><input bind:value={flowModule.value.concurrent_limit} type="number" />
 													<Button
-														size="sm"
+														size="xs"
 														color="light"
 														on:click={() => {
 															if (flowModule.value.type == 'rawscript') {
 																flowModule.value.concurrent_limit = undefined
 															}
 														}}
-														variant="border">Remove Limits</Button
-													></div
-												>
+														variant="border"
+													>
+														<div class="flex flex-row gap-2"> Remove Limits </div>
+													</Button>
+												</div>
 												<div class="text-xs font-bold !mt-2">Time window in seconds</div>
 												<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
 											</div>
