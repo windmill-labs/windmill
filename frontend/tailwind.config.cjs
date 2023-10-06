@@ -863,6 +863,9 @@ const config = {
 					justifyContent: 'center',
 					alignItems: 'center'
 				},
+				'.inner-border': {
+					boxShadow: 'inset 0 0 0 1px #ddd'
+				},
 
 				'.ellipsize': {
 					overflow: 'hidden',
