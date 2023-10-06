@@ -319,8 +319,7 @@
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
 									<div class="flex flex-col gap-4">
-										<div>
-											<span class="text-secondary text-sm leading-none">Summary</span>
+										<Label label="Summary">
 											<input
 												type="text"
 												autofocus
@@ -338,30 +337,28 @@
 													}
 												}}
 											/>
-										</div>
-										<div>
-											<span class="text-secondary text-sm leading-none">Description</span>
+										</Label>
+										<Label label="Path">
+											<Path
+												bind:this={path}
+												bind:error={pathError}
+												bind:path={script.path}
+												bind:dirty={dirtyPath}
+												{initialPath}
+												autofocus={false}
+												namePlaceholder="script"
+												kind="script"
+											/>
+										</Label>
+										<Label label="Description">
 											<textarea
 												use:autosize
 												bind:value={script.description}
 												placeholder="Description displayed in the details page"
 												class="text-sm"
 											/>
-										</div>
+										</Label>
 									</div>
-								</Section>
-
-								<Section label="Path">
-									<Path
-										bind:this={path}
-										bind:error={pathError}
-										bind:path={script.path}
-										bind:dirty={dirtyPath}
-										{initialPath}
-										autofocus={false}
-										namePlaceholder="script"
-										kind="script"
-									/>
 								</Section>
 
 								<Section label="Language">
