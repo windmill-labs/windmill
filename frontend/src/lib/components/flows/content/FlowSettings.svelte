@@ -24,6 +24,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
+	import Section from '$lib/components/Section.svelte'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -67,7 +68,7 @@
 					<TabContent value="settings-metadata" class="p-4 h-full">
 						<div class="overflow-auto h-full">
 							<label class="block mb-10 mt-2">
-								<span class="text-secondary text-sm font-bold"
+								<span class="text-secondary text-sm leading-none"
 									>Summary <Required required={false} /></span
 								>
 								<input
@@ -102,7 +103,7 @@
 							/>
 
 							<label class="block mt-10 mb-6" for="inp">
-								<span class="text-secondary text-sm font-bold">
+								<span class="text-secondary text-sm leading-none">
 									Description
 									<Required required={false} />
 								</span>
@@ -356,30 +357,33 @@
 					</TabContent>
 
 					<TabContent value="settings-concurrency" class="p-4 flex flex-col">
-						<div>
-							<h2 class="pb-4">
-								Concurrency Limits
+						<Section label="Concurrency Limits">
+							<svelte:fragment slot="header">
 								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-							</h2>
-						</div>
-						<div>
-							<div class="text-xs font-bold !mt-2"
-								>Max number of executions within the time window</div
-							>
-							<div class="flex flex-row gap-2 max-w-sm"
-								><input bind:value={$flowStore.value.concurrent_limit} type="number" />
-								<Button
-									size="sm"
-									color="light"
-									on:click={() => {
-										$flowStore.value.concurrent_limit = undefined
-									}}
-									variant="border">Remove Limits</Button
-								></div
-							>
-							<div class="text-xs font-bold !mt-2">Time window in seconds</div>
-							<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
-						</div>
+							</svelte:fragment>
+							<div class="flex flex-col gap-4">
+								<div>
+									<div class="text-secondary text-sm leading-6">
+										Max number of executions within the time window
+									</div>
+									<div class="flex flex-row gap-2 max-w-sm">
+										<input bind:value={$flowStore.value.concurrent_limit} type="number" />
+										<Button
+											size="sm"
+											color="light"
+											on:click={() => {
+												$flowStore.value.concurrent_limit = undefined
+											}}
+											variant="border">Remove Limits</Button
+										>
+									</div>
+								</div>
+								<div>
+									<div class="text-secondary text-sm leading-6">Time window in seconds</div>
+									<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
+								</div>
+							</div>
+						</Section>
 					</TabContent>
 				</svelte:fragment>
 			</Tabs>

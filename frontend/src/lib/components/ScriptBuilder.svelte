@@ -41,6 +41,7 @@
 	import Toggle from './Toggle.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
+	import Label from './Label.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -468,19 +469,13 @@
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8">
 								<Section label="Concurency limits">
-									<div class="flex gap-x-4 shrink">
-										<label class="block shrink min-w-0">
-											<span class="text-secondary text-sm leading-none">
-												Maximum number of runs
-											</span>
+									<div class="flex gap-4 shrink">
+										<Label label="Maximum number of runs">
 											<input type="number" bind:value={script.concurrent_limit} />
-										</label>
-										<label class="block shrink min-w-0">
-											<span class="text-secondary text-sm leading-none"
-												>Per time window (seconds)</span
-											>
+										</Label>
+										<Label label="Per time window (seconds)">
 											<input type="number" bind:value={script.concurrency_time_window_s} />
-										</label>
+										</Label>
 									</div>
 								</Section>
 								<Section label="Worker group tag">
