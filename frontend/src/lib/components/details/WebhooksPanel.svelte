@@ -44,7 +44,7 @@
 		requestType = 'hash'
 	}
 
-	let token = 'YOUR_TOKEN'
+	let token = 'TOKEN_TO_CREATE'
 
 	$: url =
 		webhooks[webhookType][requestType] +
@@ -192,7 +192,11 @@ done`
 <div class="p-2 flex flex-col w-full gap-4">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<div class="flex flex-row justify-between my-2 gap-2">
-			<input bind:value={token} placeholder="YOUR_TOKEN" class="!text-xs" />
+			<input
+				bind:value={token}
+				placeholder="paste your token here once created to alter examples below"
+				class="!text-xs"
+			/>
 			<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
 				Create a Webhook-specific Token
 				<Tooltip light>
