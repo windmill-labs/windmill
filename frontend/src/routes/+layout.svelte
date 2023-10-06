@@ -18,13 +18,13 @@
 </script>
 
 <svelte:head>
-	{#if !import.meta.env.PROD}
-	<script
-		data-project-id="JLtc2teApu4xqh47avxGx7oTAwY0rqAdVTqsV8MC"
-		data-is-production-environment="false"
-		src="https://snippet.meticulous.ai/v1/meticulous.js"
-	></script>
-	{/if}
+	<!-- {#if !import.meta.env.PROD}
+		<script
+			data-project-id="JLtc2teApu4xqh47avxGx7oTAwY0rqAdVTqsV8MC"
+			data-is-production-environment="false"
+			src="https://snippet.meticulous.ai/v1/meticulous.js"
+		></script>
+	{/if} -->
 	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
 </svelte:head>
 
