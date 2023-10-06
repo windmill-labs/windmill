@@ -64,9 +64,16 @@
 					</div>
 				</CollapseLink>
 			{:else if name == 'slack'}
-				<a class="text-xs" href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
-					>Read more about Slack OAuth on the docs</a
-				>
+			<CollapseLink text="Instructions">
+				<div class="text-sm text-secondary border p-2">
+					Create a new App <a
+						href="https://api.slack.com/apps?new_app=1"
+						target="_blank">in Slack API Console</a>.
+					Pick "From an app manifest", then YAML and paste manifest template found on <a
+					href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
+					target="_blank">Windmill Docs</a> and then paste Client ID and Client Secret here.
+				</div>
+			</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">

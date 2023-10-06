@@ -413,7 +413,7 @@
 						with the same name with a "token" field in the admins workspace.
 					</Alert>
 					<div class="py-1" />
-					<OAuthSetting login={false} name="Slack" bind:value={oauths['slack']} />
+					<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 					<div class="py-1" />
 
 					{#each Object.keys(oauths) as k}
