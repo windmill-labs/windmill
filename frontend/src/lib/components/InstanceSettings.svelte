@@ -399,12 +399,12 @@
 						login or resource page
 					</Alert>
 					<div class="flex flex-col gap-2 py-4">
-						<OAuthSetting name="Google" bind:value={oauths['google']} />
-						<OAuthSetting name="Microsoft" bind:value={oauths['microsoft']} />
+						<OAuthSetting name="google" bind:value={oauths['google']} />
+						<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
 						<OktaSetting bind:value={oauths['okta']} />
-						<OAuthSetting name="GitHub" bind:value={oauths['github']} />
-						<OAuthSetting name="GitLab" bind:value={oauths['gitlab']} />
-						<OAuthSetting name="JumpCoud" bind:value={oauths['jumpcloud']} />
+						<OAuthSetting name="github" bind:value={oauths['github']} />
+						<OAuthSetting name="gitlab" bind:value={oauths['gitlab']} />
+						<OAuthSetting name="jumpcloud" bind:value={oauths['jumpcloud']} />
 						<KeycloakSetting bind:value={oauths['keycloak']} />
 					</div>
 					<h4 class="py-4">OAuth</h4>

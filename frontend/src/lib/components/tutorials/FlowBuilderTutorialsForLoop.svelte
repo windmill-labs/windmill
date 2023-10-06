@@ -31,7 +31,7 @@
 			onPopoverRender: (popover, { config, state }) => {
 				if (state.activeIndex == 0) {
 					const skipThisButton = document.createElement('button')
-					skipThisButton.innerText = 'Skip this tutorials'
+					skipThisButton.innerText = 'Skip this tutorial'
 					skipThisButton.addEventListener('click', () => {
 						updateProgress(1)
 						forloopTutorial.destroy()
