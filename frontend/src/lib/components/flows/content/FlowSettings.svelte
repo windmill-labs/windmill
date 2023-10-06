@@ -218,7 +218,7 @@
 					</TabContent>
 
 					<TabContent value="settings-same-worker" class="p-4 flex flex-col">
-						<Section label="Shared Directory" class="flex flex-col gap-4">
+						<Section label="Shared Directory" class="flex flex-col">
 							<Alert type="info" title="Shared Directory">
 								Steps will share a folder at `./shared` in which they can store heavier data and
 								pass them to the next step. <br /><br />Beware that the `./shared` folder is not
@@ -307,47 +307,48 @@
 						{/if}
 					</TabContent>
 					<TabContent value="settings-early-stop" class="p-4">
-						<h2 class="pb-4">
-							Early Stop
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
-								If defined, at the beginning of the step the predicate expression will be evaluated
-								to decide if the flow should stop early.
-							</Tooltip>
-						</h2>
-						<Toggle
-							checked={isStopAfterIfEnabled}
-							on:change={() => {
-								if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
-									$flowStore.value.skip_expr = undefined
-								} else {
-									$flowStore.value.skip_expr = 'flow_input.foo == undefined'
-								}
-							}}
-							options={{
-								right: 'Early stop if condition met'
-							}}
-						/>
+						<Section label="Early stop">
+							<svelte:fragment slot="header">
+								<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
+									If defined, at the beginning of the step the predicate expression will be
+									evaluated to decide if the flow should stop early.
+								</Tooltip>
+							</svelte:fragment>
+							<Toggle
+								checked={isStopAfterIfEnabled}
+								on:change={() => {
+									if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
+										$flowStore.value.skip_expr = undefined
+									} else {
+										$flowStore.value.skip_expr = 'flow_input.foo == undefined'
+									}
+								}}
+								options={{
+									right: 'Early stop if condition met'
+								}}
+							/>
 
-						<div
-							class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
-								? ''
-								: 'bg-surface-secondary'}"
-						>
-							{#if $flowStore.value.skip_expr}
-								<div class="border w-full">
-									<SimpleEditor
-										lang="javascript"
-										bind:code={$flowStore.value.skip_expr}
-										class="small-editor"
-										extraLib={`declare const flow_input = ${JSON.stringify(
-											schemaToObject(asSchema($flowStore.schema), $previewArgs)
-										)};`}
-									/>
-								</div>
-							{:else}
-								<textarea disabled rows="3" class="min-h-[80px]" />
-							{/if}
-						</div>
+							<div
+								class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
+									? ''
+									: 'bg-surface-secondary'}"
+							>
+								{#if $flowStore.value.skip_expr}
+									<div class="border w-full">
+										<SimpleEditor
+											lang="javascript"
+											bind:code={$flowStore.value.skip_expr}
+											class="small-editor"
+											extraLib={`declare const flow_input = ${JSON.stringify(
+												schemaToObject(asSchema($flowStore.schema), $previewArgs)
+											)};`}
+										/>
+									</div>
+								{:else}
+									<textarea disabled rows="3" class="min-h-[80px]" />
+								{/if}
+							</div>
+						</Section>
 					</TabContent>
 
 					<TabContent value="settings-concurrency" class="p-4 flex flex-col">

@@ -308,14 +308,14 @@
 							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
 								<tr>
 									<Cell first>{worker}</Cell>
-									<Cell
-										>{#if custom_tags && custom_tags?.length > 2}{truncate(
-												custom_tags?.join(', ') ?? '',
-												10
-											)}
-											<Tooltip>{custom_tags?.join(', ')}</Tooltip>{:else}{custom_tags?.join(', ') ??
-												''}{/if}</Cell
-									>
+									<Cell>
+										{#if custom_tags && custom_tags?.length > 2}
+											{truncate(custom_tags?.join(', ') ?? '', 10)}
+											<Tooltip>{custom_tags?.join(', ')}</Tooltip>
+										{:else}
+											{custom_tags?.join(', ') ?? ''}
+										{/if}
+									</Cell>
 									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
 									<Cell>{displayDate(started_at)}</Cell>
 									<Cell>{jobs_executed}</Cell>

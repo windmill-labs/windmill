@@ -12,7 +12,7 @@ const lightTheme = {
 	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
-	border: '#ccc',
+	border: '#ddd',
 	borderHover: '#ccc'
 }
 
@@ -786,7 +786,7 @@ const config = {
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: 'rgb(243 244 246) !important',
+					backgroundColor: lightTheme.border + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {

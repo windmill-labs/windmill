@@ -726,7 +726,7 @@
 						on:click={() => saveDraft()}
 					>
 						<span class="hidden sm:flex">
-							Save draft&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 						</span>
 						<Kbd small>S</Kbd>
 					</Button>

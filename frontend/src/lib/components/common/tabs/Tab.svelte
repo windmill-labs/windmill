@@ -33,8 +33,7 @@
 		fontSizeClasses[size],
 		c,
 		$selected?.startsWith(value) ? selectedClass : '',
-		disabled ? 'cursor-not-allowed text-tertiary' : '',
-		'h-8 pt-0.5'
+		disabled ? 'cursor-not-allowed text-tertiary' : ''
 	)}
 	style={`${style} ${$selected?.startsWith(value) ? selectedStyle : ''}`}
 	on:click={() => {
