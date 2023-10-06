@@ -93,6 +93,8 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.9",
+		"ag-grid-community": "^30.2.0",
+		"ag-grid-enterprise": "^30.2.0",
 		"ag-grid-svelte": "^0.3.0",
 		"ansi_up": "^5.2.1",
 		"chart.js": "^4.3.0",

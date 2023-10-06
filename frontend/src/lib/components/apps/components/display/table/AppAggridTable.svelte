@@ -1,8 +1,4 @@
 <script lang="ts">
-	import 'ag-grid-community/styles/ag-grid.css'
-	import 'ag-grid-community/styles/ag-theme-alpine.css'
-	import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
-
 	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
@@ -15,6 +11,10 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
+
+	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

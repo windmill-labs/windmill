@@ -167,6 +167,12 @@ Windmill Community Edition {GIT_VERSION}
         let rsmq2 = rsmq.clone();
         let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
 
+        DirBuilder::new()
+            .recursive(true)
+            .create("/tmp/windmill")
+            .await
+            .expect("could not create initial server dir");
+
         let server_f = async {
             windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe(), port_tx).await?;
             Ok(()) as anyhow::Result<()>
