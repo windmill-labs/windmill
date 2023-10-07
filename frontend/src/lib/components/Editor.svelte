@@ -632,18 +632,18 @@
 		let encodedImportMap = ''
 		if (useWebsockets) {
 			if (lang == 'typescript' && deno) {
-				if (filePath && filePath.split('/').length > 2) {
-					let expiration = new Date()
-					expiration.setHours(expiration.getHours() + 2)
-					const token = await UserService.createToken({
-						requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-					})
-					let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
-					const importMap = {
-						imports: {
-							'file:///': root + '/'
-						}
+				let expiration = new Date()
+				expiration.setHours(expiration.getHours() + 2)
+				const token = await UserService.createToken({
+					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+				})
+				let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+				const importMap = {
+					imports: {
+						'file:///': root + '/'
 					}
+				}
+				if (filePath && filePath.split('/').length > 2) {
 					let path_splitted = filePath.split('/')
 					for (let c = 0; c < path_splitted.length; c++) {
 						let key = 'file://./'
@@ -654,8 +654,8 @@
 						let ending = c == path_splitted.length - 1 ? '' : '/'
 						importMap['imports'][key] = `${root}/${url}${ending}`
 					}
-					encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 				}
+				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/deno`,
 					'deno',
