@@ -2,7 +2,6 @@
 	import { ScheduleService } from '$lib/gen'
 	import { emptyString, formatCron } from '$lib/utils'
 	import Badge from './Badge.svelte'
-
 	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
 	import { Button } from './common'

@@ -328,7 +328,7 @@
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						>Download <Download size={14} /></a
 					>
 					<Button on:click={() => copyToClipboard(toJsonStr(result))} color="light" size="xs">
@@ -342,7 +342,7 @@
 							download="{filename ?? 'result'}.json"
 							href={workspaceId && jobId
 								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							>Download <Download size={14} /></a
 						>
 						JSON is too large to be displayed in full.
