@@ -11,6 +11,7 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { prettyLanguage } from '$lib/common'
+	import { msToSec } from '$lib/utils'
 
 	export let mod: FlowModule
 	export let trigger: boolean
@@ -21,6 +22,7 @@
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
+	export let duration_ms: number | undefined = undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -93,6 +95,11 @@
 			</div>
 		{/if}
 
+		{#if duration_ms}
+			<div class="absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs">
+				{msToSec(duration_ms)}s
+			</div>
+		{/if}
 		{#if annotation && annotation != ''}
 			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
 				{annotation}
