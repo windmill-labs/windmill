@@ -185,7 +185,7 @@
 			path: editResourceType.name,
 			requestBody: {
 				schema: editResourceType.schema,
-				description: newResourceType.description
+				description: editResourceType.description
 			}
 		})
 		editResourceTypeDrawer.closeDrawer?.()
