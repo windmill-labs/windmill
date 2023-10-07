@@ -717,6 +717,9 @@ async fn list_users(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<UserWithUsage>> {
+    if *CLOUD_HOSTED && w_id == "demo" {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query(
         "
