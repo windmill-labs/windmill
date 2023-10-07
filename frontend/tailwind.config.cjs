@@ -499,7 +499,10 @@ const config = {
 					'--vscode-editorHoverWidget-foreground': '#616161',
 					'--vscode-editorHoverWidget-border': '#c8c8c8',
 					'--vscode-editorHoverWidget-statusBarBackground': '#e7e7e7',
-
+					'--vscode-editorSuggestWidget-foreground': '#eeffff',
+					'--vscode-editorSuggestWidget-highlightForeground': '#80cbc4',
+					'--vscode-editorSuggestWidget-selectedBackground': 'rgba(0, 0, 0, 0.31)',
+					
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
 					},
