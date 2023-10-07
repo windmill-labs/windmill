@@ -15,11 +15,7 @@
 	style="fill:currentcolor;"
 	><metadata id="metadata25"
 		><rdf:RDF
-			><cc:Work rdf:about=""
-				><dc:format>image/svg+xml</dc:format><dc:type
-					rdf:resource="http://purl.org/dc/dcmitype/StillImage"
-				/><dc:title /></cc:Work
-			></rdf:RDF
+			><cc:Work><dc:format>image/svg+xml</dc:format><dc:type /><dc:title /></cc:Work></rdf:RDF
 		></metadata
 	><defs id="defs23" /><sodipodi:namedview
 		pagecolor="#ffffff"
@@ -28,19 +24,8 @@
 		objecttolerance="10"
 		gridtolerance="10"
 		guidetolerance="10"
-		inkscape:pageopacity="0"
-		inkscape:pageshadow="2"
-		inkscape:window-width="1920"
-		inkscape:window-height="1043"
 		id="namedview21"
 		showgrid="true"
-		inkscape:zoom="1.84375"
-		inkscape:cx="210.72257"
-		inkscape:cy="88.813847"
-		inkscape:window-x="0"
-		inkscape:window-y="0"
-		inkscape:window-maximized="1"
-		inkscape:current-layer="Calque_1"
 		><inkscape:grid
 			type="xygrid"
 			id="grid4535"
@@ -50,13 +35,10 @@
 	>
 	<style type="text/css" id="style2">
 		.st0 {
-
 		}
 		.st1 {
-			
 		}
 		.st2 {
-			
 		}
 	</style>
 

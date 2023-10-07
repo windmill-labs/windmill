@@ -2,14 +2,14 @@
 	import { BROWSER } from 'esm-env'
 	import { onMount } from 'svelte'
 
-	import 'monaco-editor/esm/vs/editor/edcore.main'
-	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	// import 'monaco-editor/esm/vs/editor/edcore.main'
+	import { editor as meditor } from 'monaco-editor'
+	// import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
+	// import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -21,20 +21,20 @@
 	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
 
 	function loadDiffEditor() {
-		diffEditor = meditor.createDiffEditor(diffDivEl!, {
-			automaticLayout,
-			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
-			originalEditable: false,
-			minimap: {
-				enabled: false
-			},
-			fixedOverflowWidgets,
-			scrollBeyondLastLine: false,
-			lineDecorationsWidth: 15,
-			lineNumbersMinChars: 2,
-			autoDetectHighContrast: true,
-			scrollbar: { alwaysConsumeMouseWheel: false }
-		})
+		// diffEditor = meditor.createDiffEditor(diffDivEl!, {
+		// 	automaticLayout,
+		// 	renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+		// 	originalEditable: false,
+		// 	minimap: {
+		// 		enabled: false
+		// 	},
+		// 	fixedOverflowWidgets,
+		// 	scrollBeyondLastLine: false,
+		// 	lineDecorationsWidth: 15,
+		// 	lineNumbersMinChars: 2,
+		// 	autoDetectHighContrast: true,
+		// 	scrollbar: { alwaysConsumeMouseWheel: false }
+		// })
 	}
 
 	export function setupModel(

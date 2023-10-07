@@ -52,9 +52,7 @@ const config = {
 		include: ['highlight.js', 'highlight.js/lib/core', 'ag-grid-svelte']
 	},
 	resolve: {
-		alias: {
-			path: 'path-browserify'
-		}
+		dedupe: ['monaco-editor', 'vscode']
 	},
 	assetsInclude: ['**/*.wasm']
 }

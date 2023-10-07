@@ -5,8 +5,40 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
+	import '@codingame/monaco-vscode-theme-defaults-default-extension'
+	import '@codingame/monaco-vscode-python-default-extension'
+
+	import getAccessibilityServiceOverride from '@codingame/monaco-vscode-accessibility-service-override'
+	import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+	import getEditorServiceOverride, {
+		type IReference
+	} from '@codingame/monaco-vscode-editor-service-override'
+	import getKeybindingsServiceOverride from '@codingame/monaco-vscode-keybindings-service-override'
+	import getLanguagesServiceOverride from '@codingame/monaco-vscode-languages-service-override'
+	import getModelServiceOverride from '@codingame/monaco-vscode-model-service-override'
+	import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override'
+	import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
+
+	import { MonacoLanguageClient, initServices, useOpenEditorStub } from 'monaco-languageclient'
+	import { LogLevel } from 'vscode/services'
+
+	import {
+		createConfiguredEditor,
+		createModelReference,
+		type ITextFileEditorModel
+	} from 'vscode/monaco'
 	import * as vscode from 'vscode'
 
+	// import {
+	// 	editor as meditor,
+	// 	KeyCode,
+	// 	KeyMod,
+	// 	Uri as mUri,
+	// 	languages,
+	// 	type IRange
+	// } from 'monaco-editor'
+
+	// import 'monaco-editor'
 	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
 		editor as meditor,
@@ -26,7 +58,12 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
-	import { MonacoLanguageClient, initServices } from 'monaco-languageclient'
+	import {
+		RegisteredFileSystemProvider,
+		registerFileSystemOverlay,
+		RegisteredMemoryFile
+	} from 'vscode/service-override/files'
+
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType, NotificationType } from 'vscode-languageclient'
 	import { MonacoBinding } from 'y-monaco'
@@ -119,8 +156,8 @@
 	let destroyed = false
 	const uri =
 		lang == 'typescript' && deno
-			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
+			? `/${filePath ?? rHash}.${langToExt(lang)}`
+			: `/tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
 	console.log('uri', uri)
 
@@ -447,22 +484,6 @@
 	export async function reloadWebsocket() {
 		console.log('reloadWebsocket')
 		await closeWebsockets()
-		try {
-			await initServices({
-				enableThemeService: false,
-				enableModelEditorService: true,
-				enableNotificationService: false,
-				modelEditorServiceConfig: {
-					useDefaultFunction: true
-				},
-				debugLogging: false
-			})
-		} catch (e) {
-			console.log('initServices failed', e.message)
-			if (e.message != 'Lifecycle cannot go backwards') {
-				return
-			}
-		}
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -487,13 +508,13 @@
 					workspaceFolder:
 						name == 'bun'
 							? {
-									uri: vscode.Uri.parse('file:///tmp/monaco/'),
+									uri: vscode.Uri.file('/tmp/monaco/'),
 									name: 'windmill',
 									index: 0
 							  }
 							: name != 'deno'
 							? {
-									uri: vscode.Uri.parse(uri),
+									uri: vscode.Uri.file(uri),
 									name: 'windmill',
 									index: 0
 							  }
@@ -598,7 +619,7 @@
 								'deno.cache',
 								(uris: DocumentUri[] = []) => {
 									languageClient.sendRequest(new RequestType('deno/cache'), {
-										referrer: { uri },
+										referrer: { uri: 'file://' + uri },
 										uris: uris.map((uri) => ({ uri }))
 									})
 								}
@@ -884,30 +905,71 @@
 	}
 
 	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
-	let model: meditor.ITextModel
+	let modelRef: IReference<ITextFileEditorModel>
 
 	let monacoBinding: MonacoBinding | undefined = undefined
 	// @ts-ignore
-	$: if (yContent && awareness && model && editor) {
+	$: if (yContent && awareness && modelRef.object.textEditorModel && editor) {
 		monacoBinding && monacoBinding.destroy()
-		monacoBinding = new MonacoBinding(yContent, model, new Set([editor]), awareness)
+		monacoBinding = new MonacoBinding(
+			yContent,
+			modelRef.object.textEditorModel!,
+			new Set([editor]),
+			awareness
+		)
 	}
 
 	async function loadMonaco() {
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			await initServices({
+				userServices: {
+					...getThemeServiceOverride(),
+					...getTextmateServiceOverride(),
+					...getConfigurationServiceOverride(vscode.Uri.file('/workspace')),
+					...getEditorServiceOverride(useOpenEditorStub),
+					...getModelServiceOverride(),
+					...getLanguagesServiceOverride(),
+					...getKeybindingsServiceOverride(),
+					...getAccessibilityServiceOverride()
+				},
+				debugLogging: true,
+				logLevel: LogLevel.Debug
+			})
+		} catch (e) {
+			throw e
+			console.log('initServices failed', e.message)
+			if (e.message != 'Lifecycle cannot go backwards') {
+				return
+			}
+		}
+
+		const fileSystemProvider = new RegisteredFileSystemProvider(false)
+		fileSystemProvider.registerFile(new RegisteredMemoryFile(vscode.Uri.file(uri), code))
+		registerFileSystemOverlay(1, fileSystemProvider)
+
+		try {
+			modelRef = await createModelReference(mUri.file(uri))
+			modelRef.object.setLanguageId(lang)
 		} catch (err) {
 			console.log('model already existed', err)
-			const nmodel = meditor.getModel(mUri.parse(uri))
+			const nmodel = meditor.getModel(mUri.file(uri))
 			if (!nmodel) {
 				throw err
 			}
-			model = nmodel
+			// modelRef.object.textEditorModel = nmodel
 		}
-		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
+		modelRef.object.textEditorModel?.updateOptions(
+			lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions
+		)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+		editor = createConfiguredEditor(divEl as HTMLDivElement, {
+			...editorConfig(
+				modelRef.object.textEditorModel,
+				code,
+				lang,
+				automaticLayout,
+				fixedOverflowWidgets
+			),
 			overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
@@ -960,7 +1022,7 @@
 			console.log('disposing editor')
 			try {
 				closeWebsockets()
-				model?.dispose()
+				modelRef?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
 			} catch (err) {
