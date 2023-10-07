@@ -4,7 +4,7 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import Icon from 'svelte-awesome'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
@@ -13,7 +13,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { emptyString, isOwner, msToSec, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -65,9 +65,13 @@
 	$: {
 		let len = (flowJobIds?.flowJobs ?? []).length
 		if (len != lastSize) {
-			forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
-			lastSize = len
+			updateForloop(len)
 		}
+	}
+
+	function updateForloop(len: number) {
+		forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
+		lastSize = len
 	}
 
 	$: updateFailCount(job?.flow_status?.retry?.fail_count)
@@ -88,42 +92,44 @@
 				: []
 		) ?? []
 
-	$: innerModules && localFlowModuleStates && updateInnerModules()
+	$: innerModules && updateInnerModules()
 
 	function updateInnerModules() {
-		innerModules.forEach((mod, i) => {
-			if (
-				mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
-				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
-					FlowStatusModule.type.SUCCESS
-			) {
-				localFlowModuleStates[mod.id ?? ''] = { type: mod.type, args: job?.args }
-			} else if (
-				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
-				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
-			) {
-				console.debug('updating', mod.job)
-				JobService.getJob({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: mod.job ?? ''
-				})
-					.then((job) => {
-						const newState = {
-							type: mod.type,
-							scheduled_for: job?.['scheduled_for'],
-							job_id: job?.id,
-							parent_module: mod['parent_module'],
-							args: job?.args
-						}
-						if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
-							localFlowModuleStates[mod.id ?? ''] = newState
-						}
+		if (localFlowModuleStates) {
+			innerModules.forEach((mod, i) => {
+				if (
+					mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+					localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+						FlowStatusModule.type.SUCCESS
+				) {
+					localFlowModuleStates[mod.id ?? ''] = { type: mod.type, args: job?.args }
+				} else if (
+					mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+					localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
+				) {
+					console.debug('updating', mod.job)
+					JobService.getJob({
+						workspace: workspaceId ?? $workspaceStore ?? '',
+						id: mod.job ?? ''
 					})
-					.catch((e) => {
-						console.error(`Could not load inner module for job ${mod.job}`, e)
-					})
-			}
-		})
+						.then((job) => {
+							const newState = {
+								type: mod.type,
+								scheduled_for: job?.['scheduled_for'],
+								job_id: job?.id,
+								parent_module: mod['parent_module'],
+								args: job?.args
+							}
+							if (!deepEqual(newState, localFlowModuleStates[mod.id ?? ''])) {
+								localFlowModuleStates[mod.id ?? ''] = newState
+							}
+						})
+						.catch((e) => {
+							console.error(`Could not load inner module for job ${mod.job}`, e)
+						})
+				}
+			})
+		}
 	}
 
 	let errorCount = 0
@@ -134,7 +140,7 @@
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
-				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
+				if (!deepEqual(job, newJob)) {
 					job = newJob
 				}
 				errorCount = 0
@@ -202,6 +208,7 @@
 					result: job['result'],
 					job_id: job.id,
 					parent_module: mod['parent_module'],
+					duration_ms: job['duration_ms'],
 					iteration_total: mod.iterator?.itered?.length
 					// retries: flowState?.raw_flow
 				}
@@ -376,7 +383,8 @@
 											logs: 'All jobs completed',
 											result: jobResults,
 											job_id: e.detail.id,
-											iteration_total: flowJobIds?.flowJobs.length
+											iteration_total: flowJobIds?.flowJobs.length,
+											duration_ms: e.detail.duration_ms
 										}
 									}
 								}
@@ -515,33 +523,36 @@
 									<p class="p-2">No arguments</p>
 								{/if}
 							{:else if node}
-								<div class="px-2 flex gap-2 min-w-0">
+								<div class="px-2 flex gap-2 min-w-0 overflow-hidden w-full">
 									<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
+									{#if node.duration_ms}
+										<Badge>
+											<Icon data={faHourglassHalf} scale={0.6} class="mr-2" />
+											{msToSec(node.duration_ms)} s
+										</Badge>
+									{/if}
 									{#if node.job_id}
-										<div class="truncate w-full"
-											><div class=" text-primary whitespace-nowrap truncate w-full">
-												<span class="font-bold mr-2">Job Id</span>
-												<a
-													class="w-full text-right text-xs"
-													rel="noreferrer"
-													target="_blank"
-													href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-												>
-													{truncateRev(node.job_id ?? '', 10) ?? ''}
-												</a>
-											</div>
+										<div class="grow w-full flex flex-row-reverse">
+											<a
+												class="text-right text-xs"
+												rel="noreferrer"
+												target="_blank"
+												href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+											>
+												{truncateRev(node.job_id ?? '', 10)}
+											</a>
 										</div>
 									{/if}
 								</div>
-								<div class="px-1 border-b border-black">
+								<div class="px-1 py-1">
 									<JobArgs args={node.args} />
 								</div>
 
 								<FlowJobResult
 									workspaceId={job?.workspace_id}
-									jobId={job?.id}
-									loading={job['running'] == true}
+									jobId={node.job_id}
 									noBorder
+									loading={false}
 									col
 									result={node.result}
 									logs={node.logs ?? ''}
