@@ -502,7 +502,7 @@ const config = {
 					'--vscode-editorSuggestWidget-foreground': '#eeffff',
 					'--vscode-editorSuggestWidget-highlightForeground': '#80cbc4',
 					'--vscode-editorSuggestWidget-selectedBackground': 'rgba(0, 0, 0, 0.31)',
-					
+
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
 					},
@@ -867,9 +867,11 @@ const config = {
 					alignItems: 'center'
 				},
 				'.inner-border': {
-					boxShadow: 'inset 0 0 0 1px #ddd'
+					boxShadow: `inset 0 0 0 1px ${lightTheme.border}`
 				},
-
+				'.dark .inner-border': {
+					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
+				},
 				'.ellipsize': {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',
