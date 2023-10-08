@@ -515,7 +515,9 @@
 					{isValid}
 					{args}
 					on:selected_args={(e) => {
-						runForm?.setArgs(JSON.parse(JSON.stringify(e.detail)))
+						const nargs = JSON.parse(JSON.stringify(e.detail))
+						runForm?.setArgs(nargs)
+						args = nargs
 					}}
 				/>
 			{/if}
