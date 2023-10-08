@@ -488,7 +488,7 @@
 									<div
 										class={classNames(
 											'relative mx-auto w-full h-full overflow-auto',
-											$appStore.fullscreen ? '' : 'max-w-6xl  '
+											$appStore.fullscreen ? '' : 'max-w-7xl border-x'
 										)}
 									>
 										{#if $appStore.grid}

@@ -304,7 +304,7 @@
 				<div class="relative w-full h-full">
 					<div
 						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden',
+							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
 							devOnly ? 'hidden' : ''
 						)}
 					>

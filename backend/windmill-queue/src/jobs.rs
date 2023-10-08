@@ -215,6 +215,9 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
+    // tracing::error!("Start");
+    // let start = tokio::time::Instant::now();
+
     let is_flow =
         queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
     let duration = if is_flow {
@@ -416,6 +419,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     }
 
     tracing::debug!("Added completed job {}", queued_job.id);
+    // tracing::error!("{:?}", start.elapsed());
+
     Ok(queued_job.id)
 }
 
