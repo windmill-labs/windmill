@@ -144,7 +144,7 @@
 			{download}
 			class={twMerge(
 				buttonClass,
-				disabled ? '!bg-surface-disabled inner-border !text-tertiary !cursor-not-allowed' : ''
+				disabled ? '!bg-surface-disabled border !text-tertiary !cursor-not-allowed' : ''
 			)}
 			{id}
 			{target}
@@ -174,7 +174,7 @@
 			on:blur
 			class={twMerge(
 				buttonClass,
-				disabled ? '!bg-surface-disabled inner-border !text-tertiary !cursor-not-allowed' : ''
+				disabled ? '!bg-surface-disabled border !text-tertiary !cursor-not-allowed' : ''
 			)}
 			{id}
 			tabindex={disabled ? -1 : 0}
