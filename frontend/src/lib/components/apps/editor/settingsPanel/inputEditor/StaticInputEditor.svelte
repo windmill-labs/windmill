@@ -120,25 +120,23 @@
 		</div>
 	{:else if fieldType === 'ag-grid'}
 		<div class="flex flex-row rounded-md bg-surface items-center h-full">
-			<AgGridWizard bind:value={componentInput.value}>
-				<svelte:fragment slot="trigger">
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						btnClasses="rounded-r-none"
-						nonCaptureEvent={true}
-					>
-						<div class="flex flex-row items-center gap-2 text-xs font-normal">
-							<Settings size={16} />
-						</div>
-					</Button>
-				</svelte:fragment>
-			</AgGridWizard>
-			<div
-				class="text-xs px-2 border-y w-full h-[26px] flex flex-row items-center border-r rounded-r-md"
-			>
-				{componentInput.value.field}
+			<div class="relative w-full">
+				<input
+					class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+					bind:value={componentInput.value.field}
+					placeholder="Field"
+				/>
+				<div class="absolute top-1 right-1">
+					<AgGridWizard bind:value={componentInput.value}>
+						<svelte:fragment slot="trigger">
+							<Button color="light" size="xs2" nonCaptureEvent={true}>
+								<div class="flex flex-row items-center gap-2 text-xs font-normal">
+									<Settings size={16} />
+								</div>
+							</Button>
+						</svelte:fragment>
+					</AgGridWizard>
+				</div>
 			</div>
 		</div>
 	{:else}

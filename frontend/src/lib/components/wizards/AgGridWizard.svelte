@@ -20,6 +20,7 @@
 		valueFormatter: string
 		valueParser: string
 		field: string
+		headerName: string
 	}
 </script>
 
@@ -38,8 +39,8 @@
 			</Tooltip>
 		</span>
 
-		<Label label="Field">
-			<input type="text" placeholder="field" bind:value={value.field} />
+		<Label label="Header name">
+			<input type="text" placeholder="Header name" bind:value={value.headerName} />
 		</Label>
 
 		<Label label="Width">
