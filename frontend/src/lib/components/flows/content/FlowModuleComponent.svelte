@@ -22,6 +22,7 @@
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
+	import Section from '$lib/components/Section.svelte'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -39,6 +40,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import Label from '$lib/components/Label.svelte'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -287,8 +289,8 @@
 					</Pane>
 					<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
-							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
+							<Tab value="inputs">Step Input</Tab>
+							<Tab value="test">Test this step</Tab>
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
@@ -360,37 +362,38 @@
 											<FlowModuleTimeout bind:flowModule />
 										</div>
 									{:else if advancedSelected === 'concurrency'}
-										<div>
-											<h2 class="leading-10 !text-sm font-bold">
-												Concurrency Limits
+										<Section label="Concurrency Limits" class="flex flex-col gap-4">
+											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-											</h2>
-										</div>
-										{#if flowModule.value.type == 'rawscript'}
-											<div>
-												<div class="text-xs !mt-2 font-semibold leading-6">
-													Max number of executions within the time window
-												</div>
-												<div class="flex flex-row gap-2 max-w-sm"
-													><input bind:value={flowModule.value.concurrent_limit} type="number" />
-													<Button
-														size="sm"
-														color="light"
-														on:click={() => {
-															if (flowModule.value.type == 'rawscript') {
-																flowModule.value.concurrent_limit = undefined
-															}
-														}}
-														variant="border">Remove Limits</Button
-													></div
-												>
-												<div class="text-xs font-bold !mt-2">Time window in seconds</div>
-												<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
-											</div>
-										{:else}
-											The concurrency limit of a workspace script is only settable in the script
-											metadata itself. For hub scripts, this feature is non available yet.
-										{/if}
+											</svelte:fragment>
+											{#if flowModule.value.type == 'rawscript'}
+												<Label label="Max number of executions within the time window">
+													<div class="flex flex-row gap-2 max-w-sm">
+														<input bind:value={flowModule.value.concurrent_limit} type="number" />
+														<Button
+															size="xs"
+															color="light"
+															variant="border"
+															on:click={() => {
+																if (flowModule.value.type == 'rawscript') {
+																	flowModule.value.concurrent_limit = undefined
+																}
+															}}
+														>
+															<div class="flex flex-row gap-2"> Remove Limits </div>
+														</Button>
+													</div>
+												</Label>
+												<Label label="Time window in seconds">
+													<SecondsInput bind:seconds={flowModule.value.concurrency_time_window_s} />
+												</Label>
+											{:else}
+												<Alert type="warning" title="Limitation" size="xs">
+													The concurrency limit of a workspace script is only settable in the script
+													metadata itself. For hub scripts, this feature is non available yet.
+												</Alert>
+											{/if}
+										</Section>
 									{:else if advancedSelected === 'same_worker'}
 										<div>
 											<Alert type="info" title="Share a directory between steps">

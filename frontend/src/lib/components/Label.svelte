@@ -4,7 +4,7 @@
 
 <label>
 	<div class="flex flex-row justify-between items-center">
-		<div class="flex flex-row items-center gap-1">
+		<div class="flex flex-row items-center gap-2">
 			<span class="text-secondary text-sm leading-6">{label}</span>
 			<slot name="header" />
 		</div>

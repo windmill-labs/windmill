@@ -159,7 +159,7 @@
 				on:click={() => runPreview($previewArgs)}
 				id="flow-editor-test-flow-drawer"
 			>
-				Test flow &nbsp;<Kbd small>{getModifierKey()}</Kbd>
+				Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
 		{/if}

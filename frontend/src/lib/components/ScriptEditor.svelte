@@ -344,7 +344,7 @@
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small>{getModifierKey()}</Kbd>
+								Test&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 							{/if}
 						</Button>
