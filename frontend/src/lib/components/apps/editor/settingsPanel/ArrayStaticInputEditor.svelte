@@ -130,13 +130,15 @@
 		<div class="flex flex-row items-center justify-between">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
 
-			<Toggle
-				options={{
-					right: 'Raw'
-				}}
-				size="xs"
-				bind:checked={raw}
-			/>
+			{#if subFieldType === 'ag-grid'}
+				<Toggle
+					options={{
+						right: 'Raw'
+					}}
+					size="xs"
+					bind:checked={raw}
+				/>
+			{/if}
 		</div>
 		<section
 			use:dndzone={{

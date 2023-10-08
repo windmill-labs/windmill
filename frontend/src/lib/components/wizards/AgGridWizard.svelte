@@ -2,7 +2,8 @@
 	import { Popup } from '../common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
-	import Alert from '../common/alert/Alert.svelte'
+	import Label from '../Label.svelte'
+	import Tooltip from '../Tooltip.svelte'
 
 	export let value: {
 		width: number
@@ -24,81 +25,103 @@
 
 <Popup
 	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface "
+	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
 >
 	<svelte:fragment slot="button">
 		<slot name="trigger" />
 	</svelte:fragment>
-	<div class="flex flex-col w-96 p-2">
-		<span class="text-sm mb-2 leading-6 font-semibold">AG Grid Settings</span>
+	<div class="flex flex-col w-96 p-2 gap-4">
+		<span class="text-sm mb-2 leading-6 font-semibold">
+			Column definition
+			<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/column-definitions/">
+				Column definitions are used to define columns in ag-Grid.
+			</Tooltip>
+		</span>
 
-		<span class="text-xs mb-1 pt-2 leading-6">Field</span>
-		<input type="text" placeholder="field" bind:value={value.field} />
+		<Label label="Field">
+			<input type="text" placeholder="field" bind:value={value.field} />
+		</Label>
 
-		<span class="text-xs mb-1 pt-2 leading-6">Width</span>
-		<Alert type="warning" title="Not applied?" size="xs" class="mb-2">
-			This property will be ignored if you set the column to flex.
-		</Alert>
-		<input type="number" placeholder="width" bind:value={value.width} />
+		<Label label="Width">
+			<svelte:fragment slot="header">
+				<Tooltip>This property will be ignored if you set the column to flex.</Tooltip>
+			</svelte:fragment>
+			<input type="number" placeholder="width" bind:value={value.width} />
+		</Label>
 
-		<span class="text-xs mb-1 leading-6">Hide</span>
-		<Toggle
-			on:pointerdown={(e) => {
-				e?.stopPropagation()
-			}}
-			options={{ right: 'Hide' }}
-			bind:checked={value.hide}
-			size="xs"
-		/>
+		<Label label="Hide">
+			<Toggle
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+				}}
+				options={{ right: 'Hide' }}
+				bind:checked={value.hide}
+				size="xs"
+			/>
+		</Label>
 
-		<span class="text-xs mb-1 leading-6">Value Formatter</span>
-		<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+		<Label label="Value Formatter">
+			<svelte:fragment slot="header">
+				<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/">
+					Value formatters allow you to format values for display. This is useful when data is one
+					type (e.g. numeric) but needs to be converted for human reading (e.g. putting in currency
+					symbols and number formatting).
+				</Tooltip>
+			</svelte:fragment>
 
-		<span class="text-xs mb-1 leading-6">Value Parser</span>
-		<SimpleEditor autoHeight lang="javascript" bind:code={value.valueParser} />
+			<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+		</Label>
 
-		<!-- Flex -->
-		<span class="text-xs mb-1 leading-6">Flex</span>
-		<input type="number" placeholder="flex" bind:value={value.flex} />
+		<Label label="Value Parser">
+			<svelte:fragment slot="header">
+				<Tooltip
+					documentationLink="https://www.ag-grid.com/javascript-data-grid/value-parsers/#value-parser"
+				>
+					See the documentation for more information.
+				</Tooltip>
+			</svelte:fragment>
 
-		<!-- Sort -->
-		<span class="text-xs mb-1 leading-6">Sort</span>
-		<select bind:value={value.sort}>
-			<option value={null}>None</option>
-			<option value="asc">Ascending</option>
-			<option value="desc">Descending</option>
-		</select>
+			<SimpleEditor autoHeight lang="javascript" bind:code={value.valueParser} />
+		</Label>
 
-		<!-- Sort Index -->
-		<span class="text-xs mb-1 leading-6">Sort Index</span>
-		<input type="number" placeholder="sort index" bind:value={value.sortIndex} />
+		<Label label="Sort">
+			<select bind:value={value.sort}>
+				<option value={null}>None</option>
+				<option value="asc">Ascending</option>
+				<option value="desc">Descending</option>
+			</select>
+		</Label>
 
-		<!-- Aggregation Function -->
-		<span class="text-xs mb-1 leading-6">Aggregation Function</span>
-		<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
+		<!--
+		EE only
 
-		<!-- Pivot -->
-		<span class="text-xs mb-1 leading-6">Pivot</span>
-		<Toggle bind:checked={value.pivot} size="xs" />
+		<Label label="Aggregation Function">
+			<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
+		</Label>
 
-		<!-- Pivot Index -->
-		<span class="text-xs mb-1 leading-6">Pivot Index</span>
-		<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
+		<Label label="Pivot">
+			<Toggle bind:checked={value.pivot} size="xs" />
+		</Label>
 
-		<!-- Pinned -->
-		<span class="text-xs mb-1 leading-6">Pinned</span>
-		<select bind:value={value.pinned}>
-			<option value={null}>None</option>
-			<option value="left">Left</option>
-			<option value="right">Right</option>
-		</select>
+		<Label label="Pivot Index">
+			<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
+		</Label>
 
-		<!-- Row Group -->
-		<span class="text-xs mb-1 leading-6">Row Group</span>
-		<Toggle bind:checked={value.rowGroup} size="xs" />
+		<Label label="Pinned">
+			<select bind:value={value.pinned}>
+				<option value={null}>None</option>
+				<option value="left">Left</option>
+				<option value="right">Right</option>
+			</select>
+		</Label>
 
-		<!-- Row Group Index -->
-		<span class="text-xs mb-1 leading-6">Row Group Index</span>
-		<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
+		<Label label="Row Group">
+			<Toggle bind:checked={value.rowGroup} size="xs" />
+		</Label>
+
+		<Label label="Row Group Index">
+			<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
+		</Label>
+		 -->
 	</div>
 </Popup>
