@@ -182,7 +182,7 @@
 </Drawer>
 
 <div>
-	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />
 
