@@ -164,7 +164,6 @@
 				<div class="text-xs text-secondary font-semibold truncate">
 					Background runnables
 					<Tooltip
-						class="mb-0.5"
 						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>
 						Background runnables can be triggered on app refresh or when their input changes. The

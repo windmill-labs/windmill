@@ -100,6 +100,7 @@
 		on:close={() => {
 			jsonPayload.closeDrawer()
 		}}
+		noPadding
 	>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
 		<svelte:fragment slot="actions">

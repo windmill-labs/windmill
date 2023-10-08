@@ -112,7 +112,7 @@
 				</Button>
 			{:else}
 				<Button color="dark" btnClasses="truncate" size="sm" on:click={() => runTest(stepArgs)}
-					>Run&nbsp; <Kbd small>{getModifierKey()}</Kbd>
+					>Run&nbsp; <Kbd small isModifier>{getModifierKey()}</Kbd>
 					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd></Button
 				>
 			{/if}

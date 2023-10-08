@@ -35,7 +35,7 @@
 				Run
 				{#if !hideShortcut}
 					<div class="flex flex-row items-center">
-						<Kbd small>{getModifierKey()}</Kbd>
+						<Kbd small isModifier>{getModifierKey()}</Kbd>
 						<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 					</div>
 				{/if}
