@@ -934,6 +934,15 @@ async fn slack_command(
     ));
 }
 
+fn transform_name_to_email(x: String) -> String {
+    let r = x.replace(' ', "_");
+    if r.contains('@') {
+        return r;
+    } else {
+        return format!("{r}@windmill.dev");
+    }
+}
+
 #[allow(non_snake_case)]
 async fn login_callback(
     Path(client_name): Path<String>,
@@ -955,11 +964,11 @@ async fn login_callback(
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
+
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
         let user = http_get_user_info::<LoginUserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
-
         let email = match client_name.as_str() {
             "github" => http_get_user_info::<Vec<GHEmailInfo>>(
                 &HTTP_CLIENT,
@@ -974,9 +983,15 @@ async fn login_callback(
             )))?
             .email
             .to_string(),
-            _ => user.email.clone().ok_or_else(|| {
-                error::Error::BadRequest("email address not fetchable from user info".to_string())
-            })?,
+            _ => user
+                .email
+                .clone()
+                .or(user.name.clone().map(transform_name_to_email))
+                .ok_or_else(|| {
+                    error::Error::BadRequest(
+                        "email address not fetchable from user info".to_string(),
+                    )
+                })?,
         }
         .to_lowercase();
 
