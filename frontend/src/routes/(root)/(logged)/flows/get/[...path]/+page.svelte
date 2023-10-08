@@ -221,7 +221,7 @@
 </script>
 
 <Skeleton
-	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+	class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />

@@ -126,7 +126,7 @@
 	</CenteredPage>
 {:else}
 	<Skeleton
-		class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+		class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
 		loading={!job}
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
