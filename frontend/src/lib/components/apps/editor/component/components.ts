@@ -94,6 +94,9 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
+export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
+	license: string
+}
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
@@ -184,6 +187,7 @@ export type TypedComponent =
 	| FileInputComponent
 	| ImageComponent
 	| AggridComponent
+	| AggridComponentEe
 	| DrawerComponent
 	| MapComponent
 	| VerticalSplitPanesComponent
@@ -474,6 +478,80 @@ const paginationOneOf = {
 } as const
 
 const documentationBaseUrl = 'https://www.windmill.dev/docs/apps/app_configuration_settings'
+
+const aggridcomponentconst = {
+	name: 'AgGrid Table',
+	icon: Table2,
+	documentationLink: `${documentationBaseUrl}/aggrid_table`,
+	dims: '3:10-6:10' as AppComponentDimensions,
+	customCss: {},
+	initialData: {
+		configuration: {
+			columnDefs: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'ag-grid',
+				value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
+			} as StaticAppInput,
+			flex: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true,
+
+				tooltip: 'default col flex is 1 (see ag-grid docs)'
+			},
+			allEditable: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+
+				tooltip: 'Configure all columns as Editable by users'
+			},
+			multipleSelectable: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+
+				tooltip: 'Make multiple rows selectable at once'
+			},
+			rowMultiselectWithClick: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true,
+
+				tooltip: 'If multiple selectable, allow multiselect with click'
+			},
+			pagination: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false
+			},
+			extraConfig: {
+				type: 'static',
+				fieldType: 'object',
+				value: {},
+				tooltip: 'any configuration that can be passed to ag-grid top level'
+			}
+		},
+		componentInput: {
+			type: 'static',
+			fieldType: 'array',
+			subFieldType: 'object',
+			value: [
+				{
+					id: 1,
+					name: 'A cell with a long name',
+					age: 42
+				},
+				{
+					id: 2,
+					name: 'A briefer cell',
+					age: 84
+				}
+			]
+		} as StaticAppInput
+	}
+} as const
 
 export const components = {
 	displaycomponent: {
@@ -1350,79 +1428,8 @@ This is a paragraph.
 			actionButtons: true
 		}
 	},
-	aggridcomponent: {
-		name: 'AgGrid Table',
-		icon: Table2,
-		documentationLink: `${documentationBaseUrl}/aggrid_table`,
-		dims: '3:10-6:10' as AppComponentDimensions,
-		customCss: {},
-		initialData: {
-			configuration: {
-				columnDefs: {
-					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'ag-grid',
-					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
-				} as StaticAppInput,
-				flex: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: true,
-
-					tooltip: 'default col flex is 1 (see ag-grid docs)'
-				},
-				allEditable: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-
-					tooltip: 'Configure all columns as Editable by users'
-				},
-				multipleSelectable: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-
-					tooltip: 'Make multiple rows selectable at once'
-				},
-				rowMultiselectWithClick: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: true,
-
-					tooltip: 'If multiple selectable, allow multiselect with click'
-				},
-				pagination: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false
-				},
-				extraConfig: {
-					type: 'static',
-					fieldType: 'object',
-					value: {},
-					tooltip: 'any configuration that can be passed to ag-grid top level'
-				}
-			},
-			componentInput: {
-				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'object',
-				value: [
-					{
-						id: 1,
-						name: 'A cell with a long name',
-						age: 42
-					},
-					{
-						id: 2,
-						name: 'A briefer cell',
-						age: 84
-					}
-				]
-			} as StaticAppInput
-		}
-	},
+	aggridcomponent: aggridcomponentconst,
+	aggridcomponentee: { ...aggridcomponentconst, name: 'AgGrid Table EE' },
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,

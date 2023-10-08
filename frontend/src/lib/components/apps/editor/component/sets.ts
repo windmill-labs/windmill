@@ -69,7 +69,7 @@ const display: ComponentSet = {
 
 const tables: ComponentSet = {
 	title: 'Tables',
-	components: ['tablecomponent', 'aggridcomponent']
+	components: ['tablecomponent', 'aggridcomponent', 'aggridcomponentee']
 } as const
 
 const charts: ComponentSet = {
