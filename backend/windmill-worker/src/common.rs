@@ -3,6 +3,7 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
+use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 use windmill_api_client::{types::CreateResource, Client};
 use windmill_common::worker::CLOUD_HOSTED;
@@ -595,6 +596,12 @@ pub async fn handle_child(
     }
 }
 
+pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
+    return cmd
+        .spawn()
+        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+}
+
 /// takes stdout and stderr from Child, panics if either are not present
 ///
 /// builds a stream joining both stdout and stderr each read line by line
@@ -693,6 +700,16 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
+}
+
+fn tentatively_improve_error(err: Error, executable: &str) -> Error {
+    if err
+        .to_string()
+        .contains("No such file or directory (os error 2)")
+    {
+        return Error::InternalErr(format!("Executable {executable} not found on worker"));
+    }
+    return err;
 }
 
 pub async fn clean_cache() -> error::Result<()> {
