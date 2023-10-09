@@ -77,7 +77,7 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this worker nconfig?</span>
+		<span>Are you sure you want to remove this worker group {name}?</span>
 	</div>
 </ConfirmationModal>
 
@@ -329,7 +329,7 @@
 				color="light"
 				size="xs"
 				on:click={() => {
-					if (!enterpriseLicense) {
+					if (!$enterpriseLicense) {
 						sendUserToast('Worker Management UI is an EE feature', true)
 					} else {
 						openDelete = true
