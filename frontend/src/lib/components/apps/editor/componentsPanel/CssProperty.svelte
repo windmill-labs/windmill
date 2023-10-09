@@ -35,12 +35,13 @@
 
 	function toggleQuickMenu() {
 		try {
-			if (value.style) {
-				parse(value.style)
-				isQuickMenuOpen = !isQuickMenuOpen
+			if (!value.style) {
+				value.style = ''
 			}
+			parse(value.style)
+			isQuickMenuOpen = !isQuickMenuOpen
 		} catch {
-			sendUserToast('Invalid CSS: Rich editor cannot be open', true)
+			sendUserToast('Invalid CSS: Rich editor cannot be toggled', true)
 		}
 	}
 
