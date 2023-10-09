@@ -49,6 +49,12 @@
 				index={3}
 			/>
 
+			<TutorialItem
+				on:click={() => flowTutorials?.runTutorialById('error-handler')}
+				label="Error handler"
+				index={4}
+			/>
+
 			<div class="border-t border-surface-hover" />
 			<MenuItem
 				on:click={() => {
