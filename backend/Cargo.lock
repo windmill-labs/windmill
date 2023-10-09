@@ -606,7 +606,7 @@ dependencies = [
  "lazycell",
  "log",
  "peeking_take_while",
- "prettyplease",
+ "prettyplease 0.2.15",
  "proc-macro2",
  "quote",
  "regex",
@@ -3890,6 +3890,16 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "prettyplease"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c8646e95016a7a6c4adea95bafa8a16baab64b583356217f2c85db4a39d9a86"
+dependencies = [
+ "proc-macro2",
+ "syn 1.0.109",
+]
 
 [[package]]
 name = "prettyplease"
@@ -7190,7 +7200,7 @@ dependencies = [
  "base64 0.21.4",
  "chrono",
  "openapiv3",
- "prettyplease",
+ "prettyplease 0.1.25",
  "progenitor",
  "progenitor-client",
  "rand 0.8.5",
