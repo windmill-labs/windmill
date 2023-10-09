@@ -19,7 +19,7 @@
 		pinned: 'left' | 'right' | boolean
 		rowGroup: boolean
 		rowGroupIndex: number
-		valueFormatter: string | null
+		valueFormatter: string
 		valueParser: string
 		field: string
 		headerName: string
@@ -28,7 +28,7 @@
 	const presets = [
 		{
 			label: 'None',
-			value: null
+			value: ''
 		},
 		{
 			label: 'Currency CHF',
@@ -130,7 +130,7 @@
 					color="light"
 					variant="border"
 					on:click={() => {
-						value.valueFormatter = null
+						value.valueFormatter = ''
 						renderCount++
 					}}
 				>
@@ -141,13 +141,17 @@
 		<div>
 			{#key renderCount}
 				<div class="flex flex-col gap-4">
-					<div>
+					<div class="relative">
+						{#if !presets.find((preset) => preset.value === value.valueFormatter)}
+							<div class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0" />
+						{/if}
 						<div class="text-xs font-semibold">Presets</div>
 						<select
 							bind:value={value.valueFormatter}
 							on:change={() => {
 								renderCount++
 							}}
+							placeholder="Codse"
 						>
 							{#each presets as preset}
 								<option value={preset.value}>{preset.label}</option>
@@ -155,9 +159,7 @@
 						</select>
 					</div>
 
-					{#if value.valueFormatter}
-						<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
-					{/if}
+					<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
 				</div>
 			{/key}
 		</div>
