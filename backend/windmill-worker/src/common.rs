@@ -166,6 +166,7 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     file.read_to_string(&mut content).await?;
     Ok(content)
 }
+
 pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
     // tracing::error!("START1");
     // let start = Instant::now();

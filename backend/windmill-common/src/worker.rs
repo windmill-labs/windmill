@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use tokio::sync::RwLock;
 
 use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
@@ -259,4 +260,9 @@ pub struct WorkerConfig {
     pub cache_clear: Option<u32>,
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
+}
+
+pub fn to_raw_value(result: &serde_json::Value) -> Box<RawValue> {
+    serde_json::value::to_raw_value(result)
+        .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
 }

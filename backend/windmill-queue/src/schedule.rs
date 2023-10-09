@@ -115,7 +115,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tx,
         &schedule.workspace_id,
         payload,
-        args,
+        args.into(),
         &schedule_to_user(&schedule.path),
         &schedule.email,
         username_to_permissioned_as(&schedule.edited_by),

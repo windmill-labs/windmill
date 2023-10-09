@@ -14,8 +14,9 @@ use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use rsmq_async::RsmqConnection;
-use serde_json::json;
-use sqlx::{Pool, Postgres, Transaction};
+use serde::Deserialize;
+use serde_json::{json, value::RawValue};
+use sqlx::{types::Json, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
 use tracing::{instrument, Instrument};
@@ -36,7 +37,7 @@ use windmill_common::{
     schedule::{schedule_to_user, Schedule},
     scripts::{ScriptHash, ScriptLang},
     users::{username_to_permissioned_as, SUPERADMIN_SECRET_EMAIL},
-    worker::WORKER_CONFIG,
+    worker::{to_raw_value, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
 
@@ -179,7 +180,16 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = serde_json::json!({ "error": e });
-    let _ = add_completed_job(db, &queued_job, false, false, &result, logs, rsmq).await?;
+    let _ = add_completed_job(
+        db,
+        &queued_job,
+        false,
+        false,
+        to_raw_value(&result),
+        logs,
+        rsmq,
+    )
+    .await?;
     Ok(result)
 }
 
@@ -211,7 +221,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
-    result: &serde_json::Value,
+    result: Box<RawValue>,
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
@@ -253,6 +263,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id.clone();
+    let json_result = Json(result.as_ref());
+
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -299,7 +311,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
         queued_job.args,
-        result,
+        json_result as Json<&RawValue>,
         logs,
         queued_job.raw_code,
         queued_job.raw_lock,
@@ -399,7 +411,9 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         && queued_job.parent_job.is_none()
         && !success
     {
-        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, &result).await {
+        if let Err(e) =
+            send_error_to_global_handler(rsmq.clone(), &queued_job, db, result.clone()).await
+        {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
                 &queued_job.id,
@@ -407,8 +421,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
             );
         }
 
-        if let Err(e) =
-            send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, &result).await
+        if let Err(e) = send_error_to_workspace_handler(rsmq.clone(), &queued_job, db, result).await
         {
             tracing::error!(
                 "Could not run workspace error handler for job {}: {}",
@@ -428,7 +441,7 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     rsmq: Option<R>,
     queued_job: &QueuedJob,
     db: &Pool<Postgres>,
-    result: &serde_json::Value,
+    result: Box<RawValue>,
     error_handler_path: &str,
     is_global: bool,
 ) -> Result<(), Error> {
@@ -436,12 +449,12 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
     let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
-    let mut args = result.as_object().unwrap().clone();
-    args.insert("workspace_id".to_string(), json!(w_id));
-    args.insert("job_id".to_string(), json!(job_id));
-    args.insert("path".to_string(), json!(queued_job.script_path));
-    args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
-    args.insert("email".to_string(), json!(queued_job.email));
+    let mut extra = serde_json::Map::new();
+    extra.insert("workspace_id".to_string(), json!(w_id));
+    extra.insert("job_id".to_string(), json!(job_id));
+    extra.insert("path".to_string(), json!(queued_job.script_path));
+    extra.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
+    extra.insert("email".to_string(), json!(queued_job.email));
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
@@ -449,7 +462,7 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
         tx,
         script_w_id,
         job_payload,
-        args,
+        PushArgs { extra, args: result },
         if is_global { "global" } else { "error_handler" },
         if is_global {
             SUPERADMIN_SECRET_EMAIL
@@ -489,7 +502,7 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
     rsmq: Option<R>,
     queued_job: &QueuedJob,
     db: &Pool<Postgres>,
-    result: &serde_json::Value,
+    result: Box<RawValue>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
         run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
@@ -502,7 +515,7 @@ pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clo
     rsmq: Option<R>,
     queued_job: &QueuedJob,
     db: &Pool<Postgres>,
-    result: &serde_json::Value,
+    result: Box<RawValue>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let mut tx = db.begin().await?;
@@ -612,7 +625,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
     script_path: &str,
     w_id: &str,
     success: bool,
-    result: &serde_json::Value,
+    result: &Box<RawValue>,
     job_id: Uuid,
     started_at: DateTime<Utc>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
@@ -664,7 +677,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
                 schedule.is_flow,
                 w_id,
                 &on_failure_path,
-                result,
+                result.clone(),
                 times,
                 started_at,
                 schedule.on_failure_extra_args,
@@ -731,7 +744,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
                     w_id,
                     &on_recovery_path,
                     failed_job,
-                    result,
+                    result.clone(),
                     times,
                     started_at,
                     schedule.on_recovery_extra_args,
@@ -777,7 +790,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     is_flow: bool,
     w_id: &str,
     on_failure_path: &str,
-    result: &serde_json::Value,
+    result: Box<RawValue>,
     failed_times: i32,
     started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
@@ -787,16 +800,16 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
-    let mut args = result.clone().as_object().unwrap().clone();
-    args.insert("schedule_path".to_string(), json!(schedule_path));
-    args.insert("path".to_string(), json!(script_path));
-    args.insert("is_flow".to_string(), json!(is_flow));
-    args.insert("started_at".to_string(), json!(started_at));
-    args.insert("failed_times".to_string(), json!(failed_times));
+    let mut extra = serde_json::Map::new();
+    extra.insert("schedule_path".to_string(), json!(schedule_path));
+    extra.insert("path".to_string(), json!(script_path));
+    extra.insert("is_flow".to_string(), json!(is_flow));
+    extra.insert("started_at".to_string(), json!(started_at));
+    extra.insert("failed_times".to_string(), json!(failed_times));
 
     if let Some(args_v) = extra_args {
         if let serde_json::Value::Object(args_m) = args_v {
-            args.extend(args_m);
+            extra.extend(args_m);
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -810,7 +823,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         tx,
         w_id,
         payload,
-        args,
+        PushArgs { extra, args: result },
         username,
         email,
         permissioned_as,
@@ -845,7 +858,7 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     w_id: &str,
     on_recovery_path: &str,
     error_job: CompletedJobSubset,
-    successful_job_result: &serde_json::Value,
+    successful_job_result: Box<RawValue>,
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<serde_json::Value>,
@@ -865,7 +878,10 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
     args.insert("schedule_path".to_string(), json!(schedule_path));
     args.insert("path".to_string(), json!(script_path));
     args.insert("is_flow".to_string(), json!(is_flow));
-    args.insert("success_result".to_string(), successful_job_result.clone());
+    args.insert(
+        "success_result".to_string(),
+        serde_json::from_str(successful_job_result.get()).unwrap_or_else(|_| json!("{}")),
+    );
     args.insert("success_times".to_string(), json!(successful_times));
     args.insert(
         "success_started_at".to_string(),
@@ -886,7 +902,7 @@ async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + '
         tx,
         w_id,
         payload,
-        args,
+        args.into(),
         username,
         email,
         permissioned_as,
@@ -1386,13 +1402,48 @@ macro_rules! fetch_scalar_isolated {
     };
 }
 
+use sqlx::types::JsonRawValue;
+
+#[derive(Deserialize)]
+pub struct PushArgs {
+    pub extra: serde_json::Map<String, serde_json::Value>,
+    pub args: Box<JsonRawValue>,
+    pub wrap_body: bool,
+}
+
+impl PushArgs {
+    pub fn empty() -> Self {
+        PushArgs { extra: serde_json::Map::new(), args: empty_args, wrap_body: false }
+    }
+}
+
+pub fn empty_args() {
+    return JsonRawValue::from_string("{}".to_string()).unwrap();
+}
+
+impl From<Box<JsonRawValue>> for PushArgs {
+    fn from(value: Box<JsonRawValue>) -> Self {
+        Self { extra: serde_json::Map::new(), args: value, wrap_body: false }
+    }
+}
+
+impl From<serde_json::Map<String, serde_json::Value>> for PushArgs {
+    fn from(value: serde_json::Map<String, serde_json::Value>) -> Self {
+        Self {
+            extra: value,
+            args: JsonRawValue::from_string("{}".to_string()).unwrap(),
+            wrap_body: false,
+        }
+    }
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: serde_json::Map<String, serde_json::Value>,
+    args: PushArgs,
     user: &str,
     email: &str,
     permissioned_as: String,
@@ -1409,8 +1460,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     custom_timeout: Option<i32>,
     flow_step_id: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
-    let args_json = serde_json::Value::Object(args);
-
     #[cfg(feature = "enterprise")]
     {
         let premium_workspace = *CLOUD_HOSTED
@@ -1796,6 +1845,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Ulid::new().into()
     };
 
+    let args = Json(args.args.as_ref());
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -1814,7 +1864,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         script_path.clone(),
         raw_code,
         raw_lock,
-        args_json,
+        args as Json<&RawValue>,
         job_kind.clone() as JobKind,
         schedule_path,
         raw_flow.map(|f| serde_json::json!(f)),
@@ -1831,7 +1881,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         concurrency_time_window_s,
         custom_timeout,
         flow_step_id,
-        cache_ttl
+        cache_ttl,
     )
     .fetch_one(&mut tx)
     .await

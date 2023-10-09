@@ -32,14 +32,14 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{rd_string, StripPath},
-    worker::{update_ping, CLOUD_HOSTED, WORKER_CONFIG},
+    worker::{to_raw_value, update_ping, CLOUD_HOSTED, WORKER_CONFIG},
     DB, IS_READY, METRICS_ENABLED,
 };
 use windmill_queue::{
     canceled_job_to_result, get_queued_job, pull, push, PushIsolationLevel, HTTP_CLIENT,
 };
 
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue, Value};
 
 use tokio::{
     fs::{symlink, DirBuilder},
@@ -364,7 +364,7 @@ async fn handle_receive_completed_job<
         client: OnceCell::new(),
     };
     if let Err(err) = process_completed_job(
-        &jc,
+        jc,
         &client,
         &db,
         &worker_dir,
@@ -1345,7 +1345,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 // ) -> error::Result<()> {
 
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, logs, success, cached_res_path, .. }: &JobCompleted,
+    JobCompleted { job, result, logs, success, cached_res_path, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -1353,7 +1353,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     same_worker_tx: Sender<Uuid>,
     rsmq: Option<R>,
 ) -> windmill_common::error::Result<()> {
-    if *success {
+    if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
             save_in_cache(&client, &job, cached_path.to_string(), &result).await;
@@ -1377,7 +1377,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.id,
                     &job.workspace_id,
                     true,
-                    result.clone(),
+                    result,
                     metrics.clone(),
                     false,
                     same_worker_tx.clone(),
@@ -1552,7 +1552,7 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
     pub job: QueuedJob,
-    pub result: serde_json::Value,
+    pub result: Box<RawValue>,
     pub logs: String,
     pub success: bool,
     pub cached_res_path: Option<String>,
@@ -1807,7 +1807,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
             process_result(
                 job,
-                result,
+                result.map(to_raw_value),
                 job_dir,
                 job_completed_tx,
                 logs,
@@ -1822,7 +1822,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
 async fn process_result(
     job: QueuedJob,
-    result: error::Result<serde_json::Value>,
+    result: error::Result<Box<RawValue>>,
     job_dir: &str,
     job_completed_tx: Sender<JobCompleted>,
     logs: String,
@@ -1875,7 +1875,7 @@ async fn process_result(
             job_completed_tx
                 .send(JobCompleted {
                     job,
-                    result: error_value,
+                    result: to_raw_value(&error_value),
                     logs: logs,
                     success: false,
                     cached_res_path,

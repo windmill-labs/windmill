@@ -37,6 +37,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
+use windmill_queue::PushArgs;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
@@ -284,7 +285,7 @@ async fn create_flow(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        serde_json::Map::new(),
+        PushArgs::empty(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -476,7 +477,7 @@ async fn update_flow(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        serde_json::Map::new(),
+        PushArgs::empty(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),

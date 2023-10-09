@@ -14,6 +14,7 @@ use crate::js_eval::{eval_timeout, IdContext};
 use crate::{AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
 use async_recursion::async_recursion;
+use serde_json::value::RawValue;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
@@ -48,7 +49,7 @@ pub async fn update_flow_status_after_job_completion<
     job_id_for_status: &Uuid,
     w_id: &str,
     success: bool,
-    result: serde_json::Value,
+    result: Box<RawValue>,
     metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
@@ -99,7 +100,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
     job_id_for_status: Uuid,
     success: bool,
-    result: serde_json::Value,
+    result: Box<RawValue>,
     stop_early_override: Option<bool>,
     skip_error_handler: bool,
 }
@@ -113,7 +114,7 @@ pub async fn update_flow_status_after_job_completion_internal<
     job_id_for_status: &Uuid,
     w_id: &str,
     mut success: bool,
-    result: serde_json::Value,
+    result: Box<RawValue>,
     metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,

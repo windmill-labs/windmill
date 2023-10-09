@@ -46,7 +46,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{job_is_complete, push, PushIsolationLevel};
+use windmill_queue::{job_is_complete, push, PushArgs, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -1485,7 +1485,7 @@ struct Preview {
     content: Option<String>,
     kind: Option<PreviewKind>,
     path: Option<String>,
-    args: Option<serde_json::Map<String, serde_json::Value>>,
+    args: Option<Box<JsonRawValue>>,
     language: Option<ScriptLang>,
     tag: Option<String>,
 }
@@ -1498,13 +1498,8 @@ struct PreviewFlow {
     tag: Option<String>,
 }
 
-pub struct JsonOrForm(
-    pub Option<serde_json::Map<String, serde_json::Value>>,
-    pub Option<String>,
-);
-
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for JsonOrForm
+impl<S> FromRequest<S, axum::body::Body> for PushArgs
 where
     S: Send + Sync,
 {
@@ -1529,38 +1524,27 @@ where
                 let str = String::from_utf8(bytes.to_vec()).map_err(|e| {
                     Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
                 })?;
-                let payload =
-                    serde_json::from_str::<Option<serde_json::Value>>(&str).map_err(|e| {
+                let args =
+                    serde_json::from_str::<Option<Box<JsonRawValue>>>(&str).map_err(|e| {
                         Error::BadRequest(format!("invalid json: {}", e)).into_response()
                     })?;
-                return match payload {
-                    Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), Some(str))),
-                    None => Ok(Self(None, Some(str))),
-                    Some(x) => {
-                        let mut map = serde_json::Map::new();
-                        map.insert("body".to_string(), x);
-                        Ok(Self(Some(map), Some(str)))
-                    }
-                };
+
+                let wrap_body = str.len() > 0 && str[0] != '{';
+                let mut extra = serde_json::Map::new();
+                extra.insert("raw".to_string(), json!(str));
+                return Ok(Self { extra, args, wrap_body });
             } else {
-                let Json(payload): Json<Option<serde_json::Value>> =
+                let Json(payload): Json<Option<Box<JsonRawValue>>> =
                     req.extract().await.map_err(IntoResponse::into_response)?;
-                return match payload {
-                    Some(serde_json::Value::Object(map)) => Ok(Self(Some(map), None)),
-                    None => Ok(Self(None, None)),
-                    Some(x) => {
-                        let mut map = serde_json::Map::new();
-                        map.insert("body".to_string(), x);
-                        Ok(Self(Some(map), None))
-                    }
-                };
+                let wrap_body = payload.is_some_and(|x| !x.get().starts_with("{"));
+                return match Ok(Self { extra: serde_json::Map:: })
             }
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
         {
             let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
-            return Ok(Self(Some(payload), None));
+            return Ok(Self(Some(payload)));
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
