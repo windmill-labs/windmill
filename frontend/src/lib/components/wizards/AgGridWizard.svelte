@@ -1,12 +1,10 @@
 <script lang="ts">
-	import { Popup, Tab } from '../common'
+	import { Popup } from '../common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
-	import TabContent from '../common/tabs/TabContent.svelte'
-	import { twMerge } from 'tailwind-merge'
+
 	import Button from '../common/button/Button.svelte'
 
 	export let value: {
@@ -21,7 +19,7 @@
 		pinned: 'left' | 'right' | boolean
 		rowGroup: boolean
 		rowGroupIndex: number
-		valueFormatter: string
+		valueFormatter: string | null
 		valueParser: string
 		field: string
 		headerName: string
@@ -78,9 +76,7 @@
 		}
 	]
 
-	let selectedTab: 'code' | 'presets' = presets.find((p) => p.value === value.valueFormatter)
-		? 'presets'
-		: 'code'
+	let renderCount = 0
 </script>
 
 <Popup
@@ -120,7 +116,7 @@
 			/>
 		</Label>
 
-		<Label label="Value Formatter">
+		<Label label="Value formatter">
 			<svelte:fragment slot="header">
 				<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/">
 					Value formatters allow you to format values for display. This is useful when data is one
@@ -128,38 +124,43 @@
 					symbols and number formatting).
 				</Tooltip>
 			</svelte:fragment>
-
 			<svelte:fragment slot="action">
 				<Button
 					size="xs"
 					color="light"
 					variant="border"
 					on:click={() => {
-						value.valueFormatter = ''
-					}}>Clear</Button
+						value.valueFormatter = null
+						renderCount++
+					}}
 				>
+					Clear
+				</Button>
 			</svelte:fragment>
-
-			<Tabs bind:selected={selectedTab}>
-				<Tab value="code" size="xs">Code</Tab>
-				<Tab value="presets" size="xs">Presets</Tab>
-				<svelte:fragment slot="content">
-					<div class={twMerge('pt-2')}>
-						<TabContent value="code">
-							<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
-						</TabContent>
-
-						<TabContent value="presets">
-							<select bind:value={value.valueFormatter}>
-								{#each presets as preset}
-									<option value={preset.value}>{preset.label}</option>
-								{/each}
-							</select>
-						</TabContent>
-					</div>
-				</svelte:fragment>
-			</Tabs>
 		</Label>
+		<div>
+			{#key renderCount}
+				<div class="flex flex-col gap-4">
+					<div>
+						<div class="text-xs font-semibold">Presets</div>
+						<select
+							bind:value={value.valueFormatter}
+							on:change={() => {
+								renderCount++
+							}}
+						>
+							{#each presets as preset}
+								<option value={preset.value}>{preset.label}</option>
+							{/each}
+						</select>
+					</div>
+
+					{#if value.valueFormatter}
+						<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+					{/if}
+				</div>
+			{/key}
+		</div>
 
 		<Label label="Value Parser">
 			<svelte:fragment slot="header">
