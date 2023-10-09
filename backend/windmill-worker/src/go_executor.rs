@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 
 use itertools::Itertools;
 use tokio::{
@@ -44,6 +44,12 @@ pub async fn handle_go_job(
     worker_name: &str,
     envs: HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
+    if !Path::new(GO_PATH.as_str()).exists() {
+        return Result::Err(Error::InternalErr(
+            "Go executable not found on worker".to_string(),
+        ));
+    }
+
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
     let bin_path = if let Some(requirements) = requirements_o.clone() {
