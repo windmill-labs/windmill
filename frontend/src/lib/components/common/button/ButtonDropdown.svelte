@@ -22,12 +22,6 @@
 			}
 		]
 	}
-
-	let menuRef: Menu<any> | undefined = undefined
-
-	export function toggleOpen() {
-		menuRef?.openMenu()
-	}
 </script>
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">

@@ -1,9 +1,13 @@
 <script lang="ts">
-	import { Popup } from '../common'
+	import { Popup, Tab } from '../common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import Tabs from '../common/tabs/Tabs.svelte'
+	import TabContent from '../common/tabs/TabContent.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import Button from '../common/button/Button.svelte'
 
 	export let value: {
 		width: number
@@ -22,6 +26,61 @@
 		field: string
 		headerName: string
 	}
+
+	const presets = [
+		{
+			label: 'None',
+			value: null
+		},
+		{
+			label: 'Currency CHF',
+			value: 'value + " CHF"'
+		},
+		{
+			label: 'Currency USD',
+			value: '"$ " + value'
+		},
+		{
+			label: 'Date',
+			value: 'new Date(value).toLocaleDateString()'
+		},
+		{
+			label: 'Percentage',
+			value: 'value + " %"'
+		},
+		{
+			label: 'Currency GBP',
+			value: 'value + " £"'
+		},
+		{
+			label: 'Currency EUR',
+			value: 'value + " €"'
+		},
+		{
+			label: 'Currency JPY',
+			value: 'value + " ¥"'
+		},
+		{
+			label: 'Decimal places (2)',
+			value: 'parseFloat(value).toFixed(2)'
+		},
+		{
+			label: 'Uppercase',
+			value: 'value.toUpperCase()'
+		},
+		{
+			label: 'Lowercase',
+			value: 'value.toLowerCase()'
+		},
+		{
+			label: 'Boolean (True/False)',
+			value: 'value ? "True" : "False"'
+		}
+	]
+
+	let selectedTab: 'code' | 'presets' = presets.find((p) => p.value === value.valueFormatter)
+		? 'presets'
+		: 'code'
 </script>
 
 <Popup
@@ -70,7 +129,36 @@
 				</Tooltip>
 			</svelte:fragment>
 
-			<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+			<svelte:fragment slot="action">
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					on:click={() => {
+						value.valueFormatter = ''
+					}}>Clear</Button
+				>
+			</svelte:fragment>
+
+			<Tabs bind:selected={selectedTab}>
+				<Tab value="code" size="xs">Code</Tab>
+				<Tab value="presets" size="xs">Presets</Tab>
+				<svelte:fragment slot="content">
+					<div class={twMerge('pt-2')}>
+						<TabContent value="code">
+							<SimpleEditor autoHeight lang="javascript" bind:code={value.valueFormatter} />
+						</TabContent>
+
+						<TabContent value="presets">
+							<select bind:value={value.valueFormatter}>
+								{#each presets as preset}
+									<option value={preset.value}>{preset.label}</option>
+								{/each}
+							</select>
+						</TabContent>
+					</div>
+				</svelte:fragment>
+			</Tabs>
 		</Label>
 
 		<Label label="Value Parser">
