@@ -757,7 +757,7 @@ async fn compute_bool_from_expr(
             "resume".to_string(),
             resumes.0.last().map(|v| json!(v)).unwrap_or_default(),
         ));
-        env.push(("resumes".to_string(), resumes.0.clone().into()));
+        env.push(("resumes".to_string(), resumes.0.into()));
         env.push(("approvers".to_string(), json!(resumes.1.clone())));
     }
 
@@ -868,7 +868,7 @@ async fn transform_input(
                         "resume".to_string(),
                         resumes.last().map(|v| json!(v)).unwrap_or_default(),
                     ),
-                    ("resumes".to_string(), resumes.clone().into()),
+                    ("resumes".to_string(), resumes.into()),
                     ("approvers".to_string(), json!(approvers.clone())),
                 ];
 
@@ -1854,7 +1854,7 @@ async fn compute_next_flow_transform(
                                     "resume".to_string(),
                                     resumes.last().map(|v| json!(v)).unwrap_or_default(),
                                 ),
-                                ("resumes".to_string(), resumes.clone().into()),
+                                ("resumes".to_string(), resumes.into()),
                                 ("approvers".to_string(), json!(approvers.clone())),
                             ]
                         },

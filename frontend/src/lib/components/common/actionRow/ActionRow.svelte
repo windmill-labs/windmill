@@ -2,7 +2,7 @@
 	export let applyPageWidth = false
 	export let stickToTop = false
 
-	$: wide = applyPageWidth ? 'max-w-6xl mx-auto px-4 sm:px-6 md:px-8' : ''
+	$: wide = applyPageWidth ? 'max-w-7xl mx-auto px-4 sm:px-6 md:px-8' : ''
 
 	let scrollY = 0
 </script>

@@ -42,7 +42,9 @@
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	// Rest of filters handled by RunsFilter
-	let success: "running"  | "success" | "failure"  | undefined = ($page.url.searchParams.get('success') ?? undefined) as "running"  | "success" | "failure"  | undefined 
+	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
+		'success'
+	) ?? undefined) as 'running' | 'success' | 'failure' | undefined
 	let isSkipped: boolean | undefined =
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
@@ -125,7 +127,7 @@
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
-			success: success == "success" ? true : (success == 'failure' ? false : undefined),
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
@@ -171,7 +173,8 @@
 				let cursor = 0
 				while (cursor < jobs.length && minTs == undefined) {
 					let invCursor = jobs.length - 1 - cursor
-					let isQueuedJob = cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
+					let isQueuedJob =
+						cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
 					if (isQueuedJob) {
 						if (cursor > 0) {
 							const date = new Date(jobs[invCursor + 1]?.created_at!)
@@ -206,7 +209,11 @@
 		path = $page.params.path
 		user = $page.url.searchParams.get('user')
 		folder = $page.url.searchParams.get('folder')
-		success = ($page.url.searchParams.get('success')  ?? undefined) as "success" | "failure" | "running" | undefined
+		success = ($page.url.searchParams.get('success') ?? undefined) as
+			| 'success'
+			| 'failure'
+			| 'running'
+			| undefined
 		isSkipped =
 			$page.url.searchParams.get('is_skipped') != undefined
 				? $page.url.searchParams.get('is_skipped') == 'true'
@@ -393,14 +400,11 @@
 <div class="w-full h-screen hidden md:block">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
-			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
+			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
 				<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
 
 				<Tooltip
-					light
 					documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-					scale={0.9}
-					wrapperClass="flex items-center"
 				>
 					All past and schedule executions of scripts and flows, including previews. You only see
 					your own runs or runs of groups you belong to unless you are an admin.

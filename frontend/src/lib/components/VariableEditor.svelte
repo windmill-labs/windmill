@@ -3,7 +3,6 @@
 	import Path from './Path.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -17,6 +16,7 @@
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Section from './Section.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -136,17 +136,14 @@
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		on:close={drawer.closeDrawer}
 	>
-		<div class="flex flex-col gap-6">
-			<div>
-				<div>
-					{#if !can_write}
-						<div class="m-2">
-							<Alert type="warning" title="Only read access"
-								>You only have read access to this resource and cannot edit it</Alert
-							>
-						</div>
-					{/if}
-					<span class="font-semibold text-secondary">Path</span>
+		<div class="flex flex-col gap-8">
+			{#if !can_write}
+				<Alert type="warning" title="Only read access">
+					You only have read access to this resource and cannot edit it
+				</Alert>
+			{/if}
+			<Section label="Path">
+				<div class="flex flex-col gap-4">
 					<Path
 						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 						bind:error={pathError}
@@ -155,14 +152,11 @@
 						namePlaceholder="variable"
 						kind="variable"
 					/>
-				</div>
-				<div class="mt-4">
 					<Toggle
 						on:change={() => edit && loadVariable(initialPath)}
 						bind:checked={variable.is_secret}
 						options={{ right: 'Secret' }}
 					/>
-					<div class="mb-2" />
 					{#if variable.is_secret}
 						<Alert type="warning" title="Audit log for each access">
 							Every secret is encrypted at rest and in transit with a key specific to this
@@ -171,66 +165,62 @@
 						</Alert>
 					{/if}
 				</div>
-			</div>
-
-			<div>
-				<div class="mb-1">
-					<span class="font-semibold text-secondary">Variable value</span>
-					<span class="text-sm text-tertiary mr-4">
+			</Section>
+			<Section label="Variable value">
+				<svelte:fragment slot="header">
+					<span class="text-sm text-tertiary mr-4 font-normal">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
-					{#if edit && variable.is_secret}{#if $userStore?.operator}
-							<div class="p-2 border">Operators cannot load secret value</div>
-						{:else}
-							<Button variant="border" size="xs" on:click={() => loadVariable(initialPath)}
-								>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
-							>{/if}{/if}
-				</div>
-				<div class="flex flex-col gap-2">
-					<ToggleButtonGroup bind:selected={editorKind}>
-						<ToggleButton value="plain" label="Plain" />
-						<ToggleButton value="json" label="Json" />
-						<ToggleButton value="yaml" label="YAML" />
-					</ToggleButtonGroup>
-					{#if editorKind == 'plain'}
-						<textarea
-							disabled={!can_write}
-							rows="4"
-							type="text"
-							use:autosize
-							bind:value={variable.value}
-							placeholder="Update variable value"
-						/>
-					{:else if editorKind == 'json'}
-						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor
-								bind:this={editor}
-								autoHeight
-								lang="json"
-								bind:code={variable.value}
-								fixedOverflowWidgets={false}
+				</svelte:fragment>
+				<div>
+					<div class="mb-1">
+						{#if edit && variable.is_secret}{#if $userStore?.operator}
+								<div class="p-2 border">Operators cannot load secret value</div>
+							{:else}
+								<Button variant="border" size="xs" on:click={() => loadVariable(initialPath)}
+									>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
+								>{/if}{/if}
+					</div>
+					<div class="flex flex-col gap-2">
+						<ToggleButtonGroup bind:selected={editorKind}>
+							<ToggleButton value="plain" label="Plain" />
+							<ToggleButton value="json" label="Json" />
+							<ToggleButton value="yaml" label="YAML" />
+						</ToggleButtonGroup>
+						{#if editorKind == 'plain'}
+							<textarea
+								disabled={!can_write}
+								rows="4"
+								type="text"
+								use:autosize
+								bind:value={variable.value}
+								placeholder="Update variable value"
 							/>
-						</div>
-					{:else if editorKind == 'yaml'}
-						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor
-								bind:this={editor}
-								autoHeight
-								lang="yaml"
-								bind:code={variable.value}
-								fixedOverflowWidgets={false}
-							/>
-						</div>
-					{/if}
+						{:else if editorKind == 'json'}
+							<div class="border rounded mb-4 w-full">
+								<SimpleEditor
+									bind:this={editor}
+									autoHeight
+									lang="json"
+									bind:code={variable.value}
+									fixedOverflowWidgets={false}
+								/>
+							</div>
+						{:else if editorKind == 'yaml'}
+							<div class="border rounded mb-4 w-full">
+								<SimpleEditor
+									bind:this={editor}
+									autoHeight
+									lang="yaml"
+									bind:code={variable.value}
+									fixedOverflowWidgets={false}
+								/>
+							</div>
+						{/if}
+					</div>
 				</div>
-			</div>
-			<!-- {/if} -->
-
-			<div>
-				<div class="mb-1 font-semibold text-secondary">
-					Description
-					<Required required={false} />
-				</div>
+			</Section>
+			<Section label="Description">
 				<textarea
 					rows="4"
 					type="text"
@@ -238,13 +228,15 @@
 					bind:value={variable.description}
 					placeholder="Used for X"
 				/>
-			</div>
+			</Section>
 		</div>
 		<svelte:fragment slot="actions">
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
 				startIcon={{ icon: faSave }}
+				color="dark"
+				size="sm"
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>

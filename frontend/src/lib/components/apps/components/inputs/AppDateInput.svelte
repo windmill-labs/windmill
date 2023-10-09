@@ -53,7 +53,13 @@
 		}
 	}
 
-	$: value && outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
+	$: {
+		if (value) {
+			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
+		} else {
+			outputs?.result.set(undefined)
+		}
+	}
 
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue

@@ -40,7 +40,8 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, TIMEOUT_DURATION, WHITELIST_ENVS,
+    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TIMEOUT_DURATION,
+    WHITELIST_ENVS,
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -166,13 +167,27 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     Ok(content)
 }
 pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
-    let content = read_file_content(path).await?;
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
-        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
+    // tracing::error!("START1");
+    // let start = Instant::now();
+
+    let r = if *CLOUD_HOSTED {
+        let content = read_file_content(path).await?;
+        if content.len() > MAX_RESULT_SIZE {
+            return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
-    }
-    serde_json::from_str(&content)
-        .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+        };
+        serde_json::from_str(&content)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+    } else {
+        let file = std::fs::File::open(path)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error opening file {path}: {e}")))?;
+        let reader = std::io::BufReader::new(file);
+
+        serde_json::from_reader(reader)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+    };
+    // tracing::error!("{:?}", start.elapsed());
+    return r;
 }
 pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
     return read_file(&format!("{job_dir}/result.json")).await;
@@ -678,4 +693,11 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
+}
+
+pub async fn clean_cache() -> error::Result<()> {
+    tracing::info!("Started cleaning cache");
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished cleaning cache");
+    Ok(())
 }

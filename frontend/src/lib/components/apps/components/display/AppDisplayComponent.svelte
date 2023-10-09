@@ -8,9 +8,7 @@
 		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
-
 		type RichConfigurations
-
 	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initCss } from '../../utils'
@@ -33,7 +31,7 @@
 		components['displaycomponent'].initialData.configuration,
 		configuration
 	)
-	
+
 	$componentControl[id] = {
 		setValue(value: string) {
 			result = value
@@ -91,7 +89,7 @@
 				customCss?.container?.class
 			)}
 		>
-			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} disableDetails={resolvedConfig?.hideDetails}/>
+			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} />
 		</div>
 	</div>
 </RunnableWrapper>

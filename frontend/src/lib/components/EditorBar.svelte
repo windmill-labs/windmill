@@ -398,7 +398,7 @@
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		/>
-		<div class="flex items-center">
+		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker}
 				<Button
 					title="Add context variable"
@@ -476,7 +476,10 @@
 				spacingSize="md"
 				color="light"
 				on:click={() => editor?.reloadWebsocket()}
-				startIcon={{ icon: faRotate }}
+				startIcon={{
+					icon: faRotate,
+					classes: !websocketAlive[lang] ? 'animate-spin' : ''
+				}}
 				title="Reload assistants"
 			>
 				{#if !iconOnly}

@@ -26,6 +26,7 @@
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { tainted } from '$lib/components/tutorials/utils'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -140,6 +141,18 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
+		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+		const isTainted = tainted($flowStore)
+		return (
+			$tutorialsToDo.includes(index) &&
+			name == tutorialName &&
+			svg.length === 0 &&
+			!isTainted &&
+			!$ignoredTutorials.includes(index)
+		)
+	}
 </script>
 
 <Portal>
@@ -212,28 +225,11 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-				const isTainted = tainted($flowStore)
-				if (
-					$tutorialsToDo.includes(1) &&
-					detail.detail == 'forloop' &&
-					svg.length === 0 &&
-					!isTainted
-				) {
+				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop')
-				} else if (
-					$tutorialsToDo.includes(2) &&
-					detail.detail == 'branchone' &&
-					svg.length === 0 &&
-					!isTainted
-				) {
+				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
 					flowTutorials?.runTutorialById('branchone')
-				} else if (
-					$tutorialsToDo.includes(3) &&
-					detail.detail == 'branchall' &&
-					svg.length === 0 &&
-					!isTainted
-				) {
+				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
 					if (detail.modules) {

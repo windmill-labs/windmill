@@ -4,7 +4,7 @@
 	import { GroupService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
@@ -76,16 +76,35 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 	>
 		<div class="flex flex-row">
-			<input
-				class="mr-2"
-				on:keyup={handleKeyUp}
-				placeholder="New group name"
-				bind:value={newGroupName}
-			/>
 			<div>
-				<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-					New&nbsp;group
-				</Button>
+				<Popup
+					let:close
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+				>
+					<svelte:fragment slot="button">
+						<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New&nbsp;group</Button>
+					</svelte:fragment>
+					<div class="flex-col flex gap-2">
+						<input
+							class="mr-2"
+							on:keyup={handleKeyUp}
+							placeholder="New group name"
+							bind:value={newGroupName}
+						/>
+						<Button
+							size="md"
+							startIcon={{ icon: faPlus }}
+							disabled={!newGroupName}
+							on:click={() => {
+								addGroup()
+								close(null)
+							}}
+						>
+							Create
+						</Button>
+					</div>
+				</Popup>
 			</div>
 		</div>
 	</PageHeader>

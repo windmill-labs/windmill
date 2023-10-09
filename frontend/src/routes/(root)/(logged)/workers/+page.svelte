@@ -14,7 +14,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Loader2, Pen, X } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, Pen, X } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -246,23 +246,44 @@
 			<div />
 			{#if $superadmin}
 				<div class="flex flex-row items-center">
-					<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
-					<Button
-						size="sm"
-						startIcon={{ icon: faPlus }}
-						disabled={!newGroupName}
-						on:click={addGroup}
+					<Popup
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
-						New worker group config
-					</Button>
-					<Tooltip>Worker Group configs are propagated to every workers in the worker group</Tooltip
-					>
+						<svelte:fragment slot="button">
+							<div class="flex items-center">
+								<Button size="sm" startIcon={{ icon: faPlus }} nonCaptureEvent
+									>New worker group config</Button
+								>
+								<Tooltip
+									>Worker Group configs are propagated to every workers in the worker group</Tooltip
+								>
+							</div>
+						</svelte:fragment>
+						<div class="flex flex-col gap-2">
+							<input class="mr-2 h-full" placeholder="New group name" bind:value={newGroupName} />
+
+							{#if !$enterpriseLicense}
+								<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
+									<AlertTriangle size={16} />
+									EE only
+								</div>
+							{/if}
+							<Button
+								size="sm"
+								startIcon={{ icon: faPlus }}
+								disabled={!newGroupName || !$enterpriseLicense}
+								on:click={addGroup}
+							>
+								Create
+							</Button>
+						</div>
+					</Popup>
 				</div>
 			{/if}</div
 		>
-		{#each groupedWorkers as worker_group, i}
+		{#each groupedWorkers as worker_group}
 			<WorkspaceGroup
-				top={i != 0}
 				name={worker_group[0]}
 				config={(workerGroups ?? {})[worker_group[0]]}
 				on:reload={() => {
@@ -308,14 +329,14 @@
 							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed }}
 								<tr>
 									<Cell first>{worker}</Cell>
-									<Cell
-										>{#if custom_tags && custom_tags?.length > 2}{truncate(
-												custom_tags?.join(', ') ?? '',
-												10
-											)}
-											<Tooltip>{custom_tags?.join(', ')}</Tooltip>{:else}{custom_tags?.join(', ') ??
-												''}{/if}</Cell
-									>
+									<Cell>
+										{#if custom_tags && custom_tags?.length > 2}
+											{truncate(custom_tags?.join(', ') ?? '', 10)}
+											<Tooltip>{custom_tags?.join(', ')}</Tooltip>
+										{:else}
+											{custom_tags?.join(', ') ?? ''}
+										{/if}
+									</Cell>
 									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
 									<Cell>{displayDate(started_at)}</Cell>
 									<Cell>{jobs_executed}</Cell>
@@ -337,9 +358,8 @@
 
 		<div class="pb-4" />
 
-		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group, i}
+		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group}
 			<WorkspaceGroup
-				top={i != 0 || groupedWorkers?.length > 0}
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
