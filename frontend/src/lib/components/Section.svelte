@@ -7,7 +7,7 @@
 
 <div>
 	<div class="flex flex-row justify-between">
-		<h2 class="text-base font-semibold leading-non mb-2">
+		<h2 class="text-base font-semibold mb-2 flex flex-row gap-1">
 			{label}
 			<slot name="header" />
 			{#if tooltip}
@@ -16,6 +16,7 @@
 		</h2>
 		<slot name="action" />
 	</div>
-
-	<slot />
+	<div class={$$props.class}>
+		<slot />
+	</div>
 </div>

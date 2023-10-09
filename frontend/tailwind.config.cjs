@@ -12,7 +12,7 @@ const lightTheme = {
 	textTertiary: '#505c70',
 	textDisabled: '#a0aec0',
 
-	border: '#ccc',
+	border: '#ddd',
 	borderHover: '#ccc'
 }
 
@@ -502,7 +502,7 @@ const config = {
 					'--vscode-editorSuggestWidget-foreground': '#eeffff',
 					'--vscode-editorSuggestWidget-highlightForeground': '#80cbc4',
 					'--vscode-editorSuggestWidget-selectedBackground': 'rgba(0, 0, 0, 0.31)',
-					
+
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg')
 					},
@@ -789,7 +789,7 @@ const config = {
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: 'rgb(243 244 246) !important',
+					backgroundColor: lightTheme.border + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
@@ -866,7 +866,12 @@ const config = {
 					justifyContent: 'center',
 					alignItems: 'center'
 				},
-
+				'.inner-border': {
+					boxShadow: `inset 0 0 0 1px ${lightTheme.border}`
+				},
+				'.dark .inner-border': {
+					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
+				},
 				'.ellipsize': {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',

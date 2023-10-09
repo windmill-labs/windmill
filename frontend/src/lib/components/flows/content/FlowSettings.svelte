@@ -5,7 +5,6 @@
 
 	import { BROWSER } from 'esm-env'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -24,6 +23,8 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
+	import Section from '$lib/components/Section.svelte'
+	import Label from '$lib/components/Label.svelte'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -65,11 +66,8 @@
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
-						<div class="overflow-auto h-full">
-							<label class="block mb-10 mt-2">
-								<span class="text-secondary text-sm font-bold"
-									>Summary <Required required={false} /></span
-								>
+						<div class="h-full gap-8 flex flex-col">
+							<Label label="Summary">
 								<input
 									type="text"
 									autofocus
@@ -88,25 +86,21 @@
 										}
 									}}
 								/>
-							</label>
+							</Label>
 
-							<span class="text-secondary text-sm font-bold"> Path </span>
-							<Path
-								autofocus={false}
-								bind:this={path}
-								bind:dirty={dirtyPath}
-								bind:path={$flowStore.path}
-								{initialPath}
-								namePlaceholder="flow"
-								kind="flow"
-							/>
+							<Label label="Path">
+								<Path
+									autofocus={false}
+									bind:this={path}
+									bind:dirty={dirtyPath}
+									bind:path={$flowStore.path}
+									{initialPath}
+									namePlaceholder="flow"
+									kind="flow"
+								/>
+							</Label>
 
-							<label class="block mt-10 mb-6" for="inp">
-								<span class="text-secondary text-sm font-bold">
-									Description
-									<Required required={false} />
-								</span>
-
+							<Label label="Description">
 								<textarea
 									use:autosize
 									type="text"
@@ -116,7 +110,7 @@
 									placeholder="What this flow does and how to use it."
 									rows="3"
 								/>
-							</label>
+							</Label>
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">
 									On-demand:
@@ -224,20 +218,21 @@
 					</TabContent>
 
 					<TabContent value="settings-same-worker" class="p-4 flex flex-col">
-						<Alert type="info" title="Shared Directory">
-							Steps will share a folder at `./shared` in which they can store heavier data and pass
-							them to the next step. <br /><br />Beware that the `./shared` folder is not preserved
-							across suspends and sleeps. <br /><br />
-							Furthermore, steps' worker groups is not respected and only the flow's worker group will
-							be respected.
-						</Alert>
-						<span class="my-4 text-lg font-bold">Shared Directory</span>
-						<Toggle
-							bind:checked={$flowStore.value.same_worker}
-							options={{
-								right: 'Shared Directory on `./shared`'
-							}}
-						/>
+						<Section label="Shared Directory" class="flex flex-col">
+							<Alert type="info" title="Shared Directory">
+								Steps will share a folder at `./shared` in which they can store heavier data and
+								pass them to the next step. <br /><br />Beware that the `./shared` folder is not
+								preserved across suspends and sleeps. <br /><br />
+								Furthermore, steps' worker groups is not respected and only the flow's worker group will
+								be respected.
+							</Alert>
+							<Toggle
+								bind:checked={$flowStore.value.same_worker}
+								options={{
+									right: 'Shared Directory on `./shared`'
+								}}
+							/>
+						</Section>
 					</TabContent>
 					<TabContent value="settings-cache" class="p-4 flex flex-col">
 						<h2 class="border-b pb-1 mb-4 flex items-center gap-4"
@@ -312,74 +307,74 @@
 						{/if}
 					</TabContent>
 					<TabContent value="settings-early-stop" class="p-4">
-						<h2 class="pb-4">
-							Early Stop
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
-								If defined, at the beginning of the step the predicate expression will be evaluated
-								to decide if the flow should stop early.
-							</Tooltip>
-						</h2>
-						<Toggle
-							checked={isStopAfterIfEnabled}
-							on:change={() => {
-								if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
-									$flowStore.value.skip_expr = undefined
-								} else {
-									$flowStore.value.skip_expr = 'flow_input.foo == undefined'
-								}
-							}}
-							options={{
-								right: 'Early stop if condition met'
-							}}
-						/>
+						<Section label="Early stop">
+							<svelte:fragment slot="header">
+								<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
+									If defined, at the beginning of the step the predicate expression will be
+									evaluated to decide if the flow should stop early.
+								</Tooltip>
+							</svelte:fragment>
+							<Toggle
+								checked={isStopAfterIfEnabled}
+								on:change={() => {
+									if (isStopAfterIfEnabled && $flowStore.value.skip_expr) {
+										$flowStore.value.skip_expr = undefined
+									} else {
+										$flowStore.value.skip_expr = 'flow_input.foo == undefined'
+									}
+								}}
+								options={{
+									right: 'Early stop if condition met'
+								}}
+							/>
 
-						<div
-							class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
-								? ''
-								: 'bg-surface-secondary'}"
-						>
-							{#if $flowStore.value.skip_expr}
-								<div class="border w-full">
-									<SimpleEditor
-										lang="javascript"
-										bind:code={$flowStore.value.skip_expr}
-										class="small-editor"
-										extraLib={`declare const flow_input = ${JSON.stringify(
-											schemaToObject(asSchema($flowStore.schema), $previewArgs)
-										)};`}
-									/>
-								</div>
-							{:else}
-								<textarea disabled rows="3" class="min-h-[80px]" />
-							{/if}
-						</div>
+							<div
+								class="w-full border mt-2 p-2 flex flex-col {$flowStore.value.skip_expr
+									? ''
+									: 'bg-surface-secondary'}"
+							>
+								{#if $flowStore.value.skip_expr}
+									<div class="border w-full">
+										<SimpleEditor
+											lang="javascript"
+											bind:code={$flowStore.value.skip_expr}
+											class="small-editor"
+											extraLib={`declare const flow_input = ${JSON.stringify(
+												schemaToObject(asSchema($flowStore.schema), $previewArgs)
+											)};`}
+										/>
+									</div>
+								{:else}
+									<textarea disabled rows="3" class="min-h-[80px]" />
+								{/if}
+							</div>
+						</Section>
 					</TabContent>
 
 					<TabContent value="settings-concurrency" class="p-4 flex flex-col">
-						<div>
-							<h2 class="pb-4">
-								Concurrency Limits
+						<Section label="Concurrency Limits">
+							<svelte:fragment slot="header">
 								<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
-							</h2>
-						</div>
-						<div>
-							<div class="text-xs font-bold !mt-2"
-								>Max number of executions within the time window</div
-							>
-							<div class="flex flex-row gap-2 max-w-sm"
-								><input bind:value={$flowStore.value.concurrent_limit} type="number" />
-								<Button
-									size="sm"
-									color="light"
-									on:click={() => {
-										$flowStore.value.concurrent_limit = undefined
-									}}
-									variant="border">Remove Limits</Button
-								></div
-							>
-							<div class="text-xs font-bold !mt-2">Time window in seconds</div>
-							<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
-						</div>
+							</svelte:fragment>
+							<div class="flex flex-col gap-4">
+								<Label label="Max number of executions within the time window">
+									<div class="flex flex-row gap-2 max-w-sm">
+										<input bind:value={$flowStore.value.concurrent_limit} type="number" />
+										<Button
+											size="sm"
+											color="light"
+											on:click={() => {
+												$flowStore.value.concurrent_limit = undefined
+											}}
+											variant="border">Remove Limits</Button
+										>
+									</div>
+								</Label>
+								<Label label="Time window in seconds">
+									<SecondsInput bind:seconds={$flowStore.value.concurrency_time_window_s} />
+								</Label>
+							</div>
+						</Section>
 					</TabContent>
 				</svelte:fragment>
 			</Tabs>
