@@ -25,7 +25,7 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { components, type ButtonComponent } from '../../../editor/component'
+	import { components, type ButtonComponent, type TableColumns } from '../../../editor/component'
 	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { connectOutput, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -37,6 +37,7 @@
 	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { Plug2 } from 'lucide-svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -45,6 +46,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
+	export let columns: Record<string, TableColumns>
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -259,6 +261,54 @@
 			return []
 		}
 	}
+
+	type TableColumnsResolved = {
+		showColumn: boolean
+		type: string
+	}
+
+	const resolvedColumns: Record<string, TableColumnsResolved> = initColumn(columns)
+
+	function initColumn(columns: Record<string, TableColumns>): Record<string, TableColumnsResolved> {
+		if (!columns) return {}
+		const resolvedColumns: Record<string, TableColumnsResolved> = {}
+
+		for (const columnKey of Object.keys(columns)) {
+			resolvedColumns[columnKey] = {
+				showColumn: false,
+				type: 'text'
+			}
+
+			for (const key of Object.keys(columns[columnKey])) {
+				console.log(key, columns[columnKey][key])
+
+				resolvedColumns[columnKey][key] = initConfig(
+					components['tablecomponent'].initialData.configuration,
+					columns[columnKey][key]
+				)
+			}
+		}
+		return resolvedColumns
+	}
+
+	function updateTable(
+		resolvedColumns: Record<
+			string,
+			{
+				showColumn: boolean
+			}
+		>
+	) {
+		$table.getAllLeafColumns().map((column) => {
+			const columnConfig = resolvedColumns[column.id]
+
+			if (columnConfig.showColumn !== column.getIsVisible()) {
+				column.toggleVisibility()
+			}
+		})
+	}
+
+	$: updateTable(resolvedColumns)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -279,6 +329,19 @@
 		componentStyle={$app.css?.tablecomponent}
 	/>
 {/each}
+
+{#if columns}
+	{#each Object.keys(columns) as columnKey (columnKey)}
+		{#each Object.keys(columns[columnKey]) as key (key)}
+			<ResolveConfig
+				{id}
+				{key}
+				bind:resolvedConfig={resolvedColumns[columnKey][key]}
+				configuration={columns?.[columnKey]?.[key]}
+			/>
+		{/each}
+	{/each}
+{/if}
 
 <RunnableWrapper
 	{outputs}
@@ -370,6 +433,8 @@
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
 												style={'width: ' + cell.column.getSize() + 'px'}
 											>
+												{cell.column.columnDef.accessorKey}
+
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
 												{:else if component != undefined}

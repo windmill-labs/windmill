@@ -90,8 +90,15 @@ export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ChartJsComponent = BaseComponent<'chartjscomponent'>
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
+
+export type TableColumns = {
+	showColumn: RichConfiguration
+	type: RichConfiguration
+}
+
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
+	columns: Record<string, TableColumns>
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {

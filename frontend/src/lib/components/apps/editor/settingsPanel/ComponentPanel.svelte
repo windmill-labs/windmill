@@ -36,6 +36,7 @@
 
 	import ComponentControl from './ComponentControl.svelte'
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
+	import TableColumnEditor from './TableColumnEditor.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -300,6 +301,13 @@
 					{/if}
 				{/key}
 			</PanelSection>
+		{/if}
+
+		{#if componentSettings.item.data.type === 'tablecomponent'}
+			<TableColumnEditor
+				bind:columns={componentSettings.item.data.columns}
+				componentId={component.id}
+			/>
 		{/if}
 
 		<ComponentControl type={component.type} />
