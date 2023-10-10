@@ -191,7 +191,7 @@ jobs:
             ${{ steps.extract.outputs.destination }}/*
 
   attach_ee_binary_to_release:
-    needs: [build-ee]
+    needs: [build_ee]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
