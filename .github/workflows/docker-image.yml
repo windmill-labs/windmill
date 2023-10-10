@@ -165,8 +165,8 @@ jobs:
           bucket: windmill-frontend
           bucket-region: us-east-1
 
-  attach_artifacts_to_release:
-    needs: [build] # TODO before merging: should we publish ee or normal binary here? Or both?
+  attach_binary_to_release:
+    needs: [build]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
@@ -183,6 +183,31 @@ jobs:
           arch="$(dpkg --print-architecture)"; arch="${arch##*-}";
           cd ${{ steps.extract.outputs.destination }}/
           mv windmill "windmill-${arch}"
+
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.extract.outputs.destination }}/*
+
+  attach_ee_binary_to_release:
+    needs: [build-ee]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: shrink/actions-docker-extract@v2
+        id: extract
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          path: "/usr/src/app/windmill"
+
+      - name: Rename binary with corresponding architecture
+        run: |
+          # The GH worker downloaded the image corresponding to its own architecture
+          arch="$(dpkg --print-architecture)"; arch="${arch##*-}";
+          cd ${{ steps.extract.outputs.destination }}/
+          mv windmill "windmill-ee-${arch}"
 
       - name: Attach binary to release
         uses: softprops/action-gh-release@v1
