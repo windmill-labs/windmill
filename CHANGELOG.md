@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [1.182.0](https://github.com/windmill-labs/windmill/compare/v1.181.0...v1.182.0) (2023-10-10)
+
+
+### Features
+
+* add support for aggrid ee ([c4a817a](https://github.com/windmill-labs/windmill/commit/c4a817aeb6590d8972342f815f3cf3b891ea1446))
+* **frontend:** App polish ([#2397](https://github.com/windmill-labs/windmill/issues/2397)) ([11e0bc7](https://github.com/windmill-labs/windmill/commit/11e0bc76c4bc80339e43590f5becf6b2442a2227))
+* **frontend:** column definition helper ([#2399](https://github.com/windmill-labs/windmill/issues/2399)) ([53447f1](https://github.com/windmill-labs/windmill/commit/53447f1b43e897bb8856106cabc502c822052441))
+* **frontend:** error handler tutorial ([#2404](https://github.com/windmill-labs/windmill/issues/2404)) ([bc1ad3b](https://github.com/windmill-labs/windmill/commit/bc1ad3b8d09fb2b6547dbcb37ac074ffdf9b383c))
+* **frontend:** fix css editor + fix dark mode ([#2409](https://github.com/windmill-labs/windmill/issues/2409)) ([2d7712c](https://github.com/windmill-labs/windmill/commit/2d7712c02115006fe84cb323b3b3af99ac14ffdb))
+* manage cache and init scripts from worker group UI ([#2396](https://github.com/windmill-labs/windmill/issues/2396)) ([2c9ae41](https://github.com/windmill-labs/windmill/commit/2c9ae41706edc6570559d7d83864fb05c846c0c1))
+
+
+### Bug Fixes
+
+* add lsp absolute imports for deno in all cases ([27c45e3](https://github.com/windmill-labs/windmill/commit/27c45e38cc57350df193440aa0c09ddbca93902a))
+* fix aggrid initialization ([9b75e33](https://github.com/windmill-labs/windmill/commit/9b75e33887c3a9c4cac84d648763a6e3b4490fae))
+* **frontend:** Fix tutorial trigger ([#2392](https://github.com/windmill-labs/windmill/issues/2392)) ([cad37bc](https://github.com/windmill-labs/windmill/commit/cad37bc6defa7a42b96fec6ad0a9bcac55d88d51))
+* improve flow status viewer for large values ([64c5590](https://github.com/windmill-labs/windmill/commit/64c5590aa32e4dbff6af43e711cb6899c02e4ee3))
+* improve handling of large results by frontend ([21454a7](https://github.com/windmill-labs/windmill/commit/21454a7a052db3cc1d24fd36c4504098751c66d2))
+* tarball for workspace export is generated in /tmp/windmill ([f4957d6](https://github.com/windmill-labs/windmill/commit/f4957d66b9bf6124ad3f73912f32cd1ea47b46e2))
+
 ## [1.181.0](https://github.com/windmill-labs/windmill/compare/v1.180.0...v1.181.0) (2023-10-05)
 
 
