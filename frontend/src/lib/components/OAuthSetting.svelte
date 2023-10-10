@@ -85,22 +85,29 @@
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://console.cloud.google.com/apis/credentials"
-							target="_blank">in google console</a
+							target="_blank">in Google console</a
 						>
 						and set the redirect URI to <code>BASE_URL/user/login_callback/google</code>
 						where BASE_URL is what you configured as core BASE_URL
 					</div>
 				</CollapseLink>
 			{:else if name == 'slack'}
-				<a class="text-xs" href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
-					>Read more about Slack OAuth on the docs</a
-				>
+			<CollapseLink text="Instructions">
+				<div class="text-sm text-secondary border p-2">
+					Create a new App <a
+						href="https://api.slack.com/apps?new_app=1"
+						target="_blank">in Slack API Console</a>.
+					Pick "From an app manifest", then YAML and paste manifest template found on <a
+					href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
+					target="_blank">Windmill Docs</a> and then paste Client ID and Client Secret here.
+				</div>
+			</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-							target="_blank">in microsoft portal</a
+							target="_blank">in Microsoft portal</a
 						>
 						"Add" {'->'} "App Registration" -> "Accounts in this organizational directory only (Default
 						Directory only - Single tenant)", and in the "Authentication" tab, set the redirect URI to
