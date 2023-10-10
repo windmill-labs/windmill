@@ -103,7 +103,7 @@
 				<input type="text" placeholder="Header name" bind:value={value.headerName} />
 			</Label>
 
-			<Label label="Min width">
+			<Label label="Min width (px)">
 				<input type="number" placeholder="width" bind:value={value.minWidth} />
 			</Label>
 
