@@ -38,6 +38,7 @@ import LinkdingIconSvelte from './LinkdingIcon.svelte'
 import AwsIcon from './AwsIcon.svelte'
 import BcryptIcon from './BcryptIcon.svelte'
 import GoogleIcon from './GoogleIcon.svelte'
+import MicrosoftIcon from './MicrosoftIcon.svelte'
 import HackernewsIcon from './HackernewsIcon.svelte'
 import MongodbIcon from './MongodbIcon.svelte'
 import RedditIcon from './RedditIcon.svelte'
@@ -63,6 +64,7 @@ import BigQueryIcon from './BigQueryIcon.svelte'
 import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
+import OktaIcon from './OktaIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -105,6 +107,7 @@ export const APP_TO_ICON_COMPONENT = {
 	appwrite: AppwriteIcon,
 	linkding: LinkdingIconSvelte,
 	aws: AwsIcon,
+	microsoft: MicrosoftIcon,
 	bcrypt: BcryptIcon,
 	google: GoogleIcon,
 	hackernews: HackernewsIcon,
@@ -132,7 +135,8 @@ export const APP_TO_ICON_COMPONENT = {
 	bigquery: BigQueryIcon,
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
-	azure: AzureIcon
+	azure: AzureIcon,
+	okta: OktaIcon
 } as const
 
 export {
@@ -196,5 +200,7 @@ export {
 	BigQueryIcon,
 	GraphqlIcon,
 	NocoDbIcon,
-	AzureIcon
+	AzureIcon,
+	MicrosoftIcon,
+	OktaIcon
 }
