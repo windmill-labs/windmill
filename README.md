@@ -64,6 +64,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [OAuth for self-hosting](#oauth-for-self-hosting)
     - [smtp for self-hosting](#smtp-for-self-hosting)
     - [Resource types](#resource-types)
+    - [Manually fetch latest Windmill binary](#manually-fetch-latest-windmill-binary)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [only Frontend](#only-frontend)
@@ -252,6 +253,18 @@ nodes to 200+ nodes.
 You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev). A setup script will prompt you to have
 it being synced automatically everyday.
+
+### Manually fetch latest Windmill binary
+
+Each release includes the corresponding binaries. You can simply download the 
+latest `windmill` binary using the following set of bash commands.
+```bash
+BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
+LATEST_RELEASE=$(curl -L -s -H 'Accept: application/json' https://github.com/windmill-labs/windmill/releases/latest)
+LATEST_VERSION=$(echo $LATEST_RELEASE | sed -e 's/.*"tag_name":"\([^"]*\)".*/\1/')
+ARTIFACT_URL="https://github.com/windmill-labs/windmill/releases/download/$LATEST_VERSION/$BINARY_NAME"
+wget "$ARTIFACT_URL" -O windmill
+```
 
 ## Environment Variables
 
