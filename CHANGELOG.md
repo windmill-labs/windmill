@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.182.3](https://github.com/windmill-labs/windmill/compare/v1.182.2...v1.182.3) (2023-10-10)
+
+
+### Bug Fixes
+
+* improve binary build ([094539f](https://github.com/windmill-labs/windmill/commit/094539ff3aa79531953f82941337bdd3d34db630))
+
 ## [1.182.2](https://github.com/windmill-labs/windmill/compare/v1.182.1...v1.182.2) (2023-10-10)
 
 
