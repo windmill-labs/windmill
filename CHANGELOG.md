@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.182.1](https://github.com/windmill-labs/windmill/compare/v1.182.0...v1.182.1) (2023-10-10)
+
+
+### Bug Fixes
+
+* Small fixes UI & Slack OAuth tuto ([#2398](https://github.com/windmill-labs/windmill/issues/2398)) ([e1eccc2](https://github.com/windmill-labs/windmill/commit/e1eccc2d9331ba4e33019a6109bc0368d718397c))
+
 ## [1.182.0](https://github.com/windmill-labs/windmill/compare/v1.181.0...v1.182.0) (2023-10-10)
 
 
