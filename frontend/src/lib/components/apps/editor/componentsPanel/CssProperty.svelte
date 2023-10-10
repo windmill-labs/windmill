@@ -2,7 +2,7 @@
 	import { Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals, copyToClipboard } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals, copyToClipboard, sendUserToast } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import type { ComponentCssProperty } from '../../types'
@@ -13,6 +13,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import CssEval from './CssEval.svelte'
+	import parse from 'style-to-object'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -33,8 +34,17 @@
 	$: dispatch('change', value)
 
 	function toggleQuickMenu() {
-		isQuickMenuOpen = !isQuickMenuOpen
+		try {
+			if (!value.style) {
+				value.style = ''
+			}
+			parse(value.style)
+			isQuickMenuOpen = !isQuickMenuOpen
+		} catch {
+			sendUserToast('Invalid CSS: Rich editor cannot be toggled', true)
+		}
 	}
+
 	let dynamicClass: boolean = value.evalClass !== undefined
 </script>
 

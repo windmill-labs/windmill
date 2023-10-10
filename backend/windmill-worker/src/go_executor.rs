@@ -17,7 +17,7 @@ use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        set_logs, write_file,
+        set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -177,7 +177,8 @@ func Run(req Req) (interface{{}}, error){{
             }
         }
 
-        let build_go = Command::new(GO_PATH.as_str())
+        let mut build_go_cmd = Command::new(GO_PATH.as_str());
+        build_go_cmd
             .current_dir(job_dir)
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
@@ -186,13 +187,13 @@ func Run(req Req) (interface{{}}, error){{
             .env("HOME", HOME_ENV.as_str())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
             &job.id,
             db,
             logs,
-            build_go,
+            build_go_process,
             false,
             worker_name,
             &job.workspace_id,
@@ -228,7 +229,8 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        Command::new(NSJAIL_PATH.as_str())
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -238,10 +240,11 @@ func Run(req Req) (interface{{}}, error){{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut run_go = Command::new("./main");
+        let compiled_executable_name = "./main";
+        let mut run_go = Command::new(compiled_executable_name);
         run_go
             .current_dir(job_dir)
             .env_clear()
@@ -260,10 +263,8 @@ func Run(req Req) (interface{{}}, error){{
             run_go.env("GOPROXY", goproxy);
         }
 
-        run_go
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+        run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
+        start_child_process(run_go, compiled_executable_name).await?
     };
     handle_child(
         &job.id,
@@ -316,18 +317,19 @@ pub async fn install_go_dependencies(
 ) -> error::Result<String> {
     if !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
-        let child = Command::new("go")
+        let mut child_cmd = Command::new(GO_PATH.as_str());
+        child_cmd
             .current_dir(job_dir)
             .args(vec!["mod", "init", "mymod"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
 
         handle_child(
             job_id,
             db,
             logs,
-            child,
+            child_process,
             false,
             worker_name,
             w_id,
@@ -377,18 +379,20 @@ pub async fn install_go_dependencies(
     }
 
     let mod_command = if skip_tidy { "download" } else { "tidy" };
-    let child = Command::new(GO_PATH.as_str())
+    let mut child_cmd = Command::new(GO_PATH.as_str());
+    child_cmd
         .current_dir(job_dir)
         .env("GOPATH", GO_CACHE_DIR)
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+
     handle_child(
         job_id,
         db,
         logs,
-        child,
+        child_process,
         false,
         worker_name,
         &w_id,

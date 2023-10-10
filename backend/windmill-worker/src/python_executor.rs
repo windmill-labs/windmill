@@ -46,7 +46,7 @@ use crate::S3_CACHE_BUCKET;
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        write_file,
+        start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, TZ_ENV,
@@ -117,17 +117,18 @@ pub async fn pip_compile(
         args.extend(["--trusted-host", host]);
     }
 
-    let child = Command::new("pip-compile")
+    let mut child_cmd = Command::new("pip-compile");
+    child_cmd
         .current_dir(job_dir)
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let child_process = start_child_process(child_cmd, "pip-compile").await?;
     handle_child(
         job_id,
         db,
         logs,
-        child,
+        child_process,
         false,
         worker_name,
         &w_id,
@@ -429,7 +430,8 @@ mount {{
         job.id
     );
     let child = if !*DISABLE_NSJAIL {
-        Command::new(NSJAIL_PATH.as_str())
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
@@ -447,10 +449,11 @@ mount {{
                 "wrapper",
             ])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        Command::new(PYTHON_PATH.as_str())
+        let mut python_cmd = Command::new(PYTHON_PATH.as_str());
+        python_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -460,8 +463,8 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
 
     handle_child(
@@ -569,14 +572,15 @@ pub async fn handle_python_reqs(
             let req = req.to_string();
             vars.push(("REQ", &req));
             vars.push(("TARGET", &venv_p));
-            Command::new(NSJAIL_PATH.as_str())
+            let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+            nsjail_cmd
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(vars)
                 .args(vec!["--config", "download.config.proto"])
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
+                .stderr(Stdio::piped());
+            start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),
@@ -614,7 +618,8 @@ pub async fn handle_python_reqs(
                 envs.push(("NO_PROXY", no_proxy));
             }
 
-            Command::new(FLOCK_PATH.as_str())
+            let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+            flock_cmd
                 .env_clear()
                 .envs(envs)
                 .args([
@@ -624,8 +629,8 @@ pub async fn handle_python_reqs(
                     &command_args.join(" "),
                 ])
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
+                .stderr(Stdio::piped());
+            start_child_process(flock_cmd, FLOCK_PATH.as_str()).await?
         };
 
         let child = handle_child(

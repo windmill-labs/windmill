@@ -6,12 +6,13 @@ use serde_json::{json, Value};
 use tokio::process::Command;
 use windmill_common::{error::Error, jobs::QueuedJob};
 
+const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 use crate::{
     common::{
         get_reserved_variables, handle_child, read_file, read_file_content, set_logs,
-        transform_json_value, write_file,
+        start_child_process, transform_json_value, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
@@ -89,7 +90,8 @@ pub async fn handle_bash_job(
         .await?;
         let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
-        Command::new(NSJAIL_PATH.as_str())
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
@@ -97,12 +99,13 @@ pub async fn handle_bash_job(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/bash")
+        let mut bash_cmd = Command::new(BIN_BASH);
+        bash_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -112,8 +115,8 @@ pub async fn handle_bash_job(
             .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(bash_cmd, BIN_BASH).await?
     };
     handle_child(
         &job.id,
