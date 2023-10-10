@@ -5,8 +5,9 @@
 	import Tooltip from '../Tooltip.svelte'
 
 	export let column: {
-		field: string
-		showColumn: boolean
+		headerName: string
+		hideColumn: boolean
+		type: 'text' | 'badge'
 	}
 </script>
 
@@ -25,11 +26,8 @@
 			</Tooltip>
 		</span>
 
-		<Label label="Field">
-			<svelte:fragment slot="header">
-				<Tooltip>This property will be ignored if you set the column to flex.</Tooltip>
-			</svelte:fragment>
-			<input placeholder="field" bind:value={column.field} />
+		<Label label="Header name">
+			<input placeholder="field" bind:value={column.headerName} />
 		</Label>
 
 		<Label label="Show column">
@@ -37,10 +35,17 @@
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 				}}
-				options={{ right: 'Show column' }}
-				bind:checked={column.showColumn}
+				options={{ right: 'Hide column' }}
+				bind:checked={column.hideColumn}
 				size="xs"
 			/>
+		</Label>
+
+		<Label label="Type">
+			<select bind:value={column.type}>
+				<option value="text">Text</option>
+				<option value="badge">Badge</option>
+			</select>
 		</Label>
 	</div>
 </Popup>

@@ -47,6 +47,8 @@
 				value.push(selectOptions[0])
 			} else if (subFieldType === 'ag-grid') {
 				value.push({ field: 'newField', editable: true, flex: 1 })
+			} else if (subFieldType === 'table-column') {
+				value.push({ field: 'newColumn', headerName: 'New column', type: 'text' })
 			}
 		} else {
 			value.push('')
@@ -164,6 +166,7 @@
 								bind:value={item.value}
 							/>
 						</div>
+
 						<div class="flex justify-between flex-col items-center">
 							<div
 								tabindex={dragDisabled ? 0 : -1}

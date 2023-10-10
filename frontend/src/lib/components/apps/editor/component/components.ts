@@ -492,15 +492,11 @@ const aggridcomponentconst = {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'ag-grid',
-<<<<<<< HEAD
-				value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
-=======
 				value: [
 					{ field: 'id', flex: 1 },
 					{ field: 'name', editable: true, flex: 1 },
 					{ field: 'age', flex: 1 }
 				]
->>>>>>> main
 			} as StaticAppInput,
 			flex: {
 				type: 'static',
