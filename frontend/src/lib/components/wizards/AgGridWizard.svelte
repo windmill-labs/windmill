@@ -8,7 +8,7 @@
 	import Button from '../common/button/Button.svelte'
 
 	export let value: {
-		width: number
+		minWidth: number
 		hide: boolean
 		flex: number
 		sort: 'asc' | 'desc'
@@ -28,7 +28,7 @@
 	const presets = [
 		{
 			label: 'None',
-			value: ''
+			value: null
 		},
 		{
 			label: 'Currency CHF',
@@ -98,11 +98,8 @@
 			<input type="text" placeholder="Header name" bind:value={value.headerName} />
 		</Label>
 
-		<Label label="Width">
-			<svelte:fragment slot="header">
-				<Tooltip>This property will be ignored if you set the column to flex.</Tooltip>
-			</svelte:fragment>
-			<input type="number" placeholder="width" bind:value={value.width} />
+		<Label label="Min width">
+			<input type="number" placeholder="width" bind:value={value.minWidth} />
 		</Label>
 
 		<Label label="Hide">
@@ -130,7 +127,8 @@
 					color="light"
 					variant="border"
 					on:click={() => {
-						value.valueFormatter = ''
+						// @ts-ignore
+						value.valueFormatter = null
 						renderCount++
 					}}
 				>
@@ -151,7 +149,7 @@
 							on:change={() => {
 								renderCount++
 							}}
-							placeholder="Codse"
+							placeholder="Code"
 						>
 							{#each presets as preset}
 								<option value={preset.value}>{preset.label}</option>
@@ -168,9 +166,7 @@
 			<svelte:fragment slot="header">
 				<Tooltip
 					documentationLink="https://www.ag-grid.com/javascript-data-grid/value-parsers/#value-parser"
-				>
-					See the documentation for more information.
-				</Tooltip>
+				/>
 			</svelte:fragment>
 
 			<SimpleEditor autoHeight lang="javascript" bind:code={value.valueParser} />
