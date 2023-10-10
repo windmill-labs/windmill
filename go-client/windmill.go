@@ -56,7 +56,7 @@ func GetResource(path string) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	params := &api.GetResourceValueInterpolatedParams{}
+	params := api.GetResourceValueInterpolatedParams{}
 	res, err := client.Client.GetResourceValueInterpolatedWithResponse(context.Background(), client.Workspace, path, &params)
 	if res.StatusCode()/100 != 2 {
 		return nil, errors.New(string(res.Body))
