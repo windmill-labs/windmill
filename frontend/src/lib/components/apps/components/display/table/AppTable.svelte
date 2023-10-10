@@ -266,13 +266,13 @@
 				(columnDef) => columnDef.field === column.columnDef.accessorKey
 			)
 
-			if (columnConfig.showColumn !== column.getIsVisible()) {
+			if (columnConfig?.showColumn !== column.getIsVisible()) {
 				column.toggleVisibility()
 			}
 		})
 	}
 
-	$: updateTable(resolvedConfig)
+	$: updateTable()
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
