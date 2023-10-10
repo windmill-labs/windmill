@@ -23,6 +23,7 @@ export type InputType =
 	| 'tab-select'
 	| 'schema'
 	| 'ag-grid'
+	| 'table-column'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -187,6 +188,7 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'tab-select'>
 	| AppInputSpec<'schema', object>
 	| AppInputSpec<'array', object[], 'ag-grid'>
+	| AppInputSpec<'array', object[], 'table-column'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

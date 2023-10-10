@@ -1,11 +1,13 @@
 <script lang="ts">
-	import type { TableColumns } from '../apps/editor/component/components'
-	import InputsSpecsEditor from '../apps/editor/settingsPanel/InputsSpecsEditor.svelte'
 	import { Popup } from '../common'
+	import Label from '../Label.svelte'
+	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
 
-	export let columns: TableColumns
-	export let id: string
+	export let column: {
+		field: string
+		showColumn: boolean
+	}
 </script>
 
 <Popup
@@ -23,11 +25,22 @@
 			</Tooltip>
 		</span>
 
-		<InputsSpecsEditor
-			{id}
-			shouldCapitalize={false}
-			bind:inputSpecs={columns}
-			userInputEnabled={false}
-		/>
+		<Label label="Field">
+			<svelte:fragment slot="header">
+				<Tooltip>This property will be ignored if you set the column to flex.</Tooltip>
+			</svelte:fragment>
+			<input placeholder="field" bind:value={column.field} />
+		</Label>
+
+		<Label label="Show column">
+			<Toggle
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+				}}
+				options={{ right: 'Show column' }}
+				bind:checked={column.showColumn}
+				size="xs"
+			/>
+		</Label>
 	</div>
 </Popup>

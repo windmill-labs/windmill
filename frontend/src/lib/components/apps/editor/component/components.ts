@@ -91,14 +91,8 @@ export type ChartJsComponent = BaseComponent<'chartjscomponent'>
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
-export type TableColumns = {
-	showColumn: RichConfiguration
-	type: RichConfiguration
-}
-
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
-	columns: Record<string, TableColumns>
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
@@ -1390,6 +1384,12 @@ This is a paragraph.
 		},
 		initialData: {
 			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'table-column',
+					value: [{ field: 'id' }, { field: 'name' }, { field: 'age' }]
+				} as StaticAppInput,
 				search: {
 					fieldType: 'select',
 					type: 'static',
