@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.182.2](https://github.com/windmill-labs/windmill/compare/v1.182.1...v1.182.2) (2023-10-10)
+
+
+### Bug Fixes
+
+* add binaries to release ([17b42e6](https://github.com/windmill-labs/windmill/commit/17b42e6a3555ae1f45d8f24934f290a72e3d60c5))
+
 ## [1.182.1](https://github.com/windmill-labs/windmill/compare/v1.182.0...v1.182.1) (2023-10-10)
 
 
