@@ -45,6 +45,8 @@
 				value.push('')
 			} else if (subFieldType === 'select' && selectOptions) {
 				value.push(selectOptions[0])
+			} else if (subFieldType === 'ag-grid') {
+				value.push({ field: 'newField', editable: true, flex: 1 })
 			}
 		} else {
 			value.push('')

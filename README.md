@@ -64,6 +64,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [OAuth for self-hosting](#oauth-for-self-hosting)
     - [smtp for self-hosting](#smtp-for-self-hosting)
     - [Resource types](#resource-types)
+    - [Manually fetch latest Windmill binary](#manually-fetch-latest-windmill-binary)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [only Frontend](#only-frontend)
@@ -226,6 +227,18 @@ From there, you can follow the setup app and create other users.
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>.
 
+### Run from binaries
+
+Each release includes the corresponding binaries for x86_64. You can simply download the 
+latest `windmill` binary using the following set of bash commands.
+```bash
+BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
+LATEST_RELEASE=$(curl -L -s -H 'Accept: application/json' https://github.com/windmill-labs/windmill/releases/latest)
+LATEST_VERSION=$(echo $LATEST_RELEASE | sed -e 's/.*"tag_name":"\([^"]*\)".*/\1/')
+ARTIFACT_URL="https://github.com/windmill-labs/windmill/releases/download/$LATEST_VERSION/$BINARY_NAME"
+wget "$ARTIFACT_URL" -O windmill
+```
+
 ### OAuth, SSO & SMTP
 
 Windmill Community Edition allows to configure the OAuth, SSO (including Google Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin settings. Do note that there is a limit of 50 SSO users on the community edition.
@@ -252,6 +265,7 @@ nodes to 200+ nodes.
 You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev). A setup script will prompt you to have
 it being synced automatically everyday.
+
 
 ## Environment Variables
 
