@@ -14,9 +14,10 @@
 	export let textClass = ''
 	export let textStyle = ''
 	export let color: 'blue' | 'red' = 'blue'
+	export let id = (Math.random() + 1).toString(36).substring(10)
 
 	export let size: 'sm' | 'xs' = 'sm'
-	const id = (Math.random() + 1).toString(36).substring(10)
+
 	const dispatch = createEventDispatcher()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
 </script>
