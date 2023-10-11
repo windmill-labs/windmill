@@ -276,6 +276,14 @@
 		$table.setColumnOrder(() =>
 			resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
 		)
+
+		$table.setColumnSizing(() => {
+			const columnSizes = {}
+			resolvedConfig.columnDefs.forEach((columnDef: { field: any; size: any }) => {
+				columnSizes[columnDef.field] = columnDef.size
+			})
+			return columnSizes
+		})
 	}
 
 	$: updateTable(resolvedConfig)

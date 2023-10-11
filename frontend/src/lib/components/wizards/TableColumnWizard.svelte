@@ -8,6 +8,7 @@
 		headerName: string
 		hideColumn: boolean
 		type: 'text' | 'badge'
+		size: number
 	}
 </script>
 
@@ -27,7 +28,7 @@
 		</span>
 
 		<Label label="Header name">
-			<input placeholder="field" bind:value={column.headerName} />
+			<input placeholder="header name" bind:value={column.headerName} />
 		</Label>
 
 		<Label label="Show column">
@@ -46,6 +47,10 @@
 				<option value="text">Text</option>
 				<option value="badge">Badge</option>
 			</select>
+		</Label>
+
+		<Label label="Size">
+			<input placeholder="size in pixel" bind:value={column.size} />
 		</Label>
 	</div>
 </Popup>
