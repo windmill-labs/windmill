@@ -36,6 +36,7 @@ use magic_crypt::MagicCryptTrait;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
+use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
@@ -45,9 +46,11 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
 };
+use windmill_queue::PushIsolationLevel;
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -64,6 +67,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/run_slack_message_test_job", post(run_slack_message_test_job))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_deploy_to", post(edit_deploy_to))
@@ -149,6 +153,16 @@ struct EditCommandScript {
     slack_command_script: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RunSlackMessageTestJobRequest {
+    hub_script_path: String,
+    job_args: Map<String, Value>
+}
+
+#[derive(Serialize)]
+struct RunSlackMessageTestJobResponse {
+    job_uuid: String,
+}
 
 #[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
@@ -507,6 +521,44 @@ async fn edit_slack_command(
     Ok(format!("Edit command script {}", &w_id))
 }
 
+async fn run_slack_message_test_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunSlackMessageTestJobRequest>,
+) -> JsonResult<RunSlackMessageTestJobResponse> {
+    let payload = JobPayload::ScriptHub { path: req.hub_script_path };
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+    let (uuid, tx) = windmill_queue::push(
+        &db, 
+        tx, 
+        w_id.as_str(), 
+        payload, 
+        req.job_args, 
+        authed.username.as_str(), 
+        authed.email.as_str(), 
+        username_to_permissioned_as(authed.username.as_str()), // TODO: double check with ruben if this is correct
+        None, 
+        None, 
+        None, 
+        None, 
+        None, 
+        false, 
+        false, 
+        None, 
+        true, 
+        None,
+        None, 
+        None
+    ).await?;
+    tx.commit().await?;
+
+    Ok(Json(RunSlackMessageTestJobResponse {
+        job_uuid: uuid.to_string(),
+    }))
+}
 
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_to(
