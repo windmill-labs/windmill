@@ -149,9 +149,6 @@
 					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
 					ulOptionsClass={'p-2 !bg-surface-secondary'}
 					bind:selected={value}
-					on:change={() => {
-						outputs?.result.set([...(value ?? [])])
-					}}
 					options={Array.isArray(items) ? items : []}
 					placeholder={resolvedConfig.placeholder}
 					allowUserOptions={resolvedConfig.create}
@@ -163,12 +160,23 @@
 						open = false
 					}}
 				>
-					<div slot="option" let:option>
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						slot="option"
+						let:option
+						on:mouseup|stopPropagation
+						on:pointerdown={(e) => {
+							const nValue = [...(value ?? []), option]
+							value = [...new Set(nValue)]
+							outputs?.result.set([...(value ?? [])])
+						}}
+					>
 						{option}
 					</div>
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<div
 							bind:this={portalRef}
