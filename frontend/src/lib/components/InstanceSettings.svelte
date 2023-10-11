@@ -29,7 +29,7 @@
 				placeholder: 'https://windmill.com',
 				storage: 'setting',
 				isValid: (value: string | undefined) =>
-					(value?.startsWith('http') && !value?.endsWith('/')) || false
+					value ? value?.startsWith('http') && !value?.endsWith('/') : true
 			},
 			{
 				label: 'Request Size Limit In MB',
@@ -296,6 +296,9 @@
 													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
 													placeholder={setting.placeholder}
+													class={hasError
+														? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30 !bg-red-100'
+														: ''}
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'textarea'}
