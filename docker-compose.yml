@@ -35,8 +35,6 @@ services:
       - NUM_WORKERS=0
       - DISABLE_SERVER=false
       - METRICS_ADDR=false # (ee only, if set to true, metrics will be exposed on port 8001)
-      # LICENSE_KEY is only needed for the enterprise edition
-      - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -58,8 +56,6 @@ services:
       - KEEP_JOB_DIR=false
       - METRICS_ADDR=false
       - WORKER_GROUP=default
-      # LICENSE_KEY is only needed for the enterprise edition
-      - LICENSE_KEY=${WM_LICENSE_KEY}
     depends_on:
       db:
         condition: service_healthy
