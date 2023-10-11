@@ -37,6 +37,7 @@
 	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { Plug2 } from 'lucide-svelte'
+	import AppCell from './AppCell.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -147,10 +148,6 @@
 		}
 	}
 
-	function cellIsObject(x: (any) => any, props: any): boolean {
-		return typeof x != 'string' && typeof x(props) == 'object'
-	}
-
 	let filteredResult: Array<Record<string, any>> = []
 
 	function setFilteredResult() {
@@ -250,6 +247,11 @@
 		}
 	}
 
+	function getDisplayNameById(id: string) {
+		const component = resolvedConfig?.columnDefs?.find((columnDef) => columnDef.field === id)
+		return component?.headerName
+	}
+
 	function safeVisibleCell<T>(row: Row<T>) {
 		try {
 			return row.getVisibleCells()
@@ -259,6 +261,27 @@
 			return []
 		}
 	}
+
+	function updateTable(resolvedConfig) {
+		if (resolvedConfig?.columnDefs) {
+			$table.getAllLeafColumns().map((column) => {
+				const columnConfig = resolvedConfig.columnDefs.find(
+					// @ts-ignore
+					(columnDef) => columnDef.field === column.columnDef.accessorKey
+				)
+
+				if (columnConfig?.hideColumn === column.getIsVisible()) {
+					column.toggleVisibility()
+				}
+			})
+
+			$table.setColumnOrder(() =>
+				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
+			)
+		}
+	}
+
+	$: updateTable(resolvedConfig)
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -327,9 +350,12 @@
 										{@const context = header?.getContext()}
 										{#if context}
 											{@const component = renderCell(header.column.columnDef.header, context)}
+											{@const displayName = getDisplayNameById(header.id)}
 											<th class="!p-0">
 												<span class="block px-4 py-4 text-sm font-semibold border-b">
-													{#if !header.isPlaceholder && component}
+													{#if displayName}
+														{displayName}
+													{:else if !header.isPlaceholder && component}
 														<svelte:component this={component} />
 													{/if}
 												</span>
@@ -363,18 +389,20 @@
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
-											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
 												on:keydown={() => toggleRow(row)}
 												on:click={() => toggleRow(row)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
 												style={'width: ' + cell.column.getSize() + 'px'}
 											>
-												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
-													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
-												{:else if component != undefined}
-													<svelte:component this={component} />
-												{/if}
+												<AppCell
+													type={resolvedConfig.columnDefs?.find(
+														// TS types are wrong here
+														// @ts-ignore
+														(c) => c.field === cell.column.columnDef.accessorKey
+													)?.type ?? 'text'}
+													value={cell.getValue()}
+												/>
 											</td>
 										{/if}
 									{/if}

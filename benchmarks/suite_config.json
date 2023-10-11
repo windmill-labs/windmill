@@ -44,7 +44,7 @@
       "graph_title": "nativets throughput benchmark (single worker)",
       "kind": "nativets",
       "jobs": 500
-    },
+    }
   ],
   "extra_graphs": [
     {
