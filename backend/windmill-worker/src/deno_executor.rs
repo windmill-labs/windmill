@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        write_file,
+        start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -96,7 +96,8 @@ pub async fn generate_deno_lock(
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
         deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
     }
-    let child = Command::new(DENO_PATH.as_str())
+    let mut child_cmd = Command::new(DENO_PATH.as_str());
+    child_cmd
         .current_dir(job_dir)
         .args(vec![
             "cache",
@@ -109,14 +110,14 @@ pub async fn generate_deno_lock(
         ])
         .envs(deno_envs)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let child_process = start_child_process(child_cmd, DENO_PATH.as_str()).await?;
 
     handle_child(
         job_id,
         db,
         logs,
-        child,
+        child_process,
         false,
         worker_name,
         w_id,
@@ -302,7 +303,8 @@ run().catch(async (e) => {{
             args.push("-A");
         }
         args.push(&script_path);
-        Command::new(DENO_PATH.as_str())
+        let mut deno_cmd = Command::new(DENO_PATH.as_str());
+        deno_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -311,8 +313,8 @@ run().catch(async (e) => {{
             .env("DENO_DIR", DENO_CACHE_DIR)
             .args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+        start_child_process(deno_cmd, DENO_PATH.as_str()).await?
     };
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();

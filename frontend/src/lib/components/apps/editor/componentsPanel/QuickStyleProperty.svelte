@@ -91,7 +91,7 @@
 				<Menu
 					let:close
 					noMinW
-					wrapperClasses="h-full bg-surface rounded-r-md border-y border-r border-gray-300 pr-0.5"
+					wrapperClasses="h-full bg-surface rounded-r-md border-y border-r pr-0.5"
 					popupClasses="!mt-0"
 				>
 					<button

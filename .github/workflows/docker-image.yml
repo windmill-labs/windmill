@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   packages: write
 
@@ -153,7 +153,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: 18
-      - uses: shrink/actions-docker-extract@v2
+      - uses: shrink/actions-docker-extract@v3
         id: extract
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
@@ -164,6 +164,97 @@ jobs:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
           bucket-region: us-east-1
+
+
+  attach_amd64_binary_to_release:
+    needs: [build, build_ee]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    env:
+      ARCH: amd64
+    steps:
+      - uses: actions/checkout@v3
+
+      - run: |
+          # pulling docker image with desired arch so that actions-docker-extract doesn't do it
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+
+      - run: |
+          # Checks the image is in docker prior to running actions-docker-extract. It fails if not
+          # Also useful to visually check that the arch is the right opencontainers
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+
+      - uses: shrink/actions-docker-extract@v3
+        id: extract
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          path: "/usr/src/app/windmill"
+
+      - uses: shrink/actions-docker-extract@v3
+        id: extract-ee
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          path: "/usr/src/app/windmill"
+
+      - name: Rename binary with corresponding architecture
+        run: |
+          mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
+          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
+
+
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.extract.outputs.destination }}/*
+            ${{ steps.extract-ee.outputs.destination }}/*
+
+  attach_arm64_binary_to_release:
+    needs: [build, build_ee]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    env:
+      ARCH: arm64
+    steps:
+      - uses: actions/checkout@v3
+
+      - run: |
+          # pulling docker image with desired arch so that actions-docker-extract doesn't do it
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+
+      - run: |
+          # Checks the image is in docker prior to running actions-docker-extract. It fails if not
+          # Also useful to visually check that the arch is the right opencontainers
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+
+      - uses: shrink/actions-docker-extract@v3
+        id: extract
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          path: "/usr/src/app/windmill"
+
+      - uses: shrink/actions-docker-extract@v3
+        id: extract-ee
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          path: "/usr/src/app/windmill"
+
+      - name: Rename binary with corresponding architecture
+        run: |
+          mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
+          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
+
+
+      - name: Attach binary to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.extract.outputs.destination }}/*
+            ${{ steps.extract-ee.outputs.destination }}/*
 
   publish_ecr:
     needs: [build_ee]

@@ -90,6 +90,7 @@ export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ChartJsComponent = BaseComponent<'chartjscomponent'>
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
+
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
@@ -479,7 +480,6 @@ const paginationOneOf = {
 
 const documentationBaseUrl = 'https://www.windmill.dev/docs/apps/app_configuration_settings'
 
-
 const aggridcomponentconst = {
 	name: 'AgGrid Table',
 	icon: Table2,
@@ -491,8 +491,12 @@ const aggridcomponentconst = {
 			columnDefs: {
 				type: 'static',
 				fieldType: 'array',
-				subFieldType: 'object',
-				value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
+				subFieldType: 'ag-grid',
+				value: [
+					{ field: 'id', flex: 1 },
+					{ field: 'name', editable: true, flex: 1 },
+					{ field: 'age', flex: 1 }
+				]
 			} as StaticAppInput,
 			flex: {
 				type: 'static',
@@ -1384,6 +1388,12 @@ This is a paragraph.
 		},
 		initialData: {
 			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'table-column',
+					value: [{ field: 'id' }, { field: 'name' }, { field: 'age' }]
+				} as StaticAppInput,
 				search: {
 					fieldType: 'select',
 					type: 'static',
@@ -1430,7 +1440,7 @@ This is a paragraph.
 		}
 	},
 	aggridcomponent: aggridcomponentconst,
-	aggridcomponentee: {...aggridcomponentconst, name: 'AgGrid Table EE'},
+	aggridcomponentee: { ...aggridcomponentconst, name: 'AgGrid Table EE' },
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
