@@ -248,7 +248,7 @@
 	}
 
 	function getDisplayNameById(id: string) {
-		const component = resolvedConfig.columnDefs.find((columnDef) => columnDef.field === id)
+		const component = resolvedConfig?.columnDefs?.find((columnDef) => columnDef.field === id)
 		return component?.headerName
 	}
 
@@ -263,20 +263,22 @@
 	}
 
 	function updateTable(resolvedConfig) {
-		$table.getAllLeafColumns().map((column) => {
-			const columnConfig = resolvedConfig.columnDefs.find(
-				// @ts-ignore
-				(columnDef) => columnDef.field === column.columnDef.accessorKey
+		if (resolvedConfig?.columnDefs) {
+			$table.getAllLeafColumns().map((column) => {
+				const columnConfig = resolvedConfig.columnDefs.find(
+					// @ts-ignore
+					(columnDef) => columnDef.field === column.columnDef.accessorKey
+				)
+
+				if (columnConfig?.hideColumn === column.getIsVisible()) {
+					column.toggleVisibility()
+				}
+			})
+
+			$table.setColumnOrder(() =>
+				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
 			)
-
-			if (columnConfig?.hideColumn === column.getIsVisible()) {
-				column.toggleVisibility()
-			}
-		})
-
-		$table.setColumnOrder(() =>
-			resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
-		)
+		}
 	}
 
 	$: updateTable(resolvedConfig)
@@ -394,7 +396,7 @@
 												style={'width: ' + cell.column.getSize() + 'px'}
 											>
 												<AppCell
-													type={resolvedConfig.columnDefs.find(
+													type={resolvedConfig.columnDefs?.find(
 														// TS types are wrong here
 														// @ts-ignore
 														(c) => c.field === cell.column.columnDef.accessorKey
