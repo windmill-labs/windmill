@@ -39,7 +39,7 @@
 				return acc
 			}, new Set<string>())
 
-			remainingColumns = Array.from(allKeysSet).filter((x: string) => !columns.includes(x))
+			remainingColumns = Array.from(allKeysSet).filter((x: string) => !columns?.includes(x) ?? true)
 		}
 	}
 
