@@ -6,12 +6,7 @@
 	export let isModifier: boolean = false
 
 	if (small) {
-		kbdClass = twMerge(
-			kbdClass,
-			'!text-[10px]  px-1',
-			isModifier ? '!text-lg ' : 'text-xs',
-			'leading-none'
-		)
+		kbdClass = twMerge(kbdClass, '!text-[10px]  px-1', 'text-xs', 'leading-none')
 	} else {
 		kbdClass += ' !text-xs px-1.5'
 	}
