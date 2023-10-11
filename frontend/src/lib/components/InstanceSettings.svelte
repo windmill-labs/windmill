@@ -27,7 +27,8 @@
 				key: 'base_url',
 				fieldType: 'text',
 				placeholder: 'https://windmill.com',
-				storage: 'setting'
+				storage: 'setting',
+				isValid: (value: string | undefined) => value?.match(/^(https?:\/\/)[^\/]+$/) != null
 			},
 			{
 				label: 'Request Size Limit In MB',
@@ -353,6 +354,13 @@
 													<SecondsInput bind:seconds={values[setting.key]} />
 												</div>
 											{/if}
+
+											{#if setting.isValid && !setting.isValid(values[setting.key])}
+												<span class="text-red-500 text-xs">
+													Base url must start with http:// or https:// and must not end with a
+													trailing slash.
+												</span>
+											{/if}
 										{:else}
 											<input disabled placeholder="Loading..." />
 										{/if}
@@ -491,6 +499,8 @@
 	on:click={async () => {
 		await saveSettings()
 		sendUserToast('Settings updated')
-	}}>Save</Button
+	}}
 >
+	Save
+</Button>
 <div class="pb-8" />
