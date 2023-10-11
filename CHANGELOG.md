@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.183.0](https://github.com/windmill-labs/windmill/compare/v1.182.3...v1.183.0) (2023-10-11)
+
+
+### Features
+
+* **frontend:** Table wizard ([#2416](https://github.com/windmill-labs/windmill/issues/2416)) ([6f0cda0](https://github.com/windmill-labs/windmill/commit/6f0cda0e1ea84e2b5c5d297c841749dc5bae879d))
+
+
+### Bug Fixes
+
+* benchmark config syntax error ([#2432](https://github.com/windmill-labs/windmill/issues/2432)) ([109c2f1](https://github.com/windmill-labs/windmill/commit/109c2f17d68e0cac2f365297cc2fcdd54d9d105a))
+* **frontend:** add a validation for base url ([#2434](https://github.com/windmill-labs/windmill/issues/2434)) ([c914ac6](https://github.com/windmill-labs/windmill/commit/c914ac64cfbaacaf5fe3c7486ea9901ce4828387))
+* **frontend:** fix drawer title truncate ([#2429](https://github.com/windmill-labs/windmill/issues/2429)) ([46d2c13](https://github.com/windmill-labs/windmill/commit/46d2c13e0d2dde1e87c3bbe7cc2be29de84fa2cf))
+* **frontend:** fix mobile multi select ([#2431](https://github.com/windmill-labs/windmill/issues/2431)) ([cb2b6df](https://github.com/windmill-labs/windmill/commit/cb2b6dfdba8953a3d1f432e4af2b2725f5e267ca))
+* **frontend:** fix table wizards for old apps ([#2435](https://github.com/windmill-labs/windmill/issues/2435)) ([e088ec5](https://github.com/windmill-labs/windmill/commit/e088ec566958079e468b3c1f5df057f6e70dffc3))
+
 ## [1.182.3](https://github.com/windmill-labs/windmill/compare/v1.182.2...v1.182.3) (2023-10-10)
 
 
