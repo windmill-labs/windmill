@@ -87,7 +87,16 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 	if (scriptOptions.type === 'edit' || scriptOptions.type === 'fix') {
 		const { code } = scriptOptions
 
-		const matches = code.matchAll(/^type\s+([a-zA-Z0-9_]+)/gm) ?? []
+		const mainSig =
+			scriptOptions.language === 'python3'
+				? code.match(/def main\((.*?)\)/s)
+				: code.match(/function main\((.*?)\)/s)
+
+		if (mainSig) {
+			elems.push(mainSig[1])
+		}
+
+		const matches = code.matchAll(/^(?:type|class) ([a-zA-Z0-9_]+)/gm)
 
 		for (const match of matches) {
 			elems.push(match[1])
