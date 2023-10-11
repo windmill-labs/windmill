@@ -2,22 +2,20 @@
 	import { Button } from '$lib/components/common'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { GripVertical, X } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import type { AppViewerContext } from '../../types'
+	import QuickAddColumn from './QuickAddColumn.svelte'
 
 	const flipDurationMs = 200
 
 	export let componentInput: StaticInput<any[]>
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
-
-	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -129,33 +127,6 @@
 		componentInput.value = items.map((item) => item.value)
 	}
 
-	function syncColumns() {
-		if ($selectedComponent?.length === 1) {
-			const componentId = $selectedComponent[0]
-
-			let results = $worldStore?.outputsById?.[componentId].result?.peak()
-
-			const allKeysSet = results.reduce((acc, obj) => {
-				Object.keys(obj).forEach((key) => acc.add(key))
-				return acc
-			}, new Set())
-
-			Array.from(allKeysSet).forEach((key) => {
-				if (!componentInput.value) componentInput.value = []
-
-				componentInput.value.push({ field: key, headerName: key, type: 'text' })
-				componentInput = componentInput
-
-				if (componentInput.value) {
-					items.push({
-						value: componentInput.value[componentInput.value.length - 1],
-						id: generateRandomString()
-					})
-				}
-			})
-		}
-	}
-
 	let raw: boolean = false
 </script>
 
@@ -225,7 +196,22 @@
 		Add
 	</Button>
 
-	{#if subFieldType === 'table-column' && componentInput.value?.length === 0}
-		<Button size="xs" color="dark" on:click={() => syncColumns()}>Sync columns from data</Button>
+	{#if subFieldType === 'table-column'}
+		<QuickAddColumn
+			columns={componentInput.value?.map((item) => item.field)}
+			on:add={({ detail }) => {
+				if (!componentInput.value) componentInput.value = []
+
+				componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
+				componentInput = componentInput
+
+				if (componentInput.value) {
+					items.push({
+						value: componentInput.value[componentInput.value.length - 1],
+						id: generateRandomString()
+					})
+				}
+			}}
+		/>
 	{/if}
 </div>
