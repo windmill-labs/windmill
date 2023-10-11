@@ -84,6 +84,7 @@
 	export let folding = false
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
+	export let listenEmptyChanges = false
 
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
@@ -920,7 +921,7 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
-				if (ncode != '') {
+				if (ncode != '' || listenEmptyChanges) {
 					code = ncode
 					dispatch('change', code)
 				}
