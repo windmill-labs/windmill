@@ -7,7 +7,6 @@ use crate::{
 use axum::{
     body::{Bytes, StreamBody},
     extract::{Extension, Path},
-    http::HeaderMap,
     response::IntoResponse,
     routing::post,
     Router,
@@ -170,12 +169,8 @@ async fn proxy(
         ));
     }
 
-    let mut headers = HeaderMap::new();
-    for (k, v) in response.headers().iter() {
-        headers.insert(k, v.clone());
-    }
-
     let status_code = response.status();
+    let headers = response.headers().clone();
     let stream = response.bytes_stream();
 
     Ok((status_code, headers, StreamBody::new(stream)))

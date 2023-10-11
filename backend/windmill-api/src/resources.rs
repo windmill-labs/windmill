@@ -13,7 +13,9 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Path, Query},
+    response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -29,8 +31,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     jobs::QueuedJob,
     utils::{
-        list_elems_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
     variables,
 };
@@ -909,16 +910,19 @@ async fn update_resource_type(
     Ok(format!("resource_type {} updated", name))
 }
 
-async fn list_hub_resource_types(
-    ApiAuthed { email, .. }: ApiAuthed,
-) -> JsonResult<serde_json::Value> {
-    let asks = list_elems_from_hub(
+async fn list_hub_resource_types(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/resource_types/list",
         &email,
+        None,
     )
     .await?;
-    Ok(Json(asks))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -929,15 +933,22 @@ struct HubResourceTypesQuery {
 async fn query_hub_resource_types(
     ApiAuthed { email, .. }: ApiAuthed,
     Query(query): Query<HubResourceTypesQuery>,
-) -> JsonResult<serde_json::Value> {
-    let asks = query_elems_from_hub(
+) -> impl IntoResponse {
+    let mut query_params = vec![("text", query.text)];
+    if let Some(query_limit) = query.limit {
+        query_params.push(("limit", query_limit.to_string().clone()));
+    }
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/resource_types/query",
         &email,
-        &query.text,
-        &None,
-        &query.limit,
+        Some(query_params),
     )
     .await?;
-    Ok(Json(asks))
+
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }

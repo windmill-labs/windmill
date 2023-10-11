@@ -15,7 +15,9 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Json, Path, Query},
+    response::IntoResponse,
     routing::{delete, get, post},
     Router,
 };
@@ -35,7 +37,7 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
 };
 use windmill_queue::{push, PushIsolationLevel, QueueTransaction};
@@ -544,14 +546,19 @@ async fn create_app(
     Ok((StatusCode::CREATED, app.path))
 }
 
-async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let flows = list_elems_from_hub(
+async fn list_hub_apps(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchUiData?approved=true",
         &email,
+        None,
     )
     .await?;
-    Ok(Json(flows))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 pub async fn get_hub_app_by_id(
