@@ -47,7 +47,7 @@ pub struct RetryStatus {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Iterator {
     pub index: usize,
-    pub itered: Vec<serde_json::Value>,
+    pub itered: Vec<Box<RawValue>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

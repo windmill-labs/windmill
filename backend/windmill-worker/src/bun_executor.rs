@@ -9,6 +9,7 @@ use anyhow::Context;
 use base64::Engine;
 use itertools::Itertools;
 use regex::Regex;
+use serde_json::value::RawValue;
 use uuid::Uuid;
 
 #[cfg(feature = "enterprise")]
@@ -250,7 +251,7 @@ pub async fn handle_bun_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
-) -> error::Result<serde_json::Value> {
+) -> error::Result<Box<RawValue>> {
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
 
     let common_bun_proc_envs: HashMap<String, String> =

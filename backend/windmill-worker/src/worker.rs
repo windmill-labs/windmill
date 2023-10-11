@@ -14,7 +14,7 @@ use prometheus::core::{AtomicU64, GenericCounter};
 use reqwest::Response;
 #[cfg(feature = "benchmark")]
 use serde::Serialize;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     collections::HashMap,
@@ -1618,7 +1618,7 @@ async fn do_nativets(
     client: &AuthedClient,
     code: String,
     db: &Pool<Postgres>,
-) -> windmill_common::error::Result<(serde_json::Value, String)> {
+) -> windmill_common::error::Result<(Box<RawValue>, String)> {
     // let args = if let Some(args) = &job.args {
     //     Some(transform_json("args", client, &job.workspace_id, args.0, &job, db).await?)
     // } else {
@@ -1643,9 +1643,9 @@ struct CachedResource {
     value: Box<RawValue>,
 }
 
-#[derive(Deserialize, Default)]
-struct PreviousResult {
-    previous_result: Option<Box<RawValue>>,
+#[derive(Deserialize, Serialize, Default)]
+pub struct PreviousResult {
+    pub previous_result: Option<Box<RawValue>>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1814,6 +1814,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 JobKind::Identity => {
                     let pr = job
                         .args
+                        .as_ref()
                         .map(|x| serde_json::from_str::<PreviousResult>(x.get()).ok())
                         .flatten()
                         .unwrap_or_default();
@@ -1844,7 +1845,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
             process_result(
                 job,
-                result.map(to_raw_value_owned),
+                result,
                 job_dir,
                 job_completed_tx,
                 logs,
@@ -1966,7 +1967,7 @@ async fn handle_code_execution_job(
     logs: &mut String,
     base_internal_url: &str,
     worker_name: &str,
-) -> error::Result<serde_json::Value> {
+) -> error::Result<Box<RawValue>> {
     let (inner_content, requirements_o, language, envs) = match job.job_kind {
         JobKind::Preview  => (
             job.raw_code
@@ -2094,7 +2095,7 @@ mount {{
 
     let envs = build_envs(envs)?;
 
-    let result: error::Result<serde_json::Value> = match language {
+    let result: error::Result<Box<RawValue>> = match language {
         None => {
             return Err(Error::ExecutionErr(
                 "Require language to be not null".to_string(),

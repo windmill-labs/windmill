@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::db::ApiAuthed;
 
 use crate::{
@@ -1811,7 +1813,7 @@ pub async fn run_wait_result_job_by_path_get(
     let payload_args = if let Some(payload) = payload_r {
         payload?
     } else {
-        serde_json::Map::new()
+        HashMap::new()
     };
 
     let args = PushArgsInner { extra: payload_args, args: sqlx::types::Json(empty_args()) };
@@ -1877,7 +1879,7 @@ pub async fn run_wait_result_flow_by_path_get(
     let payload_args = if let Some(payload) = payload_r {
         payload?
     } else {
-        serde_json::Map::new()
+        HashMap::new()
     };
 
     let args = PushArgs::Unwrapped(PushArgsInner {

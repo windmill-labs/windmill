@@ -2,6 +2,7 @@ use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
+use serde_json::value::RawValue;
 use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
@@ -170,7 +171,7 @@ pub async fn handle_python_job(
     shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
-) -> windmill_common::error::Result<serde_json::Value> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG

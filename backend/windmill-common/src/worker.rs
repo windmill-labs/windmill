@@ -262,7 +262,7 @@ pub struct WorkerConfig {
     pub pip_local_dependencies: Option<Vec<String>>,
 }
 
-pub fn to_raw_value(result: &serde_json::Value) -> Box<RawValue> {
+pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
     serde_json::value::to_raw_value(result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
 }

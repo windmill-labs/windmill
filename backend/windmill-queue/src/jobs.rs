@@ -462,12 +462,15 @@ pub async fn run_error_handler<
     let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
     let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
-    let mut extra = serde_json::Map::new();
-    extra.insert("workspace_id".to_string(), json!(w_id));
-    extra.insert("job_id".to_string(), json!(job_id));
-    extra.insert("path".to_string(), json!(queued_job.script_path));
-    extra.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
-    extra.insert("email".to_string(), json!(queued_job.email));
+    let mut extra = HashMap::new();
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
+    extra.insert("path".to_string(), to_raw_value(&queued_job.script_path));
+    extra.insert(
+        "is_flow".to_string(),
+        to_raw_value(&queued_job.raw_flow.is_some()),
+    );
+    extra.insert("email".to_string(), to_raw_value(&queued_job.email));
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
@@ -832,16 +835,18 @@ async fn handle_on_failure<
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
-    let mut extra = serde_json::Map::new();
-    extra.insert("schedule_path".to_string(), json!(schedule_path));
-    extra.insert("path".to_string(), json!(script_path));
-    extra.insert("is_flow".to_string(), json!(is_flow));
-    extra.insert("started_at".to_string(), json!(started_at));
-    extra.insert("failed_times".to_string(), json!(failed_times));
+    let mut extra = HashMap::new();
+    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert("started_at".to_string(), to_raw_value(&started_at));
+    extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
 
     if let Some(args_v) = extra_args {
         if let serde_json::Value::Object(args_m) = args_v {
-            extra.extend(args_m);
+            for (k, v) in args_m {
+                extra.insert(k, to_raw_value(&v));
+            }
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -1476,7 +1481,7 @@ pub enum PushArgs<T> {
 #[derive(Serialize)]
 pub struct PushArgsInner<T> {
     #[serde(flatten)]
-    pub extra: serde_json::Map<String, serde_json::Value>,
+    pub extra: HashMap<String, Box<RawValue>>,
     #[serde(flatten)]
     pub args: Json<T>,
 }
@@ -1517,7 +1522,7 @@ where
 
             let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
             if use_raw {
-                extra.insert("raw_string".to_string(), serde_json::json!(str));
+                extra.insert("raw_string".to_string(), to_raw_value(&str));
             }
             let inner = PushArgsInner { extra, args };
             if wrap_body {
@@ -1532,7 +1537,7 @@ where
             let Form(payload): Form<Option<serde_json::Value>> =
                 req.extract().await.map_err(IntoResponse::into_response)?;
             return Ok(Self::Unwrapped(PushArgsInner {
-                extra: serde_json::Map::new(),
+                extra: HashMap::new(),
                 args: Json(
                     payload
                         .as_ref()
@@ -1554,8 +1559,8 @@ lazy_static::lazy_static! {
         .collect()).unwrap_or_default();
 }
 
-pub fn build_extra(headers: &HeaderMap) -> serde_json::Map<String, serde_json::Value> {
-    let mut args = serde_json::Map::new();
+pub fn build_extra(headers: &HeaderMap) -> HashMap<String, Box<RawValue>> {
+    let mut args = HashMap::new();
     let whitelist = headers
         .get("include_header")
         .map(|s| {
@@ -1574,7 +1579,7 @@ pub fn build_extra(headers: &HeaderMap) -> serde_json::Map<String, serde_json::V
             if let Some(v) = headers.get(h) {
                 args.insert(
                     h.to_string().to_lowercase().replace('-', "_"),
-                    serde_json::Value::String(v.to_str().unwrap().to_string()),
+                    to_raw_value(&v.to_str().unwrap().to_string()),
                 );
             }
         });
@@ -1583,10 +1588,7 @@ pub fn build_extra(headers: &HeaderMap) -> serde_json::Map<String, serde_json::V
 
 impl PushArgs<Box<RawValue>> {
     pub fn empty() -> Self {
-        PushArgs::Unwrapped(PushArgsInner {
-            extra: serde_json::Map::new(),
-            args: Json(empty_args()),
-        })
+        PushArgs::Unwrapped(PushArgsInner { extra: HashMap::new(), args: Json(empty_args()) })
     }
 }
 
@@ -1596,7 +1598,7 @@ pub fn empty_args() -> Box<RawValue> {
 
 impl From<Box<JsonRawValue>> for PushArgs<Box<JsonRawValue>> {
     fn from(value: Box<JsonRawValue>) -> Self {
-        PushArgs::Unwrapped(PushArgsInner { extra: serde_json::Map::new(), args: Json(value) })
+        PushArgs::Unwrapped(PushArgsInner { extra: HashMap::new(), args: Json(value) })
     }
 }
 
@@ -1605,8 +1607,8 @@ impl<T> From<PushArgsInner<T>> for PushArgs<T> {
         PushArgs::Unwrapped(value)
     }
 }
-impl From<serde_json::Map<String, serde_json::Value>> for PushArgs<Box<JsonRawValue>> {
-    fn from(value: serde_json::Map<String, serde_json::Value>) -> Self {
+impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<Box<JsonRawValue>> {
+    fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
         PushArgs::Unwrapped(PushArgsInner {
             extra: value,
             args: Json(JsonRawValue::from_string("{}".to_string()).unwrap()),

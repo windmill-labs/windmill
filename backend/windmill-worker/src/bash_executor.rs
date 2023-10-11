@@ -2,9 +2,9 @@ use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue, Value};
 use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob};
+use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
 
 const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
@@ -35,7 +35,7 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     write_file(
@@ -144,7 +144,7 @@ pub async fn handle_bash_job(
     if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
         if metadata.len() > 0 {
             let result = read_file_content(&result_out_path).await?;
-            return Ok(json!(result));
+            return Ok(to_raw_value(&json!(result)));
         }
     }
 
@@ -154,7 +154,7 @@ pub async fn handle_bash_job(
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new));
-    Ok(last_line)
+    Ok(to_raw_value(&last_line))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -169,7 +169,7 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     let pwsh_args = {
@@ -279,5 +279,5 @@ pub async fn handle_powershell_job(
         .last()
         .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
         .unwrap_or_else(String::new));
-    Ok(last_line)
+    Ok(to_raw_value(&last_line))
 }

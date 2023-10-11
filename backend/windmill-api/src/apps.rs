@@ -122,7 +122,7 @@ pub struct AppWithLastVersionAndDraft {
     pub draft_only: Option<bool>,
 }
 
-pub type StaticFields = Map<String, Value>;
+pub type StaticFields = HashMap<String, Box<RawValue>>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -1022,7 +1022,7 @@ fn build_args(
         .ok_or_else(|| {
             Error::BadRequest(format!("path {} is not allowed in the app policy", path))
         })?;
-    let mut extra = serde_json::Map::new();
+    let mut extra = HashMap::new();
     for (k, v) in static_args {
         extra.insert(k.to_string(), v.to_owned());
     }

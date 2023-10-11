@@ -216,7 +216,7 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     Ok(content)
 }
 
-pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
+pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
     // tracing::error!("START1");
     // let start = Instant::now();
 
@@ -239,7 +239,7 @@ pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
     // tracing::error!("{:?}", start.elapsed());
     return r;
 }
-pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
+pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
 }
 

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
+use serde_json::value::RawValue;
 use tokio::{
     fs::{DirBuilder, File},
     io::AsyncReadExt,
@@ -43,7 +44,7 @@ pub async fn handle_go_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
     let bin_path = if let Some(requirements) = requirements_o.clone() {

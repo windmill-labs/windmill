@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
+use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::{
@@ -146,7 +147,7 @@ pub async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> error::Result<serde_json::Value> {
+) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
 
