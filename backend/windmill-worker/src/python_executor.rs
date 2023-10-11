@@ -283,7 +283,6 @@ pub async fn handle_python_job(
         })
         .collect::<Vec<String>>()
         .join("");
-    let client = client.get_authed().await;
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let import_loader = if relative_imports {
@@ -384,6 +383,7 @@ except Exception as e:
     );
     write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
+    let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     if !*DISABLE_NSJAIL {

@@ -20,7 +20,7 @@ use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
@@ -70,7 +70,7 @@ impl TimersPermission for PermissionsContainer {
 pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
-    env: Vec<(String, serde_json::Value)>,
+    env: Vec<(String, Box<RawValue>)>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
 ) -> anyhow::Result<serde_json::Value> {
@@ -184,7 +184,7 @@ fn add_closing_bracket(s: &str) -> String {
 async fn eval(
     context: &mut JsRuntime,
     expr: &str,
-    env: Vec<(String, serde_json::Value)>,
+    env: Vec<(String, Box<RawValue>)>,
     by_id: Option<IdContext>,
     has_client: bool,
 ) -> anyhow::Result<serde_json::Value> {
@@ -270,13 +270,7 @@ async function resource(path) {{
 }})()).then((r) => hasCycle(r) ? 'cycle detected' : r)
         "#,
         env.into_iter()
-            .map(|(a, b)| {
-                format!(
-                    "let {a} = {};\n",
-                    serde_json::to_string(&b)
-                        .unwrap_or_else(|_| "\"error serializing value\"".to_string())
-                )
-            })
+            .map(|(a, b)| { format!("let {a} = {};\n", b.to_string()) })
             .join(""),
     );
     let global = context.execute_script("<anon>", code.into())?;
@@ -585,6 +579,7 @@ fn op_log(op_state: Rc<RefCell<OpState>>, args: Vec<String>) {
 mod tests {
 
     use serde_json::json;
+    use windmill_common::worker::to_raw_value;
 
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
@@ -592,8 +587,8 @@ mod tests {
     #[tokio::test]
     async fn test_eval() -> anyhow::Result<()> {
         let env = vec![
-            ("params".to_string(), json!({"test": 2})),
-            ("value".to_string(), json!({"test": 2})),
+            ("params".to_string(), to_raw_value(&json!({"test": 2}))),
+            ("value".to_string(), to_raw_value(&json!({"test": 2}))),
         ];
         let code = "value.test + params.test";
 
@@ -619,8 +614,8 @@ multiline template`";
     #[tokio::test]
     async fn test_eval_timeout() -> anyhow::Result<()> {
         let env = vec![
-            ("params".to_string(), json!({"test": 2})),
-            ("value".to_string(), json!({"test": 2})),
+            ("params".to_string(), to_raw_value(&json!({"test": 2}))),
+            ("value".to_string(), to_raw_value(&json!({"test": 2}))),
         ];
         let code = r#"params.test"#;
 

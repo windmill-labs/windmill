@@ -68,8 +68,6 @@ pub async fn handle_go_job(
         (false, false)
     };
 
-    let client = &client.get_authed().await;
-
     if !bin_exists {
         logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
         set_logs(logs, &job.id, db).await;
@@ -214,6 +212,8 @@ func Run(req Req) (interface{{}}, error){{
         set_logs(logs, &job.id, db).await;
         create_args_and_out_file(client, job, job_dir, db).await?;
     }
+
+    let client = &client.get_authed().await;
 
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 

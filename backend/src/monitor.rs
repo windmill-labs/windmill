@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, f32::consts::E, fmt::Display, ops::Mul, str::FromStr, sync::Arc,
+    time::Duration,
+};
 
 use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
@@ -505,22 +508,25 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     .fetch_optional(db)
     .await?;
 
+    let std_base_url = std::env::var("BASE_URL")
+        .ok()
+        .unwrap_or_else(|| "http://localhost".to_string());
     let base_url = if let Some(q) = q_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.value.clone()) {
-            v
+            if v != "" {
+                v
+            } else {
+                std_base_url
+            }
         } else {
             tracing::error!(
                 "Could not parse base_url setting as a string, found: {:#?}",
                 &q.value
             );
-            std::env::var("BASE_URL")
-                .ok()
-                .unwrap_or_else(|| "http://localhost".to_string())
+            std_base_url
         }
     } else {
-        std::env::var("BASE_URL")
-            .ok()
-            .unwrap_or_else(|| "http://localhost".to_string())
+        std_base_url
     };
 
     let q_oauth = sqlx::query!(

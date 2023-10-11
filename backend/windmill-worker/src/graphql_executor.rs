@@ -34,7 +34,7 @@ pub async fn do_graphql(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, todo!(), &job, db).await?)
     } else {
         None
     };
@@ -45,13 +45,7 @@ pub async fn do_graphql(
         serde_json::from_value::<GraphqlApi>(graphql_args.get("api").unwrap_or(&json!({})).clone())
             .map_err(|e: serde_json::Error| Error::ExecutionErr(e.to_string()))?;
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
+    let args = &job.args;
 
     let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({
         "query": query,

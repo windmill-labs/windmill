@@ -266,3 +266,8 @@ pub fn to_raw_value(result: &serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
 }
+
+pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
+    serde_json::value::to_raw_value(&result)
+        .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}

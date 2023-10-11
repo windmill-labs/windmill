@@ -9,10 +9,12 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use sqlx::types::Json;
 use uuid::Uuid;
 
+use crate::flows::FlowValue;
 use crate::more_serde::default_false;
-use crate::{flows::FlowValue, more_serde::is_default};
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -20,21 +22,25 @@ const HOURS: Duration = MINUTES.saturating_mul(60);
 pub const MAX_RETRY_ATTEMPTS: u16 = 1000;
 pub const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 
+pub fn is_retry_default(v: &RetryStatus) -> bool {
+    v.fail_count == 0 && v.previous_result.is_none() && v.failed_jobs.is_empty()
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: FlowStatusModuleWParent,
     #[serde(default)]
-    #[serde(skip_serializing_if = "is_default")]
+    #[serde(skip_serializing_if = "is_retry_default")]
     pub retry: RetryStatus,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct RetryStatus {
     pub fail_count: u16,
-    pub previous_result: Option<serde_json::Value>,
+    pub previous_result: Option<Json<Box<RawValue>>>,
     pub failed_jobs: Vec<Uuid>,
 }
 

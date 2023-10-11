@@ -29,7 +29,7 @@ pub async fn do_mysql(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<serde_json::Value> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, todo!(), &job, db).await?)
     } else {
         None
     };
@@ -61,13 +61,8 @@ pub async fn do_mysql(
     let pool = mysql_async::Pool::new(opts);
     let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
+    let args: serde_json::Value =
+        serde_json::from_str(&job.args.unwrap_or_default().get()).map_err(to_anyhow)?;
     let mut statement_values: Vec<mysql_async::Value> = vec![];
 
     let sig = parse_mysql_sig(&query)

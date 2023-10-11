@@ -246,18 +246,18 @@ run().catch(async (e) => {{
     };
 
     let reserved_variables_args_out_f = async {
-        let client = client.get_authed().await;
         let args_and_out_f = async {
             create_args_and_out_file(&client, job, job_dir, db).await?;
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
+            let client = client.get_authed().await;
             let mut vars = get_reserved_variables(job, &client.token, db).await?;
             vars.insert("RUST_LOG".to_string(), "info".to_string());
-            Ok(vars) as Result<HashMap<String, String>>
+            Ok((vars, client.token)) as Result<(HashMap<String, String>, String)>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
-        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
+        Ok(reserved_variables) as error::Result<(HashMap<String, String>, String)>
     };
 
     let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(

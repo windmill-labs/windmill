@@ -1,10 +1,12 @@
 use async_recursion::async_recursion;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
+use regex::Regex;
+use serde::Serialize;
+use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_api_client::{types::CreateResource, Client};
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     error::{self, Error},
@@ -40,24 +42,29 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TIMEOUT_DURATION,
-    WHITELIST_ENVS,
+    AuthedClient, AuthedClientBackgroundTask, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM,
+    ROOT_CACHE_DIR, TIMEOUT_DURATION, WHITELIST_ENVS,
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
-    client: &AuthedClient,
+    client: &AuthedClientBackgroundTask,
     job: &QueuedJob,
     job_dir: &str,
     db: &Pool<Postgres>,
 ) -> Result<(), Error> {
+    let bx;
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), job, db).await?)
+        if let Some(x) = transform_json(client, &job.workspace_id, args.get(), job, db).await? {
+            bx = x;
+            Some(bx.get())
+        } else {
+            Some(args.get())
+        }
     } else {
         None
     };
-    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    write_file(job_dir, "args.json", &ser_args).await?;
+    write_file(job_dir, "args.json", args.unwrap_or_else(|| "{}")).await?;
     write_file(job_dir, "result.json", "").await?;
     Ok(())
 }
@@ -78,6 +85,47 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
     file.write_all(content).await?;
     file.flush().await?;
     Ok(file)
+}
+
+lazy_static::lazy_static! {
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|arg)\:"#).unwrap();
+}
+
+pub async fn transform_json(
+    client: &AuthedClientBackgroundTask,
+    workspace: &str,
+    vs: &str,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
+) -> error::Result<Option<Box<RawValue>>> {
+    if (*RE_RES_VAR).is_match(vs) {
+        let values = serde_json::from_str::<HashMap<String, Box<RawValue>>>(vs).unwrap_or_default();
+        let mut r = HashMap::new();
+        for (k, v) in values {
+            let inner_vs = v.get();
+            if (*RE_RES_VAR).is_match(inner_vs) {
+                let value = serde_json::from_str(inner_vs).map_err(|e| {
+                    error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                })?;
+                let transformed =
+                    transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
+                        .await?;
+                let as_raw = serde_json::from_value(transformed).map_err(|e| {
+                    error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                })?;
+                r.insert(k, as_raw);
+            } else {
+                r.insert(k, v);
+            }
+        }
+        serde_json::from_str(&serde_json::to_string(&r).map_err(|e| {
+            error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+        })?)
+        .map(Some)
+        .map_err(|e| error::Error::InternalErr(format!("Error while parsing args: {e}")))
+    } else {
+        Ok(None)
+    }
 }
 
 #[async_recursion]
@@ -651,27 +699,45 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-pub fn hash_args(v: &serde_json::Value) -> i64 {
-    let mut dh = DefaultHasher::new();
-    serde_json::to_string(v).unwrap().hash(&mut dh);
-    dh.finish() as i64
+pub fn hash_args(v: &Option<sqlx::types::Json<Box<RawValue>>>) -> i64 {
+    if let Some(v) = v {
+        let mut dh = DefaultHasher::new();
+        v.get().hash(&mut dh);
+        dh.finish() as i64
+    } else {
+        0
+    }
 }
 
-pub async fn save_in_cache(client: &AuthedClient, job: &QueuedJob, cached_path: String, r: &Value) {
-    let client: &Client = client.get_client();
+#[derive(Serialize)]
+struct StoreCachedResource<'a> {
+    expire: i64,
+    value: &'a RawValue,
+}
+
+pub async fn save_in_cache<'a>(
+    db: &Pool<Postgres>,
+    job: &QueuedJob,
+    cached_path: String,
+    r: &'a RawValue,
+) {
     let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
-    let cr = &CreateResource {
-        path: cached_path,
-        description: None,
-        resource_type: "cache".to_string(),
-        value: serde_json::json!({
-            "value": r,
-            "expire": expire
-        }),
-    };
-    if let Err(e) = client
-        .create_resource(&job.workspace_id, Some(true), cr)
-        .await
+
+    let store_cache_resource = StoreCachedResource { expire, value: r };
+    let raw_json = sqlx::types::Json(store_cache_resource);
+
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO resource
+    (workspace_id, path, value, resource_type)
+    VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path)
+    DO UPDATE SET value = $3",
+        job.workspace_id,
+        cached_path,
+        raw_json as sqlx::types::Json<StoreCachedResource>,
+        "cache"
+    )
+    .execute(db)
+    .await
     {
         tracing::error!("Error creating cache resource {e}")
     }

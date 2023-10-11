@@ -7374,6 +7374,7 @@ version = "1.181.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "axum",
  "bigdecimal 0.4.1",
  "chrono",
  "chrono-tz",
@@ -7432,6 +7433,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "regex",
+ "reqwest",
  "rsmq_async",
  "rust_decimal",
  "serde",

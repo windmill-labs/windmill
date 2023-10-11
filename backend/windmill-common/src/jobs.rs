@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres, Transaction};
+use serde_json::value::RawValue;
+use sqlx::{types::Json, Pool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -27,7 +28,7 @@ pub enum JobKind {
     Noop,
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
+#[derive(sqlx::FromRow, Debug, Serialize, Clone)]
 pub struct QueuedJob {
     pub workspace_id: String,
     pub id: Uuid,
@@ -43,7 +44,7 @@ pub struct QueuedJob {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
+    pub args: Option<Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,9 +113,7 @@ impl QueuedJob {
             self.script_path()
         )
     }
-}
 
-impl QueuedJob {
     pub fn parse_raw_flow(&self) -> Option<FlowValue> {
         self.raw_flow
             .as_ref()

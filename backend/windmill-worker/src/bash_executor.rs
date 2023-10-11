@@ -11,7 +11,7 @@ const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.co
 use crate::{
     common::{
         get_reserved_variables, handle_child, read_file, read_file_content, set_logs,
-        transform_json_value, write_file,
+        transform_json, transform_json_value, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
@@ -52,7 +52,8 @@ pub async fn handle_bash_job(
         "args",
         &client,
         &job.workspace_id,
-        job.args.clone().unwrap_or_else(|| json!({})),
+        todo!(),
+        // job.args,
         job,
         db,
     )
@@ -174,7 +175,8 @@ pub async fn handle_powershell_job(
             "args",
             &client,
             &job.workspace_id,
-            job.args.clone().unwrap_or_else(|| json!({})),
+            todo!(),
+            // job.args,
             job,
             db,
         )
