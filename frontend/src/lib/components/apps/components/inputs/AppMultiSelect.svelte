@@ -161,10 +161,12 @@
 						open = false
 					}}
 				>
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						slot="option"
 						let:option
-						on:pointerdown={() => {
+						on:mouseup|stopPropagation
+						on:pointerdown={(e) => {
 							const nValue = [...(value ?? []), option]
 							value = [...new Set(nValue)]
 							outputs?.result.set([...(value ?? [])])
@@ -175,13 +177,7 @@
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							bind:this={portalRef}
-							class="multiselect"
-							style={`min-width: ${w}px;`}
-							on:click|stopPropagation
-						/>
+						<div bind:this={portalRef} class="multiselect" style={`min-width: ${w}px;`} />
 					</div>
 				</Portal>
 			</div>
