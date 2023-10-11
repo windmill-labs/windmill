@@ -149,12 +149,10 @@
 					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
 					ulOptionsClass={'p-2 !bg-surface-secondary'}
 					bind:selected={value}
-					on:change={() => {
-						outputs?.result.set([...(value ?? [])])
-					}}
 					options={Array.isArray(items) ? items : []}
 					placeholder={resolvedConfig.placeholder}
 					allowUserOptions={resolvedConfig.create}
+					closeDropdownOnSelect={'desktop'}
 					on:open={() => {
 						$selectedComponent = [id]
 						open = true
@@ -163,7 +161,15 @@
 						open = false
 					}}
 				>
-					<div slot="option" let:option>
+					<div
+						slot="option"
+						let:option
+						on:pointerdown={() => {
+							const nValue = [...(value ?? []), option]
+							value = [...new Set(nValue)]
+							outputs?.result.set([...(value ?? [])])
+						}}
+					>
 						{option}
 					</div>
 				</MultiSelect>
