@@ -9,6 +9,7 @@
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import QuickAddColumn from './QuickAddColumn.svelte'
 
 	const flipDurationMs = 200
 
@@ -47,6 +48,8 @@
 				value.push(selectOptions[0])
 			} else if (subFieldType === 'ag-grid') {
 				value.push({ field: 'newField', editable: true, flex: 1 })
+			} else if (subFieldType === 'table-column') {
+				value.push({ field: 'newColumn', headerName: 'New column', type: 'text' })
 			}
 		} else {
 			value.push('')
@@ -132,7 +135,7 @@
 		<div class="flex flex-row items-center justify-between">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
 
-			{#if subFieldType === 'ag-grid'}
+			{#if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
 				<Toggle
 					options={{
 						right: 'Raw'
@@ -164,7 +167,9 @@
 								bind:value={item.value}
 							/>
 						</div>
+
 						<div class="flex justify-between flex-col items-center">
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<div
 								tabindex={dragDisabled ? 0 : -1}
 								class="w-4 h-4 cursor-move"
@@ -190,4 +195,23 @@
 	<Button size="xs" color="light" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
 		Add
 	</Button>
+
+	{#if subFieldType === 'table-column'}
+		<QuickAddColumn
+			columns={componentInput.value?.map((item) => item.field)}
+			on:add={({ detail }) => {
+				if (!componentInput.value) componentInput.value = []
+
+				componentInput.value.push({ field: detail, headerName: detail, type: 'text' })
+				componentInput = componentInput
+
+				if (componentInput.value) {
+					items.push({
+						value: componentInput.value[componentInput.value.length - 1],
+						id: generateRandomString()
+					})
+				}
+			}}
+		/>
+	{/if}
 </div>
