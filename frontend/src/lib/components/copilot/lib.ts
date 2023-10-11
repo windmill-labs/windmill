@@ -79,7 +79,7 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 		throw new Error('Workspace not initialized')
 	}
 
-	let resourceTypes = await ResourceService.listResourceType({ workspace })
+	const localResourceTypes = await ResourceService.listResourceType({ workspace })
 
 	const elems =
 		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
@@ -100,8 +100,8 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 			text: elems.join(';')
 		})
 	).map((rt) => rt.id)
-	const customResourceTypes = resourceTypes.filter((rt) => rt.name.startsWith('c_'))
-	resourceTypes = [
+	const customResourceTypes = localResourceTypes.filter((rt) => rt.name.startsWith('c_'))
+	const resourceTypes = [
 		...hubResourceTypes
 			.filter((rt) => queriedIds.includes(String(rt.id)))
 			.map((rt) => ({
@@ -115,13 +115,12 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 }
 
 export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
-	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
+	if (['deno', 'bun', 'nativets', 'python3'].includes(scriptOptions.language)) {
 		const resourceTypes = await getResourceTypes(scriptOptions)
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
-		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
-	} else if (scriptOptions.language === 'python3') {
-		const resourceTypes = await getResourceTypes(scriptOptions)
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
+		const resourceTypesText = formatResourceTypes(
+			resourceTypes,
+			scriptOptions.language === 'python3' ? 'python3' : 'typescript'
+		)
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	}
 	return prompt
