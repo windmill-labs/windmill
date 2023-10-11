@@ -28,7 +28,8 @@
 				fieldType: 'text',
 				placeholder: 'https://windmill.com',
 				storage: 'setting',
-				isValid: (value: string | undefined) => value?.match(/^(https?:\/\/)[^\/]+$/) != null
+				isValid: (value: string | undefined) =>
+					(value?.startsWith('http') && !value?.endsWith('/')) || false
 			},
 			{
 				label: 'Request Size Limit In MB',
@@ -289,6 +290,7 @@
 											<Tooltip>{setting.tooltip}</Tooltip>
 										{/if}
 										{#if values}
+											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
 											{#if setting.fieldType == 'text'}
 												<input
 													disabled={setting.ee_only != undefined && !$enterpriseLicense}
@@ -355,7 +357,7 @@
 												</div>
 											{/if}
 
-											{#if setting.isValid && !setting.isValid(values[setting.key])}
+											{#if hasError}
 												<span class="text-red-500 text-xs">
 													Base url must start with http:// or https:// and must not end with a
 													trailing slash.
