@@ -56,21 +56,21 @@ const additionalInfos: {
 	bun: `<contextual_information>
 We have to export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
 If needed, the standard fetch method is available globally, do not import it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
-The resource type name has to be exactly as specified.
+You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
+The following resource types are available:
 <resourceTypes>
 {resourceTypes}
 </resourceTypes>
-Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
 </contextual_information>`,
 	python3: `<contextual_information>
 We have to export a "main" function and specify the parameter types but do not call it.
-You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}Resource".
-The resource type name has to be exactly as specified (has to be IN LOWERCASE).
+You can take as parameters resources which are dictionaries containing credentials or configuration information. Name the resource parameters like this: "{resource_type}_resource".
+The following resource types are available:
 <resourceTypes>
 {resourceTypes}
 </resourceTypes>
-Only define the type for resources that are actually needed to achieve the function purpose. If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
+Only define the type for resources that are actually needed to achieve the function purpose. The resource type name has to be exactly as specified (has to be IN LOWERCASE). If the type name conflicts with the imported object, rename the imported object NOT THE TYPE.
 </contextual_information>`
 }
 
@@ -79,11 +79,11 @@ const triggerPrompts: {
 	python3: string
 } = {
 	bun: `I'm building a workflow which is a sequence of script steps. Write the first script in {codeLang} which should check for {description} and return an array.
-You can use "const {state_name}: {state_type} = await getState()" and "await setState(value: any)" from "windmill-client@1" to maintain state across runs.
+To maintain state across runs, you can use "const {state_name}: {state_type} = await getState()" and "await setState(value: any)" which you have to import like this: import { getState, setState } from "windmill-client@1"
 
 {additionalInformation}`,
 	python3: `I'm building a workflow which is a sequence of script steps. Write the first script in {codeLang} which should check for {description} and return an array.
-You can use get_state() and set_state(value) from wmill to maintain state across runs.
+To maintain state across runs, you can use get_state() and set_state(value) which you have to import like this: from wmill import get_state, set_state
 
 {additionalInformation}`
 }

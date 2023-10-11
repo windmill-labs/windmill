@@ -10,9 +10,12 @@ use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Path, Query},
+    response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -27,9 +30,17 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     jobs::QueuedJob,
-    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    utils::{
+        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
+    },
     variables,
 };
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/type/hub/list", get(list_hub_resource_types))
+        .route("/type/hub/query", get(query_hub_resource_types))
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -897,4 +908,47 @@ async fn update_resource_type(
     );
 
     Ok(format!("resource_type {} updated", name))
+}
+
+async fn list_hub_resource_types(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        "https://hub.windmill.dev/resource_types/list",
+        &email,
+        None,
+    )
+    .await?;
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
+}
+
+#[derive(Deserialize)]
+struct HubResourceTypesQuery {
+    text: String,
+    limit: Option<i64>,
+}
+async fn query_hub_resource_types(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Query(query): Query<HubResourceTypesQuery>,
+) -> impl IntoResponse {
+    let mut query_params = vec![("text", query.text)];
+    if let Some(query_limit) = query.limit {
+        query_params.push(("limit", query_limit.to_string().clone()));
+    }
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        "https://hub.windmill.dev/resource_types/query",
+        &email,
+        Some(query_params),
+    )
+    .await?;
+
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
