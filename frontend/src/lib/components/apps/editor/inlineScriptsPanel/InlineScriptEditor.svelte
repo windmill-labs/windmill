@@ -238,7 +238,7 @@
 						Format
 
 						<div class="flex flex-row items-center">
-							<Kbd small>{getModifierKey()}</Kbd>
+							<Kbd small isModifier>{getModifierKey()}</Kbd>
 							<Kbd small>S</Kbd>
 						</div>
 					</div>

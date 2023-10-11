@@ -75,3 +75,4 @@ mail-send.workspace = true
 samael = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa.workspace = true
+uuid.workspace = true

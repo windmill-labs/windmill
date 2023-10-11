@@ -1492,7 +1492,7 @@ async fn tarball_workspace(
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let tmp_dir = TempDir::new_in(".")?;
+    let tmp_dir = TempDir::new_in("/tmp/windmill/")?;
 
     let name = match archive_type.as_deref() {
         Some("tar") | None => Ok(format!("windmill-{w_id}.tar")),
@@ -1696,7 +1696,7 @@ async fn tarball_workspace(
 
     archive.finish().await?;
 
-    let file = tokio::fs::File::open(file_path).await?;
+    let file = tokio::fs::File::open(&file_path).await?;
 
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
@@ -1708,6 +1708,5 @@ async fn tarball_workspace(
             format!("attachment; filename=\"{name}\""),
         ),
     ];
-
     Ok((headers, body))
 }

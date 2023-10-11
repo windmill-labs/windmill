@@ -131,6 +131,7 @@
 					</div>
 					<!-- svelte-ignore a11y-autofocus -->
 					<input
+						id="schema-modal-name"
 						autofocus
 						autocomplete="off"
 						type="text"
@@ -163,18 +164,19 @@
 							color={isSelected ? 'blue' : 'light'}
 							btnClasses={isSelected ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
-								property.selectedType = argType;
-								property.format = undefined;
-								property.contentEncoding = undefined;
-								property.enum_ = undefined;
-								property.pattern = undefined;
-								property.default = undefined;
+								property.selectedType = argType
+								property.format = undefined
+								property.contentEncoding = undefined
+								property.enum_ = undefined
+								property.pattern = undefined
+								property.default = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
-									property.items = undefined;
+									property.items = undefined
 								}
 							}}
+							id={`schema-modal-type-${argType}`}
 						>
 							{argType}
 						</Button>
@@ -185,12 +187,11 @@
 						color={!property.selectedType ? 'blue' : 'light'}
 						btnClasses={!property.selectedType ? '!border-2' : 'm-[1px]'}
 						on:click={() => {
-							property.selectedType = undefined;
+							property.selectedType = undefined
 						}}
 					>
 						any
 					</Button>
-
 				</div>
 			</div>
 			<div>
@@ -260,6 +261,7 @@
 				on:click={() => {
 					dispatch('save', property)
 				}}
+				id="schema-modal-save"
 			>
 				Save
 			</Button>

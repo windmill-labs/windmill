@@ -619,3 +619,39 @@ export async function tryEvery({
 		timeoutCode()
 	}
 }
+
+
+export function roughSizeOfObject(object: object | string) {
+	if (typeof object == 'string') {
+		return object.length * 2;
+	}
+    var objectList: any[] = [];
+    var stack = [ object ];
+    var bytes = 0;
+
+    while ( stack.length ) {
+        let value: any = stack.pop();
+
+        if ( typeof value === 'boolean' ) {
+            bytes += 4;
+        }
+        else if (typeof value === 'string' ) {
+            bytes += value.length * 2;
+        }
+        else if ( typeof value === 'number' ) {
+            bytes += 8;
+        }
+        else if (
+            typeof value === 'object'
+            && objectList.indexOf(value) === -1
+        )
+        {
+            objectList.push(value);
+
+            for( var i in value ) {
+                stack.push( value[ i ] );
+            }
+        }
+    }
+    return bytes;
+}

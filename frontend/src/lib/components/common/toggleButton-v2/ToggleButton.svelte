@@ -17,6 +17,7 @@
 	export let small: boolean = false
 	export let iconProps: Record<string, any> = {}
 	export let showTooltipIcon: boolean = false
+	export let documentationLink: string | undefined = undefined
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -26,6 +27,7 @@
 	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
 	disablePopup={tooltip === undefined}
 	disappearTimeout={0}
+	{documentationLink}
 >
 	<Tab
 		{disabled}

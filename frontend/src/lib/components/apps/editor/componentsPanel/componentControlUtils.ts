@@ -75,6 +75,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [open, close]
 		case 'aggridcomponent':
 			return [getAgGrid, setSelectedIndex]
+		case 'aggridcomponentee':
+			return [getAgGrid, setSelectedIndex]
 		case 'displaycomponent':
 		case 'dateinputcomponent':
 		case 'textinputcomponent':

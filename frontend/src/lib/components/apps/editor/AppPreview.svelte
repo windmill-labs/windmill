@@ -165,7 +165,7 @@
 	<div
 		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen
 			? ''
-			: 'max-w-6xl'} mx-auto"
+			: 'max-w-7xl'} mx-auto"
 	>
 		{#if $appStore.grid}
 			<div

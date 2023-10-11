@@ -33,6 +33,10 @@ lazy_static::lazy_static! {
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
         worker_tags: Default::default(),
         dedicated_worker: Default::default(),
+        cache_clear: Default::default(),
+        init_bash: Default::default(),
+        additional_python_paths: Default::default(),
+        pip_local_dependencies: Default::default()
     }));
 
     pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
@@ -195,6 +199,26 @@ pub async fn load_worker_config(db: &DB) -> error::Result<WorkerConfig> {
             })
             .unwrap_or_else(|| DEFAULT_TAGS.clone()),
         dedicated_worker,
+        init_bash: config
+            .init_bash
+            .or_else(|| std::env::var("INIT_SCRIPT").ok())
+            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+        cache_clear: config.cache_clear,
+        pip_local_dependencies: config.pip_local_dependencies.or_else(|| {
+            let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+                .ok()
+                .map(|x| x.split(',').map(|x| x.to_string()).collect());
+            if pip_local_dependencies == Some(vec!["".to_string()]) {
+                None
+            } else {
+                pip_local_dependencies
+            }
+        }),
+        additional_python_paths: config.additional_python_paths.or_else(|| {
+            std::env::var("ADDITIONAL_PYTHON_PATHS")
+                .ok()
+                .map(|x| x.split(':').map(|x| x.to_string()).collect())
+        }),
     })
 }
 
@@ -203,15 +227,27 @@ pub struct WorkspacedPath {
     pub workspace_id: String,
     pub path: String,
 }
+
 #[derive(Serialize, Deserialize)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
     pub dedicated_worker: Option<String>,
+    pub init_bash: Option<String>,
+    pub cache_clear: Option<u32>,
+    pub additional_python_paths: Option<Vec<String>>,
+    pub pip_local_dependencies: Option<Vec<String>>,
 }
 
 impl Default for WorkerConfigOpt {
     fn default() -> Self {
-        Self { worker_tags: Default::default(), dedicated_worker: Default::default() }
+        Self {
+            worker_tags: Default::default(),
+            dedicated_worker: Default::default(),
+            init_bash: Default::default(),
+            cache_clear: Default::default(),
+            additional_python_paths: Default::default(),
+            pip_local_dependencies: Default::default(),
+        }
     }
 }
 
@@ -219,4 +255,8 @@ impl Default for WorkerConfigOpt {
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub dedicated_worker: Option<WorkspacedPath>,
+    pub init_bash: Option<String>,
+    pub cache_clear: Option<u32>,
+    pub additional_python_paths: Option<Vec<String>>,
+    pub pip_local_dependencies: Option<Vec<String>>,
 }

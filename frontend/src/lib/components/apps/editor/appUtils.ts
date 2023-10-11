@@ -26,6 +26,7 @@ import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
+import { enterpriseLicense } from '$lib/stores'
 
 export function findComponentSettings(app: App, id: string | undefined) {
 	if (!id) return undefined
@@ -310,6 +311,10 @@ export function insertNewGridItem(
 	const id = keepId ?? getNextGridItemId(app)
 
 	const data = builddata(id)
+	if (data.type == 'aggridcomponentee' && !get(enterpriseLicense)) {
+		sendUserToast('AgGrid Enterprise Edition require Windmill Enterprise Edition', true)
+		throw Error('AgGrid Enterprise Edition require Windmill Enterprise Edition')
+	}
 	if (!app.subgrids) {
 		app.subgrids = {}
 	}

@@ -10,6 +10,29 @@
 	$: enabled = value != undefined
 
 	let allowed_domains = value?.['allowed_domains'] ?? ''
+
+	let tenant: string = ''
+	$: name == 'microsoft' && changeTenantId(tenant)
+
+	function changeTenantId(tenant: string) {
+		if (value && tenant) {
+			if (tenant != '') {
+				value = {
+					...value,
+					login_config: {
+						auth_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
+						token_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+						userinfo_url: `https://graph.microsoft.com/oidc/userinfo`,
+						scopes: ['openid', 'profile', 'email']
+					}
+				}
+			} else {
+				if (value['login_config']) {
+					delete value['login_config']
+				}
+			}
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-1">
@@ -35,7 +58,12 @@
 				<span class="text-primary font-semibold text-sm">Client Secret</span>
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
-			{#if login}
+			{#if name == 'microsoft'}
+				<label class="block pb-2">
+					<span class="text-primary font-semibold text-sm">Tenant Id</span>
+					<input type="text" placeholder="Tenant Id" bind:value={tenant} />
+				</label>
+			{:else if login}
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Allowed domain</span>
 					<input
@@ -57,29 +85,37 @@
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://console.cloud.google.com/apis/credentials"
-							target="_blank">in google console</a
+							target="_blank">in Google console</a
 						>
 						and set the redirect URI to <code>BASE_URL/user/login_callback/google</code>
 						where BASE_URL is what you configured as core BASE_URL
 					</div>
 				</CollapseLink>
 			{:else if name == 'slack'}
-				<a class="text-xs" href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
-					>Read more about Slack OAuth on the docs</a
-				>
+			<CollapseLink text="Instructions">
+				<div class="text-sm text-secondary border p-2">
+					Create a new App <a
+						href="https://api.slack.com/apps?new_app=1"
+						target="_blank">in Slack API Console</a>.
+					Pick "From an app manifest", then YAML and paste manifest template found on <a
+					href="https://www.windmill.dev/docs/misc/setup_oauth#slack"
+					target="_blank">Windmill Docs</a> and then paste Client ID and Client Secret here.
+				</div>
+			</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">
 						Create a new OAuth 2.0 Client <a
 							href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-							target="_blank">in microsoft portal</a
+							target="_blank">in Microsoft portal</a
 						>
-						and in the "Authentication" tab, set the redirect URI to
-						<code>BASE_URL/user/login_callback/microsoft</code>, the logout channel to
-						<code>BASE_URL/auth/logout</code>where BASE_URL is what you configured as core BASE_URL.
-						Also set "Accounts in any organizational directory (Any Microsoft Entra ID tenant -
-						Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)", you can restrict the
-						emails directly in windmill using the "allowed_domains" setting.
+						"Add" {'->'} "App Registration" -> "Accounts in this organizational directory only (Default
+						Directory only - Single tenant)", and in the "Authentication" tab, set the redirect URI to
+						Web and
+						<code>BASE_URL/user/login_callback/microsoft</code>. Then copy the "Directory (tenant
+						ID)" in the tenant ID field. Then copy the Client ID from "Application (client) ID" and
+						create a secret in "Client credentials". Last, include "Sign in" and "read user profile"
+						under "Delegated Permissions".
 					</div>
 				</CollapseLink>
 			{/if}

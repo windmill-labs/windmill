@@ -77,6 +77,10 @@
 		{/if}
 	</div>
 	<div class="-my-1">
-		<Toggle checked={Boolean($flowStore?.value?.failure_module)} on:change={onToggle} />
+		<Toggle
+			checked={Boolean($flowStore?.value?.failure_module)}
+			on:change={onToggle}
+			id="error-handler-toggle"
+		/>
 	</div>
 </div>

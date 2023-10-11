@@ -11,6 +11,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { decodeState, emptySchema } from '$lib/utils'
+	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -97,6 +98,10 @@
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
+			} else {
+				tick().then(() => {
+					flowBuilder?.triggerTutorial()
+				})
 			}
 		}
 		await initFlow(flow, flowStore, flowStateStore)
@@ -108,6 +113,7 @@
 	$dirtyStore = true
 
 	let getSelectedId: (() => string) | undefined = undefined
+	let flowBuilder: FlowBuilder | undefined = undefined
 </script>
 
 <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
@@ -124,6 +130,7 @@
 		goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 	}}
 	bind:getSelectedId
+	bind:this={flowBuilder}
 	{flowStore}
 	{flowStateStore}
 	{selectedId}

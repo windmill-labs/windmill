@@ -2,7 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
-	import { copyToClipboard, truncate } from '$lib/utils'
+	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { ClipboardCopy, Download, Expand } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
@@ -14,7 +14,6 @@
 	export let disableExpand = false
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
-	export let disableDetails = false
 
 	let resultKind:
 		| 'json'
@@ -62,7 +61,22 @@
 		return keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
 	}
 
+	let largeObject: undefined | boolean = undefined
+
 	function inferResultKind(result: any) {
+		largeObject = undefined
+
+		if (result == 'WINDMILL_TOO_BIG') {
+			largeObject = true
+			return 'json'
+		}
+		let length = roughSizeOfObject(result)
+		largeObject = length > 10000
+
+		if (largeObject) {
+			return 'json'
+		}
+
 		if (result) {
 			try {
 				let keys = Object.keys(result)
@@ -113,7 +127,10 @@
 	}
 
 	let jsonViewer: Drawer
-	$: jsonStr = JSON.stringify(result, null, 4)
+
+	function toJsonStr(result: any) {
+		return JSON.stringify(result, null, 4)
+	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
 		if (typeof obj === 'string') {
@@ -124,28 +141,26 @@
 	}
 </script>
 
-<div class="inline-highlight">
-	{#if result != undefined}
-		{#if resultKind && resultKind != 'json'}
-			<div class="flex flex-row w-full justify-between items-center">
+<div class="inline-highlight pt-0.5 relative grow min-h-[200px] h-full">
+	{#if result != undefined && length != undefined && largeObject != undefined}{#if resultKind && resultKind != 'json'}<div
+				class="flex flex-row w-full justify-between items-center"
+			>
 				<div class="mb-2 text-tertiary text-sm">
 					as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 				>
 				<slot name="copilot-fix" />
 			</div>
-		{/if}
-		{#if typeof result == 'object' && Object.keys(result).length > 0}
-			<div class="mb-2 w-full min-w-[400px] text-sm relative">
-			{#if !disableDetails}
-			The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-			{/if}
-			{#if !disableExpand}
-				<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
-					<button on:click={() => copyToClipboard(jsonStr)}><ClipboardCopy size={16} /></button>
-					<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
-				</div>
-			{/if}
-			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+		{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+				class="top-0 mb-2 w-full min-w-[400px] text-sm relative"
+				>{#if !disableExpand}
+					<div class="text-tertiary text-xs absolute top-5.5 right-0 inline-flex gap-2">
+						<button on:click={() => copyToClipboard(toJsonStr(result))}
+							><ClipboardCopy size={16} /></button
+						>
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+					</div>
+				{/if}</div
+			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border rounded-md"
 			>
 				{#each Object.keys(result) as col}
@@ -272,34 +287,36 @@
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>
 			</div>
-		{:else}
-			{#if jsonStr.length > 10000}
-				<div class="text-sm mb-2 text-tertiary">
-					<a
-						download="{filename ?? 'result'}.json"
-						href={workspaceId && jobId
-							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}>Download</a
-					>
-					JSON is too large to be displayed in full.
-				</div>
+		{:else if largeObject}<div class="text-sm text-tertiary"
+				><a
+					download="{filename ?? 'result'}.json"
+					href={workspaceId && jobId
+						? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+						: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}>Download</a
+				>
+			</div>
+			<div class="mb-21">JSON is too large to be displayed in full</div>
+			{#if result && result != 'WINDMILL_TOO_BIG'}
 				<ObjectViewer json={result} />
-			{:else if typeof result == 'string' && result.length > 0}
-				<pre class="text-sm">{result}</pre>
-				<div class="flex">
-					<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-						<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-					</Button>
-				</div>
-			{:else}
-				<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 			{/if}
+		{:else if typeof result == 'string' && result.length > 0}
+			<pre class="text-sm">{result}</pre>
+			<div class="flex">
+				<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+					<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+				</Button>
+			</div>
+		{:else}
+			<Highlight
+				class={forceJson ? '' : 'absolute top-1 h-full'}
+				language={json}
+				code={toJsonStr(result).replace(/\\n/g, '\n')}
+			/>
 		{/if}
 	{:else}
-		<div class="text-tertiary text-sm">No result: {jsonStr}</div>
+		<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
 	{/if}
 </div>
-
 
 {#if !disableExpand}
 	<Portal>
@@ -311,20 +328,23 @@
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
 							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						>Download <Download size={14} /></a
 					>
-					<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">
+					<Button on:click={() => copyToClipboard(toJsonStr(result))} color="light" size="xs">
 						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
 					</Button>
 				</svelte:fragment>
-				{#if jsonStr.length > 100000}
+				{#if largeObject}
 					<div class="text-sm mb-2 text-tertiary">
 						<a
+							class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
 							download="{filename ?? 'result'}.json"
-							href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
-						>
-						JSON is too large to be displayed in full.
+							href={workspaceId && jobId
+								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(result)}`}
+							>Download <Download size={14} /></a
+						> JSON is too large to be displayed in full.
 					</div>
 				{:else if typeof result == 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>
@@ -334,7 +354,7 @@
 						</Button>
 					</div>
 				{:else}
-					<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
+					<Highlight language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
 				{/if}
 			</DrawerContent>
 		</Drawer>

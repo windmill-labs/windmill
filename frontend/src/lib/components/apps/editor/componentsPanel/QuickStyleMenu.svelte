@@ -184,8 +184,8 @@
 				{prefix}
 				openByDefault={true}
 				wrapperClasses="!px-0 !pt-0"
-				toggleClasses="border-b border-gray-300 !rounded-b-none !py-0
-				{isOpen[prefix] ? '!bg-gray-100 hover:!bg-gray-200' : ''}"
+				toggleClasses="border-b !rounded-b-none !py-0
+				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
 			>
 				<svelte:fragment slot="title">
 					<span class="font-semibold text-tertiary capitalize">

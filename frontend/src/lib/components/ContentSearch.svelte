@@ -239,7 +239,7 @@
 					</div>
 
 					<div class="mt-1 overflow-auto max-h-[80vh]">
-						{#if !enterpriseLicense}
+						{#if !$enterpriseLicense}
 							<Alert title="Content Search is an EE feature" type="warning">
 								Without EE, content search will only search among 10 scripts, 3 flows, 3 apps and 3
 								resources.

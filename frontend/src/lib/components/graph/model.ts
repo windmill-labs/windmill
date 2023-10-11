@@ -35,6 +35,7 @@ export type GraphModuleState = {
 	parent_module?: string
 	iteration_total?: number
 	retries?: number
+	duration_ms?: number
 }
 
 export type NestedNodes = GraphItem[]

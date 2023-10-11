@@ -64,6 +64,7 @@ https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-82
     - [OAuth for self-hosting](#oauth-for-self-hosting)
     - [smtp for self-hosting](#smtp-for-self-hosting)
     - [Resource types](#resource-types)
+    - [Manually fetch latest Windmill binary](#manually-fetch-latest-windmill-binary)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [only Frontend](#only-frontend)
@@ -226,6 +227,18 @@ From there, you can follow the setup app and create other users.
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>.
 
+### Run from binaries
+
+Each release includes the corresponding binaries for x86_64. You can simply download the 
+latest `windmill` binary using the following set of bash commands.
+```bash
+BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
+LATEST_RELEASE=$(curl -L -s -H 'Accept: application/json' https://github.com/windmill-labs/windmill/releases/latest)
+LATEST_VERSION=$(echo $LATEST_RELEASE | sed -e 's/.*"tag_name":"\([^"]*\)".*/\1/')
+ARTIFACT_URL="https://github.com/windmill-labs/windmill/releases/download/$LATEST_VERSION/$BINARY_NAME"
+wget "$ARTIFACT_URL" -O windmill
+```
+
 ### OAuth, SSO & SMTP
 
 Windmill Community Edition allows to configure the OAuth, SSO (including Google Workspace SSO, Microsoft/Azure and Okta) directly from the UI in the superadmin settings. Do note that there is a limit of 50 SSO users on the community edition.
@@ -253,6 +266,7 @@ You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev). A setup script will prompt you to have
 it being synced automatically everyday.
 
+
 ## Environment Variables
 
 | Environment Variable name                     | Default                                    | Description                                                                                                                                                                                        | Api Server/Worker/All |
@@ -261,7 +275,6 @@ it being synced automatically everyday.
 | WORKER_GROUP                                  | default                                    | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
 | SERVER_BIND_ADDR                              | 0.0.0.0                                    | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
 | PORT                                          | 8000                                       | Exposed port                                                                                                                                                                                       | Server                |
-| NUM_WORKERS                                   | 1                                          | The number of worker per Worker instance (Set to 0 for API/Server instances, Set to 1 for normal workers, and > 1 for workers dedicated to native jobs)                                            | Worker                |
 | DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                        | Worker                |
 | METRICS_ADDR                                  | None                                       | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
 | JSON_FMT                                      | false                                      | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
@@ -301,6 +314,7 @@ it being synced automatically everyday.
 | PIP_LOCAL_DEPENDENCIES                        | None                                       | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   |                       |
 | ADDITIONAL_PYTHON_PATHS                       | None                                       | Specify python paths (separated by a :) to be appended to the PYTHONPATH of the python jobs. To be used with PIP_LOCAL_DEPENDENCIES to use python codebases within Windmill                        | Worker                |
 | INCLUDE_HEADERS                               | None                                       | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
+| NUM_WORKERS                                   | 1                                          | The number of worker per Worker instance (Set to 0 for API/Server instances, Set to 1 for normal workers, and > 1 for workers dedicated to native jobs)                                            | Worker                |
 | INSTANCE_EVENTS_WEBHOOK                       | None                                       | Webhook to notify of events such as new user added, signup/invite. Can hook back to windmill to send emails                                                                                        |
 | GLOBAL_CACHE_INTERVAL                         | 10\*60                                     | (Enterprise Edition only) Interval in seconds in between bucket sync of the cache. This interval \* 2 is the time at which you're guaranteed all the worker's caches are synced together.          | Worker                |
 | WORKER_TAGS                                   | 'deno,go,python3,bash,flow,hub,dependency' | The worker groups assigned to that workers                                                                                                                                                         | Worker                |

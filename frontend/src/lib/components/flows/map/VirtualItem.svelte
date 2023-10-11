@@ -77,6 +77,7 @@
 			}
 		}
 	}}
+	id={`flow-editor-virtual-${label}`}
 >
 	<div
 		class="flex gap-1 justify-between {center

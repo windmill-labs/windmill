@@ -124,7 +124,7 @@
 
 <div class="divide-y min-w-[640px]" id="runs-table-wrapper" bind:clientWidth={containerWidth}>
 	<div
-		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 z-50"
+		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4"
 		bind:clientHeight={header}
 	>
 		<div class="w-1/12" />

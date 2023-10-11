@@ -115,7 +115,10 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex divide-y flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full">
+<div
+	class="flex divide-y flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full"
+	id="flow-preview-content"
+>
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<div class="w-8">
 			<button
@@ -154,8 +157,9 @@
 				size="sm"
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
+				id="flow-editor-test-flow-drawer"
 			>
-				Test flow &nbsp;<Kbd small>{getModifierKey()}</Kbd>
+				Test flow &nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
 				<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
 			</Button>
 		{/if}

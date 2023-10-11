@@ -8,7 +8,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { canWrite } from '$lib/utils'
@@ -29,11 +29,12 @@
 		})
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyUp(event: KeyboardEvent, close: () => void) {
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
 			addFolder()
+			close()
 		}
 	}
 	async function addFolder() {
@@ -77,22 +78,37 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 	>
 		<div class="flex flex-row">
-			<input
-				class="mr-2"
-				on:keyup={handleKeyUp}
-				placeholder="New folder name"
-				bind:value={newFolderName}
-			/>
-			<div>
-				<Button
-					size="md"
-					startIcon={{ icon: faPlus }}
-					disabled={!newFolderName}
-					on:click={addFolder}
-				>
-					New&nbsp;folder
-				</Button>
-			</div>
+			<Popup
+				let:close
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+			>
+				<svelte:fragment slot="button">
+					<Button size="md" startIcon={{ icon: faPlus }} nonCaptureEvent>New folder name</Button>
+				</svelte:fragment>
+				<div class="flex flex-col gap-2">
+					<input
+						class="mr-2"
+						on:keyup={(e) => handleKeyUp(e, () => close(null))}
+						placeholder="New folder name"
+						bind:value={newFolderName}
+					/>
+
+					<div>
+						<Button
+							size="md"
+							startIcon={{ icon: faPlus }}
+							disabled={!newFolderName}
+							on:click={() => {
+								addFolder()
+								close(null)
+							}}
+						>
+							Create
+						</Button>
+					</div>
+				</div>
+			</Popup>
 		</div>
 	</PageHeader>
 

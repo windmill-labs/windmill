@@ -35,6 +35,7 @@
 	import { secondaryMenuLeft } from './secondaryMenu'
 
 	import ComponentControl from './ComponentControl.svelte'
+	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -310,6 +311,8 @@
 				bind:component={componentSettings.item.data}
 				canDisableTabs
 			/>
+		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
+			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}

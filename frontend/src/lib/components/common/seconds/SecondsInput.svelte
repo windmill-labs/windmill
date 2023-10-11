@@ -41,7 +41,7 @@
 	}
 </script>
 
-<div>
+<div class="flex flex-wrap gap-x-4">
 	{#if !hideDisplay}
 		<input
 			value={seconds == null || seconds == undefined
@@ -52,7 +52,7 @@
 			{disabled}
 			readonly
 			type="text"
-			class="max-w-[248px] bg-gray-50 mb-2"
+			class="max-w-[248px] bg-gray-50 mb-2 mt-6"
 		/>
 	{/if}
 	<div class="flex flex-wrap items-center gap-2 text-xs font-medium">

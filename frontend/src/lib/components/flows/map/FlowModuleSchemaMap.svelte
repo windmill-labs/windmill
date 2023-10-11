@@ -22,9 +22,16 @@
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
+	import { tutorialsToDo } from '$lib/stores'
+
+	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
+	import { tainted } from '$lib/components/tutorials/utils'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
+
+	let flowTutorials: FlowTutorials | undefined = undefined
 
 	const { selectedId, moving, history, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -134,6 +141,18 @@
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
+		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+		const isTainted = tainted($flowStore)
+		return (
+			$tutorialsToDo.includes(index) &&
+			name == tutorialName &&
+			svg.length === 0 &&
+			!isTainted &&
+			!$ignoredTutorials.includes(index)
+		)
+	}
 </script>
 
 <Portal>
@@ -206,20 +225,28 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				if (detail.modules) {
-					await tick()
-					if ($moving) {
-						push(history, $flowStore)
-						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
-						$moving.modules.splice(indexToRemove, 1)
-						detail.modules.splice(detail.index, 0, $moving.module)
-						$selectedId = $moving.module.id
-						$moving = undefined
-					} else {
-						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
-						$selectedId = detail.modules[detail.index ?? 0].id
+				if (shouldRunTutorial('forloop', detail.detail, 1)) {
+					flowTutorials?.runTutorialById('forloop')
+				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
+					flowTutorials?.runTutorialById('branchone')
+				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
+					flowTutorials?.runTutorialById('branchall')
+				} else {
+					if (detail.modules) {
+						await tick()
+						if ($moving) {
+							push(history, $flowStore)
+							let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
+							$moving.modules.splice(indexToRemove, 1)
+							detail.modules.splice(detail.index, 0, $moving.module)
+							$selectedId = $moving.module.id
+							$moving = undefined
+						} else {
+							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+							$selectedId = detail.modules[detail.index ?? 0].id
+						}
+						$flowStore = $flowStore
 					}
-					$flowStore = $flowStore
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
@@ -253,3 +280,5 @@
 		<FlowErrorHandlerItem />
 	</div>
 </div>
+
+<FlowTutorials bind:this={flowTutorials} on:reload />

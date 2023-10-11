@@ -3,6 +3,7 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
+use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 use windmill_api_client::{types::CreateResource, Client};
 use windmill_common::worker::CLOUD_HOSTED;
@@ -40,7 +41,8 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, TIMEOUT_DURATION, WHITELIST_ENVS,
+    AuthedClient, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TIMEOUT_DURATION,
+    WHITELIST_ENVS,
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -48,9 +50,10 @@ pub async fn create_args_and_out_file(
     client: &AuthedClient,
     job: &QueuedJob,
     job_dir: &str,
+    db: &Pool<Postgres>,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), job, db).await?)
     } else {
         None
     };
@@ -84,6 +87,8 @@ pub async fn transform_json_value(
     client: &AuthedClient,
     workspace: &str,
     v: Value,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
@@ -104,16 +109,50 @@ pub async fn transform_json_value(
             }
             Ok(client
                 .get_client()
-                .get_resource_value_interpolated(workspace, path)
+                .get_resource_value_interpolated(workspace, path, Some(&job.id))
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
                 .into_inner())
+        }
+        Value::String(y) if y.starts_with("$") => {
+            let flow_path = if let Some(uuid) = job.parent_job {
+                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+            } else {
+                None
+            };
+
+            let variables = variables::get_reserved_variables(
+                &job.workspace_id,
+                &client.token,
+                &job.email,
+                &job.created_by,
+                &job.id.to_string(),
+                &job.permissioned_as,
+                job.script_path.clone(),
+                job.parent_job.map(|x| x.to_string()),
+                flow_path,
+                job.schedule_path.clone(),
+                job.flow_step_id.clone(),
+            )
+            .await;
+
+            let name = y.strip_prefix("$").unwrap();
+
+            let value = variables
+                .iter()
+                .find(|x| x.name == name)
+                .map(|x| x.value.clone())
+                .unwrap_or_else(|| y);
+            Ok(json!(value))
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(&a, client, workspace, b).await?,
+                    transform_json_value(&a, client, workspace, b, job, &db).await?,
                 );
             }
             Ok(Value::Object(m))
@@ -129,13 +168,27 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     Ok(content)
 }
 pub async fn read_file(path: &str) -> error::Result<serde_json::Value> {
-    let content = read_file_content(path).await?;
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
-        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
+    // tracing::error!("START1");
+    // let start = Instant::now();
+
+    let r = if *CLOUD_HOSTED {
+        let content = read_file_content(path).await?;
+        if content.len() > MAX_RESULT_SIZE {
+            return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
-    }
-    serde_json::from_str(&content)
-        .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+        };
+        serde_json::from_str(&content)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+    } else {
+        let file = std::fs::File::open(path)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error opening file {path}: {e}")))?;
+        let reader = std::io::BufReader::new(file);
+
+        serde_json::from_reader(reader)
+            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
+    };
+    // tracing::error!("{:?}", start.elapsed());
+    return r;
 }
 pub async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
     return read_file(&format!("{job_dir}/result.json")).await;
@@ -543,6 +596,12 @@ pub async fn handle_child(
     }
 }
 
+pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
+    return cmd
+        .spawn()
+        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+}
+
 /// takes stdout and stderr from Child, panics if either are not present
 ///
 /// builds a stream joining both stdout and stderr each read line by line
@@ -641,4 +700,21 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
+}
+
+fn tentatively_improve_error(err: Error, executable: &str) -> Error {
+    if err
+        .to_string()
+        .contains("No such file or directory (os error 2)")
+    {
+        return Error::InternalErr(format!("Executable {executable} not found on worker"));
+    }
+    return err;
+}
+
+pub async fn clean_cache() -> error::Result<()> {
+    tracing::info!("Started cleaning cache");
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished cleaning cache");
+    Ok(())
 }

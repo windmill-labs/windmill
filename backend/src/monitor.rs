@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc, time::Duration};
 
 use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
@@ -467,9 +467,26 @@ pub async fn reload_worker_config(
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
         if *wc != config {
-            if kill_if_change && (*wc).dedicated_worker != config.dedicated_worker {
-                tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
-                let _ = tx.send(());
+            if kill_if_change {
+                if (*wc).dedicated_worker != config.dedicated_worker {
+                    tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send(());
+                }
+
+                if (*wc).init_bash != config.init_bash {
+                    tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send(());
+                }
+
+                if (*wc).cache_clear != config.cache_clear {
+                    tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send(());
+                    tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if let Err(e) = windmill_worker::common::clean_cache().await {
+                        tracing::error!("Error cleaning the cache: {e}");
+                    }
+                }
             }
             drop(wc);
 

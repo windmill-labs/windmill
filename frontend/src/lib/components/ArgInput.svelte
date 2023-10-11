@@ -289,7 +289,7 @@
 									{#if i < itemsLimit}
 										<div class="flex max-w-md mt-1 w-full items-center">
 											{#if itemsType?.type == 'number'}
-												<input type="number" bind:value={v} />
+												<input type="number" bind:value={v} id="arg-input-number-array" />
 											{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 												<input
 													type="file"
@@ -348,6 +348,7 @@
 								}
 								value = value.concat('')
 							}}
+							id="arg-input-add-item"
 						>
 							<Icon data={faPlus} class="mr-2" />
 							Add item

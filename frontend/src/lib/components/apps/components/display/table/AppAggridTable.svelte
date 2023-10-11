@@ -1,8 +1,4 @@
 <script lang="ts">
-	import 'ag-grid-community/styles/ag-grid.css'
-	import 'ag-grid-community/styles/ag-theme-alpine.css'
-	import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
-
 	import AgGridSvelte from 'ag-grid-svelte'
 	import { isObject } from '$lib/utils'
 	import { getContext } from 'svelte'
@@ -16,6 +12,11 @@
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
 
+	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	import { Loader2 } from 'lucide-svelte'
+	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
+
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -24,23 +25,27 @@
 
 	let result: any[] | undefined = undefined
 
+	$: result && setValues()
+
 	let value: any[] = Array.isArray(result)
 		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
 		: [{ error: 'input was not an array' }]
 
-	$: result && setValues()
-
+	let loaded = false
 	async function setValues() {
 		value = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
 			: [{ error: 'input was not an array' }]
-		if (api) {
+		if (api && loaded) {
 			let selected = api.getSelectedNodes()
 			if (selected.length > 0) {
 				let data = { ...selected[0].data }
 				delete data['__index']
 				outputs?.selectedRow?.set(data)
 			}
+		}
+		if (!loaded) {
+			loaded = true
 		}
 	}
 
@@ -148,54 +153,58 @@
 				>
 					{#key extraConfig}
 						{#key resolvedConfig?.pagination}
-							<AgGridSvelte
-								rowData={value}
-								columnDefs={resolvedConfig?.columnDefs}
-								pagination={resolvedConfig?.pagination}
-								paginationAutoPageSize={resolvedConfig?.pagination}
-								defaultColDef={{
-									flex: resolvedConfig.flex ? 1 : 0,
-									editable: resolvedConfig?.allEditable,
-									onCellValueChanged
-								}}
-								onPaginationChanged={(event) => {
-									outputs?.page.set(event.api.paginationGetCurrentPage())
-								}}
-								rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
-								suppressRowDeselection={true}
-								rowMultiSelectWithClick={resolvedConfig?.multipleSelectable
-									? resolvedConfig.rowMultiselectWithClick
-									: undefined}
-								onSelectionChanged={(e) => {
-									if (resolvedConfig?.multipleSelectable) {
-										const rows = e.api.getSelectedNodes()
-										if (rows != undefined) {
-											toggleRows(rows)
+							{#if loaded}
+								<AgGridSvelte
+									rowData={value}
+									columnDefs={resolvedConfig?.columnDefs}
+									pagination={resolvedConfig?.pagination}
+									paginationAutoPageSize={resolvedConfig?.pagination}
+									defaultColDef={{
+										flex: resolvedConfig.flex ? 1 : 0,
+										editable: resolvedConfig?.allEditable,
+										onCellValueChanged
+									}}
+									onPaginationChanged={(event) => {
+										outputs?.page.set(event.api.paginationGetCurrentPage())
+									}}
+									rowSelection={resolvedConfig?.multipleSelectable ? 'multiple' : 'single'}
+									suppressRowDeselection={true}
+									rowMultiSelectWithClick={resolvedConfig?.multipleSelectable
+										? resolvedConfig.rowMultiselectWithClick
+										: undefined}
+									onSelectionChanged={(e) => {
+										if (resolvedConfig?.multipleSelectable) {
+											const rows = e.api.getSelectedNodes()
+											if (rows != undefined) {
+												toggleRows(rows)
+											}
+										} else {
+											const row = e.api.getSelectedNodes()?.[0]
+											if (row != undefined) {
+												toggleRow(row)
+											}
 										}
-									} else {
-										const row = e.api.getSelectedNodes()?.[0]
-										if (row != undefined) {
-											toggleRow(row)
+									}}
+									getRowId={(data) => data.data['__index']}
+									{...resolvedConfig.extraConfig}
+									onGridReady={(e) => {
+										outputs?.ready.set(true)
+										value = value
+										if (result && result.length > 0) {
+											e.api.getRowNode('0')?.setSelected(true)
 										}
-									}
-								}}
-								getRowId={(data) => data.data['__index']}
-								{...resolvedConfig.extraConfig}
-								onGridReady={(e) => {
-									outputs?.ready.set(true)
-									value = value
-									if (result && result.length > 0) {
-										e.api.getRowNode('0')?.setSelected(true)
-									}
-									$componentControl[id] = {
-										agGrid: { api: e.api, columnApi: e.columnApi },
-										setSelectedIndex: (index) => {
-											e.api.getRowNode(index.toString())?.setSelected(true)
+										$componentControl[id] = {
+											agGrid: { api: e.api, columnApi: e.columnApi },
+											setSelectedIndex: (index) => {
+												e.api.getRowNode(index.toString())?.setSelected(true)
+											}
 										}
-									}
-									api = e.api
-								}}
-							/>
+										api = e.api
+									}}
+								/>
+							{:else}
+								<Loader2 class="animate-spin" />
+							{/if}
 						{/key}
 					{/key}
 				</div>

@@ -24,9 +24,8 @@
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE } from '$lib/utils'
-	import AppExportButton from '$lib/components/apps/editor/AppExportButton.svelte'
-	import type { App } from '$lib/components/apps/types'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
+	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -49,15 +48,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: AppExportButton
+	let appExport: AppJsonEditor
 	let appDeploymentHistory: AppDeploymentHistory
 
 	async function loadAppJson() {
-		const app: App = (await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path
-		})) as unknown as App
-		appExport.open(app)
+		appExport.open(path)
 	}
 
 	async function loadDeployements() {
@@ -70,7 +65,7 @@
 	}
 </script>
 
-<AppExportButton bind:this={appExport} />
+<AppJsonEditor on:change bind:this={appExport} />
 <AppDeploymentHistory bind:this={appDeploymentHistory} />
 <Row
 	href={`/apps/get/${path}`}
@@ -172,7 +167,7 @@
 						}
 					},
 					{
-						displayName: 'App JSON',
+						displayName: 'View/Edit JSON',
 						icon: faFileExport,
 						action: () => {
 							loadAppJson()

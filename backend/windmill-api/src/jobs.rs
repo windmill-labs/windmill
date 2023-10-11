@@ -348,8 +348,12 @@ async fn get_job(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let cjob_option =
-        sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
+    let cjob_option = sqlx::query("SELECT 
+        id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
+        args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+        schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
+        raw_lock, email, visible_to_owner, mem_peak, tag 
+        FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
             .bind(&w_id)
             .fetch_optional(&db)

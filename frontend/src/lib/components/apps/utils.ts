@@ -15,7 +15,7 @@ import type {
 export const BG_PREFIX = 'bg_'
 
 export function migrateApp(app: App) {
-	app?.hiddenInlineScripts.forEach((x) => {
+	(app?.hiddenInlineScripts ?? []).forEach((x) => {
 		if (x.type == undefined) {
 			//@ts-ignore
 			x.type = 'runnableByName'

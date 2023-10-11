@@ -317,7 +317,19 @@
 			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
 				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
 					<div class="text-sm font-extrabold">Preview</div>
-
+					<div class="w-full flex flex-col">
+						<Button
+							color="blue"
+							btnClasses="w-full"
+							size="sm"
+							spacingSize="xl"
+							on:click={() => selectArgs(selectedInput?.args)}
+							disabled={Object.keys(selectedInput?.args || {}).length === 0}
+						>
+							<ArrowLeftIcon class="w-4 h-4 mr-2" />
+							Use Input
+						</Button>
+					</div>
 					<div class="w-full min-h-0 grow overflow-auto">
 						{#if Object.keys(selectedInput?.args || {}).length > 0}
 							<div class="border overflow-auto h-full p-2">
@@ -330,21 +342,7 @@
 						{/if}
 					</div>
 				</div>
-
-				<div class="w-full flex flex-col px-2 pb-2">
-					<Button
-						color="blue"
-						btnClasses="w-full"
-						size="sm"
-						spacingSize="xl"
-						on:click={() => selectArgs(selectedInput?.args)}
-						disabled={Object.keys(selectedInput?.args || {}).length === 0}
-					>
-						<ArrowLeftIcon class="w-4 h-4 mr-2" />
-						Use Input
-					</Button>
-				</div>
-			</div>
-		</Pane>
+			</div></Pane
+		>
 	</Splitpanes>
 </div>

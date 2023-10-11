@@ -167,6 +167,12 @@ Windmill Community Edition {GIT_VERSION}
         let rsmq2 = rsmq.clone();
         let (port_tx, port_rx) = tokio::sync::oneshot::channel::<u16>();
 
+        DirBuilder::new()
+            .recursive(true)
+            .create("/tmp/windmill")
+            .await
+            .expect("could not create initial server dir");
+
         let server_f = async {
             windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe(), port_tx).await?;
             Ok(()) as anyhow::Result<()>
@@ -198,11 +204,7 @@ Windmill Community Edition {GIT_VERSION}
 
             let mut rx = rx.resubscribe();
             let base_internal_url = base_internal_url.to_string();
-            let rd_delay = rand::thread_rng().gen_range(0..30);
-            tokio::spawn(async move {
-                //monitor_db is applied at start, no need to apply it twice
-                tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-
+            let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
 
                 loop {
@@ -222,16 +224,18 @@ Windmill Community Edition {GIT_VERSION}
                                     tracing::info!("Received new pg notification: {n:?}");
                                     match n.channel() {
                                         "notify_config_change" => {
-                                            tracing::info!("Config change detected: {}", n.payload());
                                             match n.payload() {
                                                 "server" if server_mode => {
+                                                    tracing::info!("Server config change detected: {}", n.payload());
+
                                                     reload_server_config(&db).await;
                                                 },
                                                 a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
+                                                    tracing::info!("Worker config change detected: {}", n.payload());
                                                     reload_worker_config(&db, tx.clone(), true).await;
                                                 },
                                                 _ => {
-                                                    tracing::error!("config target neither a server or a worker");
+                                                    tracing::debug!("config changed but did not target this server/worker");
                                                 }
                                             }
                                         },
@@ -302,6 +306,9 @@ Windmill Community Edition {GIT_VERSION}
                 }
             });
 
+            if let Err(e) = h.await {
+                tracing::error!("Error waiting for monitor handle:{e}")
+            }
             Ok(()) as anyhow::Result<()>
         };
 
