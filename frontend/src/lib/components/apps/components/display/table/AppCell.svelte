@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 
-	export let type: 'text' | 'badge' | 'checkbox' = 'text'
+	export let type: 'text' | 'badge' | 'link' = 'text'
 	export let value: any
 </script>
 
@@ -9,6 +9,8 @@
 	<Badge>
 		{value}
 	</Badge>
+{:else if type === 'link'}
+	<a href={value} class="underline" target="_blank">{value}</a>
 {:else}
 	{value}
 {/if}

@@ -3,17 +3,20 @@
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
-
+	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	export let column: {
 		headerName: string
 		hideColumn: boolean
-		type: 'text' | 'badge'
-		size: number
+		type: 'text' | 'badge' | 'link'
 	}
 </script>
 
 <Popup
-	floatingConfig={{ strategy: 'fixed', placement: 'left-end' }}
+	floatingConfig={{
+		strategy: 'fixed',
+		placement: 'left-end',
+		middleware: [offset(8), flip(), shift()]
+	}}
 	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
 >
 	<svelte:fragment slot="button">
@@ -46,11 +49,8 @@
 			<select bind:value={column.type}>
 				<option value="text">Text</option>
 				<option value="badge">Badge</option>
+				<option value="link">Link</option>
 			</select>
-		</Label>
-
-		<Label label="Size">
-			<input placeholder="size in pixel" bind:value={column.size} />
 		</Label>
 	</div>
 </Popup>

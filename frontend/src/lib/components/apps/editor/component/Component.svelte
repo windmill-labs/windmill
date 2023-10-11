@@ -278,7 +278,6 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				actionButtons={component.actionButtons}
-				columns={component.columns}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}
