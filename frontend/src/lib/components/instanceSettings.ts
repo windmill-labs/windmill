@@ -17,6 +17,7 @@ export interface Setting {
 		| 'email'
 		| 'license_key'
 	storage: SettingStorage
+	isValid?: (value: any) => boolean
 }
 
 export type SettingStorage = 'setting' | 'config'

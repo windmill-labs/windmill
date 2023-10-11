@@ -139,7 +139,7 @@
 							</div>
 						</TabContent>
 						<TabContent value="settings">
-							<div class="h-full overflow-auto"> <InstanceSettings /> </div>
+							<div class="h-full"> <InstanceSettings /> </div>
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>
