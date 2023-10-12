@@ -79,7 +79,7 @@
 
 {#if selected && !connecting}
 	<div
-		class="top-[-24px] right-[4px] flex flex-row absolute gap-0.5 z-50 border bg-surface p-1 rounded-md shadow-sm"
+		class="top-[-10px] right-[-6px] flex flex-row absolute gap-0.5 z-50 border bg-surface p-1 rounded-md shadow-sm"
 	>
 		{#if hasInlineEditor}
 			<Button
