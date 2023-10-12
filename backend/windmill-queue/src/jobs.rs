@@ -806,7 +806,7 @@ async fn apply_schedule_handlers<
     Ok(tx)
 }
 
-async fn handle_on_failure<
+pub async fn handle_on_failure<
     'a,
     'c,
     T: Serialize + Send + Sync,

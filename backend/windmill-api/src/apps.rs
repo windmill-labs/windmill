@@ -24,7 +24,7 @@ use axum::{
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, value::RawValue, Map, Value};
+use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
