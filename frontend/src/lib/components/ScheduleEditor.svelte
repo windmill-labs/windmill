@@ -7,22 +7,20 @@
 	import Required from '$lib/components/Required.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import SlackHandler from '$lib/components/SlackHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { FlowService, JobService, ResourceService, ScheduleService, Script, ScriptService, WorkspaceService, type Flow } from '$lib/gen'
+	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
-	import { faList, faSave, faRotate, faRotateRight, faTimes } from '@fortawesome/free-solid-svg-icons'
-	import { check } from 'svelte-awesome/icons'
+	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 
 	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
-	const workspaceSlackConnectionResource = 'f/slack_bot/bot_token'
 
 	let initialPath = ''
 	let edit = true
@@ -32,11 +30,11 @@
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
 	let errorHandlerPath: string | undefined = undefined
-	let recoveryHandlerPath: string | undefined = undefined
 	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
 	let errorHandlerSchema: Schema | undefined = undefined
 	let errorHandlerExtraArgs: Record<string, any> = {}
-	let recoveryHandlerSelected: 'custom' | 'slack' = 'custom'
+	let recoveryHandlerPath: string | undefined = undefined
+	let recoveryHandlerSelected: 'custom' | 'slack' = 'slack'
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
 	let recoveryHandlerSchema: Schema | undefined = undefined
 	let recoveryHandlerExtraArgs: Record<string, any> = {}
@@ -46,8 +44,6 @@
 
 	let script_path = ''
 	let initialScriptPath = ''
-	let slackConnectionToken: {value: string, label:string} | undefined
-	let slackConnectionTestJob: {uuid: string, is_success: boolean, in_progress: boolean} | undefined
 
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
@@ -71,6 +67,7 @@
 		script_path = initialScriptPath
 		errorHandleritemKind = 'script'
 		errorHandlerPath = undefined
+		recoveryHandlerPath = undefined
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
@@ -130,8 +127,8 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				if (errorHandlerPath == slackErrorHandler) {
-					errorHandlerSelected = 'slack'
+				if (errorHandlerPath !== slackErrorHandler) {
+					errorHandlerSelected = 'custom'
 				}
 			} else {
 				errorHandlerPath = undefined
@@ -143,8 +140,8 @@
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				if (recoveryHandlerPath == slackRecoveryHandler) {
-					recoveryHandlerSelected = 'slack'
+				if (recoveryHandlerPath !== slackRecoveryHandler) {
+					recoveryHandlerSelected = 'custom'
 				}
 			} else {
 				recoveryHandlerPath = undefined
@@ -157,54 +154,12 @@
 		}
 	}
 
-	async function sendSlackMessage(channel: string): Promise<void> {
-		let submitted_job = await WorkspaceService.runSlackMessageTestJob({
-			workspace: $workspaceStore!,
-			requestBody: {
-				hub_script_path: slackErrorHandler,
-				channel: channel,
-				test_msg: `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`
-			}
-		})
-		slackConnectionTestJob = {
-			uuid: submitted_job.job_uuid!,
-			in_progress: true,
-			is_success: false
-		}
-		tryEvery({
-			tryCode: async () => {
-				const testResult = await JobService.getCompletedJob({
-					workspace: $workspaceStore!,
-					id: slackConnectionTestJob!.uuid
-				})
-				slackConnectionTestJob!.in_progress = false
-				slackConnectionTestJob!.is_success = testResult.success
-			},
-			timeoutCode: async () => {				
-				try {
-					await JobService.cancelQueuedJob({
-						workspace: $workspaceStore!,
-						id: slackConnectionTestJob!.uuid,
-						requestBody: {
-							reason: 'Slack message not sent after after 5s'
-						}
-					})
-				} catch (err) {
-					console.error(err)
-				}
-			},
-			interval: 500,
-			timeout: 5000
-		})
-		
-	}
-
 	async function scheduleScript(): Promise<void> {
 		if (errorHandlerSelected === 'slack' && !emptyString(errorHandlerPath)) {
-			// If the error handler is Slack, we inject the slack token in the args here as it is expected by the script
-			if (slackConnectionToken !== undefined) {
-				errorHandlerExtraArgs["slack"] = slackConnectionToken.value
-			}
+			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		}
+		if (recoveryHandlerSelected === 'slack' && !emptyString(recoveryHandlerPath)) {
+			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
 		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
@@ -284,35 +239,11 @@
 		}
 	}
 
-	async function loadSlackResources() {
-		const nc = (
-			await ResourceService.listResource({
-				workspace: $workspaceStore!,
-				resourceType: 'slack',
-			})
-		)
-			// filter out custom user token, use only the one created by the workspace Slack connection
-			.filter((x) => x.path == workspaceSlackConnectionResource)
-			.map((x) => ({
-				value: "$res:" + x.path,
-				label: x.path
-			}))
-		if (nc.length == 1) {
-			slackConnectionToken = nc[0]
-		}
-	}
-
 	$: {
 		if ($workspaceStore) {
 			if (edit && path != '') {
 				loadSchedule()
 			}
-		}
-	}
-
-	$: {
-		if ($workspaceStore) {
-			loadSlackResources()
 		}
 	}
 
@@ -515,72 +446,17 @@
 							<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
 						{/if}
 					{/if}
-					{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
-						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
-					{/if}
 				{:else if errorHandlerSelected === 'slack'}
-					<span class="w-full flex mb-3">
-						<Toggle
-							disabled={!can_write}
-							checked={ !emptyString(errorHandlerPath) }
-							options={{ right: 'enable'}}
-							size='xs'
-							on:change={async (e) => errorHandlerPath = e.detail ? slackErrorHandler : undefined}
-						/>
-					</span>
-					{#if slackConnectionToken !== undefined}
-					<SchemaForm
-						disabled={!can_write || emptyString(errorHandlerPath)}
-						schema={errorHandlerSchema}
-						schemaSkippedValues={['slack']}
-						schemaFieldTooltip={{'channel': 'Slack channel name without the "#" - example: "windmill-alerts"'}}
-						bind:args={errorHandlerExtraArgs}
-						shouldHideNoInputs
-						class="text-xs"
+					<SlackHandler
+						can_write={can_write}
+						bind:handlerPath={errorHandlerPath}
+						handlerPathToSet={slackErrorHandler}
+						handlerSchema={errorHandlerSchema}
+						bind:handlerExtraArgs={errorHandlerExtraArgs}
 					/>
-					{/if}
-					{#if !emptyString(errorHandlerPath) }
-						{#if slackConnectionToken === undefined}
-							<Alert type="error" title="Workspace not connected to Slack">
-								<div class="flex flex-row gap-x-1 w-full items-center">
-									<p class="text-clip grow min-w-0">
-										The workspace needs to be connected to Slack to use this feature. You can <a target="_blank" href="/workspace_settings?tab=slack">configure it here</a>. 
-									</p>
-									<Button
-										variant="border"
-										color="light"
-										on:click={loadSlackResources}
-									>
-										<Icon scale={0.8} data={faRotateRight} />
-									</Button>
-								</div>
-								
-							</Alert>
-						{:else}
-							<Button
-								disabled={emptyString(errorHandlerExtraArgs['channel'])}
-								btnClasses="w-32 text-center"
-								color="dark"
-								on:click={() => sendSlackMessage(errorHandlerExtraArgs['channel'])}
-								size="xs">Send test message</Button
-							>
-							{#if slackConnectionTestJob !== undefined}
-								<p class="text-normal text-2xs mt-1 gap-2">
-									{#if slackConnectionTestJob.in_progress}
-										<Icon scale={0.8} data={faRotate} class="mr-1" />
-									{:else if slackConnectionTestJob.is_success}
-										<Icon scale={0.8} data={check} class="mr-1 text-green-600" />
-									{:else}
-										<Icon scale={0.8} data={faTimes} class="mr-1 text-red-700" />
-									{/if}
-									Message sent via Windmill job <a target="_blank" href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}>{slackConnectionTestJob.uuid}</a>
-								</p>
-							{/if}
-						{/if}
-					{/if}
 				{/if}
 
-				{#if errorHandlerSelected === 'custom' || (errorHandlerSelected === 'slack' && errorHandlerPath !== undefined && slackConnectionToken !== undefined)}
+				{#if errorHandlerSelected === 'custom' || (errorHandlerSelected === 'slack' && errorHandlerPath !== undefined)}
 					<div class="flex flex-row items-center justify-between">
 						<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
 							<p
@@ -629,8 +505,8 @@
 					</div>
 				</svelte:fragment>
 				<Tabs bind:selected={recoveryHandlerSelected} class="mt-2 mb-4">
-					<Tab value="custom">Custom</Tab>
 					<Tab value="slack">Slack</Tab>
+					<Tab value="custom">Custom</Tab>
 				</Tabs>
 
 				{#if recoveryHandlerSelected === 'custom'}
@@ -654,40 +530,46 @@
 								target="_blank">Create from template</Button
 							>
 						{/if}
+
+						{#if recoveryHandlerPath}
+							<p class="font-semibold text-sm mt-4 mb-2"
+								>Extra arguments</p
+							>
+							<SchemaForm
+								disabled={!can_write}
+								schema={recoveryHandlerSchema}
+								bind:args={recoveryHandlerExtraArgs}
+								shouldHideNoInputs
+								class="text-xs"
+							/>
+							{#if recoveryHandlerSchema && recoveryHandlerSchema.properties && Object.keys(recoveryHandlerSchema.properties).length === 0}
+								<div class="text-xs texg-gray-700">This recovery handler takes no extra arguments</div>
+							{/if}
+						{/if}
 					</div>
 				{:else if recoveryHandlerSelected === 'slack'}
-					<Alert type="info" title="Slack schedule recovery handler"
-						>You will receive a notification on the selected slack channel.
-					</Alert>
+					<SlackHandler
+						can_write={can_write}
+						bind:handlerPath={recoveryHandlerPath}
+						handlerPathToSet={slackRecoveryHandler}
+						handlerSchema={recoveryHandlerSchema}
+						bind:handlerExtraArgs={recoveryHandlerExtraArgs}
+					/>
 				{/if}
 
-				<div class="flex flex-row items-center justify-between">
-					<div class="flex flex-row items-center mt-5 font-semibold text-sm">
-						<p>Triggered when schedule recovered</p>
-						<input
-							type="number"
-							class="!w-14 mx-2 text-center"
-							bind:value={recoveredTimes}
-							min="1"
-						/>
-						<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+				{#if recoveryHandlerSelected === 'custom' || (recoveryHandlerSelected === 'slack' && recoveryHandlerPath !== undefined)}
+					<div class="flex flex-row items-center justify-between">
+						<div class="flex flex-row items-center mt-5 font-semibold text-sm">
+							<p>Triggered when schedule recovered</p>
+							<input
+								type="number"
+								class="!w-14 mx-2 text-center"
+								bind:value={recoveredTimes}
+								min="1"
+							/>
+							<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+						</div>
 					</div>
-				</div>
-
-				{#if recoveryHandlerPath}
-					<p class="font-semibold text-sm mt-4 mb-2"
-						>{recoveryHandlerSelected === 'custom' ? 'Extra arguments' : 'Configuration'}</p
-					>
-					<SchemaForm
-						disabled={!can_write}
-						schema={recoveryHandlerSchema}
-						bind:args={recoveryHandlerExtraArgs}
-						shouldHideNoInputs
-						class="text-xs"
-					/>
-					{#if recoveryHandlerSchema && recoveryHandlerSchema.properties && Object.keys(recoveryHandlerSchema.properties).length === 0}
-						<div class="text-xs texg-gray-700">This recovery handler takes no extra arguments</div>
-					{/if}
 				{/if}
 			</Section>
 		</div>
