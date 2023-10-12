@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind } from './utils'
+	import {
+		clickButtonBySelector,
+		triggerAddFlowStep,
+		selectFlowStepKind,
+		isFlowTainted
+	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
 	import Tutorial from './Tutorial.svelte'
@@ -19,6 +24,7 @@
 
 <Tutorial
 	bind:this={tutorial}
+	tainted={isFlowTainted($flowStore)}
 	index={3}
 	name="branchall"
 	on:error

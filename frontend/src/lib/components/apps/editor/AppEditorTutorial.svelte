@@ -22,17 +22,17 @@
 	</svelte:fragment>
 	<svelte:fragment slot="items">
 		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('background-runnable')}
+			on:click={() => appTutorials?.runTutorialById('backgroundrunnables')}
 			label="Background runnables"
 			index={5}
 		/>
 		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('background-runnable')}
+			on:click={() => appTutorials?.runTutorialById('connection')}
 			label="Connection"
 			index={6}
 		/>
 		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('background-runnable')}
+			on:click={() => appTutorials?.runTutorialById('expressionevaluation')}
 			label="Expression evaluation"
 			index={7}
 		/>

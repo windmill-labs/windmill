@@ -5,7 +5,8 @@
 		clickButtonBySelector,
 		setInputBySelector,
 		triggerAddFlowStep,
-		selectFlowStepKind
+		selectFlowStepKind,
+		isFlowTainted
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { RawScript } from '$lib/gen'
@@ -23,6 +24,7 @@
 
 <Tutorial
 	bind:this={tutorial}
+	tainted={isFlowTainted($flowStore)}
 	index={2}
 	name="branchone"
 	on:error
