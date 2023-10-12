@@ -12,7 +12,7 @@
 	export let displayType: boolean = true
 	export let labelClass: string = ''
 	export let prettify = false
-	export let simpleTooltip: string | undefined
+	export let simpleTooltip: string | undefined = undefined
 </script>
 
 <div class="inline-flex flex-row items-center truncated">
