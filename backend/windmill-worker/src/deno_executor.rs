@@ -269,7 +269,10 @@ run().catch(async (e) => {{
         write_import_map_f
     )?;
 
-    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
+    let mut common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
+    if !*DISABLE_NSJAIL {
+        common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
+    }
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");

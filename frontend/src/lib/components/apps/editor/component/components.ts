@@ -90,6 +90,7 @@ export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ChartJsComponent = BaseComponent<'chartjscomponent'>
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
+
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
@@ -302,7 +303,9 @@ const labels = {
 	sendToast: 'Display a toast notification',
 	sendErrorToast: 'Display an error toast notification',
 	open: 'Open a modal or a drawer',
-	close: 'Close a modal or a drawer'
+	close: 'Close a modal or a drawer',
+	openModal: 'Open a modal (deprecated)',
+	closeModal: 'Close a modal (deprecated)'
 }
 
 const onSuccessClick = {
@@ -350,7 +353,8 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to open',
 				fieldType: 'text',
 				type: 'static',
-				value: ''
+				value: '',
+				deprecated: true
 			}
 		},
 		closeModal: {
@@ -358,7 +362,8 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to close',
 				fieldType: 'text',
 				type: 'static',
-				value: ''
+				value: '',
+				deprecated: true
 			}
 		},
 		open: {
@@ -1387,6 +1392,12 @@ This is a paragraph.
 		},
 		initialData: {
 			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'table-column',
+					value: [{ field: 'id' }, { field: 'name' }, { field: 'age' }]
+				} as StaticAppInput,
 				search: {
 					fieldType: 'select',
 					type: 'static',

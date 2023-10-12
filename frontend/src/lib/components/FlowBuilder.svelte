@@ -55,6 +55,7 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
+	import { snakeCase } from 'lodash'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	import FlowTutorials from './FlowTutorials.svelte'
@@ -662,15 +663,16 @@
 						copilotFlowInputs = {}
 						copilotFlowRequiredInputs = []
 						Object.entries(inputs).forEach(([key, expr]) => {
+							const snakeKey = snakeCase(key)
 							if (
 								key in stepSchema.properties &&
 								expr.includes('flow_input.') &&
 								!expr.includes('flow_input.iter') &&
-								(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
+								(!$flowStore.schema || !(snakeKey in $flowStore.schema.properties)) // prevent overriding flow inputs
 							) {
-								copilotFlowInputs[key] = stepSchema.properties[key]
-								if (stepSchema.required.includes(key)) {
-									copilotFlowRequiredInputs.push(key)
+								copilotFlowInputs[snakeKey] = stepSchema.properties[snakeKey]
+								if (stepSchema.required.includes(snakeKey)) {
+									copilotFlowRequiredInputs.push(snakeKey)
 								}
 							}
 						})
@@ -682,7 +684,7 @@
 						Object.entries(inputs).forEach(([key, expr]) => {
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
-								expr
+								expr: expr.replaceAll(/flow_input\.([A-Za-z0-9_]+)/g, (_, p1) => 'flow_input.' + p1)
 							}
 						})
 					} else {
@@ -706,13 +708,14 @@
 								const schemaProperty = Object.entries(schema.properties).find(
 									(x) => x[0] === key
 								)?.[1]
+								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(key in $flowStore.schema.properties)) // prevent overriding flow inputs
+									(!$flowStore.schema || !(snakeKey in $flowStore.schema.properties)) // prevent overriding flow inputs
 								) {
-									copilotFlowInputs[key] = schemaProperty
-									if (schema.required.includes(key)) {
-										copilotFlowRequiredInputs.push(key)
+									copilotFlowInputs[snakeKey] = schemaProperty
+									if (schema.required.includes(snakeKey)) {
+										copilotFlowRequiredInputs.push(snakeKey)
 									}
 								}
 							}
@@ -723,6 +726,7 @@
 
 						// programatically set step inputs
 						for (const key of Object.keys(flowModule.value.input_transforms)) {
+							const snakeKey = snakeCase(key)
 							flowModule.value.input_transforms[key] = {
 								type: 'javascript',
 								expr:
@@ -731,8 +735,8 @@
 											? 'flow_input.iter.value'
 											: pastModule
 											? 'results.' + pastModule.id
-											: 'flow_input.' + key
-										: 'flow_input.' + key
+											: 'flow_input.' + snakeKey
+										: 'flow_input.' + snakeKey
 							}
 						}
 					}

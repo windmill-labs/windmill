@@ -74,18 +74,62 @@ interface FixScriptOpions extends BaseOptions {
 
 type CopilotOptions = ScriptGenerationOptions | EditScriptOptions | FixScriptOpions
 
-export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
+async function getResourceTypes(scriptOptions: CopilotOptions) {
 	if (!workspace) {
 		throw new Error('Workspace not initialized')
 	}
 
-	if (['deno', 'bun', 'nativets'].includes(scriptOptions.language)) {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'typescript')
-		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
-	} else if (scriptOptions.language === 'python3') {
-		const resourceTypes = await ResourceService.listResourceType({ workspace })
-		const resourceTypesText = formatResourceTypes(resourceTypes, 'python3')
+	const localResourceTypes = await ResourceService.listResourceType({ workspace })
+
+	const elems =
+		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
+
+	if (scriptOptions.type === 'edit' || scriptOptions.type === 'fix') {
+		const { code } = scriptOptions
+
+		const mainSig =
+			scriptOptions.language === 'python3'
+				? code.match(/def main\((.*?)\)/s)
+				: code.match(/function main\((.*?)\)/s)
+
+		if (mainSig) {
+			elems.push(mainSig[1])
+		}
+
+		const matches = code.matchAll(/^(?:type|class) ([a-zA-Z0-9_]+)/gm)
+
+		for (const match of matches) {
+			elems.push(match[1])
+		}
+	}
+
+	const hubResourceTypes = await ResourceService.listHubResourceTypes()
+	const queriedIds = (
+		await ResourceService.queryHubResourceTypes({
+			text: elems.join(';')
+		})
+	).map((rt) => rt.id)
+	const customResourceTypes = localResourceTypes.filter((rt) => rt.name.startsWith('c_'))
+	const resourceTypes = [
+		...hubResourceTypes
+			.filter((rt) => queriedIds.includes(String(rt.id)))
+			.map((rt) => ({
+				...rt,
+				schema: JSON.parse(rt.schema)
+			})),
+		...customResourceTypes
+	]
+
+	return resourceTypes
+}
+
+export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
+	if (['deno', 'bun', 'nativets', 'python3'].includes(scriptOptions.language)) {
+		const resourceTypes = await getResourceTypes(scriptOptions)
+		const resourceTypesText = formatResourceTypes(
+			resourceTypes,
+			scriptOptions.language === 'python3' ? 'python3' : 'typescript'
+		)
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	}
 	return prompt
