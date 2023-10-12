@@ -78,63 +78,58 @@
 {/if}
 
 {#if selected && !connecting}
-	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
+	<div
+		class="top-[-24px] right-[4px] flex flex-row absolute gap-0.5 z-50 border bg-surface p-1 rounded-md shadow-sm"
+	>
 		{#if hasInlineEditor}
-			<button
+			<Button
 				title="Edit"
-				class={classNames(
-					'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-				)}
+				variant="contained"
+				color="light"
+				size="xs2"
 				on:click={() => dispatch('triggerInlineEditor')}
-				on:pointerdown|stopPropagation
 			>
 				{#if inlineEditorOpened}
 					<Pen aria-label="Unlock position" size={14} class="text-orange-500" />
 				{:else}
 					<Pen aria-label="Lock position" size={14} />
 				{/if}
-			</button>
+			</Button>
 		{/if}
 		{#if component.type === 'conditionalwrapper'}
 			<TabsDebug id={component.id} tabs={component.conditions ?? []} isConditionalDebugMode />
 		{:else if component.type === 'steppercomponent' || (component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView')}
 			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
 		{/if}
-		<button
+		<Button
 			title="Expand"
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-			)}
 			on:click={() => dispatch('expand')}
-			on:pointerdown|stopPropagation
+			variant="contained"
+			color="light"
+			size="xs2"
 		>
 			<Expand aria-label="Expand position" size={14} />
-		</button>
-		<button
+		</Button>
+		<Button
 			title="Lock Position"
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border  rounded-sm cursor-pointer',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-			)}
 			on:click={() => dispatch('lock')}
-			on:pointerdown|stopPropagation
+			variant="contained"
+			color="light"
+			size="xs2"
 		>
 			{#if locked}
 				<Anchor aria-label="Unlock position" size={14} class="text-orange-500" />
 			{:else}
 				<Anchor aria-label="Lock position" size={14} />
 			{/if}
-		</button>
+		</Button>
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			draggable="false"
 			title="Move"
 			on:mousedown|stopPropagation|capture
 			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-move rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800',
+				'text-2xs px-1.5 py-1 font-bold w-fit cursor-move rounded-md hover:bg-surface-hover',
 				'flex items-center justify-center'
 			)}
 		>

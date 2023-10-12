@@ -7,7 +7,9 @@
 
 	export let hasPadding: boolean = true
 
-	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
+	const [popperRef, popperContent] = createPopperActions({
+		placement: 'auto'
+	})
 
 	const popperOptions: PopperOptions<{}> = {
 		placement: 'bottom-end',

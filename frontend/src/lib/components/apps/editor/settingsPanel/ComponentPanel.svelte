@@ -278,10 +278,10 @@
 					{#if componentSettings.item.data.componentInput?.type === 'runnable'}
 						{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
 							<div class="w-full">
-								<div class="flex flex-row items-center gap-2 text-sm font-semibold">
+								<div class="flex flex-row items-center gap-1 text-sm font-semibold">
 									Runnable Inputs
 
-									<Tooltip wrapperClass="flex">
+									<Tooltip>
 										The runnable inputs are inferred from the inputs of the flow or script
 										parameters this component is attached to.
 									</Tooltip>

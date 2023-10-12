@@ -17,7 +17,7 @@
 	<div class="flex flex-row items-center gap-2">
 		Transformer
 
-		<Tooltip wrapperClass="flex">
+		<Tooltip>
 			{"A transformer is an optional frontend script that is executed right after the component's script whose purpose is to do lightweight transformation in the browser. It takes the previous computation's result as `result`"}
 		</Tooltip>
 	</div>
