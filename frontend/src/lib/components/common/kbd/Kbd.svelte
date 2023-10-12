@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isMac } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 
 	export let kbdClass = ''
@@ -9,7 +10,7 @@
 		kbdClass = twMerge(
 			kbdClass,
 			'!text-[10px]  px-1',
-			isModifier ? '!text-lg ' : 'text-xs',
+			isModifier && isMac() ? '!text-lg ' : 'text-xs',
 			'leading-none'
 		)
 	} else {

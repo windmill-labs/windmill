@@ -7,6 +7,7 @@
  */
 
 use crate::error::{Error, Result};
+use hyper::{HeaderMap, StatusCode};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -74,42 +75,17 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
 }
 
 #[cfg(feature = "reqwest")]
-pub async fn list_elems_from_hub(
-    http_client: &reqwest::Client,
-    url: &str,
-    email: &str,
-) -> Result<serde_json::Value> {
-    let rows = http_get_from_hub(http_client, url, email, false, None)
-        .await?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(crate::error::to_anyhow)?;
-    Ok(rows)
-}
-
-#[cfg(feature = "reqwest")]
 pub async fn query_elems_from_hub(
     http_client: &reqwest::Client,
     url: &str,
     email: &str,
-    query_text: &str,
-    query_kind: &Option<String>,
-    query_limit: &Option<i64>,
-) -> Result<serde_json::Value> {
-    let mut query_params = vec![("text", query_text)];
-    if let Some(query_kind) = query_kind {
-        query_params.push(("kind", query_kind.as_str()));
-    }
-    let query_limit = query_limit.unwrap_or(0).to_string();
-    if query_limit.parse::<i64>().unwrap() > 0 {
-        query_params.push(("limit", query_limit.as_str()));
-    }
-    let rows = http_get_from_hub(http_client, url, email, false, Some(query_params))
-        .await?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(crate::error::to_anyhow)?;
-    Ok(rows)
+    query_params: Option<Vec<(&str, String)>>,
+) -> Result<(StatusCode, HeaderMap, reqwest::Response)> {
+    let response = http_get_from_hub(http_client, url, email, false, query_params).await?;
+
+    let status = response.status();
+
+    Ok((status, response.headers().clone(), response))
 }
 
 #[cfg(feature = "reqwest")]
@@ -118,7 +94,7 @@ pub async fn http_get_from_hub(
     url: &str,
     email: &str,
     plain: bool,
-    query_params: Option<Vec<(&str, &str)>>,
+    query_params: Option<Vec<(&str, String)>>,
 ) -> Result<reqwest::Response> {
     let mut request = http_client
         .get(url)
