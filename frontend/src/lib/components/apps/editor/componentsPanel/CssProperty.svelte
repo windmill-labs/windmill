@@ -177,7 +177,12 @@
 					</Tooltip>
 				</div>
 				<div class="relative">
-					<ClearableInput bind:value={value.class} />
+					<ClearableInput
+						bind:value={value.class}
+						type="textarea"
+						wrapperClass="h-full"
+						inputClass="h-full !text-xs  !rounded-none !p-2 min-h-[72px]"
+					/>
 				</div>
 			</label>
 		{/if}

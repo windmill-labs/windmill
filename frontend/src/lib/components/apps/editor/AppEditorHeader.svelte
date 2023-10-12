@@ -6,7 +6,6 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -17,20 +16,19 @@
 	import { AppService, DraftService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import {
-		faClipboard,
-		faFileExport,
-		faHistory,
-		faSave,
-		faSlidersH
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard, faSave } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
 		Bug,
 		Expand,
+		FileJson,
+		FileUp,
+		FormInput,
+		History,
 		Laptop2,
 		Loader2,
+		MoreVertical,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -62,6 +60,8 @@
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
+	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	async function hash(message) {
 		try {
@@ -393,6 +393,45 @@
 
 	let dirtyPath = false
 	let path: Path | undefined = undefined
+
+	let moreItems = [
+		{
+			displayName: 'Deployment History',
+			icon: History,
+			action: () => {
+				historyBrowserDrawerOpen = true
+			}
+		},
+		{
+			displayName: 'JSON',
+			icon: FileJson,
+			action: () => {
+				appExport.open($app)
+			}
+		},
+		// {
+		// 	displayName: 'Publish to Hub',
+		// 	icon: faGlobe,
+		// 	action: () => {
+		// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+		// 		window.open(url.toString(), '_blank')
+		// 	}
+		// },
+		{
+			displayName: 'Hub compatible JSON',
+			icon: FileUp,
+			action: () => {
+				appExport.open(toStatic($app, $staticExporter, $summary).app)
+			}
+		},
+		{
+			displayName: 'App Inputs',
+			icon: FormInput,
+			action: () => {
+				inputsDrawerOpen = true
+			}
+		}
+	]
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -595,6 +634,7 @@
 							<div class="flex gap-2 flex-col">
 								{#each $jobs ?? [] as { job, component } (job)}
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
 									<div
 										class={classNames(
 											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
@@ -795,48 +835,29 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown
-			placement="bottom-end"
-			btnClasses="!rounded-md"
-			dropdownItems={[
-				{
-					displayName: 'Deployment History',
-					icon: faHistory,
-					action: () => {
-						historyBrowserDrawerOpen = true
-					}
-				},
-				{
-					displayName: 'JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open($app)
-					}
-				},
-				// {
-				// 	displayName: 'Publish to Hub',
-				// 	icon: faGlobe,
-				// 	action: () => {
-				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-				// 		window.open(url.toString(), '_blank')
-				// 	}
-				// },
-				{
-					displayName: 'Hub compatible JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open(toStatic($app, $staticExporter, $summary).app)
-					}
-				},
-				{
-					displayName: 'App Inputs',
-					icon: faSlidersH,
-					action: () => {
-						inputsDrawerOpen = true
-					}
-				}
-			]}
-		/>
+		<ButtonDropdown hasPadding={false}>
+			<svelte:fragment slot="buttonReplacement">
+				<Button nonCaptureEvent size="xs" color="light">
+					<div class="flex flex-row items-center">
+						<MoreVertical size={14} />
+					</div>
+				</Button>
+			</svelte:fragment>
+			<svelte:fragment slot="items">
+				{#each moreItems as item}
+					<MenuItem on:click={item.action}>
+						<div
+							class={classNames(
+								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+							)}
+						>
+							<svelte:component this={item.icon} size={14} />
+							{item.displayName}
+						</div>
+					</MenuItem>
+				{/each}
+			</svelte:fragment>
+		</ButtonDropdown>
 		<div class="hidden md:inline relative overflow-visible">
 			{#if hasErrors}
 				<span

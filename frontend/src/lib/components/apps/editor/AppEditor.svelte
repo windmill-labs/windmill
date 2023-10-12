@@ -433,7 +433,12 @@
 			<SplitPanesWrapper>
 				<Splitpanes class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
-						<div class="w-full h-full relative">
+						<div
+							class={twMerge(
+								'w-full h-full relative',
+								$secondaryMenuLeftStore.isOpen ? 'overflow-hidden' : ''
+							)}
+						>
 							<SecondaryMenu right={false} />
 							<ContextPanel />
 						</div>
