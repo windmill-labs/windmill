@@ -105,8 +105,12 @@ export function selectId(
 	}
 }
 
-
-export function connectOutput(connectingInput: Writable<ConnectingInput>, typ:  TypedComponent['type'], id: string, spath: string) {
+export function connectOutput(
+	connectingInput: Writable<ConnectingInput>,
+	typ: TypedComponent['type'],
+	id: string,
+	spath: string
+) {
 	if (get(connectingInput).opened) {
 		let splitted = spath?.split('.')
 		let componentId = typ == 'containercomponent' ? splitted?.[0] : id
@@ -385,7 +389,6 @@ export function copyComponent(
 	return newItem
 }
 
-
 export function getAllSubgridsAndComponentIds(
 	app: App,
 	component: AppComponent
@@ -574,7 +577,7 @@ export function initConfig<
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput | boolean>>
 		  }
 		| any
 	>
