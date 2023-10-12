@@ -1572,7 +1572,7 @@ paths:
           required: true
           schema: *ref_0
       requestBody:
-        description: WorkspaceInvite
+        description: path to hub script to run and its corresponding args
         required: true
         content:
           application/json:
@@ -1581,8 +1581,10 @@ paths:
               properties:
                 hub_script_path:
                   type: string
-                job_args:
-                  type: object
+                channel:
+                  type: string
+                test_msg:
+                  type: string
       responses:
         '200':
           description: status

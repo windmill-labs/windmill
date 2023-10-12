@@ -675,7 +675,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
             .await;
 
             match on_failure_result {
-                Ok(ntx) => {
+                Ok((_, ntx)) => {
                     tx = ntx;
                 }
                 Err(err) => {
@@ -769,7 +769,7 @@ async fn apply_schedule_handlers<'c, R: rsmq_async::RsmqConnection + Clone + Sen
     Ok(tx)
 }
 
-async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+pub async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     db: &Pool<Postgres>,
     tx: QueueTransaction<'c, R>,
     schedule_path: &str,
@@ -784,7 +784,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
     username: &str,
     email: &str,
     permissioned_as: String,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
     let mut args = result.clone().as_object().unwrap().clone();
@@ -833,7 +833,7 @@ async fn handle_on_failure<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c
         uuid,
         schedule_path
     );
-    return Ok(tx);
+    return Ok((uuid, tx));
 }
 
 async fn handle_on_recovery<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(

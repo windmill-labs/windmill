@@ -1250,8 +1250,10 @@ paths:
               properties:
                 hub_script_path:
                   type: string
-                job_args:
-                  type: object
+                channel:
+                  type: string
+                test_msg:
+                  type: string
 
       responses:
         "200":

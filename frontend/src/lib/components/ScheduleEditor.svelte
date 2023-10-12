@@ -157,21 +157,13 @@
 		}
 	}
 
-	async function sendSlackMessage(script_path: string, channel: string): Promise<void> {
+	async function sendSlackMessage(channel: string): Promise<void> {
 		let submitted_job = await WorkspaceService.runSlackMessageTestJob({
 			workspace: $workspaceStore!,
 			requestBody: {
-				hub_script_path: script_path,
-				job_args: {
-					'path': 'slack_notification_test',
-					'is_flow': false,
-					'schedule_path': 'slack_notification_test',
-					'error': `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`,
-					'start_at': new Date(),
-					'failed_times': 0,
-					'slack': '$res:' + workspaceSlackConnectionResource,
-					'channel': channel,
-				},
+				hub_script_path: slackErrorHandler,
+				channel: channel,
+				test_msg: `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`
 			}
 		})
 		slackConnectionTestJob = {
@@ -569,7 +561,7 @@
 								disabled={emptyString(errorHandlerExtraArgs['channel'])}
 								btnClasses="w-32 text-center"
 								color="dark"
-								on:click={() => sendSlackMessage(slackErrorHandler, errorHandlerExtraArgs['channel'])}
+								on:click={() => sendSlackMessage(errorHandlerExtraArgs['channel'])}
 								size="xs">Send test message</Button
 							>
 							{#if slackConnectionTestJob !== undefined}

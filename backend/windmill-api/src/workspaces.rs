@@ -21,6 +21,7 @@ use crate::{
     variables::build_crypt,
     webhook_util::{InstanceEvent, WebhookShared}
 };
+use crate::oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH;
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;
 use axum::{
@@ -31,12 +32,12 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use chrono::Utc;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::db::UserDB;
-use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
@@ -46,11 +47,11 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
 };
-use windmill_queue::PushIsolationLevel;
+use windmill_queue::QueueTransaction;
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -156,7 +157,8 @@ struct EditCommandScript {
 #[derive(Deserialize)]
 struct RunSlackMessageTestJobRequest {
     hub_script_path: String,
-    job_args: Map<String, Value>
+    channel: String,
+    test_msg: String
 }
 
 #[derive(Serialize)]
@@ -528,30 +530,29 @@ async fn run_slack_message_test_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
-    let payload = JobPayload::ScriptHub { path: req.hub_script_path };
+    let mut fake_result = Map::new();
+    fake_result.insert("error".to_string(), json!(req.test_msg));
 
-    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
-    let (uuid, tx) = windmill_queue::push(
+    let mut extra_args = Map::new();
+    extra_args.insert("channel".to_string(), json!(req.channel));
+    extra_args.insert("slack".to_string(), json!(format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}")));
+
+    let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+    let (uuid, tx) = windmill_queue::handle_on_failure(
         &db, 
         tx, 
-        w_id.as_str(), 
-        payload, 
-        req.job_args, 
+        "slack_message_test", 
+        "slack_message_test", 
+        false, 
+        w_id.as_str(),
+        &format!("script/{}", req.hub_script_path.as_str()), 
+        &json!(fake_result), 
+        0, 
+        Utc::now(), 
+        Some(json!(extra_args)),
         authed.username.as_str(), 
         authed.email.as_str(), 
-        username_to_permissioned_as(authed.username.as_str()), // TODO: double check with ruben if this is correct
-        None, 
-        None, 
-        None, 
-        None, 
-        None, 
-        false, 
-        false, 
-        None, 
-        true, 
-        None,
-        None, 
-        None
+        username_to_permissioned_as(authed.username.as_str())
     ).await?;
     tx.commit().await?;
 
