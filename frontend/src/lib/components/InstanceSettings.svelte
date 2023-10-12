@@ -27,7 +27,9 @@
 				key: 'base_url',
 				fieldType: 'text',
 				placeholder: 'https://windmill.com',
-				storage: 'setting'
+				storage: 'setting',
+				isValid: (value: string | undefined) =>
+					value ? value?.startsWith('http') && !value?.endsWith('/') : true
 			},
 			{
 				label: 'Request Size Limit In MB',
@@ -288,11 +290,15 @@
 											<Tooltip>{setting.tooltip}</Tooltip>
 										{/if}
 										{#if values}
+											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
 											{#if setting.fieldType == 'text'}
 												<input
 													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
 													placeholder={setting.placeholder}
+													class={hasError
+														? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30 !bg-red-100'
+														: ''}
 													bind:value={values[setting.key]}
 												/>
 											{:else if setting.fieldType == 'textarea'}
@@ -352,6 +358,13 @@
 												<div>
 													<SecondsInput bind:seconds={values[setting.key]} />
 												</div>
+											{/if}
+
+											{#if hasError}
+												<span class="text-red-500 text-xs">
+													Base url must start with http:// or https:// and must not end with a
+													trailing slash.
+												</span>
 											{/if}
 										{:else}
 											<input disabled placeholder="Loading..." />
@@ -494,6 +507,8 @@
 	on:click={async () => {
 		await saveSettings()
 		sendUserToast('Settings updated')
-	}}>Save</Button
+	}}
 >
+	Save
+</Button>
 <div class="pb-8" />

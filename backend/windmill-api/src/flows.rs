@@ -14,6 +14,8 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
+use axum::body::StreamBody;
+use axum::response::IntoResponse;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -26,6 +28,7 @@ use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::utils::query_elems_from_hub;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -33,9 +36,7 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
-    utils::{
-        http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
-    },
+    utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
 };
 use windmill_queue::PushArgs;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
@@ -157,14 +158,19 @@ async fn list_flows(
     Ok(Json(rows))
 }
 
-async fn list_hub_flows(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let flows = list_elems_from_hub(
+async fn list_hub_flows(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchFlowData?approved=true",
         &email,
+        None,
     )
     .await?;
-    Ok(Json(flows))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 async fn list_paths(

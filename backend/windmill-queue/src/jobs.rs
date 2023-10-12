@@ -712,7 +712,7 @@ async fn apply_schedule_handlers<
             .await;
 
             match on_failure_result {
-                Ok(ntx) => {
+                Ok((_, ntx)) => {
                     tx = ntx;
                 }
                 Err(err) => {
@@ -826,7 +826,7 @@ async fn handle_on_failure<
     username: &str,
     email: &str,
     permissioned_as: String,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
@@ -877,7 +877,7 @@ async fn handle_on_failure<
         uuid,
         schedule_path
     );
-    return Ok(tx);
+    return Ok((uuid, tx));
 }
 
 // #[derive(Serialize)]

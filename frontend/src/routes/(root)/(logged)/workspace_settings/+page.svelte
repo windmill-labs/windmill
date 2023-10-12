@@ -206,7 +206,7 @@
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="xs" value="slack">
-						<div class="flex gap-2 items-center my-1"> Slack Command </div>
+						<div class="flex gap-2 items-center my-1"> Slack </div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
@@ -254,10 +254,10 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-md font-semibold"> Send commands from slack </div>
+					<div class=" text-primary text-md font-semibold"> Connect workspace to Slack </div>
 					<div class="text-tertiary text-xs">
 						Connect your windmill workspace to your slack workspace to trigger a script or a flow
-						with a '/windmill' command.
+						with a '/windmill' command or to configure Slack error handlers.
 					</div>
 				</div>
 

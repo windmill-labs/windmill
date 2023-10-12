@@ -14,7 +14,9 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
+    body::StreamBody,
     extract::{Extension, Path, Query},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -41,8 +43,7 @@ use windmill_common::{
     },
     users::username_to_permissioned_as,
     utils::{
-        list_elems_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
 };
 use windmill_queue::{
@@ -235,14 +236,19 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<serde_json::Value> {
-    let asks = list_elems_from_hub(
+async fn list_hub_scripts(ApiAuthed { email, .. }: ApiAuthed) -> impl IntoResponse {
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/searchData?approved=true",
         &email,
+        None,
     )
     .await?;
-    Ok(Json(asks))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -254,17 +260,26 @@ struct HubScriptsQuery {
 async fn query_hub_scripts(
     ApiAuthed { email, .. }: ApiAuthed,
     Query(query): Query<HubScriptsQuery>,
-) -> JsonResult<serde_json::Value> {
-    let asks = query_elems_from_hub(
+) -> impl IntoResponse {
+    let mut query_params = vec![("text", query.text)];
+    if let Some(query_kind) = query.kind {
+        query_params.push(("kind", query_kind.clone()));
+    }
+    if let Some(query_limit) = query.limit {
+        query_params.push(("limit", query_limit.to_string().clone()));
+    }
+    let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         "https://hub.windmill.dev/scripts/query",
         &email,
-        &query.text,
-        &query.kind,
-        &query.limit,
+        Some(query_params),
     )
     .await?;
-    Ok(Json(asks))
+    Ok::<_, Error>((
+        status_code,
+        headers,
+        StreamBody::new(response.bytes_stream()),
+    ))
 }
 
 fn hash_script(ns: &NewScript) -> i64 {

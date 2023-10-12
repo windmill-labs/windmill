@@ -271,6 +271,7 @@
 						deno={false}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}
+						listenEmptyChanges
 						code={config?.init_bash ?? ''}
 						on:change={(e) => {
 							if (config) {
@@ -294,7 +295,6 @@
 					{#if dirty}
 						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>
 					{/if}
-
 					<Button
 						variant="contained"
 						color="dark"

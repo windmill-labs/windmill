@@ -11,10 +11,9 @@
 	export let isConditionalDebugMode: boolean = false
 
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const dispatch = createEventDispatcher()
 
 	let isManuallySelected: boolean = false
-
-	const dispatch = createEventDispatcher()
 </script>
 
 <button

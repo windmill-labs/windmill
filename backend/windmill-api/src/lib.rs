@@ -205,6 +205,7 @@ pub async fn run_server(
                 .nest("/workers", workers::global_service())
                 .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
+                .nest("/resources", resources::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
