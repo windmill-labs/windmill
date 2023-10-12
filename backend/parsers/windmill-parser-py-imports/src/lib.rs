@@ -38,8 +38,11 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "gitlab" => "python-gitlab",
     "smbclient" => "smbprotocol",
     "playhouse" => "peewee",
-    "dns" => "dnspython"
+    "dns" => "dnspython",
+    "msoffcrypto" => "msoffcrypto-tool",
+    "tabula" => "tabula-py"
 };
+
 
 fn replace_import(x: String) -> String {
     PYTHON_IMPORTS_REPLACEMENT
