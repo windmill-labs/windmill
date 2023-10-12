@@ -65,6 +65,7 @@
 	export let resourceTypes: string[] | undefined
 	export let disablePortal = false
 	export let showSchemaExplorer = false
+	export let simpleTooltip: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -187,7 +188,7 @@
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
-			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} />
+			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} {simpleTooltip} />
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">

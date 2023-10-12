@@ -13,6 +13,8 @@
 	import { getResourceTypes } from './resourceTypesStore'
 
 	export let schema: Schema | any
+	export let schemaSkippedValues: string[] = []
+	export let schemaFieldTooltip: Record<string, string> = {}
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
@@ -80,7 +82,7 @@
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
-			{#if Object.keys(schema?.properties ?? {}).includes(argName)}
+			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if editableSchema}
@@ -109,6 +111,7 @@
 								{itemPicker}
 								bind:pickForField
 								bind:extra={schema.properties[argName]}
+								simpleTooltip={schemaFieldTooltip[argName]}
 							/>
 						{:else}
 							<ArgInput
@@ -137,6 +140,7 @@
 								password={linkedSecret == argName}
 								extra={schema.properties[argName]}
 								{showSchemaExplorer}
+								simpleTooltip={schemaFieldTooltip[argName]}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}

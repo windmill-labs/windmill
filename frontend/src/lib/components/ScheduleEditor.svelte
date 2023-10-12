@@ -9,17 +9,20 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
+	import { FlowService, JobService, ResourceService, ScheduleService, Script, ScriptService, WorkspaceService, type Flow } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast } from '$lib/utils'
-	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { canWrite, emptySchema, emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
+	import { faList, faSave, faRotate, faRotateRight, faTimes } from '@fortawesome/free-solid-svg-icons'
+	import { check } from 'svelte-awesome/icons'
 	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 
 	const slackErrorHandler = 'hub/2431/slack/schedule-error-handler-slack'
 	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
+	const workspaceSlackConnectionResource = 'f/slack_bot/bot_token'
 
 	let initialPath = ''
 	let edit = true
@@ -30,7 +33,7 @@
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
 	let errorHandlerPath: string | undefined = undefined
 	let recoveryHandlerPath: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' = 'custom'
+	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
 	let errorHandlerSchema: Schema | undefined = undefined
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let recoveryHandlerSelected: 'custom' | 'slack' = 'custom'
@@ -43,6 +46,8 @@
 
 	let script_path = ''
 	let initialScriptPath = ''
+	let slackConnectionToken: {value: string, label:string} | undefined
+	let slackConnectionTestJob: {uuid: string, is_success: boolean, in_progress: boolean} | undefined
 
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
@@ -152,7 +157,55 @@
 		}
 	}
 
+	async function sendSlackMessage(channel: string): Promise<void> {
+		let submitted_job = await WorkspaceService.runSlackMessageTestJob({
+			workspace: $workspaceStore!,
+			requestBody: {
+				hub_script_path: slackErrorHandler,
+				channel: channel,
+				test_msg: `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`
+			}
+		})
+		slackConnectionTestJob = {
+			uuid: submitted_job.job_uuid!,
+			in_progress: true,
+			is_success: false
+		}
+		tryEvery({
+			tryCode: async () => {
+				const testResult = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: slackConnectionTestJob!.uuid
+				})
+				slackConnectionTestJob!.in_progress = false
+				slackConnectionTestJob!.is_success = testResult.success
+			},
+			timeoutCode: async () => {				
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: $workspaceStore!,
+						id: slackConnectionTestJob!.uuid,
+						requestBody: {
+							reason: 'Slack message not sent after after 5s'
+						}
+					})
+				} catch (err) {
+					console.error(err)
+				}
+			},
+			interval: 500,
+			timeout: 5000
+		})
+		
+	}
+
 	async function scheduleScript(): Promise<void> {
+		if (errorHandlerSelected === 'slack' && !emptyString(errorHandlerPath)) {
+			// If the error handler is Slack, we inject the slack token in the args here as it is expected by the script
+			if (slackConnectionToken !== undefined) {
+				errorHandlerExtraArgs["slack"] = slackConnectionToken.value
+			}
+		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
 				workspace: $workspaceStore!,
@@ -231,11 +284,35 @@
 		}
 	}
 
+	async function loadSlackResources() {
+		const nc = (
+			await ResourceService.listResource({
+				workspace: $workspaceStore!,
+				resourceType: 'slack',
+			})
+		)
+			// filter out custom user token, use only the one created by the workspace Slack connection
+			.filter((x) => x.path == workspaceSlackConnectionResource)
+			.map((x) => ({
+				value: "$res:" + x.path,
+				label: x.path
+			}))
+		if (nc.length == 1) {
+			slackConnectionToken = nc[0]
+		}
+	}
+
 	$: {
 		if ($workspaceStore) {
 			if (edit && path != '') {
 				loadSchedule()
 			}
+		}
+	}
+
+	$: {
+		if ($workspaceStore) {
+			loadSlackResources()
 		}
 	}
 
@@ -304,7 +381,7 @@
 			{/if}
 			<Button
 				startIcon={{ icon: faSave }}
-				disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+				disabled={!allowSchedule || pathError != '' || emptyString(script_path) || (errorHandlerSelected == 'slack' && !emptyString(errorHandlerPath) && emptyString(errorHandlerExtraArgs['channel']))}
 				on:click={scheduleScript}
 			>
 				{edit ? 'Save' : 'Schedule'}
@@ -396,8 +473,8 @@
 				</svelte:fragment>
 				<div>
 					<Tabs bind:selected={errorHandlerSelected} class="mt-2 mb-4">
-						<Tab value="custom">Custom</Tab>
 						<Tab value="slack">Slack</Tab>
+						<Tab value="custom">Custom</Tab>
 					</Tabs>
 				</div>
 
@@ -423,46 +500,107 @@
 							>
 						{/if}
 					</div>
-				{:else if errorHandlerSelected === 'slack'}
-					<Alert type="info" title="Slack schedule error handler"
-						>You will receive a notification on the selected slack channel.
-					</Alert>
-				{/if}
-
-				<div class="flex flex-row items-center justify-between">
-					<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-						<p
-							>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
-							when schedule failed</p
+					{#if errorHandlerPath}
+						<p class="font-semibold text-sm mt-4 mb-2"
+							>Extra arguments</p
 						>
-						<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
-							<option value={false}>&gt;=</option>
-							<option value={true}>==</option>
-						</select>
-						<input
-							type="number"
-							class="!w-14 text-center"
-							bind:value={failedTimes}
-							disabled={!$enterpriseLicense}
-							min="1"
+						<SchemaForm
+							disabled={!can_write}
+							schema={errorHandlerSchema}
+							bind:args={errorHandlerExtraArgs}
+							shouldHideNoInputs
+							class="text-xs"
 						/>
-						<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
-					</div>
-				</div>
-				{#if errorHandlerPath}
-					<p class="font-semibold text-sm mt-4 mb-2"
-						>{errorHandlerSelected !== 'custom' ? 'Configuration' : 'Extra arguments'}</p
-					>
+						{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
+							<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+						{/if}
+					{/if}
+					{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
+						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+					{/if}
+				{:else if errorHandlerSelected === 'slack'}
+					<span class="w-full flex mb-3">
+						<Toggle
+							disabled={!can_write}
+							checked={ !emptyString(errorHandlerPath) }
+							options={{ right: 'enable'}}
+							size='xs'
+							on:change={async (e) => errorHandlerPath = e.detail ? slackErrorHandler : undefined}
+						/>
+					</span>
+					{#if slackConnectionToken !== undefined}
 					<SchemaForm
-						disabled={!can_write}
+						disabled={!can_write || emptyString(errorHandlerPath)}
 						schema={errorHandlerSchema}
+						schemaSkippedValues={['slack']}
+						schemaFieldTooltip={{'channel': 'Slack channel name without the "#" - example: "windmill-alerts"'}}
 						bind:args={errorHandlerExtraArgs}
 						shouldHideNoInputs
 						class="text-xs"
 					/>
-					{#if errorHandlerSchema && errorHandlerSchema.properties && Object.keys(errorHandlerSchema.properties).length === 0}
-						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
 					{/if}
+					{#if !emptyString(errorHandlerPath) }
+						{#if slackConnectionToken === undefined}
+							<Alert type="error" title="Workspace not connected to Slack">
+								<div class="flex flex-row gap-x-1 w-full items-center">
+									<p class="text-clip grow min-w-0">
+										The workspace needs to be connected to Slack to use this feature. You can <a target="_blank" href="/workspace_settings?tab=slack">configure it here</a>. 
+									</p>
+									<Button
+										variant="border"
+										color="light"
+										on:click={loadSlackResources}
+									>
+										<Icon scale={0.8} data={faRotateRight} />
+									</Button>
+								</div>
+								
+							</Alert>
+						{:else}
+							<Button
+								disabled={emptyString(errorHandlerExtraArgs['channel'])}
+								btnClasses="w-32 text-center"
+								color="dark"
+								on:click={() => sendSlackMessage(errorHandlerExtraArgs['channel'])}
+								size="xs">Send test message</Button
+							>
+							{#if slackConnectionTestJob !== undefined}
+								<p class="text-normal text-2xs mt-1 gap-2">
+									{#if slackConnectionTestJob.in_progress}
+										<Icon scale={0.8} data={faRotate} class="mr-1" />
+									{:else if slackConnectionTestJob.is_success}
+										<Icon scale={0.8} data={check} class="mr-1 text-green-600" />
+									{:else}
+										<Icon scale={0.8} data={faTimes} class="mr-1 text-red-700" />
+									{/if}
+									Message sent via Windmill job <a target="_blank" href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}>{slackConnectionTestJob.uuid}</a>
+								</p>
+							{/if}
+						{/if}
+					{/if}
+				{/if}
+
+				{#if errorHandlerSelected === 'custom' || (errorHandlerSelected === 'slack' && errorHandlerPath !== undefined && slackConnectionToken !== undefined)}
+					<div class="flex flex-row items-center justify-between">
+						<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
+							<p
+								>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
+								when schedule failed</p
+							>
+							<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
+								<option value={false}>&gt;=</option>
+								<option value={true}>==</option>
+							</select>
+							<input
+								type="number"
+								class="!w-14 text-center"
+								bind:value={failedTimes}
+								disabled={!$enterpriseLicense}
+								min="1"
+							/>
+							<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
+						</div>
+					</div>
 				{/if}
 			</Section>
 			<Section label="Recovery handler">
