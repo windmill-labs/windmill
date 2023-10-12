@@ -62,6 +62,7 @@
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import AppEditorTutorial from './AppEditorTutorial.svelte'
 
 	async function hash(message) {
 		try {
@@ -835,6 +836,7 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+		<AppEditorTutorial />
 		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
 				<Button nonCaptureEvent size="xs" color="light">
