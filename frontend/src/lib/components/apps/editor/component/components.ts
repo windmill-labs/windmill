@@ -303,7 +303,9 @@ const labels = {
 	sendToast: 'Display a toast notification',
 	sendErrorToast: 'Display an error toast notification',
 	open: 'Open a modal or a drawer',
-	close: 'Close a modal or a drawer'
+	close: 'Close a modal or a drawer',
+	openModal: 'Open a modal (deprecated)',
+	closeModal: 'Close a modal (deprecated)'
 }
 
 const onSuccessClick = {
@@ -351,7 +353,8 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to open',
 				fieldType: 'text',
 				type: 'static',
-				value: ''
+				value: '',
+				deprecated: true
 			}
 		},
 		closeModal: {
@@ -359,7 +362,8 @@ const onSuccessClick = {
 				tooltip: 'The id of the modal to close',
 				fieldType: 'text',
 				type: 'static',
-				value: ''
+				value: '',
+				deprecated: true
 			}
 		},
 		open: {
