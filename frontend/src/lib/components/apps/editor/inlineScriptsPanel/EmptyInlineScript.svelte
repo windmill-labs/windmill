@@ -156,7 +156,11 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col px-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
+<div
+	class="flex flex-col px-4 gap-2 text-sm"
+	in:fly={{ duration: 50 }}
+	id="app-editor-empty-runnable"
+>
 	<div class="mt-2 flex justify-between gap-4">
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
@@ -198,6 +202,7 @@
 						on:click={() => {
 							createInlineScriptByLanguage(lang, name)
 						}}
+						id={`create-${lang}-script`}
 					/>
 				{/each}
 			</div>

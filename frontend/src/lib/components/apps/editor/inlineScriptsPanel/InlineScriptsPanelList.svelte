@@ -70,7 +70,7 @@
 	}
 </script>
 
-<PanelSection title="Runnables">
+<PanelSection title="Runnables" id="app-editor-runnable-panel">
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-2 w-full">
@@ -178,6 +178,7 @@
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
+					id="create-background-runnable"
 				>
 					<Plus size={14} class="!text-primary" />
 				</Button>
