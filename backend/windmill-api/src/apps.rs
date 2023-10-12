@@ -1014,7 +1014,7 @@ fn build_args(
         .map(|x| x.clone())
         .or_else(|| {
             if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                Some(Map::new())
+                Some(HashMap::new())
             } else {
                 None
             }

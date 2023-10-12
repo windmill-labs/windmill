@@ -966,11 +966,20 @@ pub struct Iter {
 }
 
 #[derive(Serialize)]
-pub struct WithIter {
+pub struct WithIter<'a> {
     iter: Iter,
 
     #[serde(flatten)]
-    origin: Box<RawValue>,
+    origin: &'a RawValue,
+}
+
+#[derive(Serialize)]
+pub struct MergeArgs<'a> {
+    #[serde(flatten)]
+    a: &'a RawValue,
+
+    #[serde(flatten)]
+    b: &'a HashMap<String, Box<RawValue>>,
 }
 
 #[async_recursion]
@@ -1011,9 +1020,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.workspace_id.as_str(),
             true,
             if flow.modules.is_empty() {
-                &flow_job
-                    .args
-                    .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
+                if let Some(args) = &flow_job.args.as_ref() {
+                    &args.0
+                } else {
+                    serde_json::from_str("{}").unwrap()
+                }
             } else {
                 serde_json::from_str("{}").unwrap()
             },
@@ -1030,10 +1041,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     if let Some(skip_expr) = &flow.skip_expr {
         let skip = compute_bool_from_expr(
             skip_expr.to_string(),
-            flow_job
-                .args
-                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
-                .0,
+            flow_job.get_args(),
             last_result.clone(),
             None,
             Some(client),
@@ -1084,10 +1092,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             let json_value = match it {
                 InputTransform::Static { value } => value,
                 InputTransform::Javascript { expr } => {
-                    let flow_input = flow_job
-                        .args
-                        .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
-                        .0;
+                    let flow_input = flow_job.get_args();
 
                     eval_timeout(
                         expr.to_string(),
@@ -1229,12 +1234,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let success = false;
                 let skipped = false;
                 let logs = "Timed out waiting to be resumed".to_string();
-                let result = serde_json::from_value(
-                    json!({ "error": {"message": logs, "name": "SuspendedTimeout"}}),
-                )
-                .unwrap();
+                let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, Json(result), logs, rsmq)
+                    add_completed_job(db, &flow_job, success, skipped, Json(&result), logs, rsmq)
                         .await?;
 
                 return Ok(());
@@ -1271,7 +1273,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                  * them again from the last result, but that seemed to not play well with the forloop
                  * logic and I couldn't figure out why. */
                 if let Some(v) = &status.retry.previous_result {
-                    last_result = v.0;
+                    last_result = v.0.clone();
                 }
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
 
@@ -1305,7 +1307,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 ",
                     )
                     .bind(json!(RetryStatus {
-                        previous_result: Some(Json(last_result)),
+                        previous_result: Some(Json(last_result.clone())),
                         fail_count: 0,
                         failed_jobs: vec![],
                     }))
@@ -1334,7 +1336,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             ",
             )
             .bind(json!(RetryStatus {
-                previous_result: Some(Json(last_result)),
+                previous_result: Some(Json(last_result.clone())),
                 fail_count: 0,
                 failed_jobs: vec![],
             }))
@@ -1348,60 +1350,61 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     let mut transform_context: Option<IdContext> = None;
 
-    let args: windmill_common::error::Result<_> =
-        if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
-            let v = module
-                .mock
-                .as_ref()
-                .unwrap()
-                .return_value
-                .clone()
-                .ok_or_else(|| {
-                    Error::BadRequest(format!(
-                        "mock enabled but no return_value specified for module {}",
-                        module.id
-                    ))
-                })?;
-            serde_json::from_str(
-                &serde_json::to_string(&PreviousResult { previous_result: Some(v) }).unwrap(),
-            );
-            Ok(v)
-        } else {
-            match &module.value {
-                FlowModuleValue::Script { input_transforms, .. }
-                | FlowModuleValue::RawScript { input_transforms, .. }
-                | FlowModuleValue::Flow { input_transforms, .. } => {
-                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
-                    transform_context = Some(ctx);
-                    let by_id = transform_context.as_ref().unwrap();
-                    // transform_input(
-                    //     &flow_job.args,
-                    //     last_result.clone(),
-                    //     input_transforms,
-                    //     resume_messages.as_slice(),
-                    //     approvers.clone(),
-                    //     by_id,
-                    //     client,
-                    // )
-                    // .await
-                    todo!()
-                }
-                FlowModuleValue::Identity => serde_json::from_str(
-                    &serde_json::to_string(&PreviousResult { previous_result: Some(last_result) })
-                        .unwrap(),
-                )
-                .map_err(|e| error::Error::InternalErr(format!("identity: {e}"))),
+    let args: windmill_common::error::Result<_> = if module.mock.is_some()
+        && module.mock.as_ref().unwrap().enabled
+    {
+        let v = module
+            .mock
+            .as_ref()
+            .unwrap()
+            .return_value
+            .clone()
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "mock enabled but no return_value specified for module {}",
+                    module.id
+                ))
+            })?;
+        serde_json::from_str(
+            &serde_json::to_string(&PreviousResult { previous_result: Some(&v) }).unwrap(),
+        )
+        .map_err(|e| error::Error::InternalErr(format!("Impossible to build PreviousResult: {e}")))
+    } else {
+        match &module.value {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::Flow { input_transforms, .. } => {
+                let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                transform_context = Some(ctx);
+                let by_id = transform_context.as_ref().unwrap();
+                // transform_input(
+                //     &flow_job.args,
+                //     last_result.clone(),
+                //     input_transforms,
+                //     resume_messages.as_slice(),
+                //     approvers.clone(),
+                //     by_id,
+                //     client,
+                // )
+                // .await
+                todo!()
+            }
+            FlowModuleValue::Identity => serde_json::from_str(
+                &serde_json::to_string(&PreviousResult { previous_result: Some(&last_result) })
+                    .unwrap(),
+            )
+            .map_err(|e| error::Error::InternalErr(format!("identity: {e}"))),
 
-                _ => {
-                    /* embedded flow input is augmented with embedding flow input */
-                    if let Some(value) = &flow_job.args {
-                        Ok(value.0)
-                    } else {
-                        Ok(serde_json::from_str("{}").unwrap())
-                    }
+            _ => {
+                /* embedded flow input is augmented with embedding flow input */
+                if let Some(value) = &flow_job.args {
+                    Ok(value.0.clone())
+                } else {
+                    Ok(serde_json::from_str("{}").unwrap())
                 }
             }
-        };
+        }
+    };
 
     let next_flow_transform = compute_next_flow_transform(
         flow_job,
@@ -1411,7 +1414,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         &module,
         &status,
         &status_module,
-        last_result,
+        last_result.clone(),
         &previous_id,
         client,
         resume_messages.as_slice(),
@@ -1474,20 +1477,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 ..
             } => args.as_ref().map(|args| args.clone()),
             NextStatus::NextLoopIteration(NextIteration { new_args, .. }) => {
-                args.as_ref().map(|args| {
-                    let mut args = args.clone();
-                    args.extend(new_args.clone());
-                    args
-                })
+                let a = if let Ok(args) = args.as_ref() {
+                    args.clone()
+                } else {
+                    serde_json::from_str("{}").unwrap()
+                };
+                Ok(to_raw_value(&MergeArgs { a: &a, b: new_args }))
             }
             NextStatus::AllFlowJobs {
                 branchall: None,
                 iterator: Some(Iterator { itered, .. }),
                 simple_input_transforms,
             } => {
-                if let Ok(args) = args {
-                    let with_iter =
-                        WithIter { iter: Iter { index: i as i32, value: itered[i] }, origin: args };
+                if let Ok(args) = args.as_ref() {
+                    let with_iter = WithIter {
+                        iter: Iter { index: i as i32, value: itered[i].clone() },
+                        origin: args,
+                    };
 
                     if let Some(input_transforms) = simple_input_transforms {
                         let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
@@ -1503,7 +1509,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         .await;
                         transform_inp.as_ref().map(|args| args.clone())
                     } else {
-                        Ok(args)
+                        Ok(args.clone())
                     }
                 } else {
                     args.as_ref().map(|args| args.clone())
@@ -1757,11 +1763,11 @@ struct NextIteration {
     index: usize,
     itered: Vec<Box<RawValue>>,
     flow_jobs: Vec<Uuid>,
-    new_args: Map<String, serde_json::Value>,
+    new_args: HashMap<String, Box<RawValue>>,
 }
 
 enum LoopStatus {
-    ParallelIteration { itered: Vec<Value> },
+    ParallelIteration { itered: Vec<Box<RawValue>> },
     NextIteration(NextIteration),
     EmptyIterator,
 }

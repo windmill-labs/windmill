@@ -237,8 +237,8 @@ pub async fn add_completed_job<
     logs: String,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
-    // tracing::error!("Start");
-    // let start = tokio::time::Instant::now();
+    tracing::error!("Start");
+    let start = tokio::time::Instant::now();
 
     let is_flow =
         queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
@@ -267,14 +267,8 @@ pub async fn add_completed_job<
         None
     };
 
-    let mem_peak = sqlx::query_scalar!("SELECT mem_peak FROM queue WHERE id = $1", &queued_job.id)
-        .fetch_optional(db)
-        .await
-        .ok()
-        .flatten()
-        .flatten();
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
-    let job_id = queued_job.id.clone();
+    let job_id = queued_job.id;
 
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
@@ -340,7 +334,7 @@ pub async fn add_completed_job<
         duration as Option<i64>,
         queued_job.email,
         queued_job.visible_to_owner,
-        mem_peak,
+        queued_job.mem_peak,
         queued_job.tag,
     )
     .fetch_one(&mut tx)
@@ -441,7 +435,7 @@ pub async fn add_completed_job<
     }
 
     tracing::debug!("Added completed job {}", queued_job.id);
-    // tracing::error!("{:?}", start.elapsed());
+    tracing::error!("{:?}", start.elapsed());
 
     Ok(queued_job.id)
 }

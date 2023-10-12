@@ -419,7 +419,7 @@ pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
 
 pub struct MainArgs {
-    args: Vec<serde_json::Value>,
+    args: Vec<Option<Box<RawValue>>>,
 }
 
 pub struct LogString {
@@ -429,8 +429,8 @@ pub struct LogString {
 pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
-    args: serde_json::Map<String, Value>,
-) -> anyhow::Result<(serde_json::Value, String)> {
+    args: HashMap<String, Box<RawValue>>,
+) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let ts_expr2 = ts_expr.clone();
     timeout(
@@ -492,7 +492,7 @@ pub async fn eval_fetch_timeout(
             });
 
             let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
-            let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone()).unwrap_or(serde_json::Value::Null)).collect::<Vec<_>>();
+            let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone())).collect::<Vec<_>>();
 
             {
                 let op_state = js_runtime.op_state();
@@ -521,7 +521,7 @@ pub async fn eval_fetch_timeout(
             let r = runtime.block_on(future)?;
             // tracing::info!("total: {:?}", instant.elapsed());
 
-            (r as anyhow::Result<Value>).map(|x| (x, js_runtime.op_state().borrow().borrow::<LogString>().s.clone()))
+            (r as anyhow::Result<Box<RawValue>>).map(|x| (x, js_runtime.op_state().borrow().borrow::<LogString>().s.clone()))
         }),
     )
     .await
@@ -535,7 +535,7 @@ pub async fn eval_fetch_timeout(
     })??
 }
 
-async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<serde_json::Value> {
+async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<Box<RawValue>> {
     let _ = js_runtime
         .load_side_module(
             &deno_core::resolve_url("file:///eval.ts")?,
@@ -558,11 +558,11 @@ import("file:///eval.ts").then((module) => module.main(...args))
     let local = v8::Local::new(scope, global);
     // Deserialize a `v8` object into a Rust type using `serde_v8`,
     // in this case deserialize to a JSON `Value`.
-    Ok(serde_v8::from_v8::<serde_json::Value>(scope, local)?)
+    Ok(serde_v8::from_v8::<Box<RawValue>>(scope, local)?)
 }
 
 #[op]
-fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<serde_json::Value> {
+fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<Box<RawValue>>> {
     return op_state.borrow().borrow::<MainArgs>().args.clone();
 }
 
@@ -628,9 +628,8 @@ multiline template`";
     async fn test_eval_fetch_timeout() -> anyhow::Result<()> {
         let code = r#"export async function main() { return "" }"#;
 
-        let res =
-            eval_fetch_timeout(code.to_string(), code.to_string(), serde_json::Map::new()).await?;
-        assert_eq!(res.0, "".to_string());
+        let res = eval_fetch_timeout(code.to_string(), code.to_string(), HashMap::new()).await?;
+        assert_eq!(res.0.get(), "");
         Ok(())
     }
 }

@@ -74,7 +74,10 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
-    common::{hash_args, read_result, save_in_cache, transform_json_value, write_file},
+    common::{
+        build_args_map, hash_args, read_result, save_in_cache, transform_json,
+        transform_json_value, write_file,
+    },
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
     graphql_executor::do_graphql,
@@ -1576,8 +1579,10 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
-fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
-    return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"});
+fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
+    return to_raw_value(
+        &json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"}),
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -1613,26 +1618,14 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 async fn do_nativets(
-    job: QueuedJob,
+    job: &QueuedJob,
     logs: String,
-    client: &AuthedClient,
+    client: &AuthedClientBackgroundTask,
     code: String,
     db: &Pool<Postgres>,
 ) -> windmill_common::error::Result<(Box<RawValue>, String)> {
-    // let args = if let Some(args) = &job.args {
-    //     Some(transform_json("args", client, &job.workspace_id, args.0, &job, db).await?)
-    // } else {
-    //     None
-    // };
-    let args: Option<Value> = todo!();
+    let args = build_args_map(job, client, db).await?;
 
-    let args = args
-        .as_ref()
-        .map(|x| x.clone())
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .unwrap()
-        .clone();
     let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, args).await?;
     Ok((result.0, [logs, result.1].join("\n\n")))
 }
@@ -1644,13 +1637,14 @@ struct CachedResource {
 }
 
 #[derive(Deserialize, Serialize, Default)]
-pub struct PreviousResult {
-    pub previous_result: Option<Box<RawValue>>,
+pub struct PreviousResult<'a> {
+    #[serde(borrow)]
+    pub previous_result: Option<&'a RawValue>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    job: QueuedJob,
+    mut job: QueuedJob,
     db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
@@ -1737,15 +1731,12 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     };
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
-            let args = job
-                .args
-                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
-                .0;
+            let args = job.get_args();
             handle_flow(
                 &job,
                 db,
                 &client.get_authed().await,
-                args,
+                args.to_owned(),
                 same_worker_tx,
                 worker_dir,
                 rsmq,
@@ -1819,14 +1810,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         .flatten()
                         .unwrap_or_default();
                     if let Some(pr) = pr.previous_result {
-                        Ok(pr)
+                        Ok(pr.to_owned())
                     } else {
                         Ok(serde_json::from_str("{}").unwrap())
                     }
                 }
                 _ => {
                     handle_code_execution_job(
-                        &job,
+                        &mut job,
                         db,
                         client,
                         job_dir,
@@ -1886,7 +1877,7 @@ async fn process_result(
                 Error::ExitStatus(i) => {
                     let res = read_result(job_dir).await.ok();
 
-                    if res.is_some() && res.clone().unwrap().is_object() {
+                    if res.is_some() {
                         res.unwrap()
                     } else {
                         let last_10_log_lines = logs
@@ -1904,9 +1895,9 @@ async fn process_result(
                         extract_error_value(log_lines, i)
                     }
                 }
-                err @ _ => {
-                    json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
-                }
+                err @ _ => to_raw_value(
+                    &json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"}),
+                ),
             };
 
             // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
@@ -1959,7 +1950,7 @@ fn build_envs(
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
-    job: &QueuedJob,
+    job: &mut QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -2013,9 +2004,9 @@ async fn handle_code_execution_job(
     };
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(job.clone(), &client.get_authed().await, &inner_content, db).await;
+        return do_postgresql(job.clone(), &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Mysql) {
-        return do_mysql(job.clone(), &client.get_authed().await, &inner_content, db).await;
+        return do_mysql(job, &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -2041,7 +2032,7 @@ async fn handle_code_execution_job(
             return do_snowflake(job.clone(), &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(job.clone(), &client.get_authed().await, &inner_content, db).await;
+        return do_graphql(&job, &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(
@@ -2049,14 +2040,7 @@ async fn handle_code_execution_job(
             &client.get_token().await,
             inner_content
         );
-        let (result, ts_logs) = do_nativets(
-            job.clone(),
-            logs.clone(),
-            &client.get_authed().await,
-            code,
-            db,
-        )
-        .await?;
+        let (result, ts_logs) = do_nativets(job, logs.clone(), &client, code, db).await?;
         *logs = ts_logs;
         return Ok(result);
     }

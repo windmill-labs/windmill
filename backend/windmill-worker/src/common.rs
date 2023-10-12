@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -47,6 +47,23 @@ use crate::{
     ROOT_CACHE_DIR, TIMEOUT_DURATION, WHITELIST_ENVS,
 };
 
+pub async fn build_args_map(
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
+    db: &Pool<Postgres>,
+) -> error::Result<HashMap<String, Box<RawValue>>> {
+    if let Some(args) = &job.args {
+        let tjs = transform_json(client, &job.workspace_id, &args.0, &job, db).await?;
+        if let Some(tjs) = tjs {
+            Ok(tjs)
+        } else {
+            Ok(serde_json::from_str(args.get()).unwrap_or_else(|_| HashMap::new()))
+        }
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClientBackgroundTask,
@@ -54,18 +71,21 @@ pub async fn create_args_and_out_file(
     job_dir: &str,
     db: &Pool<Postgres>,
 ) -> Result<(), Error> {
-    let bx;
-    let args = if let Some(args) = &job.args {
-        if let Some(x) = transform_json(client, &job.workspace_id, args.get(), job, db).await? {
-            bx = x;
-            Some(bx.get())
+    if let Some(args) = &job.args {
+        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, db).await? {
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await?;
         } else {
-            Some(args.get())
-        }
+            write_file(job_dir, "args.json", args.0.get()).await?;
+        };
     } else {
-        None
+        write_file(job_dir, "args.json", "{}").await?;
     };
-    write_file(job_dir, "args.json", args.unwrap_or_else(|| "{}")).await?;
+
     write_file(job_dir, "result.json", "").await?;
     Ok(())
 }
@@ -89,16 +109,17 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|arg)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
 }
 
 pub async fn transform_json(
     client: &AuthedClientBackgroundTask,
     workspace: &str,
-    vs: &str,
+    vs: &Box<RawValue>,
     job: &QueuedJob,
     db: &Pool<Postgres>,
-) -> error::Result<Option<Box<RawValue>>> {
+) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
+    let vs = vs.get();
     if (*RE_RES_VAR).is_match(vs) {
         let values = serde_json::from_str::<HashMap<String, Box<RawValue>>>(vs).unwrap_or_default();
         let mut r = HashMap::new();
@@ -119,11 +140,7 @@ pub async fn transform_json(
                 r.insert(k, v);
             }
         }
-        serde_json::from_str(&serde_json::to_string(&r).map_err(|e| {
-            error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
-        })?)
-        .map(Some)
-        .map_err(|e| error::Error::InternalErr(format!("Error while parsing args: {e}")))
+        Ok(Some(r))
     } else {
         Ok(None)
     }
@@ -216,28 +233,28 @@ pub async fn read_file_content(path: &str) -> error::Result<String> {
     Ok(content)
 }
 
+pub async fn read_file_bytes(path: &str) -> error::Result<Vec<u8>> {
+    let mut file = File::open(path).await?;
+    let mut content = Vec::new();
+    file.read_to_end(&mut content).await?;
+    Ok(content)
+}
+
+//this skips more steps than from_str at the cost of being unsafe. The source must ALWAUS gemerate valid json or this can cause UB in the worst case
+pub fn unsafe_raw(json: String) -> Box<RawValue> {
+    unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(json.into()) }
+}
+
 pub async fn read_file(path: &str) -> error::Result<Box<RawValue>> {
-    // tracing::error!("START1");
-    // let start = Instant::now();
+    let content = read_file_content(path).await?;
 
-    let r = if *CLOUD_HOSTED {
-        let content = read_file_content(path).await?;
-        if content.len() > MAX_RESULT_SIZE {
-            return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
+    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
+        return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
         If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
-        };
-        serde_json::from_str(&content)
-            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
-    } else {
-        let file = std::fs::File::open(path)
-            .map_err(|e| error::Error::ExecutionErr(format!("Error opening file {path}: {e}")))?;
-        let reader = std::io::BufReader::new(file);
-
-        serde_json::from_reader(reader)
-            .map_err(|e| error::Error::ExecutionErr(format!("Error parsing result: {e}")))
     };
-    // tracing::error!("{:?}", start.elapsed());
-    return r;
+
+    let r = unsafe_raw(content);
+    return Ok(r);
 }
 pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
@@ -351,6 +368,7 @@ pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
+    mem_peak: &mut Option<i32>,
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
@@ -392,6 +410,7 @@ pub async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let mut i = 0;
+
         loop {
             tokio::select!(
                 _ = rx.recv() => break,
@@ -407,10 +426,10 @@ pub async fn handle_child(
                         .await
                         .expect("update worker ping");
                     }
-                    let mem_peak = get_mem_peak(pid, nsjail).await;
-                    tracing::info!("{job_id} in {} still running. mem peak: {}kB", _w_id, mem_peak);
-                    let mem_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
+                    let mem_peak_o = get_mem_peak(pid, nsjail).await;
+                    tracing::info!("{job_id} in {} still running. mem peak: {}kB", _w_id, mem_peak_o);
+                    *mem_peak = if mem_peak_o > 0 { Some(mem_peak_o) } else { None };
+                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", *mem_peak, job_id)
                         .fetch_optional(&db)
                         .await
                         .map(|v| Some(true) == v)
@@ -619,7 +638,7 @@ pub async fn handle_child(
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
-    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms", start.elapsed().as_millis());
+    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms, mem_peak: {:?}", start.elapsed().as_millis(), mem_peak);
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"

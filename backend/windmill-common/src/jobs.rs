@@ -96,6 +96,14 @@ pub struct QueuedJob {
 }
 
 impl QueuedJob {
+    pub fn get_args(&self) -> Box<RawValue> {
+        if let Some(args) = &self.args.as_ref() {
+            args.0.clone()
+        } else {
+            serde_json::from_str("{}").unwrap()
+        }
+    }
+
     pub fn script_path(&self) -> &str {
         self.script_path
             .as_ref()
