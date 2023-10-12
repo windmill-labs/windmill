@@ -25,8 +25,8 @@
 	import { tutorialsToDo } from '$lib/stores'
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
-	import { tainted } from '$lib/components/tutorials/utils'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { isFlowTainted } from '$lib/components/tutorials/utils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -144,7 +144,7 @@
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-		const isTainted = tainted($flowStore)
+		const isTainted = isFlowTainted($flowStore)
 		return (
 			$tutorialsToDo.includes(index) &&
 			name == tutorialName &&

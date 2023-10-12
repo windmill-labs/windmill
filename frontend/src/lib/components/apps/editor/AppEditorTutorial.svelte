@@ -7,7 +7,6 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import TutorialItem from '$lib/components/tutorials/TutorialItem.svelte'
 
-	let targetTutorial: string | undefined = undefined
 	let appTutorials: AppTutorials | undefined = undefined
 </script>
 
@@ -41,9 +40,6 @@
 
 <AppTutorials
 	bind:this={appTutorials}
-	on:error={({ detail }) => {
-		targetTutorial = detail.detail
-	}}
 	on:skipAll={() => {
 		skipAllTodos()
 	}}
