@@ -169,7 +169,7 @@
 		<ScriptPicker
 			disabled={!isEditable}
 			initialPath={customInitialScriptPath}
-			kind={Script.kind.SCRIPT}
+			kinds={[Script.kind.SCRIPT, Script.kind.FAILURE]}
 			allowFlow={true}
 			bind:scriptPath={handlerPath}
 			bind:itemKind={customHandlerKind}
