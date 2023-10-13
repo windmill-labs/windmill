@@ -62,6 +62,10 @@ export function updateFlowModuleById(
 
 			if (module.value.type === 'forloopflow') {
 				dfs(module.value.modules)
+			} else if (module.value.type === 'branchone') {
+				module.value.branches.forEach((branch) => dfs(branch.modules))
+			} else if (module.value.type === 'branchall') {
+				module.value.branches.forEach((branch) => dfs(branch.modules))
 			}
 		}
 	}
