@@ -13,6 +13,7 @@
     import { faRotate, faRotateRight, faTimes } from '@fortawesome/free-solid-svg-icons'
 
     export let isEditable: boolean
+    export let slackToggleText: string = "enable"
     export let handlerSelected: 'custom' | 'slack'
 
     export let handlerPath: string | undefined
@@ -187,8 +188,7 @@
         <Toggle
             disabled={!isEditable}
             checked={ handlerPath === slackHandlerScriptPath }
-            options={{ right: 'enable'}}
-            size='xs'
+            options={{ right: slackToggleText}}
             on:change={async (e) => {
                 handlerPath = e.detail ? slackHandlerScriptPath : undefined
             }}

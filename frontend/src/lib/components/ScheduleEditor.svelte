@@ -348,6 +348,7 @@
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					slackHandlerScriptPath={slackErrorHandler}
+					slackToggleText="Alert channel on error"
 					customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
 					bind:customHandlerKind={errorHandleritemKind}
 					bind:handlerExtraArgs={errorHandlerExtraArgs}
@@ -355,22 +356,22 @@
 
 				<div class="flex flex-row items-center justify-between">
 					<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-						<p
+						<p class="{emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
 							>{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if} Triggered
 							when schedule failed</p
 						>
-						<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense}>
+						<select class="!w-14" bind:value={failedExact} disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}>
 							<option value={false}>&gt;=</option>
 							<option value={true}>==</option>
 						</select>
 						<input
 							type="number"
-							class="!w-14 text-center"
+							class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
 							bind:value={failedTimes}
 							disabled={!$enterpriseLicense}
 							min="1"
 						/>
-						<p>time{failedTimes > 1 ? 's in a row' : ''}</p>
+						<p class="{emptyString(errorHandlerPath) ? 'text-tertiary' : ''}">time{failedTimes > 1 ? 's in a row' : ''}</p>
 					</div>
 				</div>
 			</Section>
@@ -405,13 +406,14 @@
 					bind:handlerSelected={recoveryHandlerSelected}
 					bind:handlerPath={recoveryHandlerPath}
 					slackHandlerScriptPath={slackRecoveryHandler}
+					slackToggleText="Alert channel when error recovered"
 					customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
 					bind:customHandlerKind={recoveryHandlerItemKind}
 					bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 				/>
 
 				<div class="flex flex-row items-center justify-between">
-					<div class="flex flex-row items-center mt-5 font-semibold text-sm">
+					<div class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(recoveryHandlerPath) ? 'text-tertiary' : ''}">
 						<p>Triggered when schedule recovered</p>
 						<input
 							type="number"
