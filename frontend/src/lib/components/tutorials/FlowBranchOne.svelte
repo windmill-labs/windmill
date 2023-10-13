@@ -3,13 +3,10 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import {
 		clickButtonBySelector,
-		setInputBySelector,
 		triggerAddFlowStep,
 		selectFlowStepKind,
 		updateFlowModuleById
 	} from './utils'
-	import { updateProgress } from '$lib/tutorialUtils'
-	import { RawScript } from '$lib/gen'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
 
@@ -42,71 +39,6 @@
 						'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
 				}
 			},
-
-			{
-				popover: {
-					title: 'Flows inputs',
-					description: 'Flows have inputs that can be used in the flow',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-virtual-Input')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				},
-				element: '#svelvet-Input'
-			},
-			{
-				element: '#flow-editor-add-property',
-				popover: {
-					title: 'Add a property',
-					description: 'Click here to add a property to your schema',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-add-property')
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-			{
-				element: '#schema-modal-name',
-				popover: {
-					title: 'Name your property',
-					description: 'Give a name to your property. Here we will call it condition',
-					onNextClick: () => {
-						setInputBySelector('#schema-modal-name', 'condition')
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '#schema-modal-type-boolean',
-				popover: {
-					title: 'Property type',
-					description: 'Choose the type of your property. Here we will choose boolean',
-					onNextClick: () => {
-						clickButtonBySelector('#schema-modal-type-boolean')
-						driver.moveNext()
-					}
-				}
-			},
-			{
-				element: '#schema-modal-save',
-				popover: {
-					title: 'Save your property',
-					description: 'Click here to save your property',
-					onNextClick: () => {
-						clickButtonBySelector('#schema-modal-save')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-
 			{
 				element: `#flow-editor-add-step-${index}`,
 				popover: {
@@ -174,14 +106,14 @@
 			},
 
 			{
-				element: '.key',
+				element: '#flow-editor-branch-one-wrapper',
 				popover: {
 					title: 'Connect',
 					description: 'Click here to connect your predicate to the input',
 					onNextClick: () => {
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'branchone') {
-								module.value.branches[0].expr = 'flow_input.condition'
+								module.value.branches[0].expr = "result.a === 'foo'"
 							}
 						})
 
@@ -189,87 +121,6 @@
 
 						setTimeout(() => {
 							driver.moveNext()
-						})
-					}
-				}
-			},
-			{
-				popover: {
-					title: 'Branche modules',
-					description: 'We can now add modules to each branch, one in typescript and one in python',
-					onNextClick: () => {
-						updateFlowModuleById($flowStore, id, (module) => {
-							if (module.value.type === 'branchone') {
-								module.value = {
-									type: 'branchone',
-									branches: [
-										{
-											summary: '',
-											expr: 'flow_input.condition',
-											modules: [
-												{
-													id: nextId($flowStateStore, $flowStore),
-													value: {
-														type: 'rawscript',
-														content:
-															'export async function main() {\n  return "Entered the condition!";\n}\n',
-														language: RawScript.language.DENO,
-														input_transforms: {}
-													}
-												}
-											]
-										}
-									],
-									default: [
-										{
-											id: 'default-branch',
-											value: {
-												type: 'rawscript',
-												content: '# import wmill\n\n\ndef main():\n    return "Default Branch"',
-												language: RawScript.language.PYTHON3,
-												input_transforms: {}
-											}
-										}
-									]
-								}
-							}
-						})
-
-						dispatch('reload')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-
-			{
-				element: '#flow-editor-test-flow',
-				popover: {
-					title: 'Test your flow',
-					description: 'We can now test our flow',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-test-flow')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-
-			{
-				element: '#flow-editor-test-flow-drawer',
-				popover: {
-					title: 'Test your flow',
-					description: 'Finally we can test our flow, and view the results!',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-test-flow-drawer')
-
-						setTimeout(() => {
-							driver.moveNext()
-							updateProgress(2)
 						})
 					}
 				}

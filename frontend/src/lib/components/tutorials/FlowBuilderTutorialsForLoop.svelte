@@ -4,12 +4,10 @@
 	import { emptyFlowModuleState } from '../flows/utils'
 	import {
 		clickButtonBySelector,
-		setInputBySelector,
 		triggerAddFlowStep,
 		selectFlowStepKind,
 		updateFlowModuleById
 	} from './utils'
-	import { updateProgress } from '$lib/tutorialUtils'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
 
@@ -91,17 +89,10 @@
 					description:
 						'The iterator expression is a javascript expression that respresents the array to iterate on. Here we will iterate on the firstname input letter by letter',
 					onNextClick: () => {
-						const arrayProperties = Object.keys($flowStore?.schema?.properties ?? {}).filter(
-							(key) => $flowStore?.schema?.properties[key].type === 'array'
-						)
-
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'forloopflow') {
 								if (module.value.iterator.type === 'javascript') {
-									module.value.iterator.expr =
-										arrayProperties.length > 0
-											? `flow_input.${arrayProperties[0]}`
-											: "['a', 'b', 'c']"
+									module.value.iterator.expr = "results.a === 'foo'"
 								}
 							}
 						})
@@ -246,71 +237,6 @@
 					title: 'Iterator',
 					description:
 						'Loops expose an iterator object that contains the current value of the loop and the index'
-				}
-			},
-			{
-				element: '#flow-editor-test-flow',
-				popover: {
-					title: 'Test your flow',
-					description: 'We can now test our flow',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-test-flow')
-						const arrayProperties = Object.keys($flowStore?.schema?.properties ?? {}).filter(
-							(key) => $flowStore?.schema?.properties[key].type === 'array'
-						)
-
-						setTimeout(() => {
-							if (arrayProperties.length === 0) {
-								driver.moveTo(15)
-							} else {
-								driver.moveNext()
-							}
-						})
-					}
-				}
-			},
-
-			{
-				element: 'arg-input-add-item',
-				popover: {
-					title: 'Flow input',
-					description: 'Let’s add an item to our array',
-					onNextClick: () => {
-						clickButtonBySelector('#arg-input-add-item')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-			{
-				element: 'arg-input-add-item',
-				popover: {
-					title: 'Flow input',
-					description: 'We can set the value of the item',
-					onNextClick: () => {
-						setInputBySelector('#arg-input-array', 'Hello')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-
-			{
-				element: '#flow-editor-test-flow-drawer',
-				popover: {
-					title: 'Test your flow',
-					description: 'Finally we can test our flow, and view the results!',
-					onNextClick: () => {
-						clickButtonBySelector('#flow-editor-test-flow-drawer')
-						setTimeout(() => {
-							driver.moveNext()
-							updateProgress(1)
-						})
-					}
 				}
 			}
 		]

@@ -23,7 +23,7 @@
 	let selected = 'early-stop'
 </script>
 
-<div class="h-full">
+<div class="h-full" id="flow-editor-branch-one-wrapper">
 	<FlowCard title="Run one branch">
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
