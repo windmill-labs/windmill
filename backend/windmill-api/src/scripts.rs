@@ -218,8 +218,15 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(k) = &lq.kind {
-        sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
+    if let Some(kinds_val) = &lq.kinds {
+        let lowercased_kinds: Vec<String> = kinds_val
+            .split(",")
+            .map(&str::to_lowercase)
+            .map(sql_builder::quote)
+            .collect();
+        if lowercased_kinds.len() > 0 {
+            sqlb.and_where_in("kind", lowercased_kinds.as_slice());
+        }
     }
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
