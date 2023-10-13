@@ -188,7 +188,15 @@
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
-			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} {simpleTooltip} />
+			<FieldHeader
+				prettify={prettifyHeader}
+				{label}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+			/>
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">
@@ -313,7 +321,7 @@
 													{/each}
 												</select>
 											{:else}
-												<input type="text" bind:value={v} />
+												<input type="text" bind:value={v} id="arg-input-array" />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}

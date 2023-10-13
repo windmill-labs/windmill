@@ -12,8 +12,8 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
-	export function runTutorial() {
-		tutorial?.runTutorial()
+	export function runTutorial(indexToInsertAt?: number | undefined) {
+		tutorial?.runTutorial(indexToInsertAt)
 	}
 </script>
 

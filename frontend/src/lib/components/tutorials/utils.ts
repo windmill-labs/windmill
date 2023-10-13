@@ -44,6 +44,6 @@ export function selectOptionsBySelector(selector: string, value: string) {
 	}
 }
 
-export function tainted(flow: Flow) {
+export function isFlowTainted(flow: Flow) {
 	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
 }
