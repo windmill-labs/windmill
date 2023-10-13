@@ -177,7 +177,7 @@
 				element: '.key',
 				popover: {
 					title: 'Connect',
-					description: 'As we did before, we can connect to the iterator of the loop',
+					description: 'Click here to connect your predicate to the input',
 					onNextClick: () => {
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'branchone') {
