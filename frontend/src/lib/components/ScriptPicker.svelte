@@ -105,10 +105,10 @@
 	{/if}
 
 	{#if disabled}
-		<input type="text" value={scriptPath} disabled />
+		<input type="text" value={scriptPath ?? ""} disabled />
 	{:else}
 		<Select
-			value={items.find((x) => x.value == initialPath)}
+			value={items?.find((x) => x.value == initialPath)}
 			class="grow shrink max-w-full"
 			on:change={() => {
 				dispatch('select', { path: scriptPath })
