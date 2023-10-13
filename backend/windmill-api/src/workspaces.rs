@@ -532,6 +532,7 @@ async fn run_slack_message_test_job(
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     let mut fake_result = Map::new();
     fake_result.insert("error".to_string(), json!(req.test_msg));
+    fake_result.insert("success_result".to_string(), json!(req.test_msg));
 
     let mut extra_args = Map::new();
     extra_args.insert("channel".to_string(), json!(req.channel));
