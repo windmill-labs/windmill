@@ -230,7 +230,6 @@
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
 					flowTutorials?.runTutorialById('branchall')
 				} else {
-					console.log('INSERT+')
 					if (detail.modules) {
 						await tick()
 						if ($moving) {

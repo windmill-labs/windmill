@@ -6,7 +6,8 @@
 		clickButtonBySelector,
 		setInputBySelector,
 		triggerAddFlowStep,
-		selectFlowStepKind
+		selectFlowStepKind,
+		updateFlowModuleById
 	} from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import Tutorial from './Tutorial.svelte'
@@ -94,16 +95,16 @@
 							(key) => $flowStore?.schema?.properties[key].type === 'array'
 						)
 
-						if ($flowStore.value.modules[index].value.type === 'forloopflow') {
-							if ($flowStore.value.modules[index].value.iterator.type === 'javascript') {
-								$flowStore.value.modules[index].value.iterator.expr =
-									arrayProperties.length > 0
-										? `flow_input.${arrayProperties[0]}`
-										: "['a', 'b', 'c']"
+						updateFlowModuleById($flowStore, id, (module) => {
+							if (module.value.type === 'forloopflow') {
+								if (module.value.iterator.type === 'javascript') {
+									module.value.iterator.expr =
+										arrayProperties.length > 0
+											? `flow_input.${arrayProperties[0]}`
+											: "['a', 'b', 'c']"
+								}
 							}
-						}
-
-						$flowStore = $flowStore
+						})
 
 						dispatch('reload')
 
@@ -121,42 +122,42 @@
 					description:
 						'We can refer to the result of previous steps using the results object: results.a',
 					onNextClick: () => {
-						const newId = nextId($flowStateStore, $flowStore)
-						tempId = newId
+						updateFlowModuleById($flowStore, id, (module) => {
+							const newId = nextId($flowStateStore, $flowStore)
+							tempId = newId
 
-						if ($flowStore.value.modules[index].value.type === 'forloopflow') {
-							$flowStore.value.modules[index].value.modules = [
-								{
-									id: newId,
-									value: {
-										type: 'rawscript',
-										content: 'def main(x):\n    return x',
-										// @ts-ignore
-										language: 'python3',
-										input_transforms: {
-											x: {
-												type: 'javascript',
-												// @ts-ignore
-												value: '',
-												expr: ''
+							if (module.value.type === 'forloopflow') {
+								module.value.modules = [
+									{
+										id: newId,
+										value: {
+											type: 'rawscript',
+											content: 'def main(x):\n    return x',
+											// @ts-ignore
+											language: 'python3',
+											input_transforms: {
+												x: {
+													type: 'javascript',
+													// @ts-ignore
+													value: '',
+													expr: ''
+												}
 											}
 										}
 									}
-								}
-							]
-						}
-
-						$flowStateStore[newId] = emptyFlowModuleState()
-
-						$flowStateStore[newId].schema.properties = {
-							x: {
-								type: 'string',
-								description: '',
-								default: null
+								]
 							}
-						}
 
-						$flowStore = $flowStore
+							$flowStateStore[newId] = emptyFlowModuleState()
+
+							$flowStateStore[newId].schema.properties = {
+								x: {
+									type: 'string',
+									description: '',
+									default: null
+								}
+							}
+						})
 
 						dispatch('reload')
 
@@ -167,7 +168,6 @@
 				}
 			},
 			{
-				element: '#svelvet-c',
 				popover: {
 					title: 'Step of the loop',
 					description: 'We added an action to the loop. Let’s configure it',
@@ -218,19 +218,20 @@
 					title: 'Connect',
 					description: 'As we did before, we can connect to the iterator of the loop',
 					onNextClick: () => {
-						if (
-							$flowStore.value.modules[index].value.type === 'forloopflow' &&
-							$flowStore.value.modules[index].value.modules[0].value.type === 'rawscript'
-						) {
-							$flowStore.value.modules[index].value.modules[0].value.input_transforms = {
-								x: {
-									type: 'javascript',
-									expr: 'flow_input.iter.value'
+						updateFlowModuleById($flowStore, id, (module) => {
+							if (
+								module.value.type === 'forloopflow' &&
+								module.value.modules[0].value.type === 'rawscript'
+							) {
+								module.value.modules[0].value.input_transforms = {
+									x: {
+										type: 'javascript',
+										expr: 'flow_input.iter.value'
+									}
 								}
 							}
-						}
+						})
 
-						$flowStore = $flowStore
 						dispatch('reload')
 
 						setTimeout(() => {
