@@ -93,7 +93,7 @@
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'forloopflow') {
 								if (module.value.iterator.type === 'javascript') {
-									module.value.iterator.expr = "results.a === 'foo'"
+									module.value.iterator.expr = 'results.a'
 								}
 							}
 						})
