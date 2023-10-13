@@ -430,6 +430,7 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     result: &serde_json::Value,
     error_handler_path: &str,
+    error_handler_extra_args: Option<serde_json::Value>,
     is_global: bool,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
@@ -442,6 +443,17 @@ pub async fn run_error_handler<R: rsmq_async::RsmqConnection + Clone + Send>(
     args.insert("path".to_string(), json!(queued_job.script_path));
     args.insert("is_flow".to_string(), json!(queued_job.raw_flow.is_some()));
     args.insert("email".to_string(), json!(queued_job.email));
+
+    if let Some(extra_args) = error_handler_extra_args {
+        if let serde_json::Value::Object(args_m) = extra_args {
+            args.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
@@ -492,7 +504,16 @@ pub async fn send_error_to_global_handler<R: rsmq_async::RsmqConnection + Clone 
     result: &serde_json::Value,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
-        run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
+        run_error_handler(
+            rsmq,
+            queued_job,
+            db,
+            result,
+            global_error_handler,
+            None,
+            true,
+        )
+        .await?
     }
 
     Ok(())
@@ -506,10 +527,9 @@ pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clo
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let mut tx = db.begin().await?;
-    let error_handler = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
-        &w_id
-    )
+    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+        "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
+    ).bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
     .context("sending error to global handler")?
@@ -522,6 +542,7 @@ pub async fn send_error_to_workspace_handler<R: rsmq_async::RsmqConnection + Clo
             db,
             result,
             &error_handler.strip_prefix("script/").unwrap(),
+            error_handler_extra_args,
             false,
         )
         .await?
