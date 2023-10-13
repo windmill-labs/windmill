@@ -63,6 +63,7 @@
 		script_path = initialScriptPath
 		errorHandleritemKind = 'script'
 		errorHandlerPath = undefined
+		errorHandlerExtraArgs = {}
 		recoveryHandlerPath = undefined
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
