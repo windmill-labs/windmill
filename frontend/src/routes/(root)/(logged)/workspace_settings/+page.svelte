@@ -326,7 +326,7 @@
 						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
 					{/if}
 					<ScriptPicker
-						kind={Script.kind.SCRIPT}
+						kinds={[Script.kind.SCRIPT]}
 						allowFlow
 						bind:itemKind
 						bind:scriptPath
