@@ -17,11 +17,11 @@
 	export let showScriptHelpText: boolean = false
 	export let handlerSelected: 'custom' | 'slack'
 	export let handlersOnlyForEe: string[]
-	export let customScriptTooltip: string | undefined = undefined
 
 	export let handlerPath: string | undefined
 	export let handlerExtraArgs: Record<string, any>
 
+    export let customInitialScriptPath: string | undefined
 	export let customScriptTemplate: string
 	export let customHandlerKind: 'flow' | 'script' = 'script'
 	let customHandlerSchema: Schema | undefined
@@ -168,7 +168,7 @@
 	<div class="flex flex-row mb-2">
 		<ScriptPicker
 			disabled={!isEditable}
-			initialPath={handlerPath}
+			initialPath={customInitialScriptPath}
 			kind={Script.kind.SCRIPT}
 			allowFlow={true}
 			bind:scriptPath={handlerPath}

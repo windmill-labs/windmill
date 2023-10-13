@@ -95,7 +95,6 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     #[cfg(not(feature = "enterprise"))]
     if ns.on_recovery.is_some() {
@@ -120,6 +119,8 @@ async fn create_schedule(
                 .to_string(),
         ));
     }
+
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
     check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
