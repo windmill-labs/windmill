@@ -243,6 +243,11 @@
 							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
 							$selectedId = detail.modules[detail.index ?? 0].id
 						}
+
+						if (['branchone', 'branchall'].includes(detail.detail)) {
+							await addBranch(detail.modules[detail.index ?? 0])
+						}
+
 						$flowStore = $flowStore
 					}
 				}
