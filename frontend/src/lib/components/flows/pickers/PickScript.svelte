@@ -14,7 +14,7 @@
 	const dispatch = createEventDispatcher()
 
 	async function loadItems(): Promise<Item[]> {
-		return await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
+		return await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kind })
 	}
 </script>
 

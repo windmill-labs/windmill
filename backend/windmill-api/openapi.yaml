@@ -2773,10 +2773,10 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: kind
+        - name: kinds
           description: |
             (default regardless)
-            script kind
+            script kinds to filter, split by comma
           in: query
           schema:
             type: string
