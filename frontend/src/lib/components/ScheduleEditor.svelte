@@ -350,6 +350,7 @@
 				<ErrorOrRecoveryHandler
 					isEditable={can_write}
 					handlersOnlyForEe={['slack']}
+					showScriptHelpText={true}
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					slackHandlerScriptPath={slackErrorHandler}

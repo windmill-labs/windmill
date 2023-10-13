@@ -14,6 +14,7 @@
 
     export let isEditable: boolean
     export let slackToggleText: string = "enable"
+    export let showScriptHelpText: boolean = false
     export let handlerSelected: 'custom' | 'slack'
     export let handlersOnlyForEe: string[]
 
@@ -174,6 +175,11 @@
             >
         {/if}
     </div>
+    {#if showScriptHelpText}
+        <div class="text-xs">
+            Example of error handler scripts can be found on <a target="_blank" href="https://hub.windmill.dev/failures"> Windmill Hub</a>
+        </div>
+    {/if}
     {#if handlerPath}
         <p class="font-semibold text-sm mt-4 mb-2"
             >Extra arguments</p
