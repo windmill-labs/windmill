@@ -3,6 +3,7 @@
     import SchemaForm from '$lib/components/SchemaForm.svelte'
     import ScriptPicker from '$lib/components/ScriptPicker.svelte'
     import Toggle from '$lib/components/Toggle.svelte'
+    import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
     import { enterpriseLicense, workspaceStore } from '$lib/stores'
     import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
@@ -17,6 +18,7 @@
     export let showScriptHelpText: boolean = false
     export let handlerSelected: 'custom' | 'slack'
     export let handlersOnlyForEe: string[]
+    export let customScriptTooltip: string | undefined = undefined
 
     export let handlerPath: string | undefined
     export let handlerExtraArgs: Record<string, any>
@@ -145,9 +147,15 @@
     <Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
         {#if $enterpriseLicense}
             <Tab value="slack">Slack</Tab>
-            <Tab value="custom">Custom</Tab>
+            <Tab value="custom">
+                Custom
+                <slot name="custom-tab-tooltip" />
+            </Tab>
         {:else}
-            <Tab value="custom">Custom</Tab>
+            <Tab value="custom">
+                Custom
+                <slot name="custom-tab-tooltip" />
+            </Tab>
             <Tab value="slack">Slack {handlersOnlyForEe.includes('slack') ? '(ee only)' : ''}</Tab>
         {/if}
     </Tabs>

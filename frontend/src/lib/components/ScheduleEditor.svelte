@@ -327,30 +327,11 @@
 				</div>
 			</Section>
 			<Section label="Error handler">
-				<svelte:fragment slot="header">
-					<Tooltip>
-						<div class="flex gap-20 items-start mt-3">
-							<div class="text-sm"
-								>The following args will be passed to the error handler:
-								<ul class="mt-1 ml-2">
-									<li><b>path</b>: The path of the script or flow that failed.</li>
-									<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-									<li><b>schedule_path</b>: The path of the schedule.</li>
-									<li><b>error</b>: The error details.</li>
-									<li
-										><b>failed_times</b>: Minimum number of times the schedule failed before calling
-										the error handler.</li
-									>
-									<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
-								</ul>
-							</div>
-						</div>
-					</Tooltip>
-				</svelte:fragment>
 				<ErrorOrRecoveryHandler
 					isEditable={can_write}
 					handlersOnlyForEe={['slack']}
 					showScriptHelpText={true}
+					customScriptTooltip="Hello"
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					slackHandlerScriptPath={slackErrorHandler}
@@ -358,7 +339,28 @@
 					customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
 					bind:customHandlerKind={errorHandleritemKind}
 					bind:handlerExtraArgs={errorHandlerExtraArgs}
-				/>
+				>
+					<svelte:fragment slot="custom-tab-tooltip">
+						<Tooltip>
+							<div class="flex gap-20 items-start mt-3">
+								<div class="text-sm"
+									>The following args will be passed to the error handler:
+									<ul class="mt-1 ml-2">
+										<li><b>path</b>: The path of the script or flow that failed.</li>
+										<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+										<li><b>schedule_path</b>: The path of the schedule.</li>
+										<li><b>error</b>: The error details.</li>
+										<li
+											><b>failed_times</b>: Minimum number of times the schedule failed before calling
+											the error handler.</li
+										>
+										<li><b>started_at</b>: The start datetime of the latest job that failed.</li>
+									</ul>
+								</div>
+							</div>
+						</Tooltip>
+					</svelte:fragment>
+				</ErrorOrRecoveryHandler>
 
 				<div class="flex flex-row items-center justify-between">
 					<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
@@ -385,25 +387,6 @@
 				<svelte:fragment slot="header">
 					<div class="flex flex-row gap-2">
 						{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
-						<Tooltip>
-							<div class=" text-sm"
-								>The following args will be passed to the recovery handler:
-								<ul class="mt-1 ml-2">
-									<li><b>path</b>: The path of the script or flow that recovered.</li>
-									<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-									<li><b>schedule_path</b>: The path of the schedule.</li>
-									<li><b>error</b>: The error of the last job that errored</li>
-									<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
-									<li
-										><b>success_times</b>: The number of times the schedule succeeded before calling
-										the recovery handler.</li
-									>
-									<li><b>success_result</b>: The result of the latest successful job</li>
-									<li><b>success_started_at</b>: The start datetime of the latest successful job</li
-									>
-								</ul>
-							</div>
-						</Tooltip>
 					</div>
 				</svelte:fragment>
 
@@ -417,7 +400,31 @@
 					customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
 					bind:customHandlerKind={recoveryHandlerItemKind}
 					bind:handlerExtraArgs={recoveryHandlerExtraArgs}
-				/>
+				>
+					<svelte:fragment slot="custom-tab-tooltip">
+							<Tooltip>
+								<div class="flex gap-20 items-start mt-3">
+									<div class=" text-sm"
+										>The following args will be passed to the recovery handler:
+										<ul class="mt-1 ml-2">
+											<li><b>path</b>: The path of the script or flow that recovered.</li>
+											<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+											<li><b>schedule_path</b>: The path of the schedule.</li>
+											<li><b>error</b>: The error of the last job that errored</li>
+											<li><b>error_started_at</b>: The start datetime of the last job that errored</li>
+											<li
+												><b>success_times</b>: The number of times the schedule succeeded before calling
+												the recovery handler.</li
+											>
+											<li><b>success_result</b>: The result of the latest successful job</li>
+											<li><b>success_started_at</b>: The start datetime of the latest successful job</li
+											>
+										</ul>
+									</div>
+								</div>
+							</Tooltip>
+					</svelte:fragment>
+				</ErrorOrRecoveryHandler>
 
 				<div class="flex flex-row items-center justify-between">
 					<div class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(recoveryHandlerPath) ? 'text-tertiary' : ''}">
