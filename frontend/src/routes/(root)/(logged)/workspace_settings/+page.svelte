@@ -43,6 +43,7 @@
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
 	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
+	let errorHandlerInitialScriptPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
@@ -163,6 +164,7 @@
 		webhook = settings.webhook
 		openaiResourceInitialPath = settings.openai_resource_path
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -441,6 +443,7 @@
 				isEditable={true}
 				handlersOnlyForEe={['slack']}
 				showScriptHelpText={true}
+				customInitialScriptPath={errorHandlerInitialScriptPath}
 				bind:handlerSelected={errorHandlerSelected}
 				bind:handlerPath={errorHandlerScriptPath}
 				slackHandlerScriptPath={slackErrorHandler}
