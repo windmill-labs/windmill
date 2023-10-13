@@ -84,6 +84,12 @@
 					onNextClick: () => {
 						clickButtonBySelector('#flow-editor-edit-predicate')
 
+						updateFlowModuleById($flowStore, id, (module) => {
+							if (module.value.type === 'branchone') {
+								module.value.branches[0].expr = "result.a === 'foo'"
+							}
+						})
+
 						setTimeout(() => {
 							driver.moveNext()
 						})
@@ -94,15 +100,9 @@
 			{
 				element: '#flow-editor-branch-one-wrapper',
 				popover: {
-					title: 'Connect',
-					description: 'Click here to connect your predicate to the input',
+					title: 'Predicate saved',
+					description: 'You can now see the predicate of your branch',
 					onNextClick: () => {
-						updateFlowModuleById($flowStore, id, (module) => {
-							if (module.value.type === 'branchone') {
-								module.value.branches[0].expr = "result.a === 'foo'"
-							}
-						})
-
 						dispatch('reload')
 
 						setTimeout(() => {
