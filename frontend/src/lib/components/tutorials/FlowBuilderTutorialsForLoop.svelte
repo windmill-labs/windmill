@@ -10,6 +10,7 @@
 	} from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
+	import { updateProgress } from '$lib/tutorialUtils'
 
 	const dispatch = createEventDispatcher()
 	const { flowStore, selectedId, flowStateStore } =
@@ -236,7 +237,14 @@
 				popover: {
 					title: 'Iterator',
 					description:
-						'Loops expose an iterator object that contains the current value of the loop and the index'
+						'Loops expose an iterator object that contains the current value of the loop and the index',
+					onNextClick: () => {
+						setTimeout(() => {
+							driver.moveNext()
+
+							updateProgress(1)
+						})
+					}
 				}
 			}
 		]

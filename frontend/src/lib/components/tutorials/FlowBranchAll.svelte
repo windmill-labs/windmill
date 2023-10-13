@@ -4,6 +4,7 @@
 	import { triggerAddFlowStep, selectFlowStepKind } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
+	import { updateProgress } from '$lib/tutorialUtils'
 
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -86,7 +87,14 @@
 			{
 				popover: {
 					title: 'Add steps',
-					description: 'You can now add step to one of the branches'
+					description: 'You can now add step to one of the branches',
+					onNextClick: () => {
+						setTimeout(() => {
+							driver.moveNext()
+
+							updateProgress(3)
+						})
+					}
 				}
 			}
 		]
