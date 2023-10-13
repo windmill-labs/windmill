@@ -12,9 +12,9 @@
 	let flowBranchAll: FlowBranchAll | undefined = undefined
 	let flowErrorHandler: FlowErrorHandler | undefined = undefined
 
-	export function runTutorialById(id: string) {
+	export function runTutorialById(id: string, indexToInsertAt?: number | undefined) {
 		if (id === 'forloop') {
-			flowBuilderTutorialsForLoop?.runTutorial()
+			flowBuilderTutorialsForLoop?.runTutorial(indexToInsertAt)
 		} else if (id === 'branchone') {
 			flowBranchOne?.runTutorial()
 		} else if (id === 'branchall') {
