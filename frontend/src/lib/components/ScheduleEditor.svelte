@@ -173,7 +173,7 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
@@ -196,7 +196,7 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
@@ -331,7 +331,6 @@
 					isEditable={can_write}
 					handlersOnlyForEe={['slack']}
 					showScriptHelpText={true}
-					customScriptTooltip="Hello"
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					slackHandlerScriptPath={slackErrorHandler}

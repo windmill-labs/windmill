@@ -3,7 +3,6 @@
     import SchemaForm from '$lib/components/SchemaForm.svelte'
     import ScriptPicker from '$lib/components/ScriptPicker.svelte'
     import Toggle from '$lib/components/Toggle.svelte'
-    import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
     import { enterpriseLicense, workspaceStore } from '$lib/stores'
     import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
@@ -18,7 +17,6 @@
     export let showScriptHelpText: boolean = false
     export let handlerSelected: 'custom' | 'slack'
     export let handlersOnlyForEe: string[]
-    export let customScriptTooltip: string | undefined = undefined
 
     export let handlerPath: string | undefined
     export let handlerExtraArgs: Record<string, any>

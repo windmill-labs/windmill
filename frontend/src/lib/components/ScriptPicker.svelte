@@ -61,6 +61,9 @@
 					label: `${x.path}${x.summary ? ` | ${x.summary}` : ''}`
 				})) ?? []
 		}
+		if (!items.find((x) => x.value === initialPath)) {
+			initialPath = undefined
+		}
 	}
 
 	$: itemKind && $workspaceStore && loadItems()
@@ -108,7 +111,7 @@
 		<input type="text" value={scriptPath ?? ""} disabled />
 	{:else}
 		<Select
-			value={items?.find((x) => x.value == initialPath)}
+			value={initialPath}
 			class="grow shrink max-w-full"
 			on:change={() => {
 				dispatch('select', { path: scriptPath })
