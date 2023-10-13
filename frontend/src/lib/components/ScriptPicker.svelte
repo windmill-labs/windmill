@@ -26,7 +26,7 @@
 	export let allowFlow = false
 	export let allowHub = false
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
-	export let kind: Script.kind | undefined = Script.kind.SCRIPT
+	export let kinds: Script.kind[] = [Script.kind.SCRIPT]
 	export let disabled = false
 	export let allowRefresh = false
 
@@ -48,12 +48,23 @@
 				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'script') {
-			items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind })).map(
-				(script) => ({
-					value: script.path,
-					label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
-				})
-			)
+			if (kinds.length === 1) {
+				items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind: kinds[0]})).map(
+					(script) => ({
+						value: script.path,
+						label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
+					})
+				)
+			} else {
+				items = (await ScriptService.listScripts({ workspace: $workspaceStore! })).filter(
+					(script) => kinds.includes(script.kind)
+				).map(
+					(script) => ({
+						value: script.path,
+						label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
+					})
+				)
+			}
 		} else {
 			items =
 				$hubScripts?.map((x) => ({

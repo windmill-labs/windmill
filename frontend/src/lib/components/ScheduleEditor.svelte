@@ -297,7 +297,7 @@
 					<ScriptPicker
 						disabled={initialScriptPath != '' || !can_write}
 						initialPath={initialScriptPath}
-						kind={Script.kind.SCRIPT}
+						kinds={[Script.kind.SCRIPT]}
 						allowFlow={true}
 						bind:itemKind
 						bind:scriptPath={script_path}
