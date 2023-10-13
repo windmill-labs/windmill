@@ -19,6 +19,7 @@
 	bind:this={tutorial}
 	index={0}
 	name="error-handler"
+	tainted={false}
 	on:error
 	on:skipAll
 	getSteps={(driver) => [
