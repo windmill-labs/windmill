@@ -28,9 +28,11 @@
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
 	let errorHandlerPath: string | undefined = undefined
+	let errorHandlerCustomInitialPath: string | undefined = undefined
 	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let recoveryHandlerPath: string | undefined = undefined
+	let recoveryHandlerCustomInitialPath: string | undefined = undefined
 	let recoveryHandlerSelected: 'custom' | 'slack' = 'slack'
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
 	let recoveryHandlerExtraArgs: Record<string, any> = {}
@@ -64,9 +66,11 @@
 		errorHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
 		errorHandleritemKind = 'script'
 		errorHandlerPath = undefined
+		errorHandlerCustomInitialPath = undefined
 		errorHandlerExtraArgs = {}
 		recoveryHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
 		recoveryHandlerPath = undefined
+		recoveryHandlerCustomInitialPath = undefined
 		recoveryHandlerItemKind = 'script'
 		recoveryHandlerExtraArgs = {}
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -125,6 +129,7 @@
 				let splitted = s.on_failure.split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
+				errorHandlerCustomInitialPath = errorHandlerPath
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
@@ -139,6 +144,7 @@
 				let splitted = s.on_recovery.split('/')
 				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
+				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
 				if (recoveryHandlerPath !== slackRecoveryHandler) {
@@ -173,7 +179,7 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
@@ -196,7 +202,7 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
@@ -331,9 +337,9 @@
 					isEditable={can_write}
 					handlersOnlyForEe={['slack']}
 					showScriptHelpText={true}
-					customScriptTooltip="Hello"
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
+					customInitialScriptPath={errorHandlerCustomInitialPath}
 					slackHandlerScriptPath={slackErrorHandler}
 					slackToggleText="Alert channel on error"
 					customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
@@ -395,6 +401,7 @@
 					handlersOnlyForEe={[]}
 					bind:handlerSelected={recoveryHandlerSelected}
 					bind:handlerPath={recoveryHandlerPath}
+					customInitialScriptPath={recoveryHandlerCustomInitialPath}
 					slackHandlerScriptPath={slackRecoveryHandler}
 					slackToggleText="Alert channel when error recovered"
 					customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"

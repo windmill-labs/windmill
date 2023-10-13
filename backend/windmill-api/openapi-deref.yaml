@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.182.3
+  version: 1.183.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -87,7 +87,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: &ref_21
+          schema: &ref_22
             type: integer
       responses:
         '200':
@@ -421,7 +421,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: &ref_14
+          schema: &ref_15
             type: string
       responses:
         '200':
@@ -1484,6 +1484,9 @@ paths:
                     type: boolean
                   error_handler:
                     type: string
+                  error_handler_extra_args:
+                    type: object
+                    additionalProperties: &ref_14 {}
                 required:
                   - code_completion_enabled
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1757,6 +1760,9 @@ paths:
               properties:
                 error_handler:
                   type: string
+                error_handler_extra_args:
+                  type: object
+                  additionalProperties: *ref_14
       responses:
         '200':
           description: status
@@ -2008,7 +2014,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: variable deleted
@@ -2030,7 +2036,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: already_encrypted
           in: query
           schema:
@@ -2072,7 +2078,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: decrypt_secret
           description: |
             ask to decrypt secret if this variable is secret
@@ -2087,7 +2093,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: &ref_15
+                properties: &ref_16
                   workspace_id:
                     type: string
                   path:
@@ -2114,7 +2120,7 @@ paths:
                     type: boolean
                   is_refreshed:
                     type: boolean
-                required: &ref_16
+                required: &ref_17
                   - workspace_id
                   - path
                   - is_secret
@@ -2133,7 +2139,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: variable
@@ -2155,7 +2161,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: variable
@@ -2183,8 +2189,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_15
-                  required: *ref_16
+                  properties: *ref_16
+                  required: *ref_17
   /w/{workspace}/variables/list_contextual:
     get:
       summary: list contextual variables
@@ -2227,7 +2233,7 @@ paths:
         - name: client_name
           in: path
           required: true
-          schema: &ref_17
+          schema: &ref_18
             type: string
       requestBody:
         description: Partially filled script
@@ -2300,7 +2306,7 @@ paths:
         - name: client_name
           in: path
           required: true
-          schema: *ref_17
+          schema: *ref_18
       requestBody:
         description: code endpoint
         required: true
@@ -2388,7 +2394,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: &ref_18
+          schema: &ref_19
             type: integer
       requestBody:
         description: variable path
@@ -2423,7 +2429,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_18
+          schema: *ref_19
       responses:
         '200':
           description: disconnected client
@@ -2548,7 +2554,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource deleted
@@ -2570,7 +2576,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       requestBody:
         description: updated resource
         required: true
@@ -2605,7 +2611,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       requestBody:
         description: updated resource
         required: true
@@ -2636,7 +2642,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource
@@ -2678,7 +2684,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: job_id
           description: job id
           in: query
@@ -2705,7 +2711,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource value
@@ -2726,7 +2732,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: does resource exists
@@ -2882,7 +2888,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_19
+              properties: &ref_20
                 workspace_id:
                   type: string
                 name:
@@ -2890,7 +2896,7 @@ paths:
                 schema: {}
                 description:
                   type: string
-              required: &ref_20
+              required: &ref_21
                 - name
       responses:
         '201':
@@ -2913,7 +2919,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource_type deleted
@@ -2935,7 +2941,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       requestBody:
         description: updated resource_type
         required: true
@@ -2968,7 +2974,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource_type deleted
@@ -2976,8 +2982,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_19
-                required: *ref_20
+                properties: *ref_20
+                required: *ref_21
   /w/{workspace}/resources/type/exists/{path}:
     get:
       summary: does resource_type exists
@@ -2992,7 +2998,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: does resource_type exist
@@ -3020,8 +3026,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: *ref_19
-                  required: *ref_20
+                  properties: *ref_20
+                  required: *ref_21
   /w/{workspace}/resources/type/listnames:
     get:
       summary: list resource_types names
@@ -3042,6 +3048,63 @@ paths:
                 type: array
                 items:
                   type: string
+  /resources/type/hub/list:
+    get:
+      summary: list hub resource types
+      operationId: listHubResourceTypes
+      tags:
+        - resource
+      responses:
+        '200':
+          description: resource type details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    schema: {}
+                  required:
+                    - id
+                    - name
+  /resources/type/hub/query:
+    get:
+      summary: query hub resource types by similarity
+      operationId: queryHubResourceTypes
+      tags:
+        - resource
+      parameters:
+        - name: text
+          description: query text
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          description: query limit
+          in: query
+          required: false
+          schema:
+            type: number
+      responses:
+        '200':
+          description: resource type details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                  required:
+                    - id
   /scripts/hub/list:
     get:
       summary: list all available hub scripts
@@ -3142,7 +3205,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_21
+          schema: *ref_22
       responses:
         '200':
           description: flow
@@ -3165,7 +3228,7 @@ paths:
                             type: array
                             items:
                               type: object
-                              properties: &ref_24
+                              properties: &ref_25
                                 id:
                                   type: string
                                 value:
@@ -3175,7 +3238,7 @@ paths:
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: &ref_22
+                                            oneOf: &ref_23
                                               - type: object
                                                 properties: &ref_151
                                                   value: {}
@@ -3197,7 +3260,7 @@ paths:
                                                 required: &ref_154
                                                   - expr
                                                   - type
-                                            discriminator: &ref_23
+                                            discriminator: &ref_24
                                               propertyName: type
                                               mapping:
                                                 static: '#/components/schemas/StaticTransform'
@@ -3243,8 +3306,8 @@ paths:
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: *ref_22
-                                            discriminator: *ref_23
+                                            oneOf: *ref_23
+                                            discriminator: *ref_24
                                         path:
                                           type: string
                                         hash:
@@ -3262,8 +3325,8 @@ paths:
                                         input_transforms:
                                           type: object
                                           additionalProperties:
-                                            oneOf: *ref_22
-                                            discriminator: *ref_23
+                                            oneOf: *ref_23
+                                            discriminator: *ref_24
                                         path:
                                           type: string
                                         type:
@@ -3280,13 +3343,13 @@ paths:
                                           type: array
                                           items:
                                             type: object
-                                            properties: *ref_24
-                                            required: &ref_25
+                                            properties: *ref_25
+                                            required: &ref_26
                                               - value
                                               - id
                                         iterator:
-                                          oneOf: *ref_22
-                                          discriminator: *ref_23
+                                          oneOf: *ref_23
+                                          discriminator: *ref_24
                                         skip_failures:
                                           type: boolean
                                         type:
@@ -3317,8 +3380,8 @@ paths:
                                                 type: array
                                                 items:
                                                   type: object
-                                                  properties: *ref_24
-                                                  required: *ref_25
+                                                  properties: *ref_25
+                                                  required: *ref_26
                                             required:
                                               - modules
                                               - expr
@@ -3326,8 +3389,8 @@ paths:
                                           type: array
                                           items:
                                             type: object
-                                            properties: *ref_24
-                                            required: *ref_25
+                                            properties: *ref_25
+                                            required: *ref_26
                                           required:
                                             - modules
                                         type:
@@ -3353,8 +3416,8 @@ paths:
                                                 type: array
                                                 items:
                                                   type: object
-                                                  properties: *ref_24
-                                                  required: *ref_25
+                                                  properties: *ref_25
+                                                  required: *ref_26
                                             required:
                                               - modules
                                               - expr
@@ -3406,8 +3469,8 @@ paths:
                                   required:
                                     - expr
                                 sleep:
-                                  oneOf: *ref_22
-                                  discriminator: *ref_23
+                                  oneOf: *ref_23
+                                  discriminator: *ref_24
                                 cache_ttl:
                                   type: number
                                 timeout:
@@ -3451,11 +3514,11 @@ paths:
                                           type: integer
                                         seconds:
                                           type: integer
-                              required: *ref_25
+                              required: *ref_26
                           failure_module:
                             type: object
-                            properties: *ref_24
-                            required: *ref_25
+                            properties: *ref_25
+                            required: *ref_26
                           same_worker:
                             type: boolean
                           concurrent_limit:
@@ -3523,7 +3586,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_21
+          schema: *ref_22
       responses:
         '200':
           description: app
@@ -3553,7 +3616,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: &ref_26
+          schema: &ref_27
             type: string
       responses:
         '200':
@@ -3572,7 +3635,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script details
@@ -3780,7 +3843,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: &ref_27
+                  properties: &ref_28
                     workspace_id:
                       type: string
                     hash:
@@ -3868,7 +3931,7 @@ paths:
                       type: number
                     dedicated_worker:
                       type: boolean
-                  required: &ref_28
+                  required: &ref_29
                     - hash
                     - path
                     - summary
@@ -3964,7 +4027,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: draft deleted
@@ -3990,7 +4053,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties: &ref_30
+              properties: &ref_31
                 path:
                   type: string
                 parent_hash:
@@ -4052,7 +4115,7 @@ paths:
                   type: number
                 dedicated_worker:
                   type: boolean
-              required: &ref_31
+              required: &ref_32
                 - path
                 - summary
                 - description
@@ -4096,7 +4159,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script archived
@@ -4118,7 +4181,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: &ref_29
+          schema: &ref_30
             type: string
       responses:
         '200':
@@ -4127,8 +4190,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_27
-                required: *ref_28
+                properties: *ref_28
+                required: *ref_29
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
       summary: delete script by hash (erase content but keep hash, require admin)
@@ -4143,7 +4206,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_29
+          schema: *ref_30
       responses:
         '200':
           description: script details
@@ -4151,8 +4214,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_27
-                required: *ref_28
+                properties: *ref_28
+                required: *ref_29
   /w/{workspace}/scripts/delete/p/{path}:
     post:
       summary: delete all scripts at a given path (require admin)
@@ -4167,7 +4230,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script path
@@ -4189,7 +4252,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script details
@@ -4197,8 +4260,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_27
-                required: *ref_28
+                properties: *ref_28
+                required: *ref_29
   /w/{workspace}/scripts/get/draft/{path}:
     get:
       summary: get script by path with draft
@@ -4213,7 +4276,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script details
@@ -4222,14 +4285,14 @@ paths:
               schema:
                 allOf: &ref_97
                   - type: object
-                    properties: *ref_30
-                    required: *ref_31
+                    properties: *ref_31
+                    required: *ref_32
                   - type: object
                     properties:
                       draft:
                         type: object
-                        properties: *ref_30
-                        required: *ref_31
+                        properties: *ref_31
+                        required: *ref_32
                       hash:
                         type: string
                     required:
@@ -4248,7 +4311,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script content
@@ -4277,7 +4340,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script content
@@ -4299,7 +4362,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: does it exists
@@ -4321,7 +4384,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_29
+          schema: *ref_30
       responses:
         '200':
           description: script details
@@ -4329,8 +4392,8 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: *ref_27
-                required: *ref_28
+                properties: *ref_28
+                required: *ref_29
   /w/{workspace}/scripts/raw/h/{path}:
     get:
       summary: raw script by hash
@@ -4345,7 +4408,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: script content
@@ -4367,7 +4430,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_29
+          schema: *ref_30
       responses:
         '200':
           description: script details
@@ -4394,7 +4457,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -4411,7 +4474,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: &ref_32
+          schema: &ref_33
             type: string
             format: uuid
         - name: job_id
@@ -4421,7 +4484,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: &ref_33
+          schema: &ref_34
             type: string
             format: uuid
         - name: invisible_to_owner
@@ -4436,7 +4499,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: &ref_34 {}
+              additionalProperties: *ref_14
       responses:
         '201':
           description: job created
@@ -4459,13 +4522,13 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -4473,7 +4536,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -4498,7 +4561,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_34
+              additionalProperties: *ref_14
       responses:
         '200':
           description: job result
@@ -4519,13 +4582,13 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -4533,7 +4596,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -4556,7 +4619,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_34
+              additionalProperties: *ref_14
       responses:
         '200':
           description: job result
@@ -4576,13 +4639,13 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: parent_job
           description: >-
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -4590,7 +4653,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -4635,7 +4698,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -4658,7 +4721,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
       requestBody:
         description: script args
         required: true
@@ -4666,7 +4729,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_34
+              additionalProperties: *ref_14
       responses:
         '200':
           description: job result
@@ -4687,7 +4750,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -4710,7 +4773,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
       requestBody:
         description: script args
         required: true
@@ -4718,7 +4781,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_34
+              additionalProperties: *ref_14
       responses:
         '200':
           description: job result
@@ -4918,7 +4981,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: flow details
@@ -4940,7 +5003,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: flow details with draft
@@ -4967,7 +5030,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: flow details
@@ -5030,7 +5093,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       requestBody:
         description: Partially filled flow
         required: true
@@ -5059,7 +5122,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       requestBody:
         description: archiveFlow
         required: true
@@ -5091,7 +5154,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: flow delete
@@ -5113,7 +5176,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: page
           description: which page to return (start at 1, default 1)
           in: query
@@ -5246,7 +5309,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app exists
@@ -5273,7 +5336,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: app details
@@ -5465,7 +5528,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app exists
@@ -5487,7 +5550,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: app details
@@ -5553,7 +5616,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       responses:
         '200':
           description: app details with draft
@@ -5583,7 +5646,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app details
@@ -5607,7 +5670,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: resource value
@@ -5628,7 +5691,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app secret
@@ -5650,7 +5713,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: *ref_21
+          schema: *ref_22
       responses:
         '200':
           description: app details
@@ -5710,7 +5773,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       requestBody:
         description: updateraw  app
         required: true
@@ -5746,7 +5809,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app deleted
@@ -5768,7 +5831,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: app deleted
@@ -5790,7 +5853,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       requestBody:
         description: update app
         required: true
@@ -5828,7 +5891,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
       requestBody:
         description: update app
         required: true
@@ -5882,7 +5945,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_26
+          schema: *ref_27
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -5899,7 +5962,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -5907,7 +5970,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -5929,7 +5992,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: *ref_34
+              additionalProperties: *ref_14
       responses:
         '201':
           description: job created
@@ -5952,7 +6015,7 @@ paths:
         - name: hash
           in: path
           required: true
-          schema: *ref_29
+          schema: *ref_30
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -5969,7 +6032,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: job_id
           description: >-
             The job id to assign to the created job. if missing, job is chosen
@@ -5977,7 +6040,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
         - name: include_header
           description: >
             List of headers's keys (separated with ',') whove value are added to
@@ -6039,7 +6102,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
       requestBody:
         description: preview
         required: true
@@ -6054,7 +6117,7 @@ paths:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 language:
                   type: string
                   enum:
@@ -6120,7 +6183,7 @@ paths:
             queue or as a completed job, the request to create one will fail
             (Bad Request)
           in: query
-          schema: *ref_33
+          schema: *ref_34
       requestBody:
         description: preview
         required: true
@@ -6137,7 +6200,7 @@ paths:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 tag:
                   type: string
               required: &ref_143
@@ -6176,7 +6239,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
@@ -6287,7 +6350,7 @@ paths:
                       type: string
                     args:
                       type: object
-                      additionalProperties: *ref_34
+                      additionalProperties: *ref_14
                     logs:
                       type: string
                     raw_code:
@@ -6549,7 +6612,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
@@ -6646,7 +6709,7 @@ paths:
                       type: string
                     args:
                       type: object
-                      additionalProperties: *ref_34
+                      additionalProperties: *ref_14
                     result: {}
                     logs:
                       type: string
@@ -6751,7 +6814,7 @@ paths:
             The parent job that is at the origin and responsible for the
             execution of this script if any
           in: query
-          schema: *ref_32
+          schema: *ref_33
         - name: script_path_exact
           description: mask to filter exact matching path
           in: query
@@ -7499,7 +7562,7 @@ paths:
                   type: boolean
                 args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 enabled:
                   type: boolean
                 on_failure:
@@ -7510,14 +7573,14 @@ paths:
                   type: boolean
                 on_failure_extra_args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 on_recovery:
                   type: string
                 on_recovery_times:
                   type: number
                 on_recovery_extra_args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
               required: &ref_131
                 - path
                 - schedule
@@ -7546,7 +7609,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       requestBody:
         description: updated schedule
         required: true
@@ -7561,7 +7624,7 @@ paths:
                   type: string
                 args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 on_failure:
                   type: string
                 on_failure_times:
@@ -7570,14 +7633,14 @@ paths:
                   type: boolean
                 on_failure_extra_args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
                 on_recovery:
                   type: string
                 on_recovery_times:
                   type: number
                 on_recovery_extra_args:
                   type: object
-                  additionalProperties: *ref_34
+                  additionalProperties: *ref_14
               required: &ref_133
                 - schedule
                 - timezone
@@ -7605,7 +7668,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       requestBody:
         description: updated schedule enable
         required: true
@@ -7639,7 +7702,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: schedule deleted
@@ -7661,7 +7724,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: schedule deleted
@@ -7689,7 +7752,7 @@ paths:
                     type: boolean
                   args:
                     type: object
-                    additionalProperties: *ref_34
+                    additionalProperties: *ref_14
                   extra_perms:
                     type: object
                     additionalProperties:
@@ -7706,14 +7769,14 @@ paths:
                     type: boolean
                   on_failure_extra_args:
                     type: object
-                    additionalProperties: *ref_34
+                    additionalProperties: *ref_14
                   on_recovery:
                     type: string
                   on_recovery_times:
                     type: number
                   on_recovery_extra_args:
                     type: object
-                    additionalProperties: *ref_34
+                    additionalProperties: *ref_14
                 required: &ref_73
                   - path
                   - edited_by
@@ -7739,7 +7802,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: schedule exists
@@ -8560,7 +8623,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: kind
           in: path
           required: true
@@ -8599,7 +8662,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: kind
           in: path
           required: true
@@ -8650,7 +8713,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
         - name: kind
           in: path
           required: true
@@ -8699,7 +8762,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '204':
           description: flow preview captured
@@ -8717,7 +8780,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '201':
           description: flow preview capture created
@@ -8734,7 +8797,7 @@ paths:
         - name: path
           in: path
           required: true
-          schema: *ref_14
+          schema: *ref_15
       responses:
         '200':
           description: captured flow preview
@@ -9015,22 +9078,22 @@ components:
       name: id
       in: path
       required: true
-      schema: *ref_18
+      schema: *ref_19
     ClientName:
       name: client_name
       in: path
       required: true
-      schema: *ref_17
+      schema: *ref_18
     ScriptPath:
       name: path
       in: path
       required: true
-      schema: *ref_26
+      schema: *ref_27
     ScriptHash:
       name: hash
       in: path
       required: true
-      schema: *ref_29
+      schema: *ref_30
     JobId:
       name: id
       in: path
@@ -9040,12 +9103,12 @@ components:
       name: path
       in: path
       required: true
-      schema: *ref_14
+      schema: *ref_15
     PathId:
       name: id
       in: path
       required: true
-      schema: *ref_21
+      schema: *ref_22
     Name:
       name: name
       in: path
@@ -9077,7 +9140,7 @@ components:
         The parent job that is at the origin and responsible for the execution
         of this script if any
       in: query
-      schema: *ref_32
+      schema: *ref_33
     NewJobId:
       name: job_id
       description: >-
@@ -9085,7 +9148,7 @@ components:
         randomly using the ULID scheme. If a job id already exists in the queue
         or as a completed job, the request to create one will fail (Bad Request)
       in: query
-      schema: *ref_33
+      schema: *ref_34
     IncludeHeader:
       name: include_header
       description: >
@@ -9239,17 +9302,17 @@ components:
   schemas:
     Script:
       type: object
-      properties: *ref_27
-      required: *ref_28
+      properties: *ref_28
+      required: *ref_29
     NewScript:
       type: object
-      properties: *ref_30
-      required: *ref_31
+      properties: *ref_31
+      required: *ref_32
     NewScriptWithDraft:
       allOf: *ref_97
     ScriptArgs:
       type: object
-      additionalProperties: *ref_34
+      additionalProperties: *ref_14
     Input:
       type: object
       properties: *ref_81
@@ -9307,8 +9370,8 @@ components:
       required: *ref_113
     ListableVariable:
       type: object
-      properties: *ref_15
-      required: *ref_16
+      properties: *ref_16
+      required: *ref_17
     ContextualVariable:
       type: object
       properties: *ref_114
@@ -9462,8 +9525,8 @@ components:
       required: *ref_127
     ResourceType:
       type: object
-      properties: *ref_19
-      required: *ref_20
+      properties: *ref_20
+      required: *ref_21
     EditResourceType:
       type: object
       properties: *ref_128
@@ -9578,8 +9641,8 @@ components:
       properties: *ref_153
       required: *ref_154
     InputTransform:
-      oneOf: *ref_22
-      discriminator: *ref_23
+      oneOf: *ref_23
+      discriminator: *ref_24
     RawScript:
       type: object
       properties: *ref_155
@@ -9594,8 +9657,8 @@ components:
       required: *ref_160
     FlowModule:
       type: object
-      properties: *ref_24
-      required: *ref_25
+      properties: *ref_25
+      required: *ref_26
     ForloopFlow:
       type: object
       properties: *ref_161
