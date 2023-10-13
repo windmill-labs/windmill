@@ -4,7 +4,7 @@
     import ScriptPicker from '$lib/components/ScriptPicker.svelte'
     import Toggle from '$lib/components/Toggle.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
-    import { workspaceStore } from '$lib/stores'
+    import { enterpriseLicense, workspaceStore } from '$lib/stores'
     import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
     import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
     import { inferArgs } from '$lib/infer'
@@ -15,6 +15,7 @@
     export let isEditable: boolean
     export let slackToggleText: string = "enable"
     export let handlerSelected: 'custom' | 'slack'
+    export let handlersOnlyForEe: string[]
 
     export let handlerPath: string | undefined
     export let handlerExtraArgs: Record<string, any>
@@ -141,8 +142,13 @@
 
 <div>
     <Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-        <Tab value="slack">Slack</Tab>
-        <Tab value="custom">Custom</Tab>
+        {#if $enterpriseLicense}
+            <Tab value="slack">Slack</Tab>
+            <Tab value="custom">Custom</Tab>
+        {:else}
+            <Tab value="custom">Custom</Tab>
+            <Tab value="slack">Slack {handlersOnlyForEe.includes('slack') ? '(ee only)' : ''}</Tab>
+        {/if}
     </Tabs>
 </div>
 
@@ -186,7 +192,7 @@
 {:else if handlerSelected === 'slack'}
     <span class="w-full flex mb-3">
         <Toggle
-            disabled={!isEditable}
+            disabled={ !$enterpriseLicense || !isEditable}
             checked={ handlerPath === slackHandlerScriptPath }
             options={{ right: slackToggleText}}
             on:change={async (e) => {
@@ -196,7 +202,7 @@
     </span>
     {#if workspaceConnectedToSlack}
         <SchemaForm
-            disabled={ handlerPath !== slackHandlerScriptPath }
+            disabled={ !$enterpriseLicense || handlerPath !== slackHandlerScriptPath }
             schema={slackHandlerSchema}
             schemaSkippedValues={['slack']}
             schemaFieldTooltip={{'channel': 'Slack channel name without the "#" - example: "windmill-alerts"'}}
@@ -205,7 +211,7 @@
             class="text-xs"
         />
     {/if}
-    {#if handlerPath === slackHandlerScriptPath }
+    {#if handlerPath === slackHandlerScriptPath && enterpriseLicense }
         {#if !workspaceConnectedToSlack}
             <Alert type="error" title="Workspace not connected to Slack">
                 <div class="flex flex-row gap-x-1 w-full items-center">

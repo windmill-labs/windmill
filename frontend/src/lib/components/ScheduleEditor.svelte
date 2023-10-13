@@ -61,10 +61,14 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		errorHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
 		errorHandleritemKind = 'script'
 		errorHandlerPath = undefined
 		errorHandlerExtraArgs = {}
+		recoveryHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
 		recoveryHandlerPath = undefined
+		recoveryHandlerItemKind = 'script'
+		recoveryHandlerExtraArgs = {}
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
@@ -169,12 +173,12 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerExtraArgs,
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
 					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerExtraArgs
+					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -192,12 +196,12 @@
 					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 					on_failure_times: failedTimes,
 					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerExtraArgs,
+					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : {},
 					on_recovery: recoveryHandlerPath
 						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 						: undefined,
 					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerExtraArgs
+					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -343,9 +347,9 @@
 						</div>
 					</Tooltip>
 				</svelte:fragment>
-
 				<ErrorOrRecoveryHandler
 					isEditable={can_write}
+					handlersOnlyForEe={['slack']}
 					bind:handlerSelected={errorHandlerSelected}
 					bind:handlerPath={errorHandlerPath}
 					slackHandlerScriptPath={slackErrorHandler}
@@ -404,6 +408,7 @@
 
 				<ErrorOrRecoveryHandler
 					isEditable={can_write && !emptyString($enterpriseLicense)}
+					handlersOnlyForEe={[]}
 					bind:handlerSelected={recoveryHandlerSelected}
 					bind:handlerPath={recoveryHandlerPath}
 					slackHandlerScriptPath={slackRecoveryHandler}
