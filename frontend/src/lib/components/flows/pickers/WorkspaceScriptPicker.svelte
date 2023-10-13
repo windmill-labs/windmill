@@ -29,7 +29,7 @@
 	$: $workspaceStore && kind && loadItems()
 
 	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind, isTemplate })
+		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kind, isTemplate })
 	}
 
 	let ownerFilter: string | undefined = undefined

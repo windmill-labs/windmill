@@ -231,7 +231,7 @@ pub struct ListScriptQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
-    pub kind: Option<String>,
+    pub kinds: Option<String>,
     pub starred_only: Option<bool>,
 }
 

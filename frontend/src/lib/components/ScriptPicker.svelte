@@ -48,23 +48,12 @@
 				label: `${flow.path}${flow.summary ? ` | ${truncate(flow.summary, 20)}` : ''}`
 			}))
 		} else if (itemKind == 'script') {
-			if (kinds.length === 1) {
-				items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind: kinds[0]})).map(
+				items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kinds.join(",")})).map(
 					(script) => ({
 						value: script.path,
 						label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
 					})
 				)
-			} else {
-				items = (await ScriptService.listScripts({ workspace: $workspaceStore! })).filter(
-					(script) => kinds.includes(script.kind)
-				).map(
-					(script) => ({
-						value: script.path,
-						label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
-					})
-				)
-			}
 		} else {
 			items =
 				$hubScripts?.map((x) => ({
