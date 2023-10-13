@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind } from './utils'
+	import { triggerAddFlowStep, selectFlowStepKind } from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
 
@@ -70,15 +70,13 @@
 				},
 				element: `#flow-editor-insert-module > div > button:nth-child(${isFirst ? 6 : 5})`
 			},
-
 			{
-				element: '#add-branch-button',
+				element: '#flow-editor-branch-all-wrapper',
 				popover: {
-					title: 'Add branch',
-					description: 'Click here to add a branch',
+					title: 'Branches',
+					description:
+						'Here you can add a summary to a branch, or configure the branches to run in parallel',
 					onNextClick: () => {
-						clickButtonBySelector('#add-branch-button')
-
 						setTimeout(() => {
 							driver.moveNext()
 						})
@@ -86,16 +84,9 @@
 				}
 			},
 			{
-				element: '#flow-editor-branch-all-wrapper',
 				popover: {
-					title: 'Branches',
-					description:
-						'Here you can summary to a branch, or configure the branches to run in parallel',
-					onNextClick: () => {
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
+					title: 'Add steps',
+					description: 'You can now add step to one of the branches'
 				}
 			}
 		]

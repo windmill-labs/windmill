@@ -76,21 +76,6 @@
 			},
 
 			{
-				element: '#add-branch-button',
-				popover: {
-					title: 'Add branch',
-					description: 'Click here to add a branch',
-					onNextClick: () => {
-						clickButtonBySelector('#add-branch-button')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
-					}
-				}
-			},
-
-			{
 				element: '#flow-editor-edit-predicate',
 				popover: {
 					title: 'Edit predicate',
@@ -123,6 +108,13 @@
 							driver.moveNext()
 						})
 					}
+				}
+			},
+
+			{
+				popover: {
+					title: 'Add steps',
+					description: 'You can now add step to one of the branches'
 				}
 			}
 		]
