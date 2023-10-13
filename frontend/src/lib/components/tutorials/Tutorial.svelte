@@ -1,18 +1,19 @@
 <script lang="ts">
 	import { driver, type Driver, type DriveStep } from 'driver.js'
 	import 'driver.js/dist/driver.css'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import type { FlowEditorContext } from '../flows/types'
-	import { tainted } from './utils'
+	import { createEventDispatcher } from 'svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { ignoredTutorials } from './ignoredTutorials'
 
 	export let index: number = 0
 	export let name: string = 'action'
+	export let tainted: boolean = false
 
-	export let getSteps: (driver: Driver) => DriveStep[] = () => []
+	export let getSteps: (
+		driver: Driver,
+		indexToInsertAt?: number | undefined
+	) => DriveStep[] = () => []
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	function createTutorialButton(text: string, onClick: () => void) {
@@ -26,8 +27,8 @@
 		return button
 	}
 
-	export const runTutorial = () => {
-		if (tainted($flowStore)) {
+	export const runTutorial = (indexToInsertAt?: number | undefined) => {
+		if (tainted) {
 			dispatch('error', { detail: name })
 			return
 		}
@@ -69,7 +70,7 @@
 			}
 		})
 
-		tutorial.setSteps(getSteps(tutorial))
+		tutorial.setSteps(getSteps(tutorial, indexToInsertAt))
 		tutorial.drive()
 	}
 </script>
