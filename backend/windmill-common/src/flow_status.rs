@@ -53,7 +53,7 @@ pub struct Iterator {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BranchAllStatus {
     pub branch: usize,
-    pub previous_result: serde_json::Value,
+    pub previous_result: Box<RawValue>,
     pub len: usize,
 }
 

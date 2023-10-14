@@ -1,9 +1,5 @@
-use std::{
-    collections::HashMap, f32::consts::E, fmt::Display, ops::Mul, str::FromStr, sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Display, ops::Mul, str::FromStr, sync::Arc, time::Duration};
 
-use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
@@ -642,7 +638,6 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             base_internal_url: base_internal_url.to_string(),
             token,
             workspace: job.workspace_id.to_string(),
-            client: OnceCell::new(),
         };
 
         let last_ping = job.last_ping.clone();

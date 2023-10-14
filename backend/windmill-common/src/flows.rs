@@ -204,7 +204,7 @@ impl FlowModule {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")

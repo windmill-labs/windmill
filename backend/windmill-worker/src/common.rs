@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -159,11 +159,10 @@ pub async fn transform_json_value(
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
             client
-                .get_client()
-                .get_variable_value(workspace, path)
+                .get_variable_value(path)
                 .await
+                .map(|x| json!(x))
                 .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
-                .map(|v| json!(v.into_inner()))
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -172,12 +171,13 @@ pub async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            Ok(client
-                .get_client()
-                .get_resource_value_interpolated(workspace, path, Some(&job.id))
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    path,
+                    Some(job.id.to_string()),
+                )
                 .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
-                .into_inner())
+                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {

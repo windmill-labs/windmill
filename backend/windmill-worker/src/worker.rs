@@ -9,7 +9,6 @@
 use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
-use once_cell::sync::OnceCell;
 use prometheus::core::{AtomicU64, GenericCounter};
 use reqwest::Response;
 #[cfg(feature = "benchmark")]
@@ -24,7 +23,6 @@ use std::{
     },
     time::Duration,
 };
-use windmill_api_client::Client;
 
 use uuid::Uuid;
 use windmill_common::{
@@ -74,10 +72,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
-    common::{
-        build_args_map, hash_args, read_result, save_in_cache, transform_json,
-        transform_json_value, write_file,
-    },
+    common::{build_args_map, hash_args, read_result, save_in_cache, write_file},
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
     graphql_executor::do_graphql,
@@ -299,7 +294,6 @@ pub struct AuthedClientBackgroundTask {
     pub base_internal_url: String,
     pub workspace: String,
     pub token: Arc<RwLock<String>>,
-    pub client: OnceCell<Client>,
 }
 
 impl AuthedClientBackgroundTask {
@@ -308,7 +302,6 @@ impl AuthedClientBackgroundTask {
             base_internal_url: self.base_internal_url.clone(),
             workspace: self.workspace.clone(),
             token: self.get_token().await,
-            client: self.client.clone(),
         };
     }
     pub async fn get_token(&self) -> String {
@@ -320,19 +313,13 @@ pub struct AuthedClient {
     pub base_internal_url: String,
     pub workspace: String,
     pub token: String,
-    pub client: OnceCell<Client>,
 }
 
 impl AuthedClient {
-    pub fn get_client(&self) -> &Client {
-        return self.client.get_or_init(|| {
-            windmill_api_client::create_client(&self.base_internal_url, self.token.clone())
-        });
-    }
-
-    pub async fn get(&self, url: &str) -> anyhow::Result<Response> {
+    pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
         Ok(HTTP_CLIENT
             .get(url)
+            .query(&query)
             .header(
                 reqwest::header::ACCEPT,
                 reqwest::header::HeaderValue::from_static("application/json"),
@@ -350,7 +337,70 @@ impl AuthedClient {
             "{}/w/{}/resources/get_value/{}",
             self.base_internal_url, self.workspace, path
         );
-        let response = self.get(&url).await?;
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(response.json::<T>().await?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_variable_value(&self, path: &str) -> anyhow::Result<String> {
+        let url = format!(
+            "{}/w/{}/variables/get_value/{}",
+            self.base_internal_url, self.workspace, path
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(response.json::<String>().await?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_resource_value_interpolated<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        job_id: Option<String>,
+    ) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/w/{}/resources/get_value_interpolated/{}",
+            self.base_internal_url, self.workspace, path
+        );
+        let mut query = Vec::with_capacity(1usize);
+        if let Some(v) = &job_id {
+            query.push(("job_id", v.to_string()));
+        }
+        let response = self.get(&url, query).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(response.json::<T>().await?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_completed_job_result<T: DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/w/{}/jobs_u/completed/get_result/{}",
+            self.base_internal_url, self.workspace, path
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(response.json::<T>().await?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_result_by_id<T: DeserializeOwned>(
+        &self,
+        flow_job_id: &str,
+        node_id: &str,
+    ) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/w/{}/jobs/result_by_id/{}/{}",
+            self.base_internal_url, self.workspace, flow_job_id, node_id
+        );
+        let response = self.get(&url, vec![]).await?;
         match response.status().as_u16() {
             200u16 => Ok(response.json::<T>().await?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
@@ -390,12 +440,8 @@ async fn handle_receive_completed_job<
     let metrics = build_language_metrics(&worker_execution_failed.clone(), &jc.job.language);
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
-    let client = AuthedClient {
-        base_internal_url: base_internal_url.to_string(),
-        workspace,
-        token,
-        client: OnceCell::new(),
-    };
+    let client =
+        AuthedClient { base_internal_url: base_internal_url.to_string(), workspace, token };
     if let Err(err) = process_completed_job(
         &jc,
         &client,
@@ -1206,7 +1252,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url: base_internal_url.to_string(),
                         token,
                         workspace: job.workspace_id.to_string(),
-                        client: OnceCell::new(),
                     };
 
                     if let Some(err) = handle_queued_job(

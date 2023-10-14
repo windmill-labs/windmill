@@ -55,12 +55,7 @@ pub async fn handle_bash_job(
         .iter()
         .map(|arg| {
             hm.get(&arg.name)
-                .map(|x| {
-                    x.get()
-                        .trim_start_matches('"')
-                        .trim_end_matches("\"")
-                        .to_string()
-                })
+                .map(|x| serde_json::to_string(x.get()).unwrap_or_else(|_| "".to_string()))
                 .unwrap_or_else(String::new)
         })
         .collect::<Vec<String>>();
@@ -172,12 +167,7 @@ pub async fn handle_powershell_job(
                 (
                     arg.name.clone(),
                     hm.get(&arg.name)
-                        .map(|x| {
-                            x.get()
-                                .trim_start_matches('"')
-                                .trim_end_matches("\"")
-                                .to_string()
-                        })
+                        .map(|x| serde_json::to_string(x.get()).unwrap_or_else(|_| "".to_string()))
                         .unwrap_or_else(String::new),
                 )
             })

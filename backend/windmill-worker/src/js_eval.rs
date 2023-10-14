@@ -20,7 +20,7 @@ use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde_json::{value::RawValue, Value};
+use serde_json::value::RawValue;
 use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
@@ -28,7 +28,7 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
 
-use crate::AuthedClient;
+use crate::{common::unsafe_raw, AuthedClient};
 
 #[derive(Debug, Clone)]
 pub struct IdContext {
@@ -68,12 +68,13 @@ impl TimersPermission for PermissionsContainer {
 }
 
 pub struct OptAuthedClient(Option<AuthedClient>);
+
 pub async fn eval_timeout(
     expr: String,
-    env: Vec<(String, Box<RawValue>)>,
+    transform_context: HashMap<String, Arc<Box<RawValue>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<Box<RawValue>> {
     let expr2 = expr.clone();
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let has_client = authed_client.is_some();
@@ -81,7 +82,7 @@ pub async fn eval_timeout(
     timeout(
         std::time::Duration::from_millis(10000),
         tokio::task::spawn_blocking(move || {
-            let mut ops = vec![];
+            let mut ops = vec![op_get_context::DECL];
 
             if authed_client.is_some() {
                 ops.extend([
@@ -107,11 +108,29 @@ pub async fn eval_timeout(
                 ..Default::default()
             };
 
+            let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
+
+            let context_keys = transform_context
+                .keys()
+                .filter(|x| {
+                    expr.contains(&x.to_string())
+                        || (x.to_string() == "previous_result"
+                            && p_id.is_some()
+                            && expr.contains(p_id.as_ref().unwrap()))
+                })
+                .map(|x| x.clone())
+                .collect_vec();
             let mut js_runtime = JsRuntime::new(options);
             {
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 op_state.put(OptAuthedClient(authed_client.clone()));
+                op_state.put(TransformContext {
+                    envs: transform_context
+                        .into_iter()
+                        .filter(|(a, _)| context_keys.contains(a))
+                        .collect(),
+                })
             }
 
             sender
@@ -129,9 +148,15 @@ pub async fn eval_timeout(
 
             let expr = replace_with_await_result(expr);
 
-            let r = runtime.block_on(eval(&mut js_runtime, &expr, env, by_id, has_client))?;
+            let r = runtime.block_on(eval(
+                &mut js_runtime,
+                &expr,
+                context_keys,
+                by_id,
+                has_client,
+            ))?;
 
-            Ok(r) as anyhow::Result<Value>
+            Ok(r) as anyhow::Result<Box<RawValue>>
         }),
     )
     .await
@@ -184,14 +209,17 @@ fn add_closing_bracket(s: &str) -> String {
 async fn eval(
     context: &mut JsRuntime,
     expr: &str,
-    env: Vec<(String, Box<RawValue>)>,
+    transform_context: Vec<String>,
     by_id: Option<IdContext>,
     has_client: bool,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<Box<RawValue>> {
     let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
                 r#"
+function get_from_env(name) {{
+    return JSON.parse(Deno.core.ops.op_get_context([name]));
+}}
 async function result_by_id(node_id) {{
     let id_map = {{ {} }};
     let id = id_map[node_id];
@@ -263,15 +291,22 @@ async function resource(path) {{
         r#"
 {api_code}
 {}
+{}
 {by_id_code}
 {HAS_CYCLE}
 ((async () => {{ 
     {f};
-}})()).then((r) => hasCycle(r) ? 'cycle detected' : r)
+}})()).then((r) => hasCycle(r) ? 'cycle detected' : r).then(JSON.stringify)
         "#,
-        env.into_iter()
-            .map(|(a, b)| { format!("let {a} = {};\n", b.to_string()) })
+        transform_context
+            .iter()
+            .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
+        if expr.contains("error") && transform_context.contains(&"last_result".to_string()) {
+            "let error = last_result.error"
+        } else {
+            ""
+        },
     );
     let global = context.execute_script("<anon>", code.into())?;
     let global = context.resolve_value(global).await?;
@@ -280,7 +315,8 @@ async function resource(path) {{
     let local = v8::Local::new(scope, global);
     // Deserialize a `v8` object into a Rust type using `serde_v8`,
     // in this case deserialize to a JSON `Value`.
-    Ok(serde_v8::from_v8::<serde_json::Value>(scope, local)?)
+    let r = serde_v8::from_v8::<String>(scope, local)?;
+    Ok(unsafe_raw(r))
 }
 
 const HAS_CYCLE: &str = r#"
@@ -335,11 +371,7 @@ async fn op_variable(
     let path = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        let result = client
-            .get_client()
-            .get_variable_value(&client.workspace, path)
-            .await?;
-        Ok(result.into_inner())
+        Ok(client.get_variable_value(path).await?)
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -349,16 +381,15 @@ async fn op_variable(
 async fn op_get_result(
     op_state: Rc<RefCell<OpState>>,
     args: Vec<String>,
-) -> Result<serde_json::Value, anyhow::Error> {
+) -> Result<Box<RawValue>, anyhow::Error> {
     let id = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_client()
-            .get_completed_job_result(&client.workspace, &id.parse()?)
+            .get_completed_job_result::<Box<RawValue>>(id)
             .await?
             .clone();
-        Ok(serde_json::json!(result))
+        Ok(result)
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -368,18 +399,16 @@ async fn op_get_result(
 async fn op_get_id(
     op_state: Rc<RefCell<OpState>>,
     args: Vec<String>,
-) -> Result<Option<serde_json::Value>, anyhow::Error> {
+) -> Result<Option<Box<RawValue>>, anyhow::Error> {
     let flow_job_id = &args[0];
     let node_id = &args[1];
 
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_client()
-            .result_by_id(&client.workspace, flow_job_id, node_id)
-            .await
-            .map_or(None, |e| Some(e.into_inner()));
-        Ok(result)
+            .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id)
+            .await;
+        result
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -394,14 +423,26 @@ async fn op_resource(
 
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        let result = client
-            .get_client()
-            .get_resource_value_interpolated(&client.workspace, path, None)
-            .await?;
-        Ok(result.into_inner())
+        client.get_resource_value_interpolated(path, None).await
     } else {
         anyhow::bail!("No client found in op state");
     }
+}
+
+pub struct TransformContext {
+    pub envs: HashMap<String, Arc<Box<RawValue>>>,
+}
+
+#[op]
+fn op_get_context(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> String {
+    let id = &args[0];
+    let ops = op_state.borrow();
+    let client = ops.borrow::<TransformContext>();
+    return client
+        .envs
+        .get(id)
+        .and_then(|x| serde_json::to_string(x).ok())
+        .unwrap_or_else(String::new);
 }
 
 pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
@@ -586,15 +627,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_eval() -> anyhow::Result<()> {
-        let env = vec![
-            ("params".to_string(), to_raw_value(&json!({"test": 2}))),
-            ("value".to_string(), to_raw_value(&json!({"test": 2}))),
-        ];
+        let mut env = HashMap::new();
+        env.insert(
+            "params".to_string(),
+            Arc::new(to_raw_value(&json!({"test": 2}))),
+        );
+        env.insert(
+            "value".to_string(),
+            Arc::new(to_raw_value(&json!({"test": 2}))),
+        );
+
         let code = "value.test + params.test";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, false).await?;
-        assert_eq!(res, json!(4));
+        let res = eval(
+            &mut runtime,
+            code,
+            vec!["params".to_string(), "value".to_string()],
+            None,
+            false,
+        )
+        .await?;
+        assert_eq!(res.get(), "4");
         Ok(())
     }
 
@@ -607,20 +661,33 @@ multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
         let res = eval(&mut runtime, code, env, None, false).await?;
-        assert_eq!(res, json!("my 5\nmultiline template"));
+        assert_eq!(res.get(), "my 5\nmultiline template");
         Ok(())
     }
 
     #[tokio::test]
     async fn test_eval_timeout() -> anyhow::Result<()> {
-        let env = vec![
-            ("params".to_string(), to_raw_value(&json!({"test": 2}))),
-            ("value".to_string(), to_raw_value(&json!({"test": 2}))),
-        ];
+        let mut env = HashMap::new();
+        env.insert(
+            "params".to_string(),
+            Arc::new(to_raw_value(&json!({"test": 2}))),
+        );
+        env.insert(
+            "value".to_string(),
+            Arc::new(to_raw_value(&json!({"test": 2}))),
+        );
+
         let code = r#"params.test"#;
 
+        let mut js_runtime = JsRuntime::new(RuntimeOptions::default());
+        {
+            let op_state = js_runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            op_state.put(TransformContext { envs: env.clone() })
+        }
+
         let res = eval_timeout(code.to_string(), env, None, None).await?;
-        assert_eq!(res, json!(2));
+        assert_eq!(res.get(), "2");
         Ok(())
     }
 

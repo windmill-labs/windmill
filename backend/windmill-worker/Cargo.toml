@@ -23,7 +23,6 @@ windmill-common = { workspace = true, features = [
     "prometheus",
     "tracing_init",
 ] }
-windmill-api-client.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true

@@ -23,8 +23,8 @@ use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::common::{build_args_map, transform_json_value};
-use crate::{AuthedClient, AuthedClientBackgroundTask};
+use crate::common::build_args_map;
+use crate::AuthedClientBackgroundTask;
 use bytes::BytesMut;
 use urlencoding::encode;
 

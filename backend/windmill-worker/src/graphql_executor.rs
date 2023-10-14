@@ -1,16 +1,13 @@
 use std::collections::HashMap;
 
-use serde_json::{json, value::RawValue, Value};
+use serde_json::{json, value::RawValue};
 use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
 use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::{
-    common::{build_args_map, transform_json_value},
-    AuthedClient, AuthedClientBackgroundTask,
-};
+use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
 #[derive(Deserialize)]
 struct GraphqlApi {
