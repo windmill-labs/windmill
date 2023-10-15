@@ -816,7 +816,7 @@ async fn compute_bool_from_expr(
 
     if let Some(resumes) = resumes {
         context.insert("resume".to_string(), resumes.1);
-        context.insert("resume".to_string(), resumes.0);
+        context.insert("resumes".to_string(), resumes.0);
         context.insert("approvers".to_string(), resumes.2);
     }
 
@@ -1268,46 +1268,56 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
     // calculate sleep if any
     let mut scheduled_for_o = {
-        let sleep_input_transform = i
-            .checked_sub(1)
-            .and_then(|i| flow.modules.get(i))
-            .and_then(|m| m.sleep.clone());
-
-        if let Some(it) = sleep_input_transform {
-            let json_value = match it {
-                InputTransform::Static { value } => Ok(value),
-                InputTransform::Javascript { expr } => {
-                    let mut context = HashMap::with_capacity(2);
-                    context.insert("result".to_string(), arc_result.clone());
-
-                    serde_json::from_str(
-                        eval_timeout(
-                            expr.to_string(),
-                            context,
-                            Some(arc_flow_job_args.clone()),
-                            None,
-                            None,
-                        )
-                        .await
-                        .map_err(|e| {
-                            Error::ExecutionErr(format!(
-                                "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                            ))
-                        })?
-                        .get(),
-                    )
-                }
-            };
-            match json_value {
-                Ok(serde_json::Value::Number(n)) => {
-                    n.as_u64().map(|x| from_now(Duration::from_secs(x)))
-                }
-                _ => Err(Error::ExecutionErr(format!(
-                    "Expected a number value, found: {json_value:?}"
-                )))?,
-            }
-        } else {
+        // avoid branchall sleeping on every iteration if sleep is on module prior
+        if !matches!(
+            &status_module,
+            FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+        ) {
             None
+        } else {
+            let sleep_input_transform = i
+                .checked_sub(1)
+                .and_then(|i| flow.modules.get(i))
+                .and_then(|m| m.sleep.clone());
+
+            if let Some(it) = sleep_input_transform {
+                let json_value = match it {
+                    InputTransform::Static { value } => Ok(value),
+                    InputTransform::Javascript { expr } => {
+                        let mut context = HashMap::with_capacity(2);
+                        context.insert("result".to_string(), arc_result.clone());
+                        context.insert("previous_result".to_string(), arc_result.clone());
+
+                        serde_json::from_str(
+                            eval_timeout(
+                                expr.to_string(),
+                                context,
+                                Some(arc_flow_job_args.clone()),
+                                None,
+                                None,
+                            )
+                            .await
+                            .map_err(|e| {
+                                Error::ExecutionErr(format!(
+                                    "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                                ))
+                            })?
+                            .get(),
+                        )
+                    }
+                };
+                match json_value {
+                    Ok(serde_json::Value::Number(n)) => {
+                        n.as_u64().map(|x| from_now(Duration::from_secs(x)))
+                    }
+                    _ => Err(Error::ExecutionErr(format!(
+                        "Expected a number value, found: {json_value:?}"
+                    )))?,
+                }
+            } else {
+                None
+            }
         }
     };
 

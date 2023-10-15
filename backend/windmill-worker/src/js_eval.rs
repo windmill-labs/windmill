@@ -120,7 +120,7 @@ pub async fn eval_timeout(
                 .map(|x| x.clone())
                 .collect_vec();
 
-            if !context_keys.contains(&"previous_result".to_string()) && expr.contains(p_id.as_ref().unwrap())  || expr.contains("error") {
+            if !context_keys.contains(&"previous_result".to_string()) && (p_id.is_some() && expr.contains(p_id.as_ref().unwrap()))  || expr.contains("error") {
                 context_keys.push("previous_result".to_string());
             }
             let has_flow_input = expr.contains("flow_input");
