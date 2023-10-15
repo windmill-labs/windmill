@@ -11,8 +11,6 @@ use const_format::concatcp;
 use itertools::Itertools;
 use prometheus::core::{AtomicU64, GenericCounter};
 use reqwest::Response;
-#[cfg(feature = "benchmark")]
-use serde::Serialize;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{

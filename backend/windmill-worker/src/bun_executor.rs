@@ -538,6 +538,7 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
     return bun_envs;
 }
 
+#[cfg(feature = "enterprise")]
 use std::sync::Arc;
 
 #[cfg(feature = "enterprise")]
