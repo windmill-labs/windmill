@@ -396,7 +396,7 @@ pub struct CompletedJob<'rows> {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
+    pub args: Option<&'rows JsonRawValue>,
     #[serde(skip_serializing_if = "Option::is_none", borrow)]
     pub result: Option<&'rows JsonRawValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
