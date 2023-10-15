@@ -1064,7 +1064,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 r = to_raw_value(&flow_job_args);
                 &r
             } else {
-                serde_json::from_str("{}").unwrap()
+                // it has to be an empty for loop event
+                serde_json::from_str("[]").unwrap()
             },
             None,
             true,
