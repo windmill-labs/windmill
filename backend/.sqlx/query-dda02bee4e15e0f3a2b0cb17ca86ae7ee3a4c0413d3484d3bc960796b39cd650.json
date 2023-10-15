@@ -1,15 +1,20 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
+  "query": "SELECT running, substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "running",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
         "name": "logs",
         "type_info": "Text"
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "mem_peak",
         "type_info": "Int4"
       }
@@ -22,9 +27,10 @@
       ]
     },
     "nullable": [
+      false,
       null,
       true
     ]
   },
-  "hash": "b69f747eae8b13a0a8d6914a3a7ad322554fcfe62cd28c5f0a475f18dd770d61"
+  "hash": "dda02bee4e15e0f3a2b0cb17ca86ae7ee3a4c0413d3484d3bc960796b39cd650"
 }
