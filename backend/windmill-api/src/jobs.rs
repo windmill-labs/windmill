@@ -339,7 +339,7 @@ async fn get_job(
 ) -> error::Result<Response> {
     let cjob_option = sqlx::query("SELECT 
         id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
-        args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+        CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
         schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
         raw_lock, email, visible_to_owner, mem_peak, tag 
         FROM completed_job WHERE id = $1 AND workspace_id = $2")
@@ -352,7 +352,11 @@ async fn get_job(
         Ok(Json(job).into_response())
     } else {
         let job_o = sqlx::query_as::<_, QueuedJob>(
-            "SELECT *
+            "SELECT  id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for, running,
+                script_hash, script_path, CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, logs, raw_code, canceled, canceled_by, canceled_reason, last_ping, 
+                job_kind, env_id, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
+                 suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
+                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl
                 FROM queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(id)
@@ -2627,7 +2631,10 @@ async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job_o = sqlx::query("SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2")
+    let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
+    CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
+    raw_lock, email, visible_to_owner, mem_peak, tag FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(w_id)
         .fetch_optional(&db)
