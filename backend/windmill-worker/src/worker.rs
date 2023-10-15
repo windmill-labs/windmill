@@ -1445,7 +1445,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             &job,
             true,
             false,
-            Json(&result),
+            Json(result),
             logs.to_string(),
             mem_peak.to_owned(),
             rsmq.clone(),
