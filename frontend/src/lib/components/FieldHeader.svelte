@@ -8,6 +8,7 @@
 	export let format: string = ''
 	export let contentEncoding = ''
 	export let type: string | undefined = undefined
+	export let disabled: boolean = false
 	export let required = false
 	export let displayType: boolean = true
 	export let labelClass: string = ''
@@ -16,14 +17,16 @@
 </script>
 
 <div class="inline-flex flex-row items-center truncated">
-	<span class={twMerge('font-semibold', labelClass)}>
+	<span class={twMerge(disabled ? 'text-tertiary' : '', 'font-semibold', labelClass)}>
 		{#if prettify}
 			{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
 		{:else}
 			{label}
 		{/if}
 	</span>
-	<Required {required} class="!ml-0" />
+	{#if !disabled}
+		<Required {required} class="!ml-0" />
+	{/if}
 
 	{#if displayType}
 		{#if format && !format.startsWith('resource')}

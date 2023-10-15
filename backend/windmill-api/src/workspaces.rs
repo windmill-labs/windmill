@@ -132,6 +132,7 @@ pub struct WorkspaceSettings {
     pub openai_resource_path: Option<String>,
     pub code_completion_enabled: bool,
     pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -243,6 +244,7 @@ pub struct NewWorkspaceUser {
 #[derive(Deserialize)]
 pub struct EditErrorHandler {
     pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
 }
 
 async fn list_pending_invites(
@@ -532,6 +534,7 @@ async fn run_slack_message_test_job(
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     let mut fake_result = Map::new();
     fake_result.insert("error".to_string(), json!(req.test_msg));
+    fake_result.insert("success_result".to_string(), json!(req.test_msg));
 
     let mut extra_args = Map::new();
     extra_args.insert("channel".to_string(), json!(req.channel));
@@ -806,6 +809,15 @@ async fn edit_error_handler(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    #[cfg(not(feature = "enterprise"))]
+    if ee.error_handler.is_some()
+        && ee.error_handler.as_ref().unwrap() == "script/hub/2431/slack/schedule-error-handler-slack"
+    {
+        return Err(Error::BadRequest(
+            "Slack error handler is only available in enterprise version".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
     
     sqlx::query_as!(
@@ -820,17 +832,17 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
-
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2 WHERE workspace_id = $3",
             error_handler,
+            ee.error_handler_extra_args,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
             &w_id,
         )
         .execute(&mut *tx)

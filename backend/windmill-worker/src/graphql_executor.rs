@@ -45,7 +45,7 @@ pub async fn do_graphql(
         serde_json::from_str::<GraphqlApi>(db.get())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
-        return Err(Error::BadRequest("Missing database argument".to_string()));
+        return Err(Error::BadRequest("Missing api argument".to_string()));
     };
 
     let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({

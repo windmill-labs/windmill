@@ -478,7 +478,7 @@
 				on:click={() => editor?.reloadWebsocket()}
 				startIcon={{
 					icon: faRotate,
-					classes: !websocketAlive[lang] ? 'animate-spin' : ''
+					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
 				}}
 				title="Reload assistants"
 			>

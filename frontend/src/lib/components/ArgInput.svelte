@@ -188,7 +188,16 @@
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
-			<FieldHeader prettify={prettifyHeader} {label} {required} {type} {contentEncoding} {format} {simpleTooltip} />
+			<FieldHeader
+				prettify={prettifyHeader}
+				{label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+			/>
 		{/if}
 		{#if editableSchema}
 			<label class="text-secondary">
@@ -313,7 +322,7 @@
 													{/each}
 												</select>
 											{:else}
-												<input type="text" bind:value={v} />
+												<input type="text" bind:value={v} id="arg-input-array" />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
@@ -443,7 +452,7 @@
 								placeholder={defaultValue ?? ''}
 								bind:value
 							/>
-							{#if itemPicker}
+							{#if !disabled && itemPicker}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<button
 									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
@@ -475,7 +484,7 @@
 		</div>
 		{#if !compact || (error && error != '')}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
-				{#if error === ''}
+				{#if disabled || error === ''}
 					&nbsp;
 				{:else}
 					{error}

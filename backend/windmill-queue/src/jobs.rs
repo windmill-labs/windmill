@@ -454,12 +454,14 @@ pub async fn run_error_handler<
     db: &Pool<Postgres>,
     result: Json<&'a T>,
     error_handler_path: &str,
+    error_handler_extra_args: Option<serde_json::Value>,
     is_global: bool,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let script_w_id = if is_global { "admins" } else { w_id }; // script workspace id
     let job_id = queued_job.id;
     let (job_payload, tag) = script_path_to_payload(&error_handler_path, db, script_w_id).await?;
+
     let mut extra = HashMap::new();
     extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
     extra.insert("job_id".to_string(), to_raw_value(&job_id));
@@ -469,6 +471,19 @@ pub async fn run_error_handler<
         to_raw_value(&queued_job.raw_flow.is_some()),
     );
     extra.insert("email".to_string(), to_raw_value(&queued_job.email));
+
+    if let Some(extra_args) = error_handler_extra_args {
+        if let serde_json::Value::Object(args_m) = extra_args {
+            for (k, v) in args_m {
+                extra.insert(k, to_raw_value(&v));
+            }
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
 
     let (uuid, tx) = push(
@@ -523,7 +538,16 @@ pub async fn send_error_to_global_handler<
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
-        run_error_handler(rsmq, queued_job, db, result, global_error_handler, true).await?
+        run_error_handler(
+            rsmq,
+            queued_job,
+            db,
+            result,
+            global_error_handler,
+            None,
+            true,
+        )
+        .await?
     }
 
     Ok(())
@@ -542,10 +566,9 @@ pub async fn send_error_to_workspace_handler<
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
     let mut tx = db.begin().await?;
-    let error_handler = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
-        &w_id
-    )
+    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+        "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
+    ).bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
     .context("sending error to global handler")?
@@ -558,6 +581,7 @@ pub async fn send_error_to_workspace_handler<
             db,
             result,
             &error_handler.strip_prefix("script/").unwrap(),
+            error_handler_extra_args,
             false,
         )
         .await?

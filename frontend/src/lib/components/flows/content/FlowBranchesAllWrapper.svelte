@@ -22,7 +22,7 @@
 	let selected = 'early-stop'
 </script>
 
-<div class="h-full flex flex-col w-full">
+<div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
 	<FlowCard title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>

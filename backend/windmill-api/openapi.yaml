@@ -1158,6 +1158,8 @@ paths:
                     type: boolean
                   error_handler:
                     type: string
+                  error_handler_extra_args:
+                    $ref: "#/components/schemas/ScriptArgs"
                 required:
                   - code_completion_enabled
 
@@ -1419,6 +1421,8 @@ paths:
               properties:
                 error_handler:
                   type: string
+                error_handler_extra_args:
+                  $ref: "#/components/schemas/ScriptArgs"
 
       responses:
         "200":
@@ -2769,10 +2773,10 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: kind
+        - name: kinds
           description: |
             (default regardless)
-            script kind
+            script kinds to filter, split by comma
           in: query
           schema:
             type: string

@@ -4,6 +4,7 @@
 	import { updateProgress } from '$lib/tutorialUtils'
 	import {
 		clickButtonBySelector,
+		isFlowTainted,
 		selectFlowStepKind,
 		setInputBySelector,
 		triggerAddFlowStep
@@ -25,6 +26,7 @@
 	bind:this={tutorial}
 	index={0}
 	name="action"
+	tainted={isFlowTainted($flowStore)}
 	on:error
 	on:skipAll
 	getSteps={(driver) => [
