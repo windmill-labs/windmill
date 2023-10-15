@@ -26,7 +26,6 @@
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import { isFlowTainted } from '$lib/components/tutorials/utils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -144,12 +143,10 @@
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-		const isTainted = isFlowTainted($flowStore)
 		return (
 			$tutorialsToDo.includes(index) &&
 			name == tutorialName &&
 			svg.length === 0 &&
-			!isTainted &&
 			!$ignoredTutorials.includes(index)
 		)
 	}
@@ -226,7 +223,7 @@
 			}}
 			on:insert={async ({ detail }) => {
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
-					flowTutorials?.runTutorialById('forloop')
+					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
 					flowTutorials?.runTutorialById('branchone')
 				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
@@ -245,6 +242,11 @@
 							await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
 							$selectedId = detail.modules[detail.index ?? 0].id
 						}
+
+						if (['branchone', 'branchall'].includes(detail.detail)) {
+							await addBranch(detail.modules[detail.index ?? 0])
+						}
+
 						$flowStore = $flowStore
 					}
 				}
