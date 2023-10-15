@@ -1875,7 +1875,7 @@ async fn test_invalid_first_step(db: Pool<Postgres>) {
 
     assert_eq!(
         job.json_result().unwrap(),
-        serde_json::json!( {"error":  {"name": "InternalErr", "message": "Expected an array value, found: {}"}})
+        serde_json::json!( {"error":  {"name": "InternalErr", "message": "Expected an array value, found:  invalid type: map, expected a sequence at line 1 column 0"}})
     );
 }
 
