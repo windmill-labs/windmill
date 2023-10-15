@@ -47,9 +47,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{
-    empty_args, job_is_complete, push, PushArgs, PushArgsInner, PushIsolationLevel,
-};
+use windmill_queue::{empty_args, job_is_complete, push, PushArgs, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -184,7 +182,7 @@ pub fn global_root_service() -> Router {
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
-) -> windmill_common::error::JsonResult<serde_json::Value> {
+) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
     let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id).await?;
     Ok(Json(res))
 }
@@ -1555,7 +1553,7 @@ pub async fn run_flow_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -1607,7 +1605,7 @@ pub async fn run_job_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -1816,7 +1814,7 @@ pub async fn run_wait_result_job_by_path_get(
         HashMap::new()
     };
 
-    let args = PushArgsInner { extra: payload_args, args: sqlx::types::Json(empty_args()) };
+    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(empty_args()) };
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -1882,10 +1880,7 @@ pub async fn run_wait_result_flow_by_path_get(
         HashMap::new()
     };
 
-    let args = PushArgs::Unwrapped(PushArgsInner {
-        extra: payload_args,
-        args: sqlx::types::Json(empty_args()),
-    });
+    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(HashMap::new()) };
 
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
@@ -1900,7 +1895,7 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::JsonResult<serde_json::Value> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -1926,7 +1921,7 @@ async fn run_wait_result_script_by_path_internal(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     w_id: String,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -1972,7 +1967,7 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::JsonResult<serde_json::Value> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2037,7 +2032,7 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::JsonResult<serde_json::Value> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2055,7 +2050,7 @@ async fn run_wait_result_flow_by_path_internal(
     authed: ApiAuthed,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
     w_id: String,
 ) -> Result<Json<serde_json::Value>, Error> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
@@ -2352,7 +2347,7 @@ pub async fn run_job_by_hash(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<Box<JsonRawValue>>,
+    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;

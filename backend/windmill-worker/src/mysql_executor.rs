@@ -4,6 +4,7 @@ use mysql_async::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
+use sqlx::types::Json;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
@@ -23,14 +24,19 @@ struct MysqlDatabase {
 }
 
 pub async fn do_mysql(
-    job: &QueuedJob,
+    job: &mut QueuedJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let mysql_args = build_args_map(&job, client, db).await?;
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
+    };
 
-    let database = if let Some(db) = mysql_args.get("database") {
+    let database = if let Some(db) = job_args.and_then(|x| x.get("database")) {
         serde_json::from_str::<MysqlDatabase>(db.get())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
@@ -65,9 +71,13 @@ pub async fn do_mysql(
 
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
-        let mysql_v = match mysql_args
-            .get(arg.name.as_str())
-            .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
+        let mysql_v = match job
+            .args
+            .as_ref()
+            .and_then(|x| {
+                x.get(arg.name.as_str())
+                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
+            })
             .flatten()
             .unwrap_or_else(|| json!(null))
         {

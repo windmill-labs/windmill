@@ -21,6 +21,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::value::RawValue;
+use sqlx::types::Json;
 use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
@@ -72,6 +73,7 @@ pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    flow_input: Option<Arc<HashMap<String, Box<RawValue>>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
 ) -> anyhow::Result<Box<RawValue>> {
@@ -110,7 +112,7 @@ pub async fn eval_timeout(
 
             let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
 
-            let context_keys = transform_context
+            let mut context_keys = transform_context
                 .keys()
                 .filter(|x| {
                     expr.contains(&x.to_string())
@@ -120,12 +122,19 @@ pub async fn eval_timeout(
                 })
                 .map(|x| x.clone())
                 .collect_vec();
+
+            let has_flow_input = expr.contains("flow_input");
+            if has_flow_input {
+                context_keys.push("flow_input".to_string())
+            }
+
             let mut js_runtime = JsRuntime::new(options);
             {
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 op_state.put(OptAuthedClient(authed_client.clone()));
                 op_state.put(TransformContext {
+                    flow_input: if has_flow_input { flow_input } else { None },
                     envs: transform_context
                         .into_iter()
                         .filter(|(a, _)| context_keys.contains(a))
@@ -217,9 +226,6 @@ async fn eval(
         let by_id_code = if let Some(by_id) = by_id {
             format!(
                 r#"
-function get_from_env(name) {{
-    return JSON.parse(Deno.core.ops.op_get_context([name]));
-}}
 async function result_by_id(node_id) {{
     let id_map = {{ {} }};
     let id = id_map[node_id];
@@ -233,12 +239,12 @@ async function result_by_id(node_id) {{
         }}
     }} else {{
         let flow_job_id = "{}";
-        return await Deno.core.opAsync("op_get_id", [flow_job_id, node_id]);
+        return JSON.parse(await Deno.core.opAsync("op_get_id", [flow_job_id, node_id]));
     }}
 }}
 
 async function get_result(id) {{
-    return await Deno.core.opAsync("op_get_result", [id]);
+    return JSON.parse(await Deno.core.opAsync("op_get_result", [id]));
 }}
 const results = new Proxy({{}}, {{
     get: function(target, name, receiver) {{
@@ -289,6 +295,9 @@ async function resource(path) {{
     };
     let code = format!(
         r#"
+function get_from_env(name) {{
+    return JSON.parse(Deno.core.ops.op_get_context([name]));
+}}
 {api_code}
 {}
 {}
@@ -381,7 +390,7 @@ async fn op_variable(
 async fn op_get_result(
     op_state: Rc<RefCell<OpState>>,
     args: Vec<String>,
-) -> Result<Box<RawValue>, anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     let id = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
@@ -389,7 +398,7 @@ async fn op_get_result(
             .get_completed_job_result::<Box<RawValue>>(id)
             .await?
             .clone();
-        Ok(result)
+        Ok(result.get().to_string())
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -399,7 +408,7 @@ async fn op_get_result(
 async fn op_get_id(
     op_state: Rc<RefCell<OpState>>,
     args: Vec<String>,
-) -> Result<Option<Box<RawValue>>, anyhow::Error> {
+) -> Result<Option<String>, anyhow::Error> {
     let flow_job_id = &args[0];
     let node_id = &args[1];
 
@@ -407,8 +416,8 @@ async fn op_get_id(
     if let Some(client) = client {
         let result = client
             .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id)
-            .await;
-        result
+            .await?;
+        Ok(result.map(|x| x.get().to_string()))
     } else {
         anyhow::bail!("No client found in op state");
     }
@@ -431,6 +440,7 @@ async fn op_resource(
 
 pub struct TransformContext {
     pub envs: HashMap<String, Arc<Box<RawValue>>>,
+    pub flow_input: Option<Arc<HashMap<String, Box<RawValue>>>>,
 }
 
 #[op]
@@ -438,6 +448,13 @@ fn op_get_context(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> String {
     let id = &args[0];
     let ops = op_state.borrow();
     let client = ops.borrow::<TransformContext>();
+    if id == "flow_input" {
+        return client
+            .flow_input
+            .as_ref()
+            .and_then(|x| serde_json::to_string(&x).ok())
+            .unwrap_or_else(|| "null".to_string());
+    }
     return client
         .envs
         .get(id)
@@ -470,10 +487,14 @@ pub struct LogString {
 pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
-    args: HashMap<String, Box<RawValue>>,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let ts_expr2 = ts_expr.clone();
+
+    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
+    let spread = parsed_args.into_iter().map(|x| args.as_ref().and_then(|args| args.0.get(&x.name).map(|x| x.clone()))).collect::<Vec<_>>();
+
     timeout(
         std::time::Duration::from_secs(100),
         tokio::task::spawn_blocking(move || {
@@ -532,9 +553,7 @@ pub async fn eval_fetch_timeout(
                 return y*2;
             });
 
-            let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true)?.args;
-            let spread = parsed_args.into_iter().map(|x| args.get(&x.name).map(|x| x.clone())).collect::<Vec<_>>();
-
+  
             {
                 let op_state = js_runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
@@ -587,8 +606,8 @@ async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<Bo
     let global = js_runtime.execute_script(
         "<anon>",
         r#"
-let args = Deno.core.ops.op_get_static_args()
-import("file:///eval.ts").then((module) => module.main(...args))
+let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
+import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
 "#
         .to_string()
         .into(),
@@ -599,12 +618,13 @@ import("file:///eval.ts").then((module) => module.main(...args))
     let local = v8::Local::new(scope, global);
     // Deserialize a `v8` object into a Rust type using `serde_v8`,
     // in this case deserialize to a JSON `Value`.
-    Ok(serde_v8::from_v8::<Box<RawValue>>(scope, local)?)
+    let r = serde_v8::from_v8::<String>(scope, local)?;
+    Ok(unsafe_raw(r))
 }
 
 #[op]
-fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<Box<RawValue>>> {
-    return op_state.borrow().borrow::<MainArgs>().args.clone();
+fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
+    return op_state.borrow().borrow::<MainArgs>().args.iter().map(|x| x.as_ref().map(|y| y.get().to_string())).collect_vec();
 }
 
 #[op]
@@ -683,10 +703,10 @@ multiline template`";
         {
             let op_state = js_runtime.op_state();
             let mut op_state = op_state.borrow_mut();
-            op_state.put(TransformContext { envs: env.clone() })
+            op_state.put(TransformContext { flow_input: None, envs: env.clone() })
         }
 
-        let res = eval_timeout(code.to_string(), env, None, None).await?;
+        let res = eval_timeout(code.to_string(), env, None, None, None).await?;
         assert_eq!(res.get(), "2");
         Ok(())
     }
@@ -695,7 +715,7 @@ multiline template`";
     async fn test_eval_fetch_timeout() -> anyhow::Result<()> {
         let code = r#"export async function main() { return "" }"#;
 
-        let res = eval_fetch_timeout(code.to_string(), code.to_string(), HashMap::new()).await?;
+        let res = eval_fetch_timeout(code.to_string(), code.to_string(), None).await?;
         assert_eq!(res.0.get(), "");
         Ok(())
     }

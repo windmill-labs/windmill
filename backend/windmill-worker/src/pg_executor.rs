@@ -23,7 +23,7 @@ use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::common::build_args_map;
+use crate::common::build_args_values;
 use crate::AuthedClientBackgroundTask;
 use bytes::BytesMut;
 use urlencoding::encode;
@@ -40,15 +40,15 @@ struct PgDatabase {
 }
 
 pub async fn do_postgresql(
-    job: QueuedJob,
+    job: &mut QueuedJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<Box<RawValue>> {
-    let pg_args = build_args_map(&job, client, db).await?;
+    let pg_args = build_args_values(job, client, db).await?;
 
     let database = if let Some(db) = pg_args.get("database") {
-        serde_json::from_str::<PgDatabase>(db.get())
+        serde_json::from_value::<PgDatabase>(db.clone())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
@@ -106,8 +106,6 @@ pub async fn do_postgresql(
         (client, handle)
     };
 
-    let args: serde_json::Value =
-        serde_json::from_str(&job.args.unwrap_or_default().get()).map_err(to_anyhow)?;
     let mut statement_values: Vec<serde_json::Value> = vec![];
 
     let sig = parse_pgsql_sig(&query)
@@ -115,7 +113,12 @@ pub async fn do_postgresql(
         .args;
 
     for arg in &sig {
-        statement_values.push(args.get(&arg.name).unwrap_or(&json!(null)).clone());
+        statement_values.push(
+            pg_args
+                .get(&arg.name)
+                .map(|x| x.to_owned())
+                .unwrap_or_else(|| serde_json::Value::Null),
+        );
     }
 
     let query_params = statement_values

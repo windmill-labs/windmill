@@ -47,18 +47,24 @@ use crate::{
     ROOT_CACHE_DIR, TIMEOUT_DURATION, WHITELIST_ENVS,
 };
 
-pub async fn build_args_map(
+pub async fn build_args_map<'a>(
+    job: &'a mut QueuedJob,
+    client: &AuthedClientBackgroundTask,
+    db: &Pool<Postgres>,
+) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
+    if let Some(args) = &job.args {
+        return transform_json(client, &job.workspace_id, &args.0, &job, db).await;
+    }
+    return Ok(None);
+}
+
+pub async fn build_args_values(
     job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
     db: &Pool<Postgres>,
-) -> error::Result<HashMap<String, Box<RawValue>>> {
+) -> error::Result<HashMap<String, serde_json::Value>> {
     if let Some(args) = &job.args {
-        let tjs = transform_json(client, &job.workspace_id, &args.0, &job, db).await?;
-        if let Some(tjs) = tjs {
-            Ok(tjs)
-        } else {
-            Ok(serde_json::from_str(args.get()).unwrap_or_else(|_| HashMap::new()))
-        }
+        transform_json_as_values(client, &job.workspace_id, &args.0, &job, db).await
     } else {
         Ok(HashMap::new())
     }
@@ -80,8 +86,13 @@ pub async fn create_args_and_out_file(
             )
             .await?;
         } else {
-            write_file(job_dir, "args.json", args.0.get()).await?;
-        };
+            write_file(
+                job_dir,
+                "args.json",
+                &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+            )
+            .await?;
+        }
     } else {
         write_file(job_dir, "args.json", "{}").await?;
     };
@@ -112,38 +123,74 @@ lazy_static::lazy_static! {
     static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
 }
 
-pub async fn transform_json(
+pub async fn transform_json<'a>(
     client: &AuthedClientBackgroundTask,
     workspace: &str,
-    vs: &Box<RawValue>,
+    vs: &'a HashMap<String, Box<RawValue>>,
     job: &QueuedJob,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
-    let vs = vs.get();
-    if (*RE_RES_VAR).is_match(vs) {
-        let values = serde_json::from_str::<HashMap<String, Box<RawValue>>>(vs).unwrap_or_default();
-        let mut r = HashMap::new();
-        for (k, v) in values {
-            let inner_vs = v.get();
-            if (*RE_RES_VAR).is_match(inner_vs) {
-                let value = serde_json::from_str(inner_vs).map_err(|e| {
-                    error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
-                })?;
-                let transformed =
-                    transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
-                        .await?;
-                let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                    error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
-                })?;
-                r.insert(k, as_raw);
-            } else {
-                r.insert(k, v);
-            }
+    let mut has_match = false;
+    for (_, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            has_match = true;
+            break;
         }
-        Ok(Some(r))
-    } else {
-        Ok(None)
     }
+    if !has_match {
+        return Ok(None);
+    }
+    let mut r = HashMap::new();
+    for (k, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            let value = serde_json::from_str(inner_vs).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            let transformed =
+                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
+                    .await?;
+            let as_raw = serde_json::from_value(transformed).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            r.insert(k.to_string(), as_raw);
+        } else {
+            r.insert(k.to_string(), v.to_owned());
+        }
+    }
+    Ok(Some(r))
+}
+
+pub async fn transform_json_as_values<'a>(
+    client: &AuthedClientBackgroundTask,
+    workspace: &str,
+    vs: &'a HashMap<String, Box<RawValue>>,
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
+) -> error::Result<HashMap<String, serde_json::Value>> {
+    let mut r: HashMap<String, serde_json::Value> = HashMap::new();
+    for (k, v) in vs {
+        let inner_vs = v.get();
+        if (*RE_RES_VAR).is_match(inner_vs) {
+            let value = serde_json::from_str(inner_vs).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            let transformed =
+                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
+                    .await?;
+            let as_raw = serde_json::from_value(transformed).map_err(|e| {
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+            })?;
+            r.insert(k.to_string(), as_raw);
+        } else {
+            r.insert(
+                k.to_string(),
+                serde_json::from_str(v.get()).unwrap_or_else(|_| serde_json::Value::Null),
+            );
+        }
+    }
+    Ok(r)
 }
 
 #[async_recursion]
@@ -725,10 +772,13 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-pub fn hash_args(v: &Option<sqlx::types::Json<Box<RawValue>>>) -> i64 {
-    if let Some(v) = v {
+pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> i64 {
+    if let Some(vs) = v {
         let mut dh = DefaultHasher::new();
-        v.get().hash(&mut dh);
+        for (k, v) in &vs.0 {
+            k.hash(&mut dh);
+            v.get().hash(&mut dh);
+        }
         dh.finish() as i64
     } else {
         0

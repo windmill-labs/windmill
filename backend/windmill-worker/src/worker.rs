@@ -99,16 +99,17 @@ pub async fn create_token_for_owner_in_bg(
     if job.workspace_id != "" {
         let mut locked = rw_lock.clone().write_owned().await;
         let db = db.clone();
-        let job = job.clone();
+        let w_id = job.workspace_id.clone();
+        let owner = job.permissioned_as.clone();
+        let email = job.email.clone();
         tokio::spawn(async move {
-            let job = job.clone();
             let token = create_token_for_owner(
                 &db.clone(),
-                &job.workspace_id,
-                &job.permissioned_as,
+                &w_id,
+                &owner,
                 "ephemeral-script",
                 *SCRIPT_TOKEN_EXPIRY,
-                &job.email,
+                &email,
             )
             .await
             .expect("could not create job token");
@@ -334,7 +335,7 @@ impl AuthedClient {
 
     pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!(
-            "{}/w/{}/resources/get_value/{}",
+            "{}/api/w/{}/resources/get_value/{}",
             self.base_internal_url, self.workspace, path
         );
         let response = self.get(&url, vec![]).await?;
@@ -346,7 +347,7 @@ impl AuthedClient {
 
     pub async fn get_variable_value(&self, path: &str) -> anyhow::Result<String> {
         let url = format!(
-            "{}/w/{}/variables/get_value/{}",
+            "{}/api/w/{}/variables/get_value/{}",
             self.base_internal_url, self.workspace, path
         );
         let response = self.get(&url, vec![]).await?;
@@ -362,7 +363,7 @@ impl AuthedClient {
         job_id: Option<String>,
     ) -> anyhow::Result<T> {
         let url = format!(
-            "{}/w/{}/resources/get_value_interpolated/{}",
+            "{}/api/w/{}/resources/get_value_interpolated/{}",
             self.base_internal_url, self.workspace, path
         );
         let mut query = Vec::with_capacity(1usize);
@@ -381,7 +382,7 @@ impl AuthedClient {
         path: &str,
     ) -> anyhow::Result<T> {
         let url = format!(
-            "{}/w/{}/jobs_u/completed/get_result/{}",
+            "{}/api/w/{}/jobs_u/completed/get_result/{}",
             self.base_internal_url, self.workspace, path
         );
         let response = self.get(&url, vec![]).await?;
@@ -397,7 +398,7 @@ impl AuthedClient {
         node_id: &str,
     ) -> anyhow::Result<T> {
         let url = format!(
-            "{}/w/{}/jobs/result_by_id/{}/{}",
+            "{}/api/w/{}/jobs/result_by_id/{}/{}",
             self.base_internal_url, self.workspace, flow_job_id, node_id
         );
         let response = self.get(&url, vec![]).await?;
@@ -1148,7 +1149,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
 
         match next_job {
-            Ok(Some(job)) => {
+            Ok(Some(mut job)) => {
                 last_executed_job = None;
                 jobs_executed += 1;
 
@@ -1255,7 +1256,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     };
 
                     if let Some(err) = handle_queued_job(
-                        job.clone(),
+                        &mut job,
                         db,
                         &authed_client,
                         &worker_name,
@@ -1576,6 +1577,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             };
 
         let wrapped_error = WrappedError { error: json!(err) };
+        tracing::error!("FOOO {flow} {job_status_to_update}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -1663,15 +1665,20 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 async fn do_nativets(
-    job: &QueuedJob,
+    job: &mut QueuedJob,
     logs: String,
     client: &AuthedClientBackgroundTask,
     code: String,
     db: &Pool<Postgres>,
 ) -> windmill_common::error::Result<(Box<RawValue>, String)> {
-    let args = build_args_map(job, client, db).await?;
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
+    };
 
-    let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, args).await?;
+    let result = eval_fetch_timeout(code.clone(), transpile_ts(code)?, job_args).await?;
     Ok((result.0, [logs, result.1].join("\n\n")))
 }
 
@@ -1689,7 +1696,7 @@ pub struct PreviousResult<'a> {
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    mut job: QueuedJob,
+    job: &mut QueuedJob,
     db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
@@ -1703,8 +1710,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
     }
-    if let Some(e) = job.pre_run_error {
-        return Err(Error::ExecutionErr(e));
+    if let Some(e) = &job.pre_run_error {
+        return Err(Error::ExecutionErr(e.to_string()));
     }
 
     let step = if job.is_flow_step {
@@ -1760,7 +1767,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
                 job_completed_tx
                     .send(JobCompleted {
-                        job,
+                        job: job.clone(),
                         result,
                         logs,
                         success: true,
@@ -1781,7 +1788,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 &job,
                 db,
                 &client.get_authed().await,
-                args.to_owned(),
+                to_raw_value(&args),
                 same_worker_tx,
                 worker_dir,
                 rsmq,
@@ -1847,22 +1854,16 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
-                JobKind::Identity => {
-                    let pr = job
-                        .args
-                        .as_ref()
-                        .map(|x| serde_json::from_str::<PreviousResult>(x.get()).ok())
-                        .flatten()
-                        .unwrap_or_default();
-                    if let Some(pr) = pr.previous_result {
-                        Ok(pr.to_owned())
-                    } else {
-                        Ok(serde_json::from_str("{}").unwrap())
-                    }
-                }
+                JobKind::Identity => Ok(job
+                    .args
+                    .as_ref()
+                    .map(|x| x.get("previous_result"))
+                    .flatten()
+                    .map(|x| x.to_owned())
+                    .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
                 _ => {
                     handle_code_execution_job(
-                        &mut job,
+                        job,
                         db,
                         client,
                         job_dir,
@@ -1895,7 +1896,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 }
 
 async fn process_result(
-    job: QueuedJob,
+    job: &QueuedJob,
     result: error::Result<Box<RawValue>>,
     job_dir: &str,
     job_completed_tx: Sender<JobCompleted>,
@@ -1907,7 +1908,7 @@ async fn process_result(
         Ok(r) => {
             job_completed_tx
                 .send(JobCompleted {
-                    job,
+                    job: job.clone(),
                     result: r,
                     logs,
                     success: true,
@@ -1948,7 +1949,7 @@ async fn process_result(
             // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
             job_completed_tx
                 .send(JobCompleted {
-                    job,
+                    job: job.clone(),
                     result: to_raw_value(&error_value),
                     logs: logs,
                     success: false,
@@ -2049,7 +2050,7 @@ async fn handle_code_execution_job(
     };
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(job.clone(), &client, &inner_content, db).await;
+        return do_postgresql(job, &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Mysql) {
         return do_mysql(job, &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -2062,7 +2063,7 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job.clone(), &client.get_authed().await, &inner_content, db).await;
+            return do_bigquery(job, &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -2074,10 +2075,10 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job.clone(), &client.get_authed().await, &inner_content, db).await;
+            return do_snowflake(job, &client.get_authed().await, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(&job, &client, &inner_content, db).await;
+        return do_graphql(job, &client, &inner_content, db).await;
     } else if language == Some(ScriptLang::Nativets) {
         logs.push_str("\n--- FETCH TS EXECUTION ---\n");
         let code = format!(

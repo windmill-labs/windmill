@@ -3,6 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::{json, value::RawValue};
+use sqlx::types::Json;
 use tokio::process::Command;
 use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
 
@@ -48,14 +49,19 @@ pub async fn handle_bash_job(
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let hm = build_args_map(&job, client, db).await?;
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
+    };
 
     let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
         .args
         .iter()
         .map(|arg| {
-            hm.get(&arg.name)
-                .map(|x| serde_json::to_string(x.get()).unwrap_or_else(|_| "".to_string()))
+            job_args
+                .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
                 .unwrap_or_else(String::new)
         })
         .collect::<Vec<String>>();
@@ -142,6 +148,13 @@ pub async fn handle_bash_job(
     Ok(to_raw_value(&last_line))
 }
 
+fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     logs: &mut String,
@@ -158,7 +171,12 @@ pub async fn handle_powershell_job(
     logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     let pwsh_args = {
-        let hm = build_args_map(&job, client, db).await?;
+        let args = build_args_map(job, client, db).await?.map(Json);
+        let job_args = if args.is_some() {
+            args.as_ref()
+        } else {
+            job.args.as_ref()
+        };
 
         let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
             .args
@@ -166,8 +184,8 @@ pub async fn handle_powershell_job(
             .map(|arg| {
                 (
                     arg.name.clone(),
-                    hm.get(&arg.name)
-                        .map(|x| serde_json::to_string(x.get()).unwrap_or_else(|_| "".to_string()))
+                    job_args
+                        .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
                         .unwrap_or_else(String::new),
                 )
             })

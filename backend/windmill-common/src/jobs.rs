@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
@@ -44,7 +46,7 @@ pub struct QueuedJob {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
-    pub args: Option<Json<Box<RawValue>>>,
+    pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,11 +98,11 @@ pub struct QueuedJob {
 }
 
 impl QueuedJob {
-    pub fn get_args(&self) -> Box<RawValue> {
-        if let Some(args) = &self.args.as_ref() {
+    pub fn get_args(&self) -> HashMap<String, Box<RawValue>> {
+        if let Some(args) = self.args.as_ref() {
             args.0.clone()
         } else {
-            serde_json::from_str("{}").unwrap()
+            HashMap::new()
         }
     }
 

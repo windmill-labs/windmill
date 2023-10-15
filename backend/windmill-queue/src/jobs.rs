@@ -269,6 +269,7 @@ pub async fn add_completed_job<
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id;
+    tracing::error!("1 {:?}", start.elapsed());
 
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
@@ -315,7 +316,7 @@ pub async fn add_completed_job<
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
-        &queued_job.args as &Option<Json<Box<RawValue>>>,
+        &queued_job.args as &Option<Json<HashMap<String, Box<RawValue>>>>,
         result as Json<&T>,
         logs,
         queued_job.raw_code,
@@ -340,9 +341,12 @@ pub async fn add_completed_job<
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
+    tracing::error!("2 {:?}", start.elapsed());
 
     // tracing::error!("Added completed job {:#?}", queued_job);
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+    tracing::error!("3 {:?}", start.elapsed());
+
     if !queued_job.is_flow_step
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
@@ -435,7 +439,7 @@ pub async fn add_completed_job<
     }
 
     tracing::debug!("Added completed job {}", queued_job.id);
-    tracing::error!("{:?}", start.elapsed());
+    tracing::error!("4 {:?}", start.elapsed());
 
     Ok(queued_job.id)
 }
@@ -472,7 +476,7 @@ pub async fn run_error_handler<
         tx,
         script_w_id,
         job_payload,
-        PushArgsInner { extra, args: result.to_owned() },
+        PushArgs { extra, args: result.to_owned() },
         if is_global { "global" } else { "error_handler" },
         if is_global {
             SUPERADMIN_SECRET_EMAIL
@@ -854,7 +858,7 @@ pub async fn handle_on_failure<
         tx,
         w_id,
         payload,
-        PushArgsInner { extra, args: result.to_owned() },
+        PushArgs { extra, args: result.to_owned() },
         username,
         email,
         permissioned_as,
@@ -1299,13 +1303,18 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     Ok(job)
 }
 
+#[derive(FromRow)]
+struct ResultR {
+    result: Option<Json<Box<RawValue>>>,
+}
+
 #[async_recursion]
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
     flow_id: Uuid,
     node_id: String,
-) -> error::Result<serde_json::Value> {
+) -> error::Result<Box<RawValue>> {
     let flow_job_result = sqlx::query!(
         "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
         node_id,
@@ -1344,27 +1353,32 @@ pub async fn get_result_by_id(
 
     let value = match result_id {
         JobResult::ListJob(x) => {
-            let rows = sqlx::query_scalar!(
+            let rows = sqlx::query(
                 "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
-                x.as_slice(),
-                w_id,
             )
+            .bind(x.as_slice())
+            .bind(w_id)
             .fetch_all(&db)
             .await?
             .into_iter()
-            .filter_map(|x| x)
-            .collect::<Vec<serde_json::Value>>();
-            serde_json::json!(rows)
+            .filter_map(|x| ResultR::from_row(&x).ok().and_then(|x| x.result))
+            .collect::<Vec<Json<Box<RawValue>>>>();
+            to_raw_value(&rows)
         }
-        JobResult::SingleJob(x) => sqlx::query_scalar!(
-            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-            x,
-            w_id,
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten()
-        .unwrap_or(serde_json::Value::Null),
+        JobResult::SingleJob(x) => {
+            sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+                .bind(x)
+                .bind(w_id)
+                .fetch_optional(&db)
+                .await?
+                .map(|r| {
+                    ResultR::from_row(&r)
+                        .ok()
+                        .and_then(|x| x.result.map(|x| x.0))
+                })
+                .flatten()
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
+        }
     };
 
     Ok(value)
@@ -1466,14 +1480,7 @@ macro_rules! fetch_scalar_isolated {
 use sqlx::types::JsonRawValue;
 
 #[derive(Serialize)]
-#[serde(untagged)]
-pub enum PushArgs<T> {
-    Wrapped { body: PushArgsInner<T> },
-    Unwrapped(PushArgsInner<T>),
-}
-
-#[derive(Serialize)]
-pub struct PushArgsInner<T> {
+pub struct PushArgs<T> {
     #[serde(flatten)]
     pub extra: HashMap<String, Box<RawValue>>,
     #[serde(flatten)]
@@ -1481,7 +1488,7 @@ pub struct PushArgsInner<T> {
 }
 
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for PushArgs<Box<RawValue>>
+impl<S> FromRequest<S, axum::body::Body> for PushArgs<HashMap<String, Box<RawValue>>>
 where
     S: Send + Sync,
 {
@@ -1498,7 +1505,7 @@ where
             (
                 content_type,
                 build_extra(&headers_map),
-                headers_map.get("raw").is_some(),
+                req.uri().query().is_some_and(|x| x.contains("raw=true")),
             )
         };
 
@@ -1508,37 +1515,36 @@ where
                 .map_err(IntoResponse::into_response)?;
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-            let args = Json(
-                serde_json::from_str::<Option<Box<JsonRawValue>>>(&str)
-                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                    .unwrap_or_else(empty_args),
-            );
 
-            let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
             if use_raw {
                 extra.insert("raw_string".to_string(), to_raw_value(&str));
             }
-            let inner = PushArgsInner { extra, args };
+
+            let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+
             if wrap_body {
-                Ok(Self::Wrapped { body: inner })
+                let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
+                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+                let mut hm = HashMap::new();
+                hm.insert("body".to_string(), args);
+                Ok(PushArgs { extra, args: Json(hm) })
             } else {
-                Ok(Self::Unwrapped(inner))
+                let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
+                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                    .unwrap_or_else(HashMap::new);
+                Ok(PushArgs { extra, args: Json(hm) })
             }
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
         {
-            let Form(payload): Form<Option<serde_json::Value>> =
+            let Form(payload): Form<Option<HashMap<String, Box<RawValue>>>> =
                 req.extract().await.map_err(IntoResponse::into_response)?;
-            return Ok(Self::Unwrapped(PushArgsInner {
+            return Ok(PushArgs {
                 extra: HashMap::new(),
-                args: Json(
-                    payload
-                        .as_ref()
-                        .map(to_raw_value)
-                        .unwrap_or_else(empty_args),
-                ),
-            }));
+                args: Json(payload.unwrap_or_else(HashMap::new)),
+            });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
@@ -1580,9 +1586,9 @@ pub fn build_extra(headers: &HeaderMap) -> HashMap<String, Box<RawValue>> {
     args
 }
 
-impl PushArgs<Box<RawValue>> {
+impl PushArgs<HashMap<String, Box<RawValue>>> {
     pub fn empty() -> Self {
-        PushArgs::Unwrapped(PushArgsInner { extra: HashMap::new(), args: Json(empty_args()) })
+        PushArgs { extra: HashMap::new(), args: Json(HashMap::new()) }
     }
 }
 
@@ -1590,25 +1596,17 @@ pub fn empty_args() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
 }
 
-impl From<Box<JsonRawValue>> for PushArgs<Box<JsonRawValue>> {
-    fn from(value: Box<JsonRawValue>) -> Self {
-        PushArgs::Unwrapped(PushArgsInner { extra: HashMap::new(), args: Json(value) })
+impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<HashMap<String, Box<JsonRawValue>>> {
+    fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
+        PushArgs { extra: HashMap::new(), args: Json(value) }
     }
 }
 
-impl<T> From<PushArgsInner<T>> for PushArgs<T> {
-    fn from(value: PushArgsInner<T>) -> Self {
-        PushArgs::Unwrapped(value)
-    }
-}
-impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<Box<JsonRawValue>> {
-    fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
-        PushArgs::Unwrapped(PushArgsInner {
-            extra: value,
-            args: Json(JsonRawValue::from_string("{}".to_string()).unwrap()),
-        })
-    }
-}
+// impl<T> From<PushArgsInner<T>> for PushArgs<T> {
+//     fn from(value: PushArgsInner<T>) -> Self {
+//         PushArgs::Unwrapped(value)
+//     }
+// }
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection + Send + 'c>(

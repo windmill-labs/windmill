@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, value::RawValue};
+use sqlx::types::Json;
 use windmill_common::error::Error;
 use windmill_common::jobs::QueuedJob;
 use windmill_queue::HTTP_CLIENT;
@@ -28,25 +29,28 @@ struct GraphqlError {
 }
 
 pub async fn do_graphql(
-    job: &QueuedJob,
+    job: &mut QueuedJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let graphql_args = build_args_map(job, client, db).await?;
+    let args = build_args_map(job, client, db).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
+    };
 
-    let api = if let Some(db) = graphql_args.get("api") {
+    let api = if let Some(db) = job_args.as_ref().and_then(|x| x.get("api")) {
         serde_json::from_str::<GraphqlApi>(db.get())
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let args = &job.args;
-
     let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({
         "query": query,
-        "variables": args
+        "variables": job_args
     }));
 
     if let Some(token) = &api.bearer_token {

@@ -40,7 +40,7 @@ use windmill_common::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, PushArgs, PushArgsInner, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -1003,7 +1003,7 @@ fn build_args(
     component: &str,
     path: String,
     args: Box<RawValue>,
-) -> Result<PushArgsInner<Box<RawValue>>> {
+) -> Result<PushArgs<Box<RawValue>>> {
     // disallow var and res access in args coming from the user for security reasons
     {
         let args_str = args.to_string();
@@ -1033,5 +1033,5 @@ fn build_args(
     for (k, v) in static_args {
         extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(PushArgsInner { extra, args: sqlx::types::Json(args) })
+    Ok(PushArgs { extra, args: sqlx::types::Json(args) })
 }

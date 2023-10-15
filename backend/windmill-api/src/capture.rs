@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use axum::{
     extract::{Extension, Path},
     routing::{get, post, put},
@@ -87,7 +89,7 @@ pub async fn new_payload(
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    args: PushArgs<Box<RawValue>>,
+    args: PushArgs<HashMap<String, Box<RawValue>>>,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
 
@@ -100,7 +102,7 @@ pub async fn update_payload(
         ",
         &w_id,
         &path.to_path(),
-        Json(args) as Json<PushArgs<Box<RawValue>>>,
+        Json(args) as Json<PushArgs<HashMap<String, Box<RawValue>>>>,
     )
     .execute(&mut *tx)
     .await?;
