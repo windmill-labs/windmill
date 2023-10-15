@@ -172,7 +172,7 @@ pub struct Suspend {
 pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub return_value: Option<HashMap<String, Box<RawValue>>>,
+    pub return_value: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

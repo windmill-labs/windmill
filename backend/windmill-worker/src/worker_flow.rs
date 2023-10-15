@@ -1425,18 +1425,18 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let args: windmill_common::error::Result<_> = if module.mock.is_some()
         && module.mock.as_ref().unwrap().enabled
     {
-        module
-            .mock
-            .as_ref()
-            .unwrap()
-            .return_value
-            .clone()
-            .ok_or_else(|| {
-                Error::BadRequest(format!(
-                    "mock enabled but no return_value specified for module {}",
-                    module.id
-                ))
-            })
+        let mut hm = HashMap::new();
+        hm.insert(
+            "previous_result".to_string(),
+            module
+                .mock
+                .as_ref()
+                .unwrap()
+                .return_value
+                .clone()
+                .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
+        );
+        Ok(hm)
     } else if let Some(id) = get_args_from_id {
         let row = sqlx::query("SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
