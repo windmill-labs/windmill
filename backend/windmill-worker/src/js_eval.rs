@@ -84,12 +84,20 @@ pub async fn eval_timeout(
         }
     }
 
-    if let Some(ref flow_input) = flow_input {
-        for (k,v) in flow_input.iter() {
-            if &format!("flow_input.{k}") == &expr {
-                return Ok(v.clone())
+    if expr.starts_with("flow_input.") {
+        if let Some(ref flow_input) = flow_input {
+            for (k,v) in flow_input.iter() {
+                if &format!("flow_input.{k}") == &expr {
+                    return Ok(v.clone())
+                }
             }
         }
+    }
+
+    let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
+
+    if p_id.is_some() && transform_context.contains_key("previous_result") && expr == format!("results.{}", p_id.clone().unwrap()) {
+        return Ok(transform_context.get("previous_result").unwrap().as_ref().clone())
     }
 
 
@@ -126,7 +134,6 @@ pub async fn eval_timeout(
                 ..Default::default()
             };
 
-            let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
 
             let mut context_keys = transform_context
                 .keys()
