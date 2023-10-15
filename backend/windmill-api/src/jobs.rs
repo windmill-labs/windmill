@@ -2424,21 +2424,22 @@ async fn get_job_update(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let mut tx = db.begin().await?;
-
     let record = sqlx::query!(
-        "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
+        "SELECT running, substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
         log_offset,
         &w_id,
         &id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?;
 
     if let Some(record) = record {
-        tx.commit().await?;
         Ok(Json(JobUpdate {
-            running: if !running { Some(true) } else { None },
+            running: if !running && record.running {
+                Some(true)
+            } else {
+                None
+            },
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
@@ -2451,10 +2452,9 @@ async fn get_job_update(
             &w_id,
             &id
         )
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&db)
         .await?;
         let logs = not_found_if_none(logs, "Job Update", id.to_string())?;
-        tx.commit().await?;
         Ok(Json(JobUpdate {
             running: Some(false),
             completed: Some(true),

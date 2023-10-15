@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+use itertools::Itertools;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use regex::Regex;
@@ -777,9 +778,10 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
 pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> i64 {
     if let Some(vs) = v {
         let mut dh = DefaultHasher::new();
-        for (k, v) in &vs.0 {
+        let hm = &vs.0;
+        for k in hm.keys().sorted() {
             k.hash(&mut dh);
-            v.get().hash(&mut dh);
+            hm.get(k).unwrap().get().hash(&mut dh);
         }
         dh.finish() as i64
     } else {
