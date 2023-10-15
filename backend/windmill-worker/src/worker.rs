@@ -1150,7 +1150,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
 
         match next_job {
-            Ok(Some(mut job)) => {
+            Ok(Some(job)) => {
                 last_executed_job = None;
                 jobs_executed += 1;
 
@@ -1258,7 +1258,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     };
 
                     if let Some(err) = handle_queued_job(
-                        &mut job,
+                        &job,
                         db,
                         &authed_client,
                         &worker_name,
