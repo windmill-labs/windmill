@@ -10,6 +10,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { workspaceStore } from '$lib/stores'
+
+	$workspaceStore = $page.params.workspace
 
 	let job: Job | undefined = undefined
 	let currentApprovers: { resume_id: number; approver: string }[] = []
@@ -145,7 +148,7 @@
 			{/if}
 		</div>
 	</div>
-	<h2 class="mt-4">Flow arguments</h2>
+	<h2 class="mt-4 mb-2">Flow arguments</h2>
 
 	<JobArgs args={job?.args} />
 	<div class="mt-8">
