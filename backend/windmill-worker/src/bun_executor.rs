@@ -538,6 +538,8 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
     return bun_envs;
 }
 
+use std::sync::Arc;
+
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
@@ -551,7 +553,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: Sender<JobCompleted>,
-    mut jobs_rx: Receiver<QueuedJob>,
+    mut jobs_rx: Receiver<Arc<QueuedJob>>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     use std::task::Poll;
@@ -820,7 +822,7 @@ plugin(p)
                     tracing::debug!("processed job");
 
                     let result = serde_json::from_str(&line).expect("json is ok");
-                    let job: QueuedJob = jobs.pop_front().expect("pop");
+                    let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
                     job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
                 } else {
                     tracing::info!("dedicated worker process exited");

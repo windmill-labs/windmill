@@ -443,8 +443,10 @@ async fn handle_receive_completed_job<
     let workspace = jc.job.workspace_id.clone();
     let client =
         AuthedClient { base_internal_url: base_internal_url.to_string(), workspace, token };
+    let job = jc.job.clone();
+    let mem_peak = jc.mem_peak.clone();
     if let Err(err) = process_completed_job(
-        &jc,
+        jc,
         &client,
         &db,
         &worker_dir,
@@ -457,8 +459,8 @@ async fn handle_receive_completed_job<
         handle_job_error(
             &db,
             &client,
-            &jc.job,
-            jc.mem_peak,
+            job.as_ref(),
+            mem_peak,
             err,
             metrics,
             false,
@@ -876,7 +878,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         #[cfg(feature = "enterprise")]
         {
             let (dedicated_worker_tx, dedicated_worker_rx) =
-                mpsc::channel::<QueuedJob>(MAX_BUFFERED_DEDICATED_JOBS);
+                mpsc::channel::<Arc<QueuedJob>>(MAX_BUFFERED_DEDICATED_JOBS);
             let mut killpill_rx = killpill_rx.resubscribe();
             let db = db.clone();
             let worker_dir = worker_dir.clone();
@@ -972,7 +974,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             (Some(dedicated_worker_tx), Some(handle))
         }
     } else {
-        (None, None) as (Option<Sender<QueuedJob>>, Option<JoinHandle<()>>)
+        (None, None) as (Option<Sender<Arc<QueuedJob>>>, Option<JoinHandle<()>>)
     };
 
     #[cfg(feature = "benchmark")]
@@ -1161,7 +1163,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     #[cfg(feature = "benchmark")]
                     let send_start = Instant::now();
 
-                    if let Err(e) = dedicated_worker_tx.send(job.clone()).await {
+                    if let Err(e) = dedicated_worker_tx.send(Arc::new(job)).await {
                         tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                     }
 
@@ -1178,7 +1180,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
                     job_completed_tx
                         .send(JobCompleted {
-                            job,
+                            job: Arc::new(job),
                             success: true,
                             result: empty_args(),
                             logs: String::new(),
@@ -1257,8 +1259,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         workspace: job.workspace_id.to_string(),
                     };
 
+                    let arc_job = Arc::new(job);
                     if let Some(err) = handle_queued_job(
-                        &job,
+                        arc_job.clone(),
                         db,
                         &authed_client,
                         &worker_name,
@@ -1277,7 +1280,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         handle_job_error(
                             db,
                             &authed_client.get_authed().await,
-                            &job,
+                            arc_job.as_ref(),
                             0,
                             err,
                             metrics,
@@ -1295,7 +1298,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .expect("no timer found")
                         .inc_by(duration);
 
-                    if !*KEEP_JOB_DIR && !(job.is_flow() && same_worker) {
+                    if !*KEEP_JOB_DIR && !(arc_job.is_flow() && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
@@ -1427,7 +1430,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 // ) -> error::Result<()> {
 
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, logs, mem_peak, success, cached_res_path, .. }: &JobCompleted,
+    JobCompleted { job, result, logs, mem_peak, success, cached_res_path, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -1435,18 +1438,18 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
     same_worker_tx: Sender<Uuid>,
     rsmq: Option<R>,
 ) -> windmill_common::error::Result<()> {
-    if *success {
+    if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
-            save_in_cache(db, &job, cached_path.to_string(), result).await;
+            save_in_cache(db, &job, cached_path.to_string(), &result).await;
         }
         add_completed_job(
             db,
             &job,
             true,
             false,
-            Json(result),
-            logs.to_string(),
+            Json(&result),
+            logs,
             mem_peak.to_owned(),
             rsmq.clone(),
         )
@@ -1460,7 +1463,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.id,
                     &job.workspace_id,
                     true,
-                    result,
+                    &result,
                     metrics.clone(),
                     false,
                     same_worker_tx.clone(),
@@ -1641,7 +1644,7 @@ fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
 
 #[derive(Debug, Clone)]
 pub struct JobCompleted {
-    pub job: QueuedJob,
+    pub job: Arc<QueuedJob>,
     pub result: Box<RawValue>,
     pub logs: String,
     pub mem_peak: i32,
@@ -1704,7 +1707,7 @@ pub struct PreviousResult<'a> {
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    job: &QueuedJob,
+    job: Arc<QueuedJob>,
     db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
@@ -1775,7 +1778,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
                 job_completed_tx
                     .send(JobCompleted {
-                        job: job.clone(),
+                        job: job,
                         result,
                         logs,
                         mem_peak: 0,
@@ -1876,7 +1879,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
                 _ => {
                     handle_code_execution_job(
-                        job,
+                        job.as_ref(),
                         db,
                         client,
                         job_dir,
@@ -1891,7 +1894,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             };
 
             //it's a test job, no need to update the db
-            if job.workspace_id == "" {
+            if job.as_ref().workspace_id == "" {
                 return Ok(());
             }
             process_result(
@@ -1911,7 +1914,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 }
 
 async fn process_result(
-    job: &QueuedJob,
+    job: Arc<QueuedJob>,
     result: error::Result<Box<RawValue>>,
     job_dir: &str,
     job_completed_tx: Sender<JobCompleted>,
@@ -1924,7 +1927,7 @@ async fn process_result(
         Ok(r) => {
             job_completed_tx
                 .send(JobCompleted {
-                    job: job.clone(),
+                    job: job,
                     result: r,
                     logs,
                     mem_peak,
@@ -1966,7 +1969,7 @@ async fn process_result(
             // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
             job_completed_tx
                 .send(JobCompleted {
-                    job: job.clone(),
+                    job: job,
                     result: to_raw_value(&error_value),
                     logs: logs,
                     mem_peak,
