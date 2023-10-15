@@ -634,6 +634,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 db,
                 &flow_job,
                 logs,
+                0,
                 &canceled_job_to_result(&flow_job),
                 metrics.clone(),
                 rsmq.clone(),
@@ -656,6 +657,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 stop_early && skip_if_stop_early,
                 Json(&nresult),
                 logs,
+                0,
                 rsmq.clone(),
             )
             .await?;
@@ -679,6 +681,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     db,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
+                    0,
                     &e,
                     metrics.clone(),
                     rsmq.clone(),
@@ -1233,9 +1236,17 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 let skipped = false;
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
-                let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, Json(&result), logs, rsmq)
-                        .await?;
+                let _uuid = add_completed_job(
+                    db,
+                    &flow_job,
+                    success,
+                    skipped,
+                    Json(&result),
+                    logs,
+                    0,
+                    rsmq,
+                )
+                .await?;
 
                 return Ok(());
             }

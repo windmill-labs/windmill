@@ -131,6 +131,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             &db,
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
+            job_running.mem_peak.unwrap_or(0),
             &e,
             None,
             rsmq.clone(),
@@ -190,6 +191,7 @@ pub async fn add_completed_job_error<
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
+    mem_peak: i32,
     e: T,
     metrics: Option<Metrics>,
     rsmq: Option<R>,
@@ -198,7 +200,17 @@ pub async fn add_completed_job_error<
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = WrappedError { error: e };
-    let _ = add_completed_job(db, &queued_job, false, false, Json(&result), logs, rsmq).await?;
+    let _ = add_completed_job(
+        db,
+        &queued_job,
+        false,
+        false,
+        Json(&result),
+        logs,
+        mem_peak,
+        rsmq,
+    )
+    .await?;
     Ok(result)
 }
 
@@ -235,6 +247,7 @@ pub async fn add_completed_job<
     skipped: bool,
     result: Json<&T>,
     logs: String,
+    mem_peak: i32,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
     tracing::error!("Start");
@@ -271,6 +284,7 @@ pub async fn add_completed_job<
     let job_id = queued_job.id;
     tracing::error!("1 {:?}", start.elapsed());
 
+    let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     let _duration: i64 = sqlx::query_scalar!(
         "INSERT INTO completed_job AS cj
                    ( workspace_id
@@ -335,7 +349,7 @@ pub async fn add_completed_job<
         duration as Option<i64>,
         queued_job.email,
         queued_job.visible_to_owner,
-        queued_job.mem_peak,
+        if mem_peak > 0 { Some(mem_peak) } else { None },
         queued_job.tag,
     )
     .fetch_one(&mut tx)

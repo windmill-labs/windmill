@@ -415,7 +415,7 @@ pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
-    mem_peak: &mut Option<i32>,
+    mem_peak: &mut i32,
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
@@ -473,10 +473,12 @@ pub async fn handle_child(
                         .await
                         .expect("update worker ping");
                     }
-                    let mem_peak_o = get_mem_peak(pid, nsjail).await;
-                    tracing::info!("{job_id} in {} still running. mem peak: {}kB", _w_id, mem_peak_o);
-                    *mem_peak = if mem_peak_o > 0 { Some(mem_peak_o) } else { None };
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", *mem_peak, job_id)
+                    let current_mem = get_mem_peak(pid, nsjail).await;
+                    if current_mem > *mem_peak {
+                        *mem_peak = current_mem
+                    }
+                    tracing::info!("{job_id} in {_w_id} still running. mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled", *mem_peak, job_id)
                         .fetch_optional(&db)
                         .await
                         .map(|v| Some(true) == v)

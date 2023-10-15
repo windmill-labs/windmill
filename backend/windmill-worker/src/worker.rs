@@ -458,6 +458,7 @@ async fn handle_receive_completed_job<
             &db,
             &client,
             &jc.job,
+            jc.mem_peak,
             err,
             metrics,
             false,
@@ -1181,6 +1182,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             success: true,
                             result: empty_args(),
                             logs: String::new(),
+                            mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
                         })
@@ -1276,6 +1278,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             db,
                             &authed_client.get_authed().await,
                             &job,
+                            0,
                             err,
                             metrics,
                             false,
@@ -1424,7 +1427,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 // ) -> error::Result<()> {
 
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted { job, result, logs, success, cached_res_path, .. }: &JobCompleted,
+    JobCompleted { job, result, logs, mem_peak, success, cached_res_path, .. }: &JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -1444,6 +1447,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             false,
             Json(&result),
             logs.to_string(),
+            mem_peak.to_owned(),
             rsmq.clone(),
         )
         .await?;
@@ -1472,6 +1476,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             db,
             &job,
             logs.to_string(),
+            mem_peak.to_owned(),
             result,
             metrics.clone(),
             rsmq.clone(),
@@ -1540,6 +1545,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     db: &Pool<Postgres>,
     client: &AuthedClient,
     job: &QueuedJob,
+    mem_peak: i32,
     err: Error,
     metrics: Option<Metrics>,
     unrecoverable: bool,
@@ -1558,6 +1564,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             db,
             job,
             format!("Unexpected error during job execution:\n{err}"),
+            mem_peak,
             &err,
             metrics.clone(),
             rsmq_2,
@@ -1577,7 +1584,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             };
 
         let wrapped_error = WrappedError { error: json!(err) };
-        tracing::error!("FOOO {flow} {job_status_to_update}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -1606,6 +1612,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                             db,
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
+                            mem_peak,
                             &e,
                             metrics.clone(),
                             rsmq,
@@ -1637,6 +1644,7 @@ pub struct JobCompleted {
     pub job: QueuedJob,
     pub result: Box<RawValue>,
     pub logs: String,
+    pub mem_peak: i32,
     pub success: bool,
     pub cached_res_path: Option<String>,
     pub token: String,
@@ -1665,7 +1673,7 @@ pub async fn get_content(job: &QueuedJob, db: &Pool<Postgres>) -> Result<String,
 }
 
 async fn do_nativets(
-    job: &mut QueuedJob,
+    job: &QueuedJob,
     logs: String,
     client: &AuthedClientBackgroundTask,
     code: String,
@@ -1696,7 +1704,7 @@ pub struct PreviousResult<'a> {
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    job: &mut QueuedJob,
+    job: &QueuedJob,
     db: &DB,
     client: &AuthedClientBackgroundTask,
     worker_name: &str,
@@ -1708,7 +1716,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job_completed_tx: Sender<JobCompleted>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
-        return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
+        return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
     if let Some(e) = &job.pre_run_error {
         return Err(Error::ExecutionErr(e.to_string()));
@@ -1770,6 +1778,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         job: job.clone(),
                         result,
                         logs,
+                        mem_peak: 0,
                         success: true,
                         cached_res_path: None,
                         token: authed_client.token,
@@ -1797,6 +1806,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
         _ => {
             let mut logs = "".to_string();
+            let mut mem_peak: i32 = 0;
             // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
@@ -1821,6 +1831,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     handle_dependency_job(
                         &job,
                         &mut logs,
+                        &mut mem_peak,
                         job_dir,
                         db,
                         worker_name,
@@ -1833,6 +1844,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 JobKind::FlowDependencies => handle_flow_dependency_job(
                     &job,
                     &mut logs,
+                    &mut mem_peak,
                     job_dir,
                     db,
                     worker_name,
@@ -1845,6 +1857,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 JobKind::AppDependencies => handle_app_dependency_job(
                     &job,
                     &mut logs,
+                    &mut mem_peak,
                     job_dir,
                     db,
                     worker_name,
@@ -1869,6 +1882,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         job_dir,
                         worker_dir,
                         &mut logs,
+                        &mut mem_peak,
                         base_internal_url,
                         worker_name,
                     )
@@ -1886,6 +1900,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 job_dir,
                 job_completed_tx,
                 logs,
+                mem_peak,
                 cached_res_path,
                 client.get_token().await,
             )
@@ -1901,6 +1916,7 @@ async fn process_result(
     job_dir: &str,
     job_completed_tx: Sender<JobCompleted>,
     logs: String,
+    mem_peak: i32,
     cached_res_path: Option<String>,
     token: String,
 ) -> error::Result<()> {
@@ -1911,6 +1927,7 @@ async fn process_result(
                     job: job.clone(),
                     result: r,
                     logs,
+                    mem_peak,
                     success: true,
                     cached_res_path,
                     token: token,
@@ -1952,6 +1969,7 @@ async fn process_result(
                     job: job.clone(),
                     result: to_raw_value(&error_value),
                     logs: logs,
+                    mem_peak,
                     success: false,
                     cached_res_path,
                     token: token,
@@ -1996,12 +2014,13 @@ fn build_envs(
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
-    job: &mut QueuedJob,
+    job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
     base_internal_url: &str,
     worker_name: &str,
 ) -> error::Result<Box<RawValue>> {
@@ -2139,6 +2158,7 @@ mount {{
                 worker_name,
                 job,
                 logs,
+                mem_peak,
                 db,
                 client,
                 &inner_content,
@@ -2152,6 +2172,7 @@ mount {{
             handle_deno_job(
                 requirements_o,
                 logs,
+                mem_peak,
                 job,
                 db,
                 client,
@@ -2167,6 +2188,7 @@ mount {{
             handle_bun_job(
                 requirements_o,
                 logs,
+                mem_peak,
                 job,
                 db,
                 client,
@@ -2182,6 +2204,7 @@ mount {{
         Some(ScriptLang::Go) => {
             handle_go_job(
                 logs,
+                mem_peak,
                 job,
                 db,
                 client,
@@ -2198,6 +2221,7 @@ mount {{
         Some(ScriptLang::Bash) => {
             handle_bash_job(
                 logs,
+                mem_peak,
                 job,
                 db,
                 client,
@@ -2213,6 +2237,7 @@ mount {{
         Some(ScriptLang::Powershell) => {
             handle_powershell_job(
                 logs,
+                mem_peak,
                 job,
                 db,
                 client,
@@ -2245,6 +2270,7 @@ mount {{
 async fn handle_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2264,6 +2290,7 @@ async fn handle_dependency_job(
             .map(|a| a.as_str())
             .unwrap_or_else(|| "no raw code"),
         logs,
+        mem_peak,
         job_dir,
         db,
         worker_name,
@@ -2305,6 +2332,7 @@ async fn handle_dependency_job(
 async fn handle_flow_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2328,6 +2356,7 @@ async fn handle_flow_dependency_job(
         flow.modules,
         job,
         logs,
+        mem_peak,
         job_dir,
         db,
         worker_name,
@@ -2368,6 +2397,7 @@ async fn lock_modules(
     modules: Vec<FlowModule>,
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2403,6 +2433,7 @@ async fn lock_modules(
                             modules,
                             job,
                             logs,
+                            mem_peak,
                             job_dir,
                             db,
                             worker_name,
@@ -2424,6 +2455,7 @@ async fn lock_modules(
                             b.modules,
                             job,
                             logs,
+                            mem_peak,
                             job_dir,
                             db,
                             worker_name,
@@ -2444,6 +2476,7 @@ async fn lock_modules(
                             b.modules,
                             job,
                             logs,
+                            mem_peak,
                             job_dir,
                             db,
                             worker_name,
@@ -2459,6 +2492,7 @@ async fn lock_modules(
                         default,
                         job,
                         logs,
+                        mem_peak,
                         job_dir,
                         db,
                         worker_name,
@@ -2492,6 +2526,7 @@ async fn lock_modules(
             &language,
             &dependencies,
             logs,
+            mem_peak,
             job_dir,
             db,
             worker_name,
@@ -2549,6 +2584,7 @@ async fn lock_modules_app(
     value: Value,
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2591,6 +2627,7 @@ async fn lock_modules_app(
                                 &language,
                                 &dependencies,
                                 logs,
+                                mem_peak,
                                 job_dir,
                                 db,
                                 worker_name,
@@ -2630,6 +2667,7 @@ async fn lock_modules_app(
                         b,
                         job,
                         logs,
+                        mem_peak,
                         job_dir,
                         db,
                         worker_name,
@@ -2651,6 +2689,7 @@ async fn lock_modules_app(
                         b,
                         job,
                         logs,
+                        mem_peak,
                         job_dir,
                         db,
                         worker_name,
@@ -2671,6 +2710,7 @@ async fn lock_modules_app(
 async fn handle_app_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2698,6 +2738,7 @@ async fn handle_app_dependency_job(
             value,
             job,
             logs,
+            mem_peak,
             job_dir,
             db,
             worker_name,
@@ -2735,6 +2776,7 @@ async fn capture_dependency_job(
     job_language: &ScriptLang,
     job_raw_code: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -2747,8 +2789,17 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            let req: std::result::Result<String, Error> =
-                pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
+            let req: std::result::Result<String, Error> = pip_compile(
+                job_id,
+                job_raw_code,
+                logs,
+                mem_peak,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+            )
+            .await;
             // install the dependencies to pre-fill the cache
             if let Ok(req) = req.as_ref() {
                 let r = handle_python_reqs(
@@ -2756,6 +2807,7 @@ async fn capture_dependency_job(
                     job_id,
                     w_id,
                     logs,
+                    mem_peak,
                     db,
                     worker_name,
                     job_dir,
@@ -2778,6 +2830,7 @@ async fn capture_dependency_job(
                 job_id,
                 job_raw_code,
                 logs,
+                mem_peak,
                 job_dir,
                 db,
                 false,
@@ -2793,6 +2846,7 @@ async fn capture_dependency_job(
                 job_id,
                 job_raw_code,
                 logs,
+                mem_peak,
                 job_dir,
                 db,
                 w_id,
@@ -2807,6 +2861,7 @@ async fn capture_dependency_job(
             let trusted_deps = get_trusted_deps(job_raw_code);
             let req = gen_lockfile(
                 logs,
+                mem_peak,
                 job_id,
                 w_id,
                 db,

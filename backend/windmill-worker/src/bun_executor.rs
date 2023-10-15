@@ -64,6 +64,7 @@ lazy_static::lazy_static! {
 
 pub async fn gen_lockfile(
     logs: &mut String,
+    mem_peak: &mut i32,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -110,7 +111,7 @@ pub async fn gen_lockfile(
         job_id,
         db,
         logs,
-        &mut None,
+        mem_peak,
         child_process,
         false,
         worker_name,
@@ -154,6 +155,7 @@ pub async fn gen_lockfile(
 
     install_lockfile(
         logs,
+        mem_peak,
         job_id,
         w_id,
         db,
@@ -189,6 +191,7 @@ pub async fn gen_lockfile(
 
 pub async fn install_lockfile(
     logs: &mut String,
+    mem_peak: &mut i32,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -210,7 +213,7 @@ pub async fn install_lockfile(
         job_id,
         db,
         logs,
-        &mut None,
+        mem_peak,
         child_process,
         false,
         worker_name,
@@ -244,7 +247,8 @@ pub fn get_trusted_deps(code: &str) -> Vec<String> {
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
     logs: &mut String,
-    job: &mut QueuedJob,
+    mem_peak: &mut i32,
+    job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -286,6 +290,7 @@ pub async fn handle_bun_job(
 
             install_lockfile(
                 logs,
+                mem_peak,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -308,6 +313,7 @@ pub async fn handle_bun_job(
             set_logs(&logs, &job.id, &db).await;
             let _ = gen_lockfile(
                 logs,
+                mem_peak,
                 &job.id,
                 &job.workspace_id,
                 db,
@@ -494,7 +500,7 @@ plugin(p)
         &job.id,
         db,
         logs,
-        &mut job.mem_peak,
+        mem_peak,
         child,
         false,
         worker_name,
@@ -553,6 +559,7 @@ pub async fn start_worker(
     use futures::{future, Future};
 
     let mut logs = "".to_string();
+    let mut mem_peak: i32 = 0;
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -595,6 +602,7 @@ pub async fn start_worker(
         }
         install_lockfile(
             &mut logs,
+            &mut mem_peak,
             &Uuid::nil(),
             &w_id,
             db,
@@ -608,6 +616,7 @@ pub async fn start_worker(
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             &mut logs,
+            &mut mem_peak,
             &Uuid::nil(),
             &w_id,
             db,
@@ -812,7 +821,7 @@ plugin(p)
 
                     let result = serde_json::from_str(&line).expect("json is ok");
                     let job: QueuedJob = jobs.pop_front().expect("pop");
-                    job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                    job_completed_tx.send(JobCompleted { job , result, logs: "".to_string(), mem_peak: 0, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap();
                 } else {
                     tracing::info!("dedicated worker process exited");
                     break;

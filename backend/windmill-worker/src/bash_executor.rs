@@ -27,7 +27,8 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     logs: &mut String,
-    job: &mut QueuedJob,
+    mem_peak: &mut i32,
+    job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,
@@ -113,7 +114,7 @@ pub async fn handle_bash_job(
         &job.id,
         db,
         logs,
-        &mut job.mem_peak,
+        mem_peak,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -158,7 +159,8 @@ fn raw_to_string(x: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     logs: &mut String,
-    job: &mut QueuedJob,
+    mem_peak: &mut i32,
+    job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,
@@ -250,7 +252,7 @@ pub async fn handle_powershell_job(
         &job.id,
         db,
         logs,
-        &mut job.mem_peak,
+        mem_peak,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
