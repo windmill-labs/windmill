@@ -29,7 +29,7 @@ struct GraphqlError {
 }
 
 pub async fn do_graphql(
-    job: &mut QueuedJob,
+    job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

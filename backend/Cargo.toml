@@ -70,6 +70,8 @@ reqwest.workspace = true
 windmill-queue.workspace = true
 axum.workspace = true
 serde.workspace = true
+windmill-api-client.workspace = true
+
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api" }
@@ -85,6 +87,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
+windmill-api-client = { path = "./windmill-api-client" }
 
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"

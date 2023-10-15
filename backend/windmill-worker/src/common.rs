@@ -48,7 +48,7 @@ use crate::{
 };
 
 pub async fn build_args_map<'a>(
-    job: &'a mut QueuedJob,
+    job: &'a QueuedJob,
     client: &AuthedClientBackgroundTask,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {

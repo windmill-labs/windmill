@@ -40,7 +40,7 @@ struct PgDatabase {
 }
 
 pub async fn do_postgresql(
-    job: &mut QueuedJob,
+    job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

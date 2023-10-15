@@ -2063,7 +2063,7 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_bigquery(job, &client.get_authed().await, &inner_content, db).await;
+            return do_bigquery(job, &client, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
         #[cfg(not(feature = "enterprise"))]
@@ -2075,7 +2075,7 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
-            return do_snowflake(job, &client.get_authed().await, &inner_content, db).await;
+            return do_snowflake(job, &client, &inner_content, db).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
         return do_graphql(job, &client, &inner_content, db).await;

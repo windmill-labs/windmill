@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use windmill_api_client::types::{NewScript, NewScriptLanguage};
+use std::str::FromStr;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -1196,12 +1198,12 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         input_transforms: [
                             (
                                 "loop".to_string(),
-                                InputTransform::Static { value: to_raw_value(json!(false)) },
+                                InputTransform::Static { value: json!(false) },
                             ),
-                            ("i".to_string(), InputTransform::Static { value: to_raw_value(json!(1)) }),
+                            ("i".to_string(), InputTransform::Static { value: json!(1) }),
                             (
                                 "path".to_string(),
-                                InputTransform::Static { value: to_raw_value(json!("outer.txt")) },
+                                InputTransform::Static { value: json!("outer.txt") },
                             ),
                         ]
                         .into(),
