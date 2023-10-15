@@ -2,7 +2,7 @@ import { get } from 'svelte/store'
 import { tutorialsToDo } from './stores'
 import { UserService } from './gen'
 
-const MAX_TUTORIAL_ID = 6
+const MAX_TUTORIAL_ID = 7
 
 export async function updateProgress(id: number) {
 	const bef = get(tutorialsToDo)

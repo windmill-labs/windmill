@@ -7,6 +7,9 @@
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
+	import AppTutorials from '$lib/components/AppTutorials.svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -35,6 +38,10 @@
 	}
 
 	function createBackgroundScript() {
+		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5)) {
+			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
+		}
+
 		for (const [index, script] of $app.hiddenInlineScripts.entries()) {
 			if (script.hidden) {
 				delete script.hidden
@@ -68,6 +75,8 @@
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		selectScript(`${BG_PREFIX}${$app.hiddenInlineScripts.length - 1}`)
 	}
+
+	let appTutorials: AppTutorials | undefined = undefined
 </script>
 
 <PanelSection title="Runnables" id="app-editor-runnable-panel">
@@ -222,6 +231,8 @@
 		</div>
 	</div>
 </PanelSection>
+
+<AppTutorials bind:this={appTutorials} on:reload />
 
 <style lang="postcss">
 	.panel-item {

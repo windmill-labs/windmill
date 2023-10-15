@@ -8,9 +8,9 @@
 	let connectionTutorial: ConnectionTutorial | undefined = undefined
 	let expressionEvaluationTutorial: ExpressionEvaluationTutorial | undefined = undefined
 
-	export function runTutorialById(id: string) {
+	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
 		if (id === 'backgroundrunnables') {
-			backgroundRunnablesTutorial?.runTutorial()
+			backgroundRunnablesTutorial?.runTutorial(options?.skipStepsCount)
 		} else if (id === 'connection') {
 			connectionTutorial?.runTutorial()
 		} else if (id === 'expressionevaluation') {

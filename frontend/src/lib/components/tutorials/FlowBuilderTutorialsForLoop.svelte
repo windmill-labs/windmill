@@ -2,7 +2,12 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import { emptyFlowModuleState } from '../flows/utils'
-	import { clickButtonBySelector, triggerAddFlowStep, selectFlowStepKind } from './utils'
+	import {
+		clickButtonBySelector,
+		triggerAddFlowStep,
+		selectFlowStepKind,
+		updateFlowModuleById
+	} from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import { nextId } from '../flows/flowStateUtils'
 	import { updateProgress } from '$lib/tutorialUtils'
@@ -14,7 +19,7 @@
 	let tutorial: Tutorial | undefined = undefined
 
 	export function runTutorial(indexToInsertAt?: number | undefined) {
-		tutorial?.runTutorial(indexToInsertAt)
+		tutorial?.runTutorial({ indexToInsertAt })
 	}
 </script>
 

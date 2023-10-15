@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { updateProgress } from '$lib/tutorialUtils'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
 
@@ -7,8 +8,8 @@
 
 	let tutorial: Tutorial | undefined = undefined
 
-	export function runTutorial() {
-		tutorial?.runTutorial()
+	export function runTutorial(skipStepsCount: number | undefined = undefined) {
+		tutorial?.runTutorial({ skipStepsCount })
 	}
 </script>
 
@@ -18,67 +19,78 @@
 	{name}
 	on:error
 	on:skipAll
-	getSteps={(driver) => [
-		{
-			popover: {
-				title: 'Welcome to the Windmil Flow editor',
-				description:
-					'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
-			}
-		},
-		{
-			element: '#app-editor-runnable-panel',
-			popover: {
-				title: 'Runnable panel',
-				description:
-					'This is the runnable panel. Here you can add runnables to your app. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.'
-			}
-		},
-		{
-			element: '#create-background-runnable',
-			popover: {
-				title: 'Create a runnable',
-				description:
-					'Click here to create a runnable. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.',
-				onNextClick: () => {
-					clickButtonBySelector('#create-background-runnable')
+	getSteps={(driver, options) => {
+		const steps = [
+			{
+				popover: {
+					title: 'Welcome to the Windmil Flow editor',
+					description:
+						'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
+				}
+			},
+			{
+				element: '#app-editor-runnable-panel',
+				popover: {
+					title: 'Runnable panel',
+					description:
+						'This is the runnable panel. Here you can add runnables to your app. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.'
+				}
+			},
+			{
+				element: '#create-background-runnable',
+				popover: {
+					title: 'Create a runnable',
+					description:
+						'Click here to create a runnable. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.',
+					onNextClick: () => {
+						clickButtonBySelector('#create-background-runnable')
 
-					setTimeout(() => {
-						driver.moveNext()
-					})
+						setTimeout(() => {
+							driver.moveNext()
+						})
+					}
+				}
+			},
+			{
+				element: '#app-editor-empty-runnable',
+				popover: {
+					title: 'Empty runnable panel',
+					description:
+						'This is the empty runnable panel. Here you can add runnables to your app. Runnables are scripts that can be executed in the background. You can add as many runnables as you want. You can also select a script or a flow from your workspace or the Hub.'
+				}
+			},
+
+			{
+				element: '#app-editor-backend-runnables',
+				popover: {
+					title: 'Backend runnables',
+					description:
+						'Backend runnables are scripts that are executed on the server. They can be used to perform tasks that are not possible to be performed on the client. For example, you can use backend runnables to send emails, perform database operations, etc.'
+				}
+			},
+			{
+				element: '#app-editor-frontend-runnables',
+				popover: {
+					title: 'Frontend runnables',
+					description:
+						'Frontend scripts are executed in the browser and can manipulate the app context directly. You can also interact with components using component controls.',
+					onNextClick: () => {
+						setTimeout(() => {
+							driver.moveNext()
+
+							updateProgress(5)
+						})
+					}
 				}
 			}
-		},
-		{
-			element: '#app-editor-empty-runnable',
-			popover: {
-				title: 'Empty runnable panel',
-				description:
-					'This is the empty runnable panel. Here you can add runnables to your app. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.'
-			}
-		},
-		{
-			element: '#create-deno-script',
-			popover: {
-				title: 'Create a Deno script',
-				description:
-					'Click here to create a Deno script. Deno is a secure runtime for JavaScript and TypeScript. You can use it to write scripts that can be executed in the background.',
-				onNextClick: () => {
-					clickButtonBySelector('#create-deno-script')
+		]
 
-					setTimeout(() => {
-						driver.moveNext()
-					})
-				}
-			}
-		},
-		{
-			element: '#app-editor-script-transformer',
-			popover: {
-				title: 'Script transformer',
-				description:
-					"Here you can add a script transformer. A script transformer is an optional frontend script that is executed right after the component's script whose purpose is to do lightweight transformation in the browser. It takes the previous computation's result as `result`"
-			}
+		// Remove steps if we want to skip them (excpet the first one)
+
+		if (options?.skipStepsCount) {
+			steps.splice(1, options.skipStepsCount)
 		}
-	]}
+
+		return steps
+	}}
 />
