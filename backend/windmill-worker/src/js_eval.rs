@@ -77,6 +77,22 @@ pub async fn eval_timeout(
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
 ) -> anyhow::Result<Box<RawValue>> {
+
+    for (k,v) in transform_context.iter() {
+        if k == &expr {
+            return Ok(v.as_ref().clone())
+        }
+    }
+
+    if let Some(ref flow_input) = flow_input {
+        for (k,v) in flow_input.iter() {
+            if &format!("flow_input.{k}") == &expr {
+                return Ok(v.clone())
+            }
+        }
+    }
+
+
     let expr2 = expr.clone();
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let has_client = authed_client.is_some();
