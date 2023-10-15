@@ -250,8 +250,8 @@ pub async fn add_completed_job<
     mem_peak: i32,
     rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
-    tracing::error!("Start");
-    let start = tokio::time::Instant::now();
+    // tracing::error!("Start");
+    // let start = tokio::time::Instant::now();
 
     let is_flow =
         queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview;
@@ -282,7 +282,7 @@ pub async fn add_completed_job<
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id;
-    tracing::error!("1 {:?}", start.elapsed());
+    // tracing::error!("1 {:?}", start.elapsed());
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     let _duration: i64 = sqlx::query_scalar!(
@@ -355,11 +355,11 @@ pub async fn add_completed_job<
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
-    tracing::error!("2 {:?}", start.elapsed());
+    // tracing::error!("2 {:?}", start.elapsed());
 
     // tracing::error!("Added completed job {:#?}", queued_job);
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
-    tracing::error!("3 {:?}", start.elapsed());
+    // tracing::error!("3 {:?}", start.elapsed());
 
     if !queued_job.is_flow_step
         && queued_job.schedule_path.is_some()
@@ -453,7 +453,7 @@ pub async fn add_completed_job<
     }
 
     tracing::debug!("Added completed job {}", queued_job.id);
-    tracing::error!("4 {:?}", start.elapsed());
+    // tracing::error!("4 {:?}", start.elapsed());
 
     Ok(queued_job.id)
 }
