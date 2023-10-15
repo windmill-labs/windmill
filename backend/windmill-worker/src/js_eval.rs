@@ -114,15 +114,15 @@ pub async fn eval_timeout(
 
             let mut context_keys = transform_context
                 .keys()
-                .filter(|x| {
+                .filter(|x| 
                     expr.contains(&x.to_string())
-                        || (x.to_string() == "previous_result"
-                            && p_id.is_some()
-                            && expr.contains(p_id.as_ref().unwrap()))
-                })
+                )
                 .map(|x| x.clone())
                 .collect_vec();
 
+            if !context_keys.contains(&"previous_result".to_string()) && expr.contains(p_id.as_ref().unwrap())  || expr.contains("error") {
+                context_keys.push("previous_result".to_string());
+            }
             let has_flow_input = expr.contains("flow_input");
             if has_flow_input {
                 context_keys.push("flow_input".to_string())
@@ -311,12 +311,14 @@ function get_from_env(name) {{
             .iter()
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
-        if expr.contains("error") && transform_context.contains(&"last_result".to_string()) {
-            "let error = last_result.error"
+        if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
+            "let error = previous_result.error"
         } else {
             ""
         },
     );
+
+    
     let global = context.execute_script("<anon>", code.into())?;
     let global = context.resolve_value(global).await?;
 
