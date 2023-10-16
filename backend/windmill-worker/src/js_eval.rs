@@ -696,6 +696,12 @@ mod tests {
 
 
         let mut runtime = JsRuntime::new(options);
+        {
+            let op_state = runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            op_state.put(TransformContext { flow_input: None, envs: env.clone() })
+        }
+
         let res = eval(
             &mut runtime,
             code,
