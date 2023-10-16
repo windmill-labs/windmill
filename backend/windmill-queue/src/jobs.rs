@@ -1352,6 +1352,7 @@ pub async fn get_result_by_id(
     w_id: String,
     flow_id: Uuid,
     node_id: String,
+    json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let flow_job_result = sqlx::query!(
         "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
@@ -1364,7 +1365,7 @@ pub async fn get_result_by_id(
 
     let flow_job_result = windmill_common::utils::not_found_if_none(
         flow_job_result,
-        "Flow result by id",
+        "Flow result by id in leaf jobs",
         format!("{}, {}", flow_id, node_id),
     )?;
 
@@ -1380,7 +1381,7 @@ pub async fn get_result_by_id(
             .await?
             .flatten()
             .unwrap_or(parent_job);
-        return get_result_by_id(db, w_id, root_job, node_id).await;
+        return get_result_by_id(db, w_id, root_job, node_id, json_path).await;
     }
 
     let result_id = windmill_common::utils::not_found_if_none(
@@ -1403,20 +1404,25 @@ pub async fn get_result_by_id(
             .collect::<Vec<Json<Box<RawValue>>>>();
             to_raw_value(&rows)
         }
-        JobResult::SingleJob(x) => {
-            sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-                .bind(x)
-                .bind(w_id)
-                .fetch_optional(&db)
-                .await?
-                .map(|r| {
-                    ResultR::from_row(&r)
-                        .ok()
-                        .and_then(|x| x.result.map(|x| x.0))
-                })
-                .flatten()
-                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
-        }
+        JobResult::SingleJob(x) => sqlx::query(
+            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(x)
+        .bind(w_id)
+        .bind(
+            json_path
+                .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .fetch_optional(&db)
+        .await?
+        .map(|r| {
+            ResultR::from_row(&r)
+                .ok()
+                .and_then(|x| x.result.map(|x| x.0))
+        })
+        .flatten()
+        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)),
     };
 
     Ok(value)

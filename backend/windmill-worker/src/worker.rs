@@ -378,12 +378,18 @@ impl AuthedClient {
     pub async fn get_completed_job_result<T: DeserializeOwned>(
         &self,
         path: &str,
+        json_path: Option<String>,
     ) -> anyhow::Result<T> {
         let url = format!(
             "{}/api/w/{}/jobs_u/completed/get_result/{}",
             self.base_internal_url, self.workspace, path
         );
-        let response = self.get(&url, vec![]).await?;
+        let query = if let Some(json_path) = json_path {
+            vec![("json_path", json_path)]
+        } else {
+            vec![]
+        };
+        let response = self.get(&url, query).await?;
         match response.status().as_u16() {
             200u16 => Ok(response.json::<T>().await?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
@@ -394,12 +400,18 @@ impl AuthedClient {
         &self,
         flow_job_id: &str,
         node_id: &str,
+        json_path: Option<String>,
     ) -> anyhow::Result<T> {
         let url = format!(
             "{}/api/w/{}/jobs/result_by_id/{}/{}",
             self.base_internal_url, self.workspace, flow_job_id, node_id
         );
-        let response = self.get(&url, vec![]).await?;
+        let query = if let Some(json_path) = json_path {
+            vec![("json_path", json_path)]
+        } else {
+            vec![]
+        };
+        let response = self.get(&url, query).await?;
         match response.status().as_u16() {
             200u16 => Ok(response.json::<T>().await?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),

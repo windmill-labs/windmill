@@ -78,6 +78,8 @@ pub async fn eval_timeout(
     by_id: Option<IdContext>,
 ) -> anyhow::Result<Box<RawValue>> {
 
+    let expr = expr.trim().to_string();
+
     for (k,v) in transform_context.iter() {
         if k == &expr {
             return Ok(v.as_ref().clone())
@@ -88,6 +90,7 @@ pub async fn eval_timeout(
         if let Some(ref flow_input) = flow_input {
             for (k,v) in flow_input.iter() {
                 if &format!("flow_input.{k}") == &expr {
+                    // tracing::error!("FLOW_INPUT");
                     return Ok(v.clone())
                 }
             }
@@ -96,8 +99,23 @@ pub async fn eval_timeout(
 
     let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
 
-    if p_id.is_some() && transform_context.contains_key("previous_result") && expr == format!("results.{}", p_id.clone().unwrap()) {
+    if p_id.is_some() && transform_context.contains_key("previous_result") && &expr == p_id.as_ref().unwrap() {
+        // tracing::error!("PREVIOUS_RESULT");
         return Ok(transform_context.get("previous_result").unwrap().as_ref().clone())
+    }
+
+    if by_id.is_some() && authed_client.is_some() {
+        if let Some(x) = RE_FULL.captures(&expr).and_then(|x| x.get(1).map(|y| y.as_str())) {
+            // tracing::error!("{:?}", x.split(".").collect::<Vec<_>>());
+            let arr = x.split(".").collect::<Vec<_>>();
+            let mut iter = arr.iter();
+            iter.next();
+            if let Some(id) = iter.next() {
+                let path = iter.join(".");
+                let query = if path.is_empty() { None } else { Some(path) };
+                return authed_client.unwrap().get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query).await;
+            }
+        }
     }
 
 
@@ -174,7 +192,7 @@ pub async fn eval_timeout(
                 .build()?;
 
             // pretty frail but this it to make the expr more user friendly and not require the user to write await
-            let expr = ["variable", "step", "resource", "result_by_id"]
+            let expr = ["variable", "resource"]
                 .into_iter()
                 .fold(expr, replace_with_await);
 
@@ -212,7 +230,9 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
     s
 }
 lazy_static! {
-    static ref RE: Regex = Regex::new("(?m)(?P<r>results.([a-z]|[A-Z]|_|[1-9])+)").unwrap();
+    static ref RE: Regex = Regex::new(r"(?m)(?P<r>results\.(?:[a-z]|[A-Z]|_|[1-9])+)").unwrap();
+    static ref RE_FULL: Regex = Regex::new(r"(?m)^results((?:\.(?:(?:[a-z]|[A-Z]|_|[1-9])+))+)$").unwrap();
+
 }
 
 fn replace_with_await_result(expr: String) -> String {
@@ -420,7 +440,7 @@ async fn op_get_result(
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_completed_job_result::<Box<RawValue>>(id)
+            .get_completed_job_result::<Box<RawValue>>(id, None)
             .await?
             .clone();
         Ok(result.get().to_string())
@@ -440,7 +460,7 @@ async fn op_get_id(
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
-            .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id)
+            .get_result_by_id::<Option<Box<RawValue>>>(flow_job_id, node_id, None)
             .await?;
         Ok(result.map(|x| x.get().to_string()))
     } else {

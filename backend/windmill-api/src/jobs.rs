@@ -179,11 +179,16 @@ pub fn global_root_service() -> Router {
     Router::new().route("/db_clock", get(get_db_clock))
 }
 
+#[derive(Deserialize)]
+struct JsonPath {
+    pub json_path: Option<String>,
+}
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
     Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
+    Query(JsonPath { json_path }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id).await?;
+    let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id, json_path).await?;
     Ok(Json(res))
 }
 
@@ -2658,13 +2663,29 @@ impl<'a> IntoResponse for RawResult<'a> {
 async fn get_completed_job_result(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(JsonPath { json_path }): Query<JsonPath>,
 ) -> error::Result<Response> {
-    let result_o =
+    let result_o = if let Some(json_path) = json_path {
+        sqlx::query(
+            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(id)
+        .bind(w_id)
+        .bind(
+            json_path
+                .split(".")
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
         sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
             .bind(w_id)
             .fetch_optional(&db)
-            .await?;
+            .await?
+    };
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
     Ok(RawResult::from_row(&result)?.into_response())
