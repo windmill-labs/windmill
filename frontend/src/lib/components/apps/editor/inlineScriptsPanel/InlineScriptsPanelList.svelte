@@ -38,7 +38,9 @@
 	}
 
 	function createBackgroundScript() {
-		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5)) {
+		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+
+		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5) && svg.length === 0) {
 			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
 		}
 

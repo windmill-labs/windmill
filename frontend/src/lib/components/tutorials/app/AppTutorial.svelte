@@ -68,7 +68,7 @@
 			popover: {
 				title: 'App canvas',
 				description:
-					'In the canvas, you can move components around, resize them, and organize them in grids.',
+					'In the canvas, you can move components around, resize them, and organize them in grids. In this example, we already added a text input and a display component.',
 				onNextClick: () => {
 					driver.moveNext()
 				}
@@ -86,8 +86,7 @@
 			element: '#create-background-runnable',
 			popover: {
 				title: 'Create a runnable',
-				description:
-					'Click here to create a runnable. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.',
+				description: 'Click here to create a runnable.',
 				onNextClick: () => {
 					clickButtonBySelector('#create-background-runnable')
 
@@ -100,18 +99,9 @@
 		{
 			element: '#app-editor-empty-runnable',
 			popover: {
-				title: 'Empty runnable panel',
+				title: 'Choose a language',
 				description:
-					'This is the empty runnable panel. Here you can add runnables to your app. Runnables are scripts that can be executed in the background. You can add as many runnables as you want. You can also select a script or a flow from your workspace or the Hub.'
-			}
-		},
-
-		{
-			element: '#app-editor-backend-runnables',
-			popover: {
-				title: 'Backend runnables',
-				description:
-					'Backend runnables are scripts that are executed on the server. They can be used to perform tasks that are not possible to be performed on the client. For example, you can use backend runnables to send emails, perform database operations, etc.'
+					'You can choose the language of your runnable. For this tutorial, we will use deno.'
 			}
 		},
 
@@ -141,8 +131,9 @@
 		{
 			element: '#schema-plug',
 			popover: {
-				title: 'Connect the text component',
-				description: 'Click on the plug icon to connect the text component',
+				title: 'Connect the function input',
+				description:
+					"The function we created has an string input 'x'. We can connect the output of the text component to it.",
 				onNextClick: () => {
 					clickButtonBySelector('#schema-plug')
 					setTimeout(() => {
@@ -157,7 +148,7 @@
 			popover: {
 				title: 'Select the output',
 				description:
-					"You can now select the output in the output menu. Let's select your email in the app context",
+					"You can now select the output in the output menu. Let's select the result of the text component.",
 				onNextClick: () => {
 					clickButtonBySelector('#output-a')
 
