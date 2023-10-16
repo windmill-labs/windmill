@@ -1,4 +1,6 @@
 import type { Flow, FlowModule } from '$lib/gen'
+import { findGridItem } from '../apps/editor/appUtils'
+import type { App } from '../apps/types'
 
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement
@@ -73,4 +75,34 @@ export function updateFlowModuleById(
 	dfs(flow.value.modules)
 
 	flow = flow
+}
+
+export function updateBackgroundRunnableCode(app: App, index: number, newCode: string) {
+	const script = app.hiddenInlineScripts[index]
+	if (script.type === 'runnableByName' && script.inlineScript) {
+		script.inlineScript.content = newCode
+	}
+
+	app = app
+}
+
+export function componentComponentSourceToOutput(app: App, componentId: string, targetId: string) {
+	const gridItem = findGridItem(app, componentId)
+
+	if (gridItem) {
+		gridItem.data.componentInput = {
+			type: 'evalv2',
+			fieldType: 'object',
+
+			expr: `${targetId}.result`,
+			connections: [
+				{
+					componentId: targetId,
+					id: 'result'
+				}
+			]
+		}
+	}
+
+	app = app
 }

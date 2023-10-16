@@ -8,8 +8,13 @@
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../types'
 
 	let appTutorials: AppTutorials | undefined = undefined
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 <ButtonDropdown hasPadding={false}>
@@ -22,6 +27,14 @@
 		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="items">
+		<TutorialItem
+			on:click={() => appTutorials?.runTutorialById('simpleapptutorial')}
+			label="App tutorial"
+			index={7}
+			disabled={$app.grid.length > 0 || $app.hiddenInlineScripts.length > 0}
+		>
+			<Tooltip>This tutorial can only be run on a new app.</Tooltip>
+		</TutorialItem>
 		<TutorialItem
 			on:click={() => appTutorials?.runTutorialById('backgroundrunnables')}
 			label="Background runnables"

@@ -46,9 +46,8 @@
 	getSteps={(driver) => [
 		{
 			popover: {
-				title: 'Welcome to the Windmil Flow editor',
-				description:
-					'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate',
+				title: 'Connection tutorial',
+				description: 'We will connect the input of a text component to an output.',
 				onNextClick: () => {
 					addComponent()
 					setTimeout(() => {
@@ -60,8 +59,15 @@
 		{
 			element: `#component-input`,
 			popover: {
-				title: 'Let’s add a text component',
-				description: 'We will connect the input of the text component to an output.'
+				title: 'Data source',
+				description:
+					'Here we can set the data source of the text component: it can be static, the result of an evaluation or the result of script or flow. We are going to connect the data source to an output.',
+				onNextClick: () => {
+					clickButtonBySelector('#component-input')
+					setTimeout(() => {
+						driver.moveNext()
+					})
+				}
 			}
 		},
 		{

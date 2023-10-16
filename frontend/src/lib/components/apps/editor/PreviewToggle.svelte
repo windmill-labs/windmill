@@ -19,5 +19,6 @@
 		icon={Eye}
 		tooltip="Preview mode"
 		disabled={loading}
+		id="app-editor-preview-toggle"
 	/>
 </ToggleButtonGroup>

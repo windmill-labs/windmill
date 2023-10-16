@@ -22,13 +22,6 @@
 	getSteps={(driver, options) => {
 		const steps = [
 			{
-				popover: {
-					title: 'Welcome to the Windmil Flow editor',
-					description:
-						'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
-				}
-			},
-			{
 				element: '#app-editor-runnable-panel',
 				popover: {
 					title: 'Runnable panel',

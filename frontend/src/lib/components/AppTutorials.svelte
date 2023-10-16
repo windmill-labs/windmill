@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { skipAllTodos } from '$lib/tutorialUtils'
+	import AppTutorial from './tutorials/app/AppTutorial.svelte'
 	import BackgroundRunnablesTutorial from './tutorials/app/BackgroundRunnablesTutorial.svelte'
 	import ConnectionTutorial from './tutorials/app/ConnectionTutorial.svelte'
 
 	let backgroundRunnablesTutorial: BackgroundRunnablesTutorial | undefined = undefined
 	let connectionTutorial: ConnectionTutorial | undefined = undefined
+	let appTutorial: AppTutorial | undefined = undefined
 
 	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
 		if (id === 'backgroundrunnables') {
 			backgroundRunnablesTutorial?.runTutorial(options?.skipStepsCount)
 		} else if (id === 'connection') {
 			connectionTutorial?.runTutorial()
+		} else if (id === 'simpleapptutorial') {
+			appTutorial?.runTutorial()
 		}
 	}
 
@@ -18,6 +22,15 @@
 		skipAllTodos()
 	}
 </script>
+
+<AppTutorial
+	bind:this={appTutorial}
+	on:error
+	on:skipAll={skipAll}
+	on:reload
+	index={7}
+	name="simpleapptutorial"
+/>
 
 <BackgroundRunnablesTutorial
 	bind:this={backgroundRunnablesTutorial}
