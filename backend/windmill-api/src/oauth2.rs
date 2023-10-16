@@ -753,7 +753,7 @@ async fn connect_slack_callback(
         "slack_bot",
         "Slack bot",
         &["g/slack".to_string()],
-        serde_json::json!({"g/slack": true})
+        serde_json::json!({"g/slack": true, "g/error_handler": false})
     )
     .execute(&mut *tx)
     .await?;
