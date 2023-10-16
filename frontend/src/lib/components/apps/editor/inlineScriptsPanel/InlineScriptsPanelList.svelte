@@ -10,6 +10,7 @@
 	import AppTutorials from '$lib/components/AppTutorials.svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { tutorialInProgress } from '$lib/tutorialUtils'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -38,9 +39,7 @@
 	}
 
 	function createBackgroundScript() {
-		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-
-		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5) && svg.length === 0) {
+		if ($tutorialsToDo.includes(5) && !$ignoredTutorials?.includes(5) && !tutorialInProgress()) {
 			appTutorials?.runTutorialById('backgroundrunnables', { skipStepsCount: 2 })
 		}
 

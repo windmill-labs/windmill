@@ -49,3 +49,9 @@ export async function syncTutorialsTodos() {
 	}
 	tutorialsToDo.set(todos)
 }
+
+export function tutorialInProgress() {
+	const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
+
+	return svg.length > 0
+}
