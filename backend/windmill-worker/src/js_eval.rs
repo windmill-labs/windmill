@@ -684,7 +684,18 @@ mod tests {
 
         let code = "value.test + params.test";
 
-        let mut runtime = JsRuntime::new(RuntimeOptions::default());
+        let ops = vec![op_get_context::DECL];
+
+        let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
+        let exts = vec![ext];
+
+        let options = RuntimeOptions {
+            extensions: exts,
+            ..Default::default()
+        };
+
+
+        let mut runtime = JsRuntime::new(options);
         let res = eval(
             &mut runtime,
             code,
@@ -706,7 +717,7 @@ multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
         let res = eval(&mut runtime, code, env, None, false).await?;
-        assert_eq!(res.get(), "my 5\nmultiline template");
+        assert_eq!(res.get(), "\"my 5\\nmultiline template\"");
         Ok(())
     }
 
@@ -741,7 +752,7 @@ multiline template`";
         let code = r#"export async function main() { return "" }"#;
 
         let res = eval_fetch_timeout(code.to_string(), code.to_string(), None).await?;
-        assert_eq!(res.0.get(), "");
+        assert_eq!(res.0.get(), "\"\"");
         Ok(())
     }
 }
