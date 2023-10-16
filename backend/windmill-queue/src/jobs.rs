@@ -132,7 +132,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
-            &e,
+            e,
             None,
             rsmq.clone(),
         )
@@ -178,28 +178,26 @@ pub async fn cancel_job<'c: 'async_recursion>(
     Ok((tx, Some(id)))
 }
 
-#[derive(Serialize)]
-pub struct WrappedError<T: Serialize> {
-    pub error: T,
+#[derive(Serialize, Debug)]
+pub struct WrappedError {
+    pub error: serde_json::Value,
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error<
-    T: Serialize + Send + Sync,
-    R: rsmq_async::RsmqConnection + Clone + Send,
->(
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
     mem_peak: i32,
-    e: T,
+    e: serde_json::Value,
     metrics: Option<Metrics>,
     rsmq: Option<R>,
-) -> Result<WrappedError<T>, Error> {
+) -> Result<WrappedError, Error> {
     if *METRICS_ENABLED {
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = WrappedError { error: e };
+    tracing::error!("FOO {:?}", serde_json::to_string(&result));
     let _ = add_completed_job(
         db,
         &queued_job,
