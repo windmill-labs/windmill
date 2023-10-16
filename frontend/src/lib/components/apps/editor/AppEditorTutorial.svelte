@@ -32,11 +32,7 @@
 			label="Connection"
 			index={6}
 		/>
-		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('expressionevaluation')}
-			label="Expression evaluation"
-			index={7}
-		/>
+
 		<div class="border-t border-surface-hover" />
 		<MenuItem
 			on:click={() => {

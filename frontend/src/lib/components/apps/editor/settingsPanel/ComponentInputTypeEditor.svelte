@@ -12,6 +12,7 @@
 	export let componentInput: AppInput
 	export let disableStatic: boolean = false
 	export let evalV2editor: EvalV2InputEditor | undefined
+	export let id: string
 
 	const { onchange, connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -98,6 +99,7 @@
 					variant="border"
 					color="light"
 					title="Connect"
+					id={`plug`}
 					on:click={() => {
 						$connectingInput = {
 							opened: true,

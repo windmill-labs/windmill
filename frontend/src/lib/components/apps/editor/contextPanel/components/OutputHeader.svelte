@@ -186,6 +186,7 @@
 				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
 			}
 		}}
+		id={`output-${id}`}
 	>
 		<div class="flex">
 			<button

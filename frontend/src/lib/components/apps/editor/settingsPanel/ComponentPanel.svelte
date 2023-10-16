@@ -192,6 +192,7 @@
 					: hasInteraction
 					? 'Event handler'
 					: 'Data source'}
+				id={'component-input'}
 			>
 				<svelte:fragment slot="action">
 					<span
@@ -208,6 +209,7 @@
 					<ComponentInputTypeEditor
 						{evalV2editor}
 						bind:componentInput={componentSettings.item.data.componentInput}
+						id={component.id}
 					/>
 
 					<div class="flex flex-col w-full gap-2 mt-2">
