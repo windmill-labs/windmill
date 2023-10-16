@@ -111,6 +111,26 @@
 									rows="3"
 								/>
 							</Label>
+
+							<Label label="Workspace error handler">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										When disabled, the workspace error handler will not be triggered when this
+										script fails
+									</Tooltip>
+								</svelte:fragment>
+								<Toggle
+									checked={$flowStore.value.workspace_error_handler_enabled === undefined ||
+										$flowStore.value.workspace_error_handler_enabled}
+									on:change={(e) => {
+										$flowStore.value.workspace_error_handler_enabled = e.detail
+									}}
+									options={{
+										right: 'Workspace error handler enabled'
+									}}
+								/>
+							</Label>
+
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">
 									On-demand:

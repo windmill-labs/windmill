@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 
+	import { faBell } from '@fortawesome/free-solid-svg-icons'
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import { classNames } from '$lib/utils'
 
 	type MainButton = {
@@ -22,6 +24,22 @@
 	export let mainButtons: MainButton[] = []
 	export let menuItems: MenuItemButton[] = []
 	export let title: string
+
+	export let errorHandlerEnabled: boolean | undefined
+	export let errorHandlerToggleFunc: (e: boolean) => void
+
+	async function toggleErrorHandler(): Promise<void> {
+		try {
+			await errorHandlerToggleFunc(!errorHandlerEnabled)
+		} catch (error) {
+			sendUserToast(
+				`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
+				true
+			)
+			return
+		}
+		errorHandlerEnabled = !errorHandlerEnabled
+	}
 </script>
 
 <div class="border-b p-2 shadow-md">
@@ -58,6 +76,15 @@
 						</svelte:fragment>
 					</Menu>
 				{/if}
+				<Button
+					size="xs"
+					startIcon={{ icon: errorHandlerEnabled ? faBell : faBell }}
+					on:click={toggleErrorHandler}
+					color="light"
+					btnClasses={errorHandlerEnabled === undefined || errorHandlerEnabled
+						? ''
+						: 'text-red-600'}
+				/>
 				{#each mainButtons as btn}
 					<Button
 						{...btn.buttonProps}

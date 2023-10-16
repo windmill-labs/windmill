@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET ws_error_handler_enabled = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a4f8241fcfb5469c9925b8288080de8196036d86c5e434417ca959082393364"
+}

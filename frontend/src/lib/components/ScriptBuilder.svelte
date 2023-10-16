@@ -190,7 +190,8 @@
 					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
-					cache_ttl: script.cache_ttl
+					cache_ttl: script.cache_ttl,
+					ws_error_handler_enabled: script.ws_error_handler_enabled
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -233,7 +234,8 @@
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
-						cache_ttl: script.cache_ttl
+						cache_ttl: script.cache_ttl,
+						ws_error_handler_enabled: script.ws_error_handler_enabled
 					}
 				})
 			}
@@ -460,6 +462,23 @@
 											/>
 										{/each}
 									</ToggleButtonGroup>
+								</Section>
+								<Section label="Workspace error handler">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											When disabled, the workspace error handler will not be triggered when this
+											script fails
+										</Tooltip>
+									</svelte:fragment>
+									<Toggle
+										checked={script.ws_error_handler_enabled}
+										on:change={(e) => {
+											script.ws_error_handler_enabled = e.detail
+										}}
+										options={{
+											right: 'Workspace error handler enabled'
+										}}
+									/>
 								</Section>
 							</div>
 						</TabContent>

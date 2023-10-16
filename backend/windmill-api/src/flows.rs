@@ -53,6 +53,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
+        .route(
+            "/toggle_workspace_error_handler/*path",
+            post(toggle_workspace_error_handler),
+        )
 }
 
 pub fn global_service() -> Router {
@@ -114,7 +118,8 @@ async fn list_flows(
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only"
+            "draft_only",
+            "bool(o.value->'workspace_error_handler_enabled') AS ws_error_handler_enabled"
         ])
         .left()
         .join("favorite")
@@ -209,6 +214,39 @@ pub async fn get_hub_flow_by_id(
     Ok(Json(value))
 }
 
+#[derive(Deserialize)]
+pub struct ToggleWorkspaceErrorHandler {
+    pub enabled: Option<bool>,
+}
+async fn toggle_workspace_error_handler(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    if true {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query_scalar!(
+        "UPDATE flow SET value = JSONB_SET(value, '{workspace_error_handler_enabled}', $3, true) WHERE path = $1 AND workspace_id = $2",
+        path.to_path(),
+        w_id,
+        serde_json::json!(req.enabled),
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok("".to_string())
+}
+
 async fn check_path_conflict<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
@@ -237,6 +275,19 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    #[cfg(not(feature = "enterprise"))]
+    if nf
+        .value
+        .get("workspace_error_handler_enabled")
+        .map(|val| val.as_bool().unwrap_or(true))
+        .is_some_and(|val| !val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
@@ -372,6 +423,19 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    #[cfg(not(feature = "enterprise"))]
+    if nf
+        .value
+        .get("workspace_error_handler_enabled")
+        .map(|val| val.as_bool().unwrap_or(true))
+        .is_some_and(|val| !val)
+    {
+        return Err(Error::BadRequest(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
     let flow_path = flow_path.to_path();
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
 
@@ -794,6 +858,7 @@ mod tests {
             concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
+            workspace_error_handler_enabled: None,
         };
         let expect = serde_json::json!({
           "modules": [

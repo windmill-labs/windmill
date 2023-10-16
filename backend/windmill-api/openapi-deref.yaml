@@ -3529,6 +3529,8 @@ paths:
                             type: string
                           cache_ttl:
                             type: number
+                          workspace_error_handler_enabled:
+                            type: boolean
                         required: &ref_47
                           - modules
                       schema:
@@ -3931,6 +3933,8 @@ paths:
                       type: number
                     dedicated_worker:
                       type: boolean
+                    ws_error_handler_enabled:
+                      type: boolean
                   required: &ref_29
                     - hash
                     - path
@@ -4115,6 +4119,8 @@ paths:
                   type: number
                 dedicated_worker:
                   type: boolean
+                ws_error_handler_enabled:
+                  type: boolean
               required: &ref_32
                 - path
                 - summary
@@ -4124,6 +4130,38 @@ paths:
       responses:
         '201':
           description: script created
+          content:
+            text/plain:
+              schema:
+                type: string
+  /w/{workspace}/scripts/toggle_workspace_error_handler/p/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given script
+      operationId: toggleWorkspaceErrorHandlerForScript
+      tags:
+        - script
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: path
+          in: path
+          required: true
+          schema: *ref_27
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: error handler toggled
           content:
             text/plain:
               schema:
@@ -4989,6 +5027,38 @@ paths:
             application/json:
               schema:
                 allOf: *ref_41
+  /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given flow
+      operationId: toggleWorkspaceErrorHandlerForFlow
+      tags:
+        - flow
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema: *ref_0
+        - name: path
+          in: path
+          required: true
+          schema: *ref_27
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: error handler toggled
+          content:
+            text/plain:
+              schema:
+                type: string
   /w/{workspace}/flows/get/draft/{path}:
     get:
       summary: get flow by path with draft

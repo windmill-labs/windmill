@@ -2917,6 +2917,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
             summary: "".to_string(),
             tag: None,
             schema: std::collections::HashMap::new(),
+            ws_error_handler_enabled: Some(true),
         },
     ).await.unwrap();
 

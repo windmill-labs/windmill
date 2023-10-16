@@ -36,6 +36,7 @@
 	export let moveDrawer: MoveDrawer
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
+	export let errorHandlerEnabled: boolean
 
 	let {
 		summary,
@@ -91,6 +92,7 @@
 	{path}
 	{summary}
 	{starred}
+	{errorHandlerEnabled}
 	workspaceId={$workspaceStore ?? ''}
 	on:change
 	canFavorite={!draft_only}

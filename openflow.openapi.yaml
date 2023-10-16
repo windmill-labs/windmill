@@ -54,6 +54,8 @@ components:
           type: string
         cache_ttl:
           type: number
+        workspace_error_handler_enabled:
+          type: boolean
       required:
         - modules
 

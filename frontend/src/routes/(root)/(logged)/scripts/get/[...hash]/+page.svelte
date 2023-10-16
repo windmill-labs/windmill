@@ -99,6 +99,18 @@
 		loadScript(hash)
 	}
 
+	async function toggleWorkspaceErrorHandler(enable: boolean): Promise<void> {
+		if (script !== undefined) {
+			await ScriptService.toggleWorkspaceErrorHandlerForScript({
+				workspace: $workspaceStore!,
+				path: script.path,
+				requestBody: {
+					enabled: enable
+				}
+			})
+		}
+	}
+
 	async function unarchiveScript(hash: string): Promise<void> {
 		const r = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 		const ns = await ScriptService.createScript({
@@ -409,6 +421,8 @@
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
+				bind:errorHandlerEnabled={script.ws_error_handler_enabled}
+				errorHandlerToggleFunc={toggleWorkspaceErrorHandler}
 				menuItems={getMenuItems(script)}
 				title={defaultIfEmptyString(script.summary, script.path)}
 			>

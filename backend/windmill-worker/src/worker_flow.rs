@@ -2079,6 +2079,7 @@ async fn compute_next_flow_transform(
                                 concurrency_time_window_s: None,
                                 skip_expr: None,
                                 cache_ttl: None,
+                                workspace_error_handler_enabled: None,
                             },
                             path: inner_path,
                         },
@@ -2136,6 +2137,7 @@ async fn compute_next_flow_transform(
                                         concurrency_time_window_s: None,
                                         skip_expr: None,
                                         cache_ttl: None,
+                                        workspace_error_handler_enabled: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                 },
@@ -2227,6 +2229,7 @@ async fn compute_next_flow_transform(
                             concurrency_time_window_s: None,
                             skip_expr: None,
                             cache_ttl: None,
+                            workspace_error_handler_enabled: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2271,6 +2274,7 @@ async fn compute_next_flow_transform(
                                                     concurrency_time_window_s: None,
                                                     skip_expr: None,
                                                     cache_ttl: None,
+                                                    workspace_error_handler_enabled: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2332,6 +2336,7 @@ async fn compute_next_flow_transform(
                             concurrency_time_window_s: None,
                             skip_expr: None,
                             cache_ttl: None,
+                            workspace_error_handler_enabled: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",

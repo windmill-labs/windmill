@@ -64,7 +64,8 @@
 						is_template: false,
 						language: script.language,
 						kind: script.kind as Script.kind | undefined,
-						envs: script.envs
+						envs: script.envs,
+						ws_error_handler_enabled: true,
 					}
 				})
 				callback?.()
