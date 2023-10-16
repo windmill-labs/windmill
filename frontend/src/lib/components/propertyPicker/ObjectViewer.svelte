@@ -83,6 +83,7 @@
 								level={level + 1}
 								currentPath={computeKey(key, isArray, currentPath)}
 								{pureViewer}
+								{allowCopy}
 								on:select
 							/>
 						{:else}

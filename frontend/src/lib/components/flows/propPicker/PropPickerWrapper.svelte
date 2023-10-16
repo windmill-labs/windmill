@@ -19,7 +19,7 @@
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
-	import { clickOutside } from '$lib/utils'
+	import { clickOutside, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
@@ -67,6 +67,9 @@
 				<PropPickerResult
 					{result}
 					on:select={({ detail }) => {
+						if (!$propPickerConfig) {
+							sendUserToast('Set cursor within an input or click on the plug first', true)
+						}
 						dispatch('select', detail)
 						if ($propPickerConfig?.onSelect(detail)) {
 							propPickerConfig.set(undefined)
@@ -80,6 +83,9 @@
 					{pickableProperties}
 					{notSelectable}
 					on:select={({ detail }) => {
+						if (!$propPickerConfig) {
+							sendUserToast('Set cursor within an input or click on the plug first', true)
+						}
 						dispatch('select', detail)
 						if ($propPickerConfig?.onSelect(detail)) {
 							propPickerConfig.set(undefined)
