@@ -9,6 +9,7 @@
 use gethostname::gethostname;
 use git_version::git_version;
 use rand::Rng;
+use serde::Deserialize;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -50,6 +51,14 @@ const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 mod ee;
 mod monitor;
 
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Worker,
+    Server,
+    Standalone,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -60,20 +69,50 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "flamegraph")]
     let _guard = windmill_common::tracing_init::setup_flamegraph();
 
-    let num_workers = std::env::var("NUM_WORKERS")
-        .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(DEFAULT_NUM_WORKERS as i32);
+    let mode = std::env::var("MODE")
+        .map(|x| x.to_lowercase())
+        .map(|x| {
+            if &x == "server" {
+                tracing::info!("Binary is in 'server' mode");
+                Mode::Server
+            } else if &x == "worker" {
+                tracing::info!("Binary is in 'worker' mode");
+                Mode::Worker
+            } else {
+                if &x != "standalone" {
+                    tracing::error!("mode not recognized, defaulting to standalone: {x}");
+                } else {
+                    tracing::info!("Binary is in 'standalone' mode");
+                }
+                Mode::Standalone
+            }
+        })
+        .unwrap_or_else(|_| {
+            tracing::info!("Mode not specified, defaulting to standalone");
+            Mode::Standalone
+        });
+
+    let num_workers = if mode == Mode::Server {
+        0
+    } else {
+        std::env::var("NUM_WORKERS")
+            .ok()
+            .and_then(|x| x.parse::<i32>().ok())
+            .unwrap_or(DEFAULT_NUM_WORKERS as i32)
+    };
 
     if num_workers > 1 {
-        tracing::warn!("We STRONGLY recommend using at most 1 worker per container, unless this worker is dedicated to native jobs only. ");
+        tracing::warn!(
+            "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
+        );
     }
     let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && mode != Mode::Worker;
 
     let server_bind_address: IpAddr = if server_mode {
         std::env::var("SERVER_BIND_ADDR")
