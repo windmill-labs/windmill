@@ -811,7 +811,7 @@ async fn edit_error_handler(
 
     #[cfg(not(feature = "enterprise"))]
     if ee.error_handler.is_some()
-        && ee.error_handler.as_ref().unwrap() == "script/hub/2431/slack/schedule-error-handler-slack"
+        && ee.error_handler.as_ref().is_some_and(|val|  val == "script/hub/2431/slack/schedule-error-handler-slack")
     {
         return Err(Error::BadRequest(
             "Slack error handler is only available in enterprise version".to_string(),
