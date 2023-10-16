@@ -45,7 +45,7 @@
 		'other',
 		'bun'
 	]
-	const nativeTags = ['nativets', 'postgresql', 'mysql', 'graphql', 'snowflake']
+	const nativeTags = ['nativets', 'postgresql', 'mysql', 'graphql', 'snowflake', 'bigquery']
 
 	let newTag: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'

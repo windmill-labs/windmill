@@ -24,7 +24,7 @@ use axum::{
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
@@ -40,7 +40,7 @@ use windmill_common::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -124,7 +124,7 @@ pub struct AppWithLastVersionAndDraft {
     pub draft_only: Option<bool>,
 }
 
-pub type StaticFields = Map<String, Value>;
+pub type StaticFields = HashMap<String, Box<RawValue>>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -518,7 +518,7 @@ async fn create_app(
         tx,
         &w_id,
         JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
-        serde_json::Map::new(),
+        PushArgs::empty(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -761,7 +761,7 @@ async fn update_app(
             tx,
             &w_id,
             JobPayload::AppDependencies { path: npath.clone(), version: v_id },
-            serde_json::Map::new(),
+            PushArgs::empty(),
             &authed.username,
             &authed.email,
             windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -798,7 +798,7 @@ async fn update_app(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
-    pub args: Map<String, serde_json::Value>,
+    pub args: Box<RawValue>,
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
@@ -900,17 +900,17 @@ async fn execute_component(
         }
     };
 
-    let (job_payload, args, tag) = match &payload {
+    let (job_payload, args, tag) = match payload {
         ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
-            let args = build_args(policy, component, path, args)?;
+            let args = build_args(policy, &component, path, args)?;
             (payload, args, None)
         }
         ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = get_payload_tag_from_prefixed_path(path, &db, &w_id).await?;
-            let args = build_args(policy, component, path.to_string(), args)?;
+            let (payload, tag) = get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?;
+            let args = build_args(policy, &component, path.to_string(), args)?;
             (payload, args, tag)
         }
         _ => unreachable!(),
@@ -1002,11 +1002,17 @@ fn build_args(
     policy: Policy,
     component: &str,
     path: String,
-    args: &Map<String, Value>,
-) -> Result<Map<String, Value>> {
+    args: Box<RawValue>,
+) -> Result<PushArgs<Box<RawValue>>> {
     // disallow var and res access in args coming from the user for security reasons
-    args.into_iter()
-        .try_for_each(|x| disallow_var_res_access(x.1))?;
+    {
+        let args_str = args.to_string();
+        if args_str.contains("$var:") || args_str.contains("$res:") {
+            return Err(Error::BadRequest(format!(
+            "For security reasons, variable or resource access is not allowed as dynamic argument"
+        )));
+        }
+    }
     let key = format!("{}:{}", component, &path);
     let static_args = policy
         .triggerables
@@ -1015,7 +1021,7 @@ fn build_args(
         .map(|x| x.clone())
         .or_else(|| {
             if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                Some(Map::new())
+                Some(HashMap::new())
             } else {
                 None
             }
@@ -1023,26 +1029,9 @@ fn build_args(
         .ok_or_else(|| {
             Error::BadRequest(format!("path {} is not allowed in the app policy", path))
         })?;
-    let mut args = args.clone();
+    let mut extra = HashMap::new();
     for (k, v) in static_args {
-        args.insert(k.to_string(), v.to_owned());
+        extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(args)
-}
-
-fn disallow_var_res_access(args: &serde_json::Value) -> Result<()> {
-    match args {
-        Value::Object(v) => v.into_iter().try_for_each(|x| disallow_var_res_access(x.1)),
-        Value::Array(arr) => arr.into_iter().try_for_each(|v| disallow_var_res_access(v)),
-        Value::String(s) => {
-            if s.starts_with("$var:") || s.starts_with("$res:") {
-                Err(Error::BadRequest(format!(
-                    "For security reasons, variable or resource access is not allowed as dynamic argument"
-                )))
-            } else {
-                Ok(())
-            }
-        }
-        _ => Ok(()),
-    }
+    Ok(PushArgs { extra, args: sqlx::types::Json(args) })
 }

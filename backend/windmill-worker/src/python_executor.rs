@@ -2,6 +2,7 @@ use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
+use serde_json::value::RawValue;
 use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
@@ -64,6 +65,7 @@ pub async fn pip_compile(
     job_id: &Uuid,
     requirements: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &Pool<Postgres>,
     worker_name: &str,
@@ -128,6 +130,7 @@ pub async fn pip_compile(
         job_id,
         db,
         logs,
+        mem_peak,
         child_process,
         false,
         worker_name,
@@ -164,13 +167,14 @@ pub async fn handle_python_job(
     worker_name: &str,
     job: &QueuedJob,
     logs: &mut String,
+    mem_peak: &mut i32,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
-) -> windmill_common::error::Result<serde_json::Value> {
+) -> windmill_common::error::Result<Box<RawValue>> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
@@ -199,6 +203,7 @@ pub async fn handle_python_job(
                     &job.id,
                     &requirements,
                     logs,
+                    mem_peak,
                     job_dir,
                     db,
                     worker_name,
@@ -221,6 +226,7 @@ pub async fn handle_python_job(
             &job.id,
             &job.workspace_id,
             logs,
+            mem_peak,
             db,
             worker_name,
             job_dir,
@@ -284,7 +290,6 @@ pub async fn handle_python_job(
         })
         .collect::<Vec<String>>()
         .join("");
-    let client = client.get_authed().await;
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let import_loader = if relative_imports {
@@ -385,6 +390,7 @@ except Exception as e:
     );
     write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
+    let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     if !*DISABLE_NSJAIL {
@@ -471,6 +477,7 @@ mount {{
         &job.id,
         db,
         logs,
+        mem_peak,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -488,6 +495,7 @@ pub async fn handle_python_reqs(
     job_id: &Uuid,
     w_id: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     job_dir: &str,
@@ -637,6 +645,7 @@ pub async fn handle_python_reqs(
             &job_id,
             db,
             logs,
+            mem_peak,
             child,
             false,
             worker_name,

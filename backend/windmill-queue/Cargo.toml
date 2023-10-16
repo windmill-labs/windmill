@@ -38,3 +38,4 @@ futures-core.workspace = true
 itertools.workspace = true
 async-recursion.workspace = true
 bigdecimal.workspace = true
+axum.workspace = true

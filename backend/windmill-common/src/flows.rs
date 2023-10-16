@@ -12,6 +12,7 @@ use std::{
 };
 
 use serde::{self, Deserialize, Serialize, Serializer};
+use serde_json::value::RawValue;
 
 use crate::{
     more_serde::{
@@ -171,7 +172,7 @@ pub struct Suspend {
 pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub return_value: Option<serde_json::Value>,
+    pub return_value: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -203,7 +204,7 @@ impl FlowModule {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")

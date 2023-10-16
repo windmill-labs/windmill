@@ -46,7 +46,9 @@ use windmill_common::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{
+    self, schedule::push_scheduled_job, PushArgs, PushIsolationLevel, QueueTransaction,
+};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -592,7 +594,7 @@ async fn create_script(
             tx,
             &w_id,
             JobPayload::Dependencies { hash, dependencies, language: ns.language, path: ns.path },
-            serde_json::Map::new(),
+            PushArgs::empty(),
             &authed.username,
             &authed.email,
             username_to_permissioned_as(&authed.username),

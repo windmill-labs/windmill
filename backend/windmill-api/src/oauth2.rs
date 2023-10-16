@@ -903,7 +903,7 @@ async fn slack_command(
                 tx,
                 &settings.workspace_id,
                 payload,
-                map,
+                sqlx::types::Json(map),
                 &form.user_name,
                 &settings.slack_email,
                 "g/slack".to_string(),

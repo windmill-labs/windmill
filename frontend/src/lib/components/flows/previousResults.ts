@@ -86,7 +86,11 @@ function getFlowInput(
 }
 
 export function getPreviousIds(id: string, flow: Flow, include_node: boolean): string[] {
-	const previousIds = dfs(id, flow, false)
+	const df = dfs(id, flow, false)
+	if (!include_node) {
+		df.shift()
+	}
+	return df
 		.map((x) => {
 			let submodules = getAllSubmodules(x)
 				.flat()
@@ -99,10 +103,6 @@ export function getPreviousIds(id: string, flow: Flow, include_node: boolean): s
 			}
 		})
 		.flat()
-	if (!include_node) {
-		previousIds.shift()
-	}
-	return previousIds
 }
 
 export function getStepPropPicker(
