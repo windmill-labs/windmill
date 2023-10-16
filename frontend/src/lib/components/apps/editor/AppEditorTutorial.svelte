@@ -9,12 +9,25 @@
 	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../types'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { tutorialsToDo } from '$lib/stores'
 
 	let appTutorials: AppTutorials | undefined = undefined
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
+
+	onMount(() => {
+		if (
+			$app.grid.length === 0 &&
+			$app.hiddenInlineScripts.length === 0 &&
+			!$ignoredTutorials.includes(7) &&
+			$tutorialsToDo.includes(7)
+		) {
+			appTutorials?.runTutorialById('simpleapptutorial')
+		}
+	})
 </script>
 
 <ButtonDropdown hasPadding={false}>
