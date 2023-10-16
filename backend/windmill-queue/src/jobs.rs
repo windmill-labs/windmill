@@ -197,7 +197,11 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = WrappedError { error: e };
-    tracing::error!("FOO {:?}", serde_json::to_string(&result));
+    tracing::error!(
+        "job {} did not succeed: {}",
+        queued_job.id,
+        serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
+    );
     let _ = add_completed_job(
         db,
         &queued_job,
