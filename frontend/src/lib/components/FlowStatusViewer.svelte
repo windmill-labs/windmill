@@ -18,6 +18,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
 	import { deepEqual } from 'fast-equals'
+	import FlowTimeline from './FlowTimeline.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -159,6 +160,7 @@
 	async function updateJobId() {
 		if (jobId !== job?.id) {
 			retry_status = {}
+			flowModuleStates = {}
 			localFlowModuleStates = {}
 			await loadJobInProgress()
 			job?.script_path && loadOwner(job.script_path)
@@ -198,6 +200,7 @@
 					type: FlowStatusModule.type.IN_PROGRESS,
 					logs: job.logs,
 					args: job.args,
+					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined,
 					parent_module: mod['parent_module']
 				}
 			} else {
@@ -209,6 +212,7 @@
 					job_id: job.id,
 					parent_module: mod['parent_module'],
 					duration_ms: job['duration_ms'],
+					started_at: job.started_at ? new Date(job.started_at).getTime() : undefined,
 					iteration_total: mod.iterator?.itered?.length
 					// retries: flowState?.raw_flow
 				}
@@ -291,11 +295,15 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<!-- <Tab value="timeline"><span class="font-semibold">Timeline</span></Tab> -->
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{/if}
 		{/if}
-		<div class={selected == 'graph' ? 'hidden' : ''}>
+		{#if render && selected == 'timeline'}
+			<FlowTimeline {flowModuleStates} />
+		{/if}
+		<div class={selected != 'sequence' ? 'hidden' : ''}>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
@@ -369,6 +377,9 @@
 									if (e.detail.type == 'QueuedJob') {
 										localFlowModuleStates[flowJobIds.moduleId] = {
 											type: FlowStatusModule.type.IN_PROGRESS,
+											started_at: e.detail.started_at
+												? new Date(e.detail.started_at).getTime()
+												: undefined,
 											logs: e.detail.logs,
 											job_id: e.detail.id,
 											args: e.detail.args,
@@ -376,6 +387,9 @@
 										}
 									} else {
 										localFlowModuleStates[flowJobIds.moduleId] = {
+											started_at: e.detail.started_at
+												? new Date(e.detail.started_at).getTime()
+												: undefined,
 											args: e.detail.args,
 											type: e.detail.success
 												? FlowStatusModule.type.SUCCESS

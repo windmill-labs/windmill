@@ -110,7 +110,7 @@ pub async fn update_flow_status_after_job_completion<
                     &nrec.job_id_for_status,
                     w_id,
                     false,
-                    &to_raw_value(&Json(&WrappedError { error: e.to_string() })),
+                    &to_raw_value(&Json(&WrappedError { error: json!(e.to_string()) })),
                     metrics.clone(),
                     true,
                     same_worker_tx.clone(),
@@ -635,7 +635,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 &flow_job,
                 logs,
                 0,
-                &canceled_job_to_result(&flow_job),
+                canceled_job_to_result(&flow_job),
                 metrics.clone(),
                 rsmq.clone(),
             )
@@ -682,7 +682,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     0,
-                    &e,
+                    e,
                     metrics.clone(),
                     rsmq.clone(),
                 )
