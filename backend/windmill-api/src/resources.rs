@@ -21,7 +21,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -117,7 +117,7 @@ pub struct ListableResource {
 #[derive(Deserialize)]
 pub struct CreateResource {
     pub path: String,
-    pub value: Option<serde_json::Value>,
+    pub value: Option<Box<RawValue>>,
     pub description: Option<String>,
     pub resource_type: String,
 }
@@ -125,7 +125,7 @@ pub struct CreateResource {
 struct EditResource {
     path: Option<String>,
     description: Option<String>,
-    value: Option<serde_json::Value>,
+    value: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -496,6 +496,9 @@ async fn create_resource(
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
 
+    let res_value = resource.value.unwrap_or_default();
+    let raw_json = sqlx::types::Json(res_value.as_ref());
+
     sqlx::query!(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type)
@@ -503,7 +506,7 @@ async fn create_resource(
             DO UPDATE SET value = $3, description = $4, resource_type = $5",
         w_id,
         resource.path,
-        resource.value,
+        raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
     )

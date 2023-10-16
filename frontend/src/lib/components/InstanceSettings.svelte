@@ -403,9 +403,12 @@
 			<TabContent value={'oauth'}>
 				<div>
 					<h4 class="pb-4">SSO</h4>
-					<Alert type="warning" title="Limited to 50 SSO users">
-						Without EE, the number of SSO users is limited to 50. SCIM/SAML is available on EE
-					</Alert>
+					{#if !$enterpriseLicense}
+						<Alert type="warning" title="Limited to 50 SSO users">
+							Without EE, the number of SSO users is limited to 50. SCIM/SAML is available on EE
+						</Alert>
+					{/if}
+
 					<div class="py-1" />
 					<Alert type="info" title="Test on a separate tab">
 						The recommended workflow is to to save your oauth setting and test them directly on the

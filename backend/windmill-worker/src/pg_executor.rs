@@ -5,6 +5,7 @@ use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Deserialize;
+use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::{json, Value};
 use tokio_postgres::types::IsNull;
@@ -18,11 +19,12 @@ use tokio_postgres::{
 };
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
+use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::parse_pgsql_sig;
 
-use crate::common::transform_json_value;
-use crate::AuthedClient;
+use crate::common::build_args_values;
+use crate::AuthedClientBackgroundTask;
 use bytes::BytesMut;
 use urlencoding::encode;
 
@@ -38,22 +40,19 @@ struct PgDatabase {
 }
 
 pub async fn do_postgresql(
-    job: QueuedJob,
-    client: &AuthedClient,
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-) -> error::Result<serde_json::Value> {
-    let args = if let Some(args) = &job.args {
-        Some(transform_json_value("args", client, &job.workspace_id, args.clone(), &job, db).await?)
-    } else {
-        None
-    };
+) -> error::Result<Box<RawValue>> {
+    let pg_args = build_args_values(job, client, db).await?;
 
-    let pg_args: serde_json::Value = serde_json::from_value(args.unwrap_or_else(|| json!({})))
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let database =
-        serde_json::from_value::<PgDatabase>(pg_args.get("database").unwrap_or(&json!({})).clone())
-            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let database = if let Some(db) = pg_args.get("database") {
+        serde_json::from_value::<PgDatabase>(db.clone())
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
     let sslmode = database.sslmode.unwrap_or("prefer".to_string());
     let database_string = format!(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
@@ -107,13 +106,6 @@ pub async fn do_postgresql(
         (client, handle)
     };
 
-    let args = &job
-        .args
-        .clone()
-        .unwrap_or_else(|| json!({}))
-        .as_object()
-        .map(|x| x.to_owned())
-        .unwrap_or_else(|| json!({}).as_object().unwrap().to_owned());
     let mut statement_values: Vec<serde_json::Value> = vec![];
 
     let sig = parse_pgsql_sig(&query)
@@ -121,7 +113,12 @@ pub async fn do_postgresql(
         .args;
 
     for arg in &sig {
-        statement_values.push(args.get(&arg.name).unwrap_or(&json!(null)).clone());
+        statement_values.push(
+            pg_args
+                .get(&arg.name)
+                .map(|x| x.to_owned())
+                .unwrap_or_else(|| serde_json::Value::Null),
+        );
     }
 
     let query_params = statement_values
@@ -152,7 +149,7 @@ pub async fn do_postgresql(
 
     handle.abort();
     // And then check that we got back the same string we sent over.
-    return Ok(result);
+    return Ok(to_raw_value(&result));
 }
 
 #[derive(Debug)]

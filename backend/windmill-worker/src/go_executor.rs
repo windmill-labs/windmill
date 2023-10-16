@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
+use serde_json::value::RawValue;
 use tokio::{
     fs::{DirBuilder, File},
     io::AsyncReadExt,
@@ -33,6 +34,7 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     logs: &mut String,
+    mem_peak: &mut i32,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -43,7 +45,7 @@ pub async fn handle_go_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
+) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
     let bin_path = if let Some(requirements) = requirements_o.clone() {
@@ -68,8 +70,6 @@ pub async fn handle_go_job(
         (false, false)
     };
 
-    let client = &client.get_authed().await;
-
     if !bin_exists {
         logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
         set_logs(logs, &job.id, db).await;
@@ -78,6 +78,7 @@ pub async fn handle_go_job(
             &job.id,
             inner_content,
             logs,
+            mem_peak,
             job_dir,
             db,
             true,
@@ -193,6 +194,7 @@ func Run(req Req) (interface{{}}, error){{
             &job.id,
             db,
             logs,
+            mem_peak,
             build_go_process,
             false,
             worker_name,
@@ -215,6 +217,8 @@ func Run(req Req) (interface{{}}, error){{
         set_logs(logs, &job.id, db).await;
         create_args_and_out_file(client, job, job_dir, db).await?;
     }
+
+    let client = &client.get_authed().await;
 
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
@@ -270,6 +274,7 @@ func Run(req Req) (interface{{}}, error){{
         &job.id,
         db,
         logs,
+        mem_peak,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -307,6 +312,7 @@ pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
     logs: &mut String,
+    mem_peak: &mut i32,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     non_dep_job: bool,
@@ -329,6 +335,7 @@ pub async fn install_go_dependencies(
             job_id,
             db,
             logs,
+            mem_peak,
             child_process,
             false,
             worker_name,
@@ -392,6 +399,7 @@ pub async fn install_go_dependencies(
         job_id,
         db,
         logs,
+        mem_peak,
         child_process,
         false,
         worker_name,
