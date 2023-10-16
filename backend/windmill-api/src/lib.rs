@@ -201,7 +201,6 @@ pub async fn run_server(
                     users::global_service().layer(Extension(argon2.clone())),
                 )
                 .nest("/settings", settings::global_service())
-                .nest("/jobs", jobs::global_root_service())
                 .nest("/workers", workers::global_service())
                 .nest("/configs", configs::global_service())
                 .nest("/scripts", scripts::global_service())
@@ -212,6 +211,7 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/saml",
                     saml::global_service().layer(Extension(Arc::new(sp_extension.0))),

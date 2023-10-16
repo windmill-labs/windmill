@@ -549,7 +549,7 @@ async fn run_slack_message_test_job(
         false, 
         w_id.as_str(),
         &format!("script/{}", req.hub_script_path.as_str()), 
-        &json!(fake_result), 
+        sqlx::types::Json(&fake_result),
         0, 
         Utc::now(), 
         Some(json!(extra_args)),

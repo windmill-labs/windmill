@@ -7383,6 +7383,7 @@ version = "1.183.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "axum",
  "bigdecimal 0.4.1",
  "chrono",
  "chrono-tz",
@@ -7441,6 +7442,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "regex",
+ "reqwest",
  "rsmq_async",
  "rust_decimal",
  "serde",
@@ -7452,7 +7454,6 @@ dependencies = [
  "tracing",
  "urlencoding",
  "uuid 1.4.1",
- "windmill-api-client",
  "windmill-audit",
  "windmill-common",
  "windmill-parser",
