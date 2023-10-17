@@ -47,7 +47,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 	{/if}
 
 	{#if !errorHandlerEnabled}
-		<Icon class="w-8  ml-2 text-red-600" data={faBell} scale={0.7} />
+		<Icon class="w-8 text-red-600" data={faBell} scale={0.7} />
 	{/if}
 
 	{#if canFavorite}

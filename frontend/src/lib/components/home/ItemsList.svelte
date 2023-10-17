@@ -399,7 +399,8 @@
 										marked={item.marked}
 										on:change={loadScripts}
 										script={item}
-										errorHandlerEnabled={item.ws_error_handler_enabled === undefined
+										errorHandlerEnabled={item.ws_error_handler_enabled === undefined ||
+										item.ws_error_handler_enabled === null
 											? true
 											: item.ws_error_handler_enabled}
 										{shareModal}
@@ -413,7 +414,8 @@
 										marked={item.marked}
 										on:change={loadFlows}
 										flow={item}
-										errorHandlerEnabled={item.ws_error_handler_enabled === undefined
+										errorHandlerEnabled={item.ws_error_handler_enabled === undefined ||
+										item.ws_error_handler_enabled === null
 											? true
 											: item.ws_error_handler_enabled}
 										{shareModal}

@@ -77,6 +77,9 @@
 					</Menu>
 				{/if}
 				<Button
+					title={errorHandlerEnabled === undefined || errorHandlerEnabled
+						? 'Disable workspace error handler for this script'
+						: 'Enable workspace error handler for this script'}
 					size="xs"
 					startIcon={{ icon: errorHandlerEnabled ? faBell : faBell }}
 					on:click={toggleErrorHandler}
@@ -84,6 +87,7 @@
 					btnClasses={errorHandlerEnabled === undefined || errorHandlerEnabled
 						? ''
 						: 'text-red-600'}
+					iconOnly={true}
 				/>
 				{#each mainButtons as btn}
 					<Button
