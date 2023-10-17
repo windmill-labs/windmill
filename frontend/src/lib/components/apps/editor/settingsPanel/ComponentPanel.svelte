@@ -192,6 +192,7 @@
 					: hasInteraction
 					? 'Event handler'
 					: 'Data source'}
+				id={'component-input'}
 			>
 				<svelte:fragment slot="action">
 					<span
@@ -208,6 +209,7 @@
 					<ComponentInputTypeEditor
 						{evalV2editor}
 						bind:componentInput={componentSettings.item.data.componentInput}
+						id={component.id}
 					/>
 
 					<div class="flex flex-col w-full gap-2 mt-2">
@@ -244,8 +246,9 @@
 											{#each componentSettings.item.data?.componentInput.connections as connection (connection.componentId + '-' + connection.id)}
 												<span
 													class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
-													>{connection.componentId + '.' + connection.id}</span
 												>
+													{connection.componentId + '.' + connection.id}
+												</span>
 											{/each}
 										</div>
 									</div>
@@ -261,9 +264,9 @@
 								id={component.id}
 								bind:componentInput={componentSettings.item.data.componentInput}
 							/>
-							<a class="text-2xs" on:click={transformToFrontend} href="#"
-								>transform to a frontend script</a
-							>
+							<a class="text-2xs" on:click={transformToFrontend} href="#">
+								transform to a frontend script
+							</a>
 						{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
 							<RunnableInputEditor
 								appComponent={component}
