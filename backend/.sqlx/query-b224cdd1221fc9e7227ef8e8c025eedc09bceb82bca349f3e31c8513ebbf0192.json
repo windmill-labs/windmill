@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "path",
-        "type_info": "Varchar"
+        "name": "hash",
+        "type_info": "Int8"
       },
       {
         "ordinal": 1,
@@ -57,16 +57,11 @@
         "ordinal": 6,
         "name": "dedicated_worker",
         "type_info": "Bool"
-      },
-      {
-        "ordinal": 7,
-        "name": "ws_error_handler_muted",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
+        "Text",
         "Text"
       ]
     },
@@ -77,9 +72,8 @@
       true,
       true,
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "9ebfc63f527156ab20205c0296923fd3512868eee3495c634a89b3600a4e0913"
+  "hash": "b224cdd1221fc9e7227ef8e8c025eedc09bceb82bca349f3e31c8513ebbf0192"
 }

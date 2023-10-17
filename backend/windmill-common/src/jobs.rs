@@ -95,8 +95,6 @@ pub struct QueuedJob {
     pub flow_step_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
 }
 
 impl QueuedJob {
@@ -181,7 +179,6 @@ impl Default for QueuedJob {
             timeout: None,
             flow_step_id: None,
             cache_ttl: None,
-            ws_error_handler_muted: None,
         }
     }
 }
@@ -199,7 +196,6 @@ pub enum JobPayload {
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
-        ws_error_handler_muted: Option<bool>,
     },
     Code(RawCode),
     Dependencies {
@@ -255,7 +251,6 @@ pub async fn script_path_to_payload(
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_muted,
         ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
         (
             JobPayload::ScriptHash {
@@ -266,7 +261,6 @@ pub async fn script_path_to_payload(
                 cache_ttl: cache_ttl,
                 language,
                 dedicated_worker,
-                ws_error_handler_muted,
             },
             tag,
         )
@@ -285,10 +279,9 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     Option<i32>,
     ScriptLang,
     Option<bool>,
-    Option<bool>,
 )> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -306,7 +299,6 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.cache_ttl,
         script.language,
         script.dedicated_worker,
-        Some(script.ws_error_handler_muted),
     ))
 }
 

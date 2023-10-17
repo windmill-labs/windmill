@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 
-	import { faBell } from '@fortawesome/free-solid-svg-icons'
+	import { faBell, faBellSlash } from '@fortawesome/free-solid-svg-icons'
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -39,6 +39,10 @@
 			return
 		}
 		errorHandlerMuted = !errorHandlerMuted
+		sendUserToast(
+			errorHandlerMuted ? 'Workspace error handler muted' : 'Workspace error handler active',
+			false
+		)
 	}
 </script>
 
@@ -81,7 +85,7 @@
 						? 'Disable workspace error handler for this script'
 						: 'Enable workspace error handler for this script'}
 					size="xs"
-					startIcon={{ icon: errorHandlerMuted ? faBell : faBell }}
+					startIcon={{ icon: errorHandlerMuted ? faBellSlash : faBell }}
 					on:click={toggleErrorHandler}
 					color="light"
 					btnClasses={errorHandlerMuted === undefined || !errorHandlerMuted ? '' : 'text-red-600'}

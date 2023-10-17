@@ -10,7 +10,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faSave, faBell, faBellSlash } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -155,6 +155,34 @@
 		scriptEditor?.inferSchema(script.content, language)
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
+		}
+	}
+
+	async function toggleWorkspaceErrorHandler(): Promise<void> {
+		if (script !== undefined) {
+			try {
+				await ScriptService.toggleWorkspaceErrorHandlerForScript({
+					workspace: $workspaceStore!,
+					path: script.path,
+					requestBody: {
+						muted: undefined ? true : !script.ws_error_handler_muted
+					}
+				})
+			} catch (error) {
+				sendUserToast(
+					`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
+					true
+				)
+				return
+			}
+			script.ws_error_handler_muted =
+				script.ws_error_handler_muted === undefined ? true : !script.ws_error_handler_muted
+			sendUserToast(
+				script.ws_error_handler_muted === undefined || !script.ws_error_handler_muted
+					? 'Workspace error handler active'
+					: 'Workspace error handler muted',
+				false
+			)
 		}
 	}
 
@@ -320,6 +348,31 @@
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
+									<svelte:fragment slot="action">
+										<div class="flex flex-row items-center gap-2">
+											<Button
+												size="sm"
+												endIcon={{
+													icon:
+														script.ws_error_handler_muted === undefined ||
+														!script.ws_error_handler_muted
+															? faBell
+															: faBellSlash
+												}}
+												on:click={toggleWorkspaceErrorHandler}
+												color="light"
+												btnClasses={script.ws_error_handler_muted === undefined ||
+												!script.ws_error_handler_muted
+													? ''
+													: 'text-red-600'}
+											>
+												{script.ws_error_handler_muted === undefined ||
+												!script.ws_error_handler_muted
+													? 'Mute'
+													: 'Unmute'}
+											</Button>
+										</div>
+									</svelte:fragment>
 									<div class="flex flex-col gap-4">
 										<Label label="Summary">
 											<input
@@ -462,23 +515,6 @@
 											/>
 										{/each}
 									</ToggleButtonGroup>
-								</Section>
-								<Section label="Workspace error handler">
-									<svelte:fragment slot="header">
-										<Tooltip>
-											When disabled, the workspace error handler will not be triggered when this
-											script fails
-										</Tooltip>
-									</svelte:fragment>
-									<Toggle
-										checked={!script.ws_error_handler_muted}
-										on:change={(e) => {
-											script.ws_error_handler_muted = !e.detail
-										}}
-										options={{
-											right: 'Workspace error handler enabled'
-										}}
-									/>
 								</Section>
 							</div>
 						</TabContent>

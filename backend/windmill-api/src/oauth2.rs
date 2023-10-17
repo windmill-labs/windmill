@@ -871,7 +871,6 @@ async fn slack_command(
                     cache_ttl,
                     language,
                     dedicated_worker,
-                    ws_error_handler_muted,
                 ) = windmill_common::get_latest_deployed_hash_for_path(
                     &db,
                     &settings.workspace_id,
@@ -887,7 +886,6 @@ async fn slack_command(
                         cache_ttl,
                         language,
                         dedicated_worker,
-                        ws_error_handler_muted,
                     },
                     tag,
                 )

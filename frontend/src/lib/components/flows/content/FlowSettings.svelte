@@ -16,15 +16,16 @@
 	import { workerTags, workspaceStore } from '$lib/stores'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
-	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard, faBell, faBellSlash } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { WorkerService } from '$lib/gen'
+	import { WorkerService, FlowService } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -32,6 +33,40 @@
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTags()
+		}
+	}
+
+	async function toggleWorkspaceErrorHandler(): Promise<void> {
+		if ($flowStore.value.ws_error_handler_muted !== undefined) {
+			try {
+				await FlowService.toggleWorkspaceErrorHandlerForFlow({
+					workspace: $workspaceStore!,
+					path: $flowStore.path,
+					requestBody: {
+						muted:
+							$flowStore.value.ws_error_handler_muted === undefined
+								? true
+								: !$flowStore.value.ws_error_handler_muted
+					}
+				})
+			} catch (error) {
+				sendUserToast(
+					`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
+					true
+				)
+				return
+			}
+			$flowStore.value.ws_error_handler_muted =
+				$flowStore.value.ws_error_handler_muted === undefined
+					? true
+					: !$flowStore.value.ws_error_handler_muted
+			sendUserToast(
+				$flowStore.value.ws_error_handler_muted === undefined ||
+					!$flowStore.value.ws_error_handler_muted
+					? 'Workspace error handler muted'
+					: 'Workspace error handler active',
+				false
+			)
 		}
 	}
 
@@ -112,24 +147,29 @@
 								/>
 							</Label>
 
-							<Label label="Workspace error handler">
-								<svelte:fragment slot="header">
-									<Tooltip>
-										When disabled, the workspace error handler will not be triggered when this
-										script fails
-									</Tooltip>
-								</svelte:fragment>
-								<Toggle
-									checked={$flowStore.value.ws_error_handler_muted === undefined ||
-										!$flowStore.value.ws_error_handler_muted}
-									on:change={(e) => {
-										$flowStore.value.ws_error_handler_muted = !e.detail
+							<div class="flex flex-row items-center gap-2">
+								<Button
+									size="sm"
+									startIcon={{
+										icon:
+											$flowStore.value.ws_error_handler_muted === undefined ||
+											!$flowStore.value.ws_error_handler_muted
+												? faBell
+												: faBellSlash
 									}}
-									options={{
-										right: 'Workspace error handler enabled'
-									}}
-								/>
-							</Label>
+									on:click={toggleWorkspaceErrorHandler}
+									color="light"
+									btnClasses={$flowStore.value.ws_error_handler_muted === undefined ||
+									!$flowStore.value.ws_error_handler_muted
+										? ''
+										: 'text-red-600'}
+								>
+									{$flowStore.value.ws_error_handler_muted === undefined ||
+									!$flowStore.value.ws_error_handler_muted
+										? 'Mute'
+										: 'Unmute'}
+								</Button>
+							</div>
 
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">

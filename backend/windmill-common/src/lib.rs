@@ -184,10 +184,9 @@ pub async fn get_latest_deployed_hash_for_path(
     Option<i32>,
     ScriptLang,
     Option<bool>,
-    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -206,7 +205,6 @@ pub async fn get_latest_deployed_hash_for_path(
         script.cache_ttl,
         script.language,
         script.dedicated_worker,
-        Some(script.ws_error_handler_muted),
     ))
 }
 
@@ -222,10 +220,9 @@ pub async fn get_latest_hash_for_path<'c>(
     Option<i32>,
     ScriptLang,
     Option<bool>,
-    Option<bool>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -244,6 +241,5 @@ pub async fn get_latest_hash_for_path<'c>(
         script.cache_ttl,
         script.language,
         script.dedicated_worker,
-        Some(script.ws_error_handler_muted),
     ))
 }

@@ -3,7 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import RowIcon from './RowIcon.svelte'
 	import Icon from 'svelte-awesome'
-	import { faBell } from '@fortawesome/free-solid-svg-icons'
+	import { faBellSlash } from '@fortawesome/free-solid-svg-icons'
 
 	export let marked: string | undefined
 	export let starred: boolean
@@ -40,14 +40,15 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 			</div>
 		</div>
 	</a>
+
+	{#if errorHandlerMuted}
+		<Icon class="w-8 opacity-60" data={faBellSlash} scale={0.8} />
+	{/if}
+
 	{#if $$slots.badges}
 		<div class="hidden lg:flex flex-row gap-4 items-center">
 			<slot name="badges" />
 		</div>
-	{/if}
-
-	{#if errorHandlerMuted}
-		<Icon class="w-8 text-red-600" data={faBell} scale={0.7} />
 	{/if}
 
 	{#if canFavorite}

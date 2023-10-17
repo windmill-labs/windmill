@@ -2400,7 +2400,6 @@ async fn script_to_payload(
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_muted,
         ) = script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
         (
             JobPayload::ScriptHash {
@@ -2411,7 +2410,6 @@ async fn script_to_payload(
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,
-                ws_error_handler_muted,
             },
             tag,
         )

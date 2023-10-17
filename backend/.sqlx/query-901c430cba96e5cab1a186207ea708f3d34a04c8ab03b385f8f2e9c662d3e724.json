@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where hash = $1 AND workspace_id = $2",
+  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -52,11 +52,6 @@
         "ordinal": 5,
         "name": "dedicated_worker",
         "type_info": "Bool"
-      },
-      {
-        "ordinal": 6,
-        "name": "ws_error_handler_muted",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -71,9 +66,8 @@
       true,
       true,
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "588d5bc1e55ed5342afb80e27759d27432576fbfbc85971a3881e65885441146"
+  "hash": "901c430cba96e5cab1a186207ea708f3d34a04c8ab03b385f8f2e9c662d3e724"
 }
