@@ -38,6 +38,7 @@
 			$$props.class
 		)}
 		on:click={() => select(value)}
+		id="YYYYY"
 	>
 		{#if icon}
 			<svelte:component

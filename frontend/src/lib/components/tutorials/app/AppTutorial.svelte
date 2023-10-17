@@ -55,7 +55,10 @@
 					'This tutorial will show you how to use the App editor, add components, background scripts and connect them.',
 				onNextClick: () => {
 					addComponent('textinputcomponent')
-					addComponent('displaycomponent')
+
+					setTimeout(() => {
+						clickButtonBySelector('#app-editor-component-library-tab')
+					})
 
 					setTimeout(() => {
 						driver.moveNext()
@@ -63,6 +66,37 @@
 				}
 			}
 		},
+
+		{
+			element: '#app-editor-component-list',
+			popover: {
+				title: 'Components panel',
+				description:
+					'This is the components panel. Here you can add components to your app. Components are the building blocks of your app. You can add as many components as you want.'
+			}
+		},
+		{
+			element: '#displaycomponent',
+			popover: {
+				title: 'Adding a text input component',
+				description: 'Click on the text input component to add it to your app. ',
+				onNextClick: () => {
+					addComponent('displaycomponent')
+					setTimeout(() => {
+						driver.moveNext()
+					})
+				}
+			}
+		},
+
+		{
+			element: '#component-input button[id^="headlessui-tabs-tab-"]:nth-child(2)',
+			popover: {
+				title: 'X',
+				description: 'Y'
+			}
+		},
+
 		{
 			element: '.wm-app-viewer',
 			popover: {
@@ -105,6 +139,22 @@
 			}
 		},
 
+		{
+			element: '#app-editor-backend-runnables',
+			popover: {
+				title: 'Backend runnables',
+				description:
+					'Backend runnables are scripts that are executed on the server. They can be used to perform tasks that are not possible to be performed on the client. For example, you can use backend runnables to send emails, perform database operations, etc.'
+			}
+		},
+		{
+			element: '#app-editor-frontend-runnables',
+			popover: {
+				title: 'Frontend runnables',
+				description:
+					'Frontend scripts are executed in the browser and can manipulate the app context directly. You can also interact with components using component controls.'
+			}
+		},
 		{
 			element: '#create-deno-script',
 			popover: {

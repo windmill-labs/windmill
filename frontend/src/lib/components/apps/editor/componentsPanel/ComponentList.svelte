@@ -51,7 +51,6 @@
 		if (!$workspaceStore) return
 		const res = await getGroup($workspaceStore, group.path)
 
-		console.log(res)
 		if (!res) return
 
 		push(history, $app)
@@ -108,21 +107,22 @@
 	<ClearableInput bind:value={search} placeholder="Search components..." />
 </section>
 
-<div class="relative">
-	{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
+<div class="relative" id="app-editor-component-list">
+	{#if componentsFiltered.reduce((acc, { components, presets }) => acc + components.length + (Array.isArray(presets) ? presets.length : 0), 0) === 0}
 		<div class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2">
 			No components found
 		</div>
 	{:else}
 		<div>
 			{#each componentsFiltered as { title, components, presets }, index (index)}
-				{#if components.length}
+				{#if components.length || presets?.length}
 					<div>
 						<ListItem title={`${title} (${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
 									<div class="w-20">
 										<button
+											id={item}
 											on:click={() => addComponent(item)}
 											title={componentsRecord[item].name}
 											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center

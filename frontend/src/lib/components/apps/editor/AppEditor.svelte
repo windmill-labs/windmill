@@ -530,6 +530,7 @@
 												selectedTab = 'insert'
 											}
 										}}
+										id="app-editor-component-library-tab"
 									>
 										<div class="m-1 center-center">
 											<Plus size={18} />
