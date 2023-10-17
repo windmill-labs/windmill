@@ -591,16 +591,40 @@ pub async fn send_error_to_workspace_handler<
     .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
 
     if let Some(error_handler) = error_handler {
-        run_error_handler(
-            rsmq,
-            queued_job,
-            db,
-            result,
-            &error_handler.strip_prefix("script/").unwrap(),
-            error_handler_extra_args,
-            false,
-        )
-        .await?
+        let ws_error_handler_muted: Option<bool> = match queued_job.job_kind {
+            JobKind::Script => {
+                sqlx::query_scalar!(
+                "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
+                queued_job.workspace_id,
+                queued_job.script_hash.unwrap().0,
+            )
+                .fetch_optional(db)
+                .await?
+            }
+            JobKind::Flow => {
+                sqlx::query_scalar!(
+                    "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
+                    queued_job.workspace_id,
+                    queued_job.script_path.as_ref().unwrap(),
+                )
+                .fetch_optional(db)
+                .await?
+            }
+            _ => None,
+        };
+
+        if !ws_error_handler_muted.unwrap_or(false) {
+            run_error_handler(
+                rsmq,
+                queued_job,
+                db,
+                result,
+                &error_handler.strip_prefix("script/").unwrap(),
+                error_handler_extra_args,
+                false,
+            )
+            .await?
+        }
     }
 
     Ok(())
@@ -2066,7 +2090,9 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl)
+                flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
+                visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
+                flow_step_id, cache_ttl)
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) \
          RETURNING id",
         workspace_id,
