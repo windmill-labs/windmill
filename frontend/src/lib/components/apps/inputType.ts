@@ -109,10 +109,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 export type ResultInput = {
 	runnable: Runnable
 	transformer?: InlineScript & { language: 'frontend' }
-	fields: Record<
-		string,
-		StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | EvalV2AppInput
-	>
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 	value?: any
 	// kept for migration purposes
