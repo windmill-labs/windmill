@@ -8,26 +8,32 @@
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialsToDo } from '$lib/stores'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { isAppTainted } from '$lib/components/tutorials/utils'
 
 	let appTutorials: AppTutorials | undefined = undefined
+	let targetTutorial: string | undefined = undefined
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {
-		if (
-			$app.grid.length === 0 &&
-			$app.hiddenInlineScripts.length === 0 &&
-			!$ignoredTutorials.includes(7) &&
-			$tutorialsToDo.includes(7)
-		) {
+		if (!isAppTainted($app) && !$ignoredTutorials.includes(7) && $tutorialsToDo.includes(7)) {
 			appTutorials?.runTutorialById('simpleapptutorial')
 		}
 	})
+
+	export function toggleTutorial() {
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial === 'simpleapptutorial') {
+			appTutorials?.runTutorialById('simpleapptutorial')
+		}
+	}
 </script>
 
 <ButtonDropdown hasPadding={false}>
@@ -44,10 +50,7 @@
 			on:click={() => appTutorials?.runTutorialById('simpleapptutorial')}
 			label="App tutorial"
 			index={7}
-			disabled={$app.grid.length > 0 || $app.hiddenInlineScripts.length > 0}
-		>
-			<Tooltip>This tutorial can only be run on a new app.</Tooltip>
-		</TutorialItem>
+		/>
 		<TutorialItem
 			on:click={() => appTutorials?.runTutorialById('backgroundrunnables')}
 			label="Background runnables"
@@ -85,7 +88,29 @@
 	</svelte:fragment>
 </ButtonDropdown>
 
-<AppTutorials bind:this={appTutorials} on:reload />
+<AppTutorials
+	bind:this={appTutorials}
+	on:reload
+	on:error={({ detail }) => {
+		targetTutorial = detail.detail
+	}}
+/>
+
+<ConfirmationModal
+	open={targetTutorial !== undefined}
+	title="Tutorial error"
+	confirmationText="Open new tab"
+	on:canceled={() => {
+		targetTutorial = undefined
+	}}
+	on:confirmed={async () => {
+		window.open(`/apps/add?tutorial=${targetTutorial}&nodraft=true`, '_blank')
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span> This tutorial can only be run on a new app.</span>
+	</div>
+</ConfirmationModal>
 
 <style global>
 	.driver-popover-title {

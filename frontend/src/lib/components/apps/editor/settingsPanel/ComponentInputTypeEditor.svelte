@@ -91,7 +91,13 @@
 					label="Eval"
 				/>
 
-				<ToggleButton value="runnable" icon={Code} iconOnly={clientWidth < 250} label="Compute" />
+				<ToggleButton
+					value="runnable"
+					icon={Code}
+					iconOnly={clientWidth < 250}
+					label="Compute"
+					id="data-source-compute"
+				/>
 			</ToggleButtonGroup>
 			<div class="flex">
 				<Button

@@ -19,6 +19,15 @@ export function clickButtonBySelector(selector: string) {
 	}
 }
 
+export function clickFirstButtonBySelector(selector: string) {
+	const buttons = document.querySelector(selector)
+	const button = buttons?.childNodes[0] as HTMLButtonElement
+
+	if (button) {
+		button.click()
+	}
+}
+
 export function triggerAddFlowStep(index: number) {
 	const button = document.querySelector(`#flow-editor-add-step-${index}`) as HTMLButtonElement
 
@@ -48,6 +57,10 @@ export function selectOptionsBySelector(selector: string, value: string) {
 
 export function isFlowTainted(flow: Flow) {
 	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
+}
+
+export function isAppTainted(app: App) {
+	return !(app.grid.length === 0 && app.hiddenInlineScripts.length === 0)
 }
 
 export function updateFlowModuleById(
@@ -86,7 +99,22 @@ export function updateBackgroundRunnableCode(app: App, index: number, newCode: s
 	app = app
 }
 
-export function componentComponentSourceToOutput(app: App, componentId: string, targetId: string) {
+export function updateInlineRunnableCode(app: App, componentId: string, newCode: string) {
+	const gridItem = findGridItem(app, componentId)
+
+	if (gridItem?.data.componentInput?.type === 'runnable') {
+		if (
+			gridItem.data.componentInput.runnable?.type === 'runnableByName' &&
+			gridItem.data.componentInput.runnable.inlineScript
+		) {
+			gridItem.data.componentInput.runnable.inlineScript.content = newCode
+		}
+	}
+
+	app = app
+}
+
+export function connectComponentSourceToOutput(app: App, componentId: string, targetId: string) {
 	const gridItem = findGridItem(app, componentId)
 
 	if (gridItem) {
@@ -105,4 +133,32 @@ export function componentComponentSourceToOutput(app: App, componentId: string, 
 	}
 
 	app = app
+}
+
+export function connectInlineRunnableInputToComponentOutput(
+	app: App,
+	sourceComponentId: string,
+	sourceField: string,
+	targetComponentId: string,
+	targetField: string,
+	fieldType: string = 'text'
+) {
+	const gridItem = findGridItem(app, sourceComponentId)
+
+	if (gridItem?.data.componentInput?.type === 'runnable') {
+		// @ts-ignore
+		gridItem.data.componentInput.fields = {
+			[sourceField]: {
+				type: 'evalv2',
+				expr: `${targetComponentId}.${targetField}`,
+				fieldType: fieldType,
+				connections: [
+					{
+						componentId: targetComponentId,
+						id: targetField
+					}
+				]
+			}
+		}
+	}
 }
