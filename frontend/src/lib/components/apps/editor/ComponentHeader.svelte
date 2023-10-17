@@ -37,9 +37,10 @@
 
 {#if connecting}
 	<div class="absolute z-50 left-6 -top-[11px]">
-		<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
 			<svelte:fragment slot="button">
 				<button
+					id={`connect-output-${component.id}`}
 					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 					title="Outputs"
 					aria-label="Open output"><Plug2 size={12} /></button

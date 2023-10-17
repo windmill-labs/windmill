@@ -11,7 +11,7 @@
 	let tutorial: Tutorial | undefined = undefined
 
 	export function runTutorial(indexToInsertAt?: number | undefined) {
-		tutorial?.runTutorial(indexToInsertAt)
+		tutorial?.runTutorial({ indexToInsertAt })
 	}
 </script>
 
@@ -21,9 +21,9 @@
 	name="branchall"
 	on:error
 	on:skipAll
-	getSteps={(driver, indexToInsertAt) => {
+	getSteps={(driver, options) => {
 		const id = nextId($flowStateStore, $flowStore)
-		const index = indexToInsertAt ?? $flowStore.value.modules.length
+		const index = options?.indexToInsertAt ?? $flowStore.value.modules.length
 		const isFirst = id === 'a'
 
 		const steps = [

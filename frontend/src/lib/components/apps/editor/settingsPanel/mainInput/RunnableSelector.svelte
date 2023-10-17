@@ -196,6 +196,7 @@
 			variant="border"
 			startIcon={{ icon: faPlus }}
 			btnClasses="truncate w-full"
+			id="app-editor-create-inline-script"
 		>
 			Create an inline script
 		</Button>

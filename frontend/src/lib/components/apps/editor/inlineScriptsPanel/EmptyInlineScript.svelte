@@ -156,8 +156,12 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col px-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
-	<div class="mt-2 flex justify-between gap-4">
+<div
+	class="flex flex-col px-4 gap-2 text-sm"
+	in:fly={{ duration: 50 }}
+	id="app-editor-empty-runnable"
+>
+	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
@@ -187,7 +191,7 @@
 	</div>
 
 	<div class="flex flex-row w-full gap-8">
-		<div class="">
+		<div id="app-editor-backend-runnables">
 			<div class="mb-1 text-sm font-semibold">Backend</div>
 
 			<div class="flex flex-row flex-wrap gap-2">
@@ -198,11 +202,12 @@
 						on:click={() => {
 							createInlineScriptByLanguage(lang, name)
 						}}
+						id={`create-${lang}-script`}
 					/>
 				{/each}
 			</div>
 		</div>
-		<div class="">
+		<div id="app-editor-frontend-runnables">
 			<div class="mb-1 text-sm font-semibold">
 				Frontend
 				<Tooltip

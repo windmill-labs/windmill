@@ -130,6 +130,7 @@
 									onConnect: applyConnection
 								}
 							}}
+							id="schema-plug"
 						>
 							<Plug size={14} />
 						</Button>

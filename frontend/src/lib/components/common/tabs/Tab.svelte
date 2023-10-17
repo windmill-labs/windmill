@@ -10,6 +10,7 @@
 	export let style = ''
 	export let selectedClass = ''
 	export let selectedStyle = ''
+	export let id: string | undefined = undefined
 
 	export let disabled: boolean = false
 
@@ -45,6 +46,7 @@
 	}}
 	on:pointerdown|stopPropagation
 	{disabled}
+	{id}
 >
 	<slot />
 </button>
