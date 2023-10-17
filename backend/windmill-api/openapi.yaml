@@ -7770,6 +7770,8 @@ components:
           type: boolean
         tag:
           type: string
+        ws_error_handler_enabled:
+          type: boolean
       required:
         - path
         - edited_by

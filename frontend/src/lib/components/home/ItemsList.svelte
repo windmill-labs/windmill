@@ -413,9 +413,9 @@
 										marked={item.marked}
 										on:change={loadFlows}
 										flow={item}
-										errorHandlerEnabled={item.value.workspace_error_handler_enabled === undefined
+										errorHandlerEnabled={item.ws_error_handler_enabled === undefined
 											? true
-											: item.value.workspace_error_handler_enabled}
+											: item.ws_error_handler_enabled}
 										{shareModal}
 										{moveDrawer}
 										{deploymentDrawer}

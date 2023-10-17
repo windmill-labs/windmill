@@ -4993,6 +4993,8 @@ paths:
                               type: boolean
                             tag:
                               type: string
+                            ws_error_handler_enabled:
+                              type: boolean
                           required: &ref_141
                             - path
                             - edited_by
