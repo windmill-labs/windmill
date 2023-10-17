@@ -798,7 +798,7 @@ async fn update_app(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
-    pub args: Box<RawValue>,
+    pub args: HashMap<String, Box<RawValue>>,
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
@@ -1002,11 +1002,11 @@ fn build_args(
     policy: Policy,
     component: &str,
     path: String,
-    args: Box<RawValue>,
-) -> Result<PushArgs<Box<RawValue>>> {
+    args: HashMap<String, Box<RawValue>>,
+) -> Result<PushArgs<HashMap<String, Box<RawValue>>>> {
     // disallow var and res access in args coming from the user for security reasons
-    {
-        let args_str = args.to_string();
+    for (_, v) in &args {
+        let args_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
         if args_str.contains("$var:") || args_str.contains("$res:") {
             return Err(Error::BadRequest(format!(
             "For security reasons, variable or resource access is not allowed as dynamic argument"

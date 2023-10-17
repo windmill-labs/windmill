@@ -10,7 +10,7 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 
 pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",
-    "DISABLE_SERVER",
+    "MODE",
     "NUM_WORKERS",
     "METRICS_ADDR",
     "JSON_FMT",

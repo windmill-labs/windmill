@@ -229,8 +229,9 @@ We publish helm charts at:
 
 ### Run from binaries
 
-Each release includes the corresponding binaries for x86_64. You can simply download the 
+Each release includes the corresponding binaries for x86_64. You can simply download the
 latest `windmill` binary using the following set of bash commands.
+
 ```bash
 BINARY_NAME='windmill-amd64' # or windmill-ee-amd64 for the enterprise edition
 LATEST_RELEASE=$(curl -L -s -H 'Accept: application/json' https://github.com/windmill-labs/windmill/releases/latest)
@@ -266,19 +267,18 @@ You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev). A setup script will prompt you to have
 it being synced automatically everyday.
 
-
 ## Environment Variables
 
 | Environment Variable name                     | Default                                    | Description                                                                                                                                                                                        | Api Server/Worker/All |
 | --------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL                                  |                                            | The Postgres database url.                                                                                                                                                                         | All                   |
 | WORKER_GROUP                                  | default                                    | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
+| MODE                                          | standalone                                 | The mode if the binary. Possible values: standalone, worker, server                                                                                                                                | All                   |
 | SERVER_BIND_ADDR                              | 0.0.0.0                                    | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
 | PORT                                          | 8000                                       | Exposed port                                                                                                                                                                                       | Server                |
-| DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                        | Worker                |
 | METRICS_ADDR                                  | None                                       | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
 | JSON_FMT                                      | false                                      | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
-| BASE_URL                                      | http://localhost:8000                      | The base url that is exposed publicly to access your instance                                                                                                                                      | Server                |
+| BASE_URL                                      | http://localhost:8000                      | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
 | TIMEOUT                                       | 60 _ 60 _ 24 \* 7 (1 week)                 | The maximum time of execution of a script. When reached, the job is failed as having timedout.                                                                                                     |
 | SCRIPT_TOKEN_EXPIRY                           | 900                                        | The default duration period of the ephemeral-token generated at the beginning of a script                                                                                                          | Worker                |
 | ZOMBIE_JOB_TIMEOUT                            | 30                                         | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
@@ -344,6 +344,7 @@ it being synced automatically everyday.
 | SECRET_SALT                                   | None                                       | Secret Salt used for encryption and decryption of secrets. If defined, the secrets will not be decryptable unless the right salt is passed in, which is the case for the workers and the server    | Server + Worker       |
 | OPENAI_AZURE_BASE_PATH                        | None                                       | Azure OpenAI API base path (no trailing slash)                                                                                                                                                     | Server                |
 | DISABLE_NSJAIL                                | true                                       | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
+| DISABLE_SERVER                                | false                                      | Disable the external API, operate as a worker only instance                                                                                                                                        | Worker                |
 
 ## Run a local dev setup
 
