@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [1.184.0](https://github.com/windmill-labs/windmill/compare/v1.183.0...v1.184.0) (2023-10-17)
+
+
+### Features
+
+* filter resource types passed to gpt-4 ([#2430](https://github.com/windmill-labs/windmill/issues/2430)) ([e20889b](https://github.com/windmill-labs/windmill/commit/e20889b910b0e5c72d9e04eedc59b650a2550dce))
+* **frontend:** app editor tutorials ([#2443](https://github.com/windmill-labs/windmill/issues/2443)) ([aaf8385](https://github.com/windmill-labs/windmill/commit/aaf83859bd268e8bf8ecb382c2b39a92ddb40967))
+* Improve Slack schedule error handler and default to it ([#2439](https://github.com/windmill-labs/windmill/issues/2439)) ([a1d6799](https://github.com/windmill-labs/windmill/commit/a1d6799625ae40c5f88615007d01f11b55a0add4))
+* Mute workspace error handler for flows and scripts ([#2458](https://github.com/windmill-labs/windmill/issues/2458)) ([2dc75f0](https://github.com/windmill-labs/windmill/commit/2dc75f0f6528ecd884d93ad749dae28efa249f06))
+* refactor entirely json processing in favor or rawjson to handle larger payloads ([#2446](https://github.com/windmill-labs/windmill/issues/2446)) ([9314d38](https://github.com/windmill-labs/windmill/commit/9314d38bf1da6247b367effe69394f25a27067ca))
+* Workspace error handler now supports args and Slack for EE ([#2447](https://github.com/windmill-labs/windmill/issues/2447)) ([f7cc773](https://github.com/windmill-labs/windmill/commit/f7cc77382652a41e27fefc2b988e034447881bcb))
+
+
+### Bug Fixes
+
+* Error handler script pickers lists both "regular" script and "error handler" scripts ([#2449](https://github.com/windmill-labs/windmill/issues/2449)) ([8a3537b](https://github.com/windmill-labs/windmill/commit/8a3537b76124b67d0aa163f8dcc55f1db0f4f56d))
+* fix previous ids for iterators and branches ([8d89605](https://github.com/windmill-labs/windmill/commit/8d89605bc6c1fcda0ae3d2d37353f7c76ed18ff6))
+* **frontend:** fix forloop tutorial ([#2444](https://github.com/windmill-labs/windmill/issues/2444)) ([26371fd](https://github.com/windmill-labs/windmill/commit/26371fde0c35d508af82e9951bbe2fc74e4235ff))
+* **frontend:** fix style panel overflow ([#2437](https://github.com/windmill-labs/windmill/issues/2437)) ([0ce4b34](https://github.com/windmill-labs/windmill/commit/0ce4b344818b4f25533224f3c6b5b6e99e823110))
+* **frontend:** simplify flow tutorials ([#2448](https://github.com/windmill-labs/windmill/issues/2448)) ([0c2004f](https://github.com/windmill-labs/windmill/commit/0c2004f5adff2a2752255cbc1fa5f1a4a82b177d))
+* Slack token is readable by g/error_handler ([#2454](https://github.com/windmill-labs/windmill/issues/2454)) ([f9e48dd](https://github.com/windmill-labs/windmill/commit/f9e48ddcba3d776cca263219a229b02c95ef9abb))
+* update bun to 1.0.5 ([a84ce44](https://github.com/windmill-labs/windmill/commit/a84ce44cd9a7ecf2baf8388a43e362fed875c1a1))
+* update bun to 1.0.6 ([e770f25](https://github.com/windmill-labs/windmill/commit/e770f25667229189acedc25fba685a43c827537b))
+* Workspace error handler extra args are passed to job ([#2452](https://github.com/windmill-labs/windmill/issues/2452)) ([b7ce7f0](https://github.com/windmill-labs/windmill/commit/b7ce7f0b18537836f16fa3fefcdd80b622b51665))
+
 ## [1.183.0](https://github.com/windmill-labs/windmill/compare/v1.182.3...v1.183.0) (2023-10-11)
 
 
