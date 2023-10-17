@@ -199,7 +199,7 @@
 		</div>
 		<div class="pt-4 grow">
 			{#if jobId}
-				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
+				<FlowStatusViewer {flowStateStore} {jobId} bind:job />
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
 			{/if}
