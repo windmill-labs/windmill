@@ -120,10 +120,10 @@
 									</Tooltip>
 								</svelte:fragment>
 								<Toggle
-									checked={$flowStore.value.workspace_error_handler_enabled === undefined ||
-										$flowStore.value.workspace_error_handler_enabled}
+									checked={$flowStore.value.ws_error_handler_muted === undefined ||
+										!$flowStore.value.ws_error_handler_muted}
 									on:change={(e) => {
-										$flowStore.value.workspace_error_handler_enabled = e.detail
+										$flowStore.value.ws_error_handler_muted = !e.detail
 									}}
 									options={{
 										right: 'Workspace error handler enabled'

@@ -2079,7 +2079,7 @@ async fn compute_next_flow_transform(
                                 concurrency_time_window_s: None,
                                 skip_expr: None,
                                 cache_ttl: None,
-                                workspace_error_handler_enabled: None,
+                                ws_error_handler_muted: None,
                             },
                             path: inner_path,
                         },
@@ -2137,7 +2137,7 @@ async fn compute_next_flow_transform(
                                         concurrency_time_window_s: None,
                                         skip_expr: None,
                                         cache_ttl: None,
-                                        workspace_error_handler_enabled: None,
+                                        ws_error_handler_muted: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                 },
@@ -2229,7 +2229,7 @@ async fn compute_next_flow_transform(
                             concurrency_time_window_s: None,
                             skip_expr: None,
                             cache_ttl: None,
-                            workspace_error_handler_enabled: None,
+                            ws_error_handler_muted: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2274,7 +2274,7 @@ async fn compute_next_flow_transform(
                                                     concurrency_time_window_s: None,
                                                     skip_expr: None,
                                                     cache_ttl: None,
-                                                    workspace_error_handler_enabled: None,
+                                                    ws_error_handler_muted: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2336,7 +2336,7 @@ async fn compute_next_flow_transform(
                             concurrency_time_window_s: None,
                             skip_expr: None,
                             cache_ttl: None,
-                            workspace_error_handler_enabled: None,
+                            ws_error_handler_muted: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2400,7 +2400,7 @@ async fn script_to_payload(
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_enabled,
+            ws_error_handler_muted,
         ) = script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
         (
             JobPayload::ScriptHash {
@@ -2411,7 +2411,7 @@ async fn script_to_payload(
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,
-                ws_error_handler_enabled,
+                ws_error_handler_muted,
             },
             tag,
         )

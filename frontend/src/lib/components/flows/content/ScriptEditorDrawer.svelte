@@ -36,6 +36,7 @@
 				schema?: any
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
+				ws_error_handler_muted?: boolean
 		  }
 		| undefined = undefined
 
@@ -65,7 +66,7 @@
 						language: script.language,
 						kind: script.kind as Script.kind | undefined,
 						envs: script.envs,
-						ws_error_handler_enabled: true,
+						ws_error_handler_muted: script.ws_error_handler_muted
 					}
 				})
 				callback?.()

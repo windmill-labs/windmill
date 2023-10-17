@@ -2915,7 +2915,7 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
+                muted:
                   type: boolean
       responses:
         "200":
@@ -3490,7 +3490,7 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
+                muted:
                   type: boolean
       responses:
         "200":
@@ -6444,7 +6444,7 @@ components:
           type: number
         dedicated_worker:
           type: boolean
-        ws_error_handler_enabled:
+        ws_error_handler_muted:
           type: boolean
       required:
         - hash
@@ -6523,7 +6523,7 @@ components:
           type: number
         dedicated_worker:
           type: boolean
-        ws_error_handler_enabled:
+        ws_error_handler_muted:
           type: boolean
       required:
         - path
@@ -7770,7 +7770,7 @@ components:
           type: boolean
         tag:
           type: string
-        ws_error_handler_enabled:
+        ws_error_handler_muted:
           type: boolean
       required:
         - path

@@ -119,7 +119,7 @@ async fn list_flows(
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
-            "bool(o.value->'workspace_error_handler_enabled') AS ws_error_handler_enabled"
+            "bool(o.value->'ws_error_handler_muted') AS ws_error_handler_muted"
         ])
         .left()
         .join("favorite")
@@ -216,7 +216,7 @@ pub async fn get_hub_flow_by_id(
 
 #[derive(Deserialize)]
 pub struct ToggleWorkspaceErrorHandler {
-    pub enabled: Option<bool>,
+    pub muted: Option<bool>,
 }
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
@@ -235,10 +235,10 @@ async fn toggle_workspace_error_handler(
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query_scalar!(
-        "UPDATE flow SET value = JSONB_SET(value, '{workspace_error_handler_enabled}', $3, true) WHERE path = $1 AND workspace_id = $2",
+        "UPDATE flow SET value = JSONB_SET(value, '{ws_error_handler_muted}', $3, true) WHERE path = $1 AND workspace_id = $2",
         path.to_path(),
         w_id,
-        serde_json::json!(req.enabled),
+        serde_json::json!(req.muted),
     )
     .execute(&mut *tx)
     .await?;
@@ -278,7 +278,7 @@ async fn create_flow(
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
-        .get("workspace_error_handler_enabled")
+        .get("ws_error_handler_muted")
         .map(|val| val.as_bool().unwrap_or(true))
         .is_some_and(|val| !val)
     {
@@ -426,9 +426,9 @@ async fn update_flow(
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
-        .get("workspace_error_handler_enabled")
-        .map(|val| val.as_bool().unwrap_or(true))
-        .is_some_and(|val| !val)
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
     {
         return Err(Error::BadRequest(
             "Muting the error handler for certain flow is only available in enterprise version"
@@ -858,7 +858,7 @@ mod tests {
             concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
-            workspace_error_handler_enabled: None,
+            ws_error_handler_muted: None,
         };
         let expect = serde_json::json!({
           "modules": [

@@ -3529,7 +3529,7 @@ paths:
                             type: string
                           cache_ttl:
                             type: number
-                          workspace_error_handler_enabled:
+                          ws_error_handler_muted:
                             type: boolean
                         required: &ref_47
                           - modules
@@ -3933,7 +3933,7 @@ paths:
                       type: number
                     dedicated_worker:
                       type: boolean
-                    ws_error_handler_enabled:
+                    ws_error_handler_muted:
                       type: boolean
                   required: &ref_29
                     - hash
@@ -4119,7 +4119,7 @@ paths:
                   type: number
                 dedicated_worker:
                   type: boolean
-                ws_error_handler_enabled:
+                ws_error_handler_muted:
                   type: boolean
               required: &ref_32
                 - path
@@ -4157,7 +4157,7 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
+                muted:
                   type: boolean
       responses:
         '200':
@@ -4993,7 +4993,7 @@ paths:
                               type: boolean
                             tag:
                               type: string
-                            ws_error_handler_enabled:
+                            ws_error_handler_muted:
                               type: boolean
                           required: &ref_141
                             - path
@@ -5052,7 +5052,7 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
+                muted:
                   type: boolean
       responses:
         '200':

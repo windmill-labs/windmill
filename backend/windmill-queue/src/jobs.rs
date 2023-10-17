@@ -434,7 +434,7 @@ pub async fn add_completed_job<
 
     if matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
-        && queued_job.ws_error_handler_enabled.unwrap_or(true)
+        && !queued_job.ws_error_handler_muted.unwrap_or(false)
         && !success
     {
         if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
@@ -1778,7 +1778,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         concurrency_time_window_s,
         cache_ttl,
         dedicated_worker,
-        ws_error_handler_enabled,
+        ws_error_handler_muted,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -1788,7 +1788,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_enabled,
+            ws_error_handler_muted,
         } => (
             Some(hash.0),
             Some(path),
@@ -1800,7 +1800,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
-            ws_error_handler_enabled,
+            ws_error_handler_muted,
         ),
         JobPayload::ScriptHub { path } => {
             (
@@ -1905,7 +1905,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             value.concurrency_time_window_s,
             value.cache_ttl.map(|x| x as i32),
             None,
-            value.workspace_error_handler_enabled,
+            value.ws_error_handler_muted,
         ),
         JobPayload::Flow(flow) => {
             let value_json = fetch_scalar_isolated!(
@@ -1933,7 +1933,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
                 None,
-                value.workspace_error_handler_enabled,
+                value.ws_error_handler_muted,
             )
         }
         JobPayload::Identity => (
@@ -2081,7 +2081,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
                 flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
-                flow_step_id, cache_ttl, ws_error_handler_enabled)
+                flow_step_id, cache_ttl, ws_error_handler_muted)
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30) \
          RETURNING id",
         workspace_id,
@@ -2113,7 +2113,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         custom_timeout,
         flow_step_id,
         cache_ttl,
-        ws_error_handler_enabled.unwrap_or(true)
+        ws_error_handler_muted.unwrap_or(false)
     )
     .fetch_one(&mut tx)
     .await

@@ -8,7 +8,7 @@
 	export let marked: string | undefined
 	export let starred: boolean
 	export let canFavorite: boolean = true
-	export let errorHandlerEnabled: boolean = true
+	export let errorHandlerMuted: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -46,7 +46,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 		</div>
 	{/if}
 
-	{#if !errorHandlerEnabled}
+	{#if errorHandlerMuted}
 		<Icon class="w-8 text-red-600" data={faBell} scale={0.7} />
 	{/if}
 

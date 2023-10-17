@@ -317,7 +317,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Option<bool>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_enabled from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -336,7 +336,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
         script.cache_ttl,
         script.language,
         script.dedicated_worker,
-        Some(script.ws_error_handler_enabled),
+        Some(script.ws_error_handler_muted),
     ))
 }
 
@@ -363,7 +363,7 @@ async fn get_job(
                 script_hash, script_path, CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, logs, raw_code, canceled, canceled_by, canceled_reason, last_ping, 
                 job_kind, env_id, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
                  suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
-                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, ws_error_handler_enabled
+                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, ws_error_handler_muted
                 FROM queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(id)
@@ -785,7 +785,7 @@ async fn list_jobs(
                 "tag",
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
-                "null as ws_error_handler_enabled",
+                "null as ws_error_handler_muted",
             ],
         ))
     } else {
@@ -846,7 +846,7 @@ async fn list_jobs(
                 "tag",
                 "concurrent_limit",
                 "concurrency_time_window_s",
-                "ws_error_handler_enabled",
+                "ws_error_handler_muted",
             ],
         );
 
@@ -1346,7 +1346,7 @@ struct UnifiedJob {
     tag: String,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
-    ws_error_handler_enabled: Option<bool>,
+    ws_error_handler_muted: Option<bool>,
 }
 
 impl<'a> From<UnifiedJob> for Job<'a> {
@@ -1424,7 +1424,7 @@ impl<'a> From<UnifiedJob> for Job<'a> {
                 timeout: None,
                 flow_step_id: None,
                 cache_ttl: None,
-                ws_error_handler_enabled: uj.ws_error_handler_enabled,
+                ws_error_handler_muted: uj.ws_error_handler_muted,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1998,7 +1998,7 @@ pub async fn run_wait_result_script_by_hash(
         cache_ttl,
         language,
         dedicated_worker,
-        ws_error_handler_enabled,
+        ws_error_handler_muted,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
@@ -2017,7 +2017,7 @@ pub async fn run_wait_result_script_by_hash(
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_enabled,
+            ws_error_handler_muted,
         },
         args,
         &authed.username,
@@ -2378,7 +2378,7 @@ pub async fn run_job_by_hash(
         cache_ttl,
         language,
         dedicated_worker,
-        ws_error_handler_enabled,
+        ws_error_handler_muted,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
@@ -2399,7 +2399,7 @@ pub async fn run_job_by_hash(
             cache_ttl,
             language,
             dedicated_worker,
-            ws_error_handler_enabled,
+            ws_error_handler_muted,
         },
         args,
         &authed.username,

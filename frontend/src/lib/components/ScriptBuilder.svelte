@@ -191,7 +191,7 @@
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
-					ws_error_handler_enabled: script.ws_error_handler_enabled
+					ws_error_handler_muted: script.ws_error_handler_muted
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -235,7 +235,7 @@
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						cache_ttl: script.cache_ttl,
-						ws_error_handler_enabled: script.ws_error_handler_enabled
+						ws_error_handler_muted: script.ws_error_handler_muted
 					}
 				})
 			}
@@ -471,9 +471,9 @@
 										</Tooltip>
 									</svelte:fragment>
 									<Toggle
-										checked={script.ws_error_handler_enabled}
+										checked={!script.ws_error_handler_muted}
 										on:change={(e) => {
-											script.ws_error_handler_enabled = e.detail
+											script.ws_error_handler_muted = !e.detail
 										}}
 										options={{
 											right: 'Workspace error handler enabled'

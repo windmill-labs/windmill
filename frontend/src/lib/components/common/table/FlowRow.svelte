@@ -34,7 +34,7 @@
 	export let moveDrawer: MoveDrawer
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let errorHandlerEnabled: boolean
+	export let errorHandlerMuted: boolean
 
 	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
@@ -75,11 +75,10 @@
 	{path}
 	{summary}
 	{starred}
-	{errorHandlerEnabled}
+	{errorHandlerMuted}
 	on:change
 	canFavorite={!draft_only}
 >
-	{JSON.stringify(errorHandlerEnabled)}
 	<svelte:fragment slot="badges">
 		{#if archived}
 			<Badge color="red" baseClass="border">archived</Badge>

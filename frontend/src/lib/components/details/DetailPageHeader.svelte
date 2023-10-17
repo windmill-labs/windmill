@@ -25,12 +25,12 @@
 	export let menuItems: MenuItemButton[] = []
 	export let title: string
 
-	export let errorHandlerEnabled: boolean | undefined
+	export let errorHandlerMuted: boolean | undefined
 	export let errorHandlerToggleFunc: (e: boolean) => void
 
 	async function toggleErrorHandler(): Promise<void> {
 		try {
-			await errorHandlerToggleFunc(!errorHandlerEnabled)
+			await errorHandlerToggleFunc(!errorHandlerMuted)
 		} catch (error) {
 			sendUserToast(
 				`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
@@ -38,7 +38,7 @@
 			)
 			return
 		}
-		errorHandlerEnabled = !errorHandlerEnabled
+		errorHandlerMuted = !errorHandlerMuted
 	}
 </script>
 
@@ -77,16 +77,14 @@
 					</Menu>
 				{/if}
 				<Button
-					title={errorHandlerEnabled === undefined || errorHandlerEnabled
+					title={errorHandlerMuted === undefined || !errorHandlerMuted
 						? 'Disable workspace error handler for this script'
 						: 'Enable workspace error handler for this script'}
 					size="xs"
-					startIcon={{ icon: errorHandlerEnabled ? faBell : faBell }}
+					startIcon={{ icon: errorHandlerMuted ? faBell : faBell }}
 					on:click={toggleErrorHandler}
 					color="light"
-					btnClasses={errorHandlerEnabled === undefined || errorHandlerEnabled
-						? ''
-						: 'text-red-600'}
+					btnClasses={errorHandlerMuted === undefined || !errorHandlerMuted ? '' : 'text-red-600'}
 					iconOnly={true}
 				/>
 				{#each mainButtons as btn}

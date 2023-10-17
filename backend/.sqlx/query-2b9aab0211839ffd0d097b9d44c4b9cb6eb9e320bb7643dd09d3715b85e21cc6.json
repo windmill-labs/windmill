@@ -1,30 +1,35 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker  from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, ws_error_handler_muted from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -49,25 +54,32 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "dedicated_worker",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "ws_error_handler_muted",
         "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
+        "Text",
         "Text"
       ]
     },
     "nullable": [
+      false,
       true,
       true,
       true,
       true,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "123c0608e229c29187009b7961355ddd99c4ad1f46b876dd86e372b84d806ecd"
+  "hash": "2b9aab0211839ffd0d097b9d44c4b9cb6eb9e320bb7643dd09d3715b85e21cc6"
 }

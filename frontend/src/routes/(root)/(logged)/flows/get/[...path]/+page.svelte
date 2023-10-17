@@ -65,13 +65,13 @@
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	async function toggleWorkspaceErrorHandler(enable: boolean): Promise<void> {
+	async function toggleWorkspaceErrorHandler(muted: boolean): Promise<void> {
 		if (flow !== undefined) {
 			await FlowService.toggleWorkspaceErrorHandlerForFlow({
 				workspace: $workspaceStore!,
 				path: flow.path,
 				requestBody: {
-					enabled: enable
+					muted: muted
 				}
 			})
 		}
@@ -262,7 +262,7 @@
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
-				bind:errorHandlerEnabled={flow.value.workspace_error_handler_enabled}
+				bind:errorHandlerMuted={flow.value.ws_error_handler_muted}
 				errorHandlerToggleFunc={toggleWorkspaceErrorHandler}
 				menuItems={getMenuItems(flow)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
