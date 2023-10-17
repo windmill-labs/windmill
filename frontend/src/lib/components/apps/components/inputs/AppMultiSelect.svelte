@@ -162,7 +162,18 @@
 					on:close={() => {
 						open = false
 					}}
-				/>
+					let:option
+				>
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					<div
+						class="w-full"
+						on:mouseup|stopPropagation
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}>{option}</div
+					>
+				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
