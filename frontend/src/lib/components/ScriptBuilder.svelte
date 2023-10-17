@@ -10,7 +10,8 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
-	import { faSave, faBell, faBellSlash } from '@fortawesome/free-solid-svg-icons'
+	import { Bell, BellOff } from 'lucide-svelte'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -350,26 +351,18 @@
 								<Section label="Metadata">
 									<svelte:fragment slot="action">
 										<div class="flex flex-row items-center gap-2">
-											<Button
-												size="sm"
-												endIcon={{
-													icon:
-														script.ws_error_handler_muted === undefined ||
-														!script.ws_error_handler_muted
-															? faBell
-															: faBellSlash
-												}}
-												on:click={toggleWorkspaceErrorHandler}
-												color="light"
-												btnClasses={script.ws_error_handler_muted === undefined ||
-												!script.ws_error_handler_muted
-													? ''
-													: 'text-red-600'}
-											>
-												{script.ws_error_handler_muted === undefined ||
-												!script.ws_error_handler_muted
-													? 'Mute'
-													: 'Unmute'}
+											<Button size="xs" on:click={toggleWorkspaceErrorHandler} color="light">
+												{#if script.ws_error_handler_muted === undefined || !script.ws_error_handler_muted}
+													<div class="flex flex-row items-center gap-1">
+														Mute
+														<Bell class="w-4" size={12} fill="currentcolor" />
+													</div>
+												{:else}
+													<div class="flex flex-row items-center">
+														Unmute
+														<BellOff class="w-4" size={12} fill="currentcolor" />
+													</div>
+												{/if}
 											</Button>
 										</div>
 									</svelte:fragment>

@@ -2,8 +2,7 @@
 	import Star from '$lib/components/Star.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import RowIcon from './RowIcon.svelte'
-	import Icon from 'svelte-awesome'
-	import { faBellSlash } from '@fortawesome/free-solid-svg-icons'
+	import { BellOff } from 'lucide-svelte'
 
 	export let marked: string | undefined
 	export let starred: boolean
@@ -42,7 +41,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 	</a>
 
 	{#if errorHandlerMuted}
-		<Icon class="w-8 opacity-60" data={faBellSlash} scale={0.8} />
+		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
 	{/if}
 
 	{#if $$slots.badges}

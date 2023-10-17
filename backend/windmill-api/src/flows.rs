@@ -234,17 +234,34 @@ async fn toggle_workspace_error_handler(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query_scalar!(
-        "UPDATE flow SET value = JSONB_SET(value, '{ws_error_handler_muted}', $3, true) WHERE path = $1 AND workspace_id = $2",
-        path.to_path(),
-        w_id,
-        serde_json::json!(req.muted),
+    let error_handler_maybe: Option<String> = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        w_id
     )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(None);
 
-    Ok("".to_string())
+    return match error_handler_maybe {
+        Some(_) => {
+            sqlx::query_scalar!(
+                "UPDATE flow SET value = JSONB_SET(value, '{ws_error_handler_muted}', $3, true) WHERE path = $1 AND workspace_id = $2",
+                path.to_path(),
+                w_id,
+                serde_json::json!(req.muted),
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok("".to_string())
+        }
+        None => {
+            tx.commit().await?;
+            Err(Error::ExecutionErr(
+                "Workspace error handler needs to be defined".to_string(),
+            ))
+        }
+    };
 }
 
 async fn check_path_conflict<'c>(
@@ -279,8 +296,8 @@ async fn create_flow(
     if nf
         .value
         .get("ws_error_handler_muted")
-        .map(|val| val.as_bool().unwrap_or(true))
-        .is_some_and(|val| !val)
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
     {
         return Err(Error::BadRequest(
             "Muting the error handler for certain flow is only available in enterprise version"

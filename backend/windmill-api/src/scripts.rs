@@ -744,17 +744,34 @@ async fn toggle_workspace_error_handler(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query_scalar!(
-        "UPDATE script SET ws_error_handler_muted = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
-        path.to_path(),
-        w_id,
-        req.muted,
+    let error_handler_maybe: Option<String> = sqlx::query_scalar!(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        w_id
     )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(None);
 
-    Ok("".to_string())
+    match error_handler_maybe {
+        Some(_) => {
+            sqlx::query_scalar!(
+                "UPDATE script SET ws_error_handler_muted = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+                path.to_path(),
+                w_id,
+                req.muted,
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok("".to_string())
+        }
+        None => {
+            tx.commit().await?;
+            Err(Error::ExecutionErr(
+                "Workspace error handler needs to be defined".to_string(),
+            ))
+        }
+    }
 }
 
 async fn get_tokened_raw_script_by_path(
