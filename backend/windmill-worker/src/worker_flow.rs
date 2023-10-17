@@ -650,17 +650,36 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                 save_in_cache(db, &flow_job, cached_res_path, &nresult).await;
             }
-            add_completed_job(
-                db,
-                &flow_job,
-                success && !is_failure_step && !skip_error_handler,
-                stop_early && skip_if_stop_early,
-                Json(&nresult),
-                logs,
-                0,
-                rsmq.clone(),
-            )
-            .await?;
+            let success = success && !is_failure_step && !skip_error_handler;
+            if success {
+                add_completed_job(
+                    db,
+                    &flow_job,
+                    success,
+                    stop_early && skip_if_stop_early,
+                    Json(&nresult),
+                    logs,
+                    0,
+                    rsmq.clone(),
+                )
+                .await?;
+            } else {
+                add_completed_job(
+                    db,
+                    &flow_job,
+                    success,
+                    stop_early && skip_if_stop_early,
+                    Json(
+                        &serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
+                            |e| json!({"error": format!("Impossible to serialize error: {e}")}),
+                        ),
+                    ),
+                    logs,
+                    0,
+                    rsmq.clone(),
+                )
+                .await?;
+            }
         }
         true
     } else {
