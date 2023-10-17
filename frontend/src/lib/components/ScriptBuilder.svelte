@@ -17,6 +17,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
 		CheckCircle,
@@ -190,7 +191,8 @@
 					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
-					cache_ttl: script.cache_ttl
+					cache_ttl: script.cache_ttl,
+					ws_error_handler_muted: script.ws_error_handler_muted
 				}
 			})
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -233,7 +235,8 @@
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
-						cache_ttl: script.cache_ttl
+						cache_ttl: script.cache_ttl,
+						ws_error_handler_muted: script.ws_error_handler_muted
 					}
 				})
 			}
@@ -318,6 +321,16 @@
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
+									<svelte:fragment slot="action">
+										<div class="flex flex-row items-center gap-2">
+											<ErrorHandlerToggleButton
+												kind="script"
+												scriptOrFlowPath={script.path}
+												bind:errorHandlerMuted={script.ws_error_handler_muted}
+												iconOnly={false}
+											/>
+										</div>
+									</svelte:fragment>
 									<div class="flex flex-col gap-4">
 										<Label label="Summary">
 											<input

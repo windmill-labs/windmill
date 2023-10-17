@@ -411,6 +411,9 @@
 				{mainButtons}
 				menuItems={getMenuItems(script)}
 				title={defaultIfEmptyString(script.summary, script.path)}
+				bind:errorHandlerMuted={script.ws_error_handler_muted}
+				errorHandlerKind="script"
+				scriptOrFlowPath={script.path}
 			>
 				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
 					<div class="hidden md:block">

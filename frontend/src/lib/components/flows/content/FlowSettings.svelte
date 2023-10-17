@@ -25,6 +25,7 @@
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -111,6 +112,16 @@
 									rows="3"
 								/>
 							</Label>
+
+							<div class="flex flex-row items-center gap-1">
+								<ErrorHandlerToggleButton
+									kind="flow"
+									scriptOrFlowPath={$flowStore.path}
+									bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
+									iconOnly={false}
+								/>
+							</div>
+
 							<Slider text="How to trigger flows?">
 								<div class="text-sm text-tertiary border p-4 mb-20">
 									On-demand:

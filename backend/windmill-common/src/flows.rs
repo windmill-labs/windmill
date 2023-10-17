@@ -37,6 +37,7 @@ pub struct Flow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -54,6 +55,7 @@ pub struct ListableFlow {
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +88,8 @@ pub struct FlowValue {
     pub skip_expr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
