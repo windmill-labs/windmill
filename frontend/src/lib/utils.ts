@@ -46,9 +46,9 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
-export function msToSec(ms: number | undefined): string {
+export function msToSec(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
-	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })
+	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: maximumFractionDigits ?? 3 })
 }
 
 export function getToday() {

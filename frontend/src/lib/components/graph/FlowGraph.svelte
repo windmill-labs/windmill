@@ -12,7 +12,7 @@
 		type Loop,
 		type Branch,
 		type NestedNodes,
-		type GraphModuleState
+		type GraphModuleStates
 	} from '.'
 	import { defaultIfEmptyString, encodeState } from '$lib/utils'
 	import { createEventDispatcher, onMount, setContext } from 'svelte'
@@ -31,7 +31,7 @@
 	export let minHeight: number = 0
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
-	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
+	export let flowModuleStates: Record<string, GraphModuleStates> | undefined = undefined
 	export let rebuildOnChange: any = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
@@ -151,7 +151,9 @@
 				Object.entries(flowModuleStates ?? [])
 					.filter(([k, v]) => k.startsWith('failure'))
 					.forEach(([k, v]) => {
-						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+						nestedNodes.push(
+							createErrorHandler({ id: k } as FlowModule, v.states[v.job_id].parent_module)
+						)
 					})
 			}
 			const flatNodes = flattenNestedNodes(nestedNodes)
@@ -318,6 +320,7 @@
 		branchable: boolean,
 		modules: FlowModule[]
 	): Node {
+		let fms = flowModuleStates?.[mod.id]?.states[flowModuleStates?.[mod.id]?.job_id]
 		return {
 			type: 'node',
 			id: mod.id,
@@ -331,8 +334,8 @@
 						insertable,
 						insertableEnd,
 						branchable,
-						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
+						duration_ms: fms?.duration_ms,
+						bgColor: getStateColor(fms?.type),
 						annotation,
 						modules,
 						moving
@@ -373,6 +376,8 @@
 		parent: NestedNodes | string | undefined,
 		loopDepth: number
 	): Loop {
+		let fms = flowModuleStates?.[module.id]?.states[flowModuleStates?.[module.id]?.job_id]
+
 		const loop: Loop = {
 			type: 'loop',
 			items: [
@@ -380,9 +385,7 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration_total
-						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
-						: '',
+					fms?.iteration_total ? 'Iteration ' + fms?.iteration_total : '',
 					loopDepth,
 					false,
 					false,
@@ -722,6 +725,8 @@
 		const nId = (-idGenerator.next().value - 1 + 1100).toString()
 		parent_module && (errorHandlers[parent_module] = nId)
 		let label = 'Error handler'
+		let fms = flowModuleStates?.[mod.id]?.states[flowModuleStates?.[mod.id]?.job_id]
+
 		return {
 			type: 'node',
 			id: nId,
@@ -733,7 +738,7 @@
 						label,
 						insertable: false,
 						modules: undefined,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
+						bgColor: getStateColor(fms?.type),
 						selected: $selectedId == mod.id,
 						index: 0,
 						selectable: true,

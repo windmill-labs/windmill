@@ -11,7 +11,7 @@
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import { FlowGraph, type GraphModuleState } from './graph'
+	import { FlowGraph, type GraphModuleState, type GraphModuleStates } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { emptyString, isOwner, msToSec, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -33,9 +33,9 @@
 		| undefined = undefined
 	export let job: Job | undefined = undefined
 
-	export let flowModuleStates: Record<string, GraphModuleState> = {}
+	export let flowModuleStates: Record<string, GraphModuleStates> = {}
 
-	let localFlowModuleStates: Record<string, GraphModuleState> = {}
+	let localFlowModuleStates: Record<string, GraphModuleStates> = {}
 	export let retry_status: Record<string, number> = {}
 	export let suspend_status: number | undefined = undefined
 	export let render = true
@@ -54,10 +54,7 @@
 
 	function updateFlowModuleStates() {
 		Object.entries(localFlowModuleStates).forEach(([moduleId, state]) => {
-			if (
-				flowModuleStates[moduleId] !== state &&
-				flowModuleStates[moduleId]?.type !== FlowStatusModule.type.FAILURE
-			) {
+			if (flowModuleStates[moduleId] !== state) {
 				flowModuleStates[moduleId] = state
 			}
 		})
@@ -195,8 +192,10 @@
 				flowState[mod.id].previewResult = job['result']
 				flowState[mod.id].previewArgs = job.args
 			}
+
+			let njob: GraphModuleState
 			if (job.type == 'QueuedJob') {
-				localFlowModuleStates[mod.id] = {
+				njob = {
 					type: FlowStatusModule.type.IN_PROGRESS,
 					logs: job.logs,
 					args: job.args,
@@ -204,7 +203,7 @@
 					parent_module: mod['parent_module']
 				}
 			} else {
-				localFlowModuleStates[mod.id] = {
+				njob = {
 					args: job.args,
 					type: job['success'] ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
 					logs: job.logs,
@@ -216,6 +215,12 @@
 					iteration_total: mod.iterator?.itered?.length
 					// retries: flowState?.raw_flow
 				}
+			}
+			if (!localFlowModuleStates[mod.id]) {
+				localFlowModuleStates[mod.id] = { states: { job_id: njob }, job_id: njob.id }
+			} else {
+				localFlowModuleStates[mod.id].states[njob.id] = njob
+				localFlowModuleStates[mod.id].job_id = njob.id
 			}
 		}
 	}
@@ -295,7 +300,7 @@
 			{#if innerModules.length > 0 && !isListJob}
 				<Tabs bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
-					<!-- <Tab value="timeline"><span class="font-semibold">Timeline</span></Tab> -->
+					<Tab value="timeline"><span class="font-semibold">Timeline</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{/if}
@@ -516,7 +521,10 @@
 					</div>
 					<div class="border-l border-gray-400 pt-1 overflow-auto min-h-[800px] flex flex-col">
 						{#if selectedNode}
-							{@const node = localFlowModuleStates[selectedNode]}
+							{@const node =
+								localFlowModuleStates[selectedNode].states[
+									localFlowModuleStates[selectedNode].job_id
+								]}
 							{#if selectedNode == 'end'}
 								<FlowJobResult
 									workspaceId={job?.workspace_id}

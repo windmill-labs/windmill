@@ -25,6 +25,10 @@ export type Branch = {
 
 export type GraphItem = Node | Loop | Branch
 
+export type GraphModuleStates = {
+	job_id: string,
+	states: Record<string, GraphModuleState>
+}
 export type GraphModuleState = {
 	type: FlowStatusModule.type
 	args: any
