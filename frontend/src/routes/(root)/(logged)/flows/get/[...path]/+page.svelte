@@ -65,18 +65,6 @@
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	async function toggleWorkspaceErrorHandler(muted: boolean): Promise<void> {
-		if (flow !== undefined) {
-			await FlowService.toggleWorkspaceErrorHandlerForFlow({
-				workspace: $workspaceStore!,
-				path: flow.path,
-				requestBody: {
-					muted: muted
-				}
-			})
-		}
-	}
-
 	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
@@ -262,10 +250,11 @@
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
-				bind:errorHandlerMuted={flow.value.ws_error_handler_muted}
-				errorHandlerToggleFunc={toggleWorkspaceErrorHandler}
 				menuItems={getMenuItems(flow)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
+				bind:errorHandlerMuted={flow.ws_error_handler_muted}
+				scriptOrFlowPath={flow.path}
+				errorHandlerKind="flow"
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="form">

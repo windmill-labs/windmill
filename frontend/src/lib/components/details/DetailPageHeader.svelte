@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 
-	import { Bell, BellOff } from 'lucide-svelte'
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
-	import { sendUserToast } from '$lib/toast'
 	import { classNames } from '$lib/utils'
+	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
 
 	type MainButton = {
 		label: string
@@ -25,25 +24,9 @@
 	export let menuItems: MenuItemButton[] = []
 	export let title: string
 
+	export let errorHandlerKind: 'flow' | 'script'
+	export let scriptOrFlowPath: string
 	export let errorHandlerMuted: boolean | undefined
-	export let errorHandlerToggleFunc: (e: boolean) => void
-
-	async function toggleErrorHandler(): Promise<void> {
-		try {
-			await errorHandlerToggleFunc(!errorHandlerMuted)
-		} catch (error) {
-			sendUserToast(
-				`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
-				true
-			)
-			return
-		}
-		errorHandlerMuted = !errorHandlerMuted
-		sendUserToast(
-			errorHandlerMuted ? 'Workspace error handler muted' : 'Workspace error handler active',
-			false
-		)
-	}
 </script>
 
 <div class="border-b p-2 shadow-md">
@@ -80,24 +63,11 @@
 						</svelte:fragment>
 					</Menu>
 				{/if}
-				<Button
-					title={errorHandlerMuted === undefined || !errorHandlerMuted
-						? 'Disable workspace error handler for this script'
-						: 'Enable workspace error handler for this script'}
-					size="xs"
-					on:click={toggleErrorHandler}
-					color="light"
-				>
-					{#if errorHandlerMuted === undefined || !errorHandlerMuted}
-						<div class="flex flex-row items-center">
-							<Bell class="w-4" size={12} fill="currentcolor" />
-						</div>
-					{:else}
-						<div class="flex flex-row items-center">
-							<BellOff class="w-4" size={12} fill="currentcolor" />
-						</div>
-					{/if}
-				</Button>
+				<ErrorHandlerToggleButton
+					kind={errorHandlerKind}
+					{scriptOrFlowPath}
+					bind:errorHandlerMuted
+				/>
 				{#each mainButtons as btn}
 					<Button
 						{...btn.buttonProps}

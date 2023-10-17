@@ -594,23 +594,22 @@ pub async fn send_error_to_workspace_handler<
         let ws_error_handler_muted: Option<bool> = match queued_job.job_kind {
             JobKind::Script => {
                 sqlx::query_scalar!(
-                    "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
-                    queued_job.workspace_id,
-                    queued_job.script_hash.unwrap().0,
-                )
+                "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
+                queued_job.workspace_id,
+                queued_job.script_hash.unwrap().0,
+            )
                 .fetch_optional(db)
                 .await?
-            },
+            }
             JobKind::Flow => {
                 sqlx::query_scalar!(
-                    "SELECT bool(value->'ws_error_handler_muted') FROM flow WHERE workspace_id = $1 AND path = $2",
+                    "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
                     queued_job.workspace_id,
                     queued_job.script_path.as_ref().unwrap(),
                 )
                 .fetch_optional(db)
                 .await?
-                .unwrap_or(None)
-            },
+            }
             _ => None,
         };
 

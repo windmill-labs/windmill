@@ -3529,8 +3529,6 @@ paths:
                             type: string
                           cache_ttl:
                             type: number
-                          ws_error_handler_muted:
-                            type: boolean
                         required: &ref_47
                           - modules
                       schema:
@@ -5138,6 +5136,8 @@ paths:
                           type: string
                         tag:
                           type: string
+                        ws_error_handler_muted:
+                          type: boolean
                       required:
                         - path
                 - type: object

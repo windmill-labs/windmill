@@ -37,6 +37,7 @@ pub struct Flow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Serialize)]

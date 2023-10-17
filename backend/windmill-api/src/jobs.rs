@@ -783,7 +783,6 @@ async fn list_jobs(
                 "tag",
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
-                "null as ws_error_handler_muted",
             ],
         ))
     } else {
@@ -844,7 +843,6 @@ async fn list_jobs(
                 "tag",
                 "concurrent_limit",
                 "concurrency_time_window_s",
-                "ws_error_handler_muted",
             ],
         );
 

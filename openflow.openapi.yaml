@@ -54,8 +54,6 @@ components:
           type: string
         cache_ttl:
           type: number
-        ws_error_handler_muted:
-          type: boolean
       required:
         - modules
 

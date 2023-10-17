@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT bool(value->'ws_error_handler_muted') FROM flow WHERE workspace_id = $1 AND path = $2",
+  "query": "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "bool",
+        "name": "ws_error_handler_muted",
         "type_info": "Bool"
       }
     ],
@@ -16,8 +16,8 @@
       ]
     },
     "nullable": [
-      null
+      false
     ]
   },
-  "hash": "abf895b1e151e075ed5ad086b51c01bc27d4d2afc175e6d8416eba8de27b75b8"
+  "hash": "9f545c9c03d550ba0468dd7b4be39b76a7754a53f4508dce05e3f36300db483b"
 }

@@ -119,7 +119,7 @@ async fn list_flows(
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
-            "bool(o.value->'ws_error_handler_muted') AS ws_error_handler_muted"
+            "ws_error_handler_muted"
         ])
         .left()
         .join("favorite")
@@ -245,10 +245,10 @@ async fn toggle_workspace_error_handler(
     return match error_handler_maybe {
         Some(_) => {
             sqlx::query_scalar!(
-                "UPDATE flow SET value = JSONB_SET(value, '{ws_error_handler_muted}', $3, true) WHERE path = $1 AND workspace_id = $2",
+                "UPDATE flow SET ws_error_handler_muted = $3 WHERE path = $1 AND workspace_id = $2",
                 path.to_path(),
                 w_id,
-                serde_json::json!(req.muted),
+                req.muted,
             )
             .execute(&mut *tx)
             .await?;
@@ -635,6 +635,7 @@ pub struct FlowWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -646,7 +647,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, draft.value as draft, flow.tag FROM flow
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, draft.value as draft, flow.tag FROM flow
         LEFT JOIN draft ON 
         flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
         WHERE flow.path = $1 AND flow.workspace_id = $2",

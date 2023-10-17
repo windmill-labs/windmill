@@ -10,7 +10,6 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
-	import { Bell, BellOff } from 'lucide-svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -18,6 +17,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
 		CheckCircle,
@@ -156,34 +156,6 @@
 		scriptEditor?.inferSchema(script.content, language)
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
-		}
-	}
-
-	async function toggleWorkspaceErrorHandler(): Promise<void> {
-		if (script !== undefined) {
-			try {
-				await ScriptService.toggleWorkspaceErrorHandlerForScript({
-					workspace: $workspaceStore!,
-					path: script.path,
-					requestBody: {
-						muted: undefined ? true : !script.ws_error_handler_muted
-					}
-				})
-			} catch (error) {
-				sendUserToast(
-					`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
-					true
-				)
-				return
-			}
-			script.ws_error_handler_muted =
-				script.ws_error_handler_muted === undefined ? true : !script.ws_error_handler_muted
-			sendUserToast(
-				script.ws_error_handler_muted === undefined || !script.ws_error_handler_muted
-					? 'Workspace error handler active'
-					: 'Workspace error handler muted',
-				false
-			)
 		}
 	}
 
@@ -351,19 +323,12 @@
 								<Section label="Metadata">
 									<svelte:fragment slot="action">
 										<div class="flex flex-row items-center gap-2">
-											<Button size="xs" on:click={toggleWorkspaceErrorHandler} color="light">
-												{#if script.ws_error_handler_muted === undefined || !script.ws_error_handler_muted}
-													<div class="flex flex-row items-center gap-1">
-														Mute
-														<Bell class="w-4" size={12} fill="currentcolor" />
-													</div>
-												{:else}
-													<div class="flex flex-row items-center">
-														Unmute
-														<BellOff class="w-4" size={12} fill="currentcolor" />
-													</div>
-												{/if}
-											</Button>
+											<ErrorHandlerToggleButton
+												kind="script"
+												scriptOrFlowPath={script.path}
+												bind:errorHandlerMuted={script.ws_error_handler_muted}
+												iconOnly={false}
+											/>
 										</div>
 									</svelte:fragment>
 									<div class="flex flex-col gap-4">

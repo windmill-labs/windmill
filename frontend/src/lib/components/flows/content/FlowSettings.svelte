@@ -16,17 +16,16 @@
 	import { workerTags, workspaceStore } from '$lib/stores'
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
-	import { Bell, BellOff } from 'lucide-svelte'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { WorkerService, FlowService } from '$lib/gen'
+	import { WorkerService } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import { sendUserToast } from '$lib/toast'
+	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 
 	const { selectedId, flowStore, initialPath, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -35,38 +34,6 @@
 		if (!$workerTags) {
 			$workerTags = await WorkerService.getCustomTags()
 		}
-	}
-
-	async function toggleWorkspaceErrorHandler(): Promise<void> {
-		try {
-			await FlowService.toggleWorkspaceErrorHandlerForFlow({
-				workspace: $workspaceStore!,
-				path: $flowStore.path,
-				requestBody: {
-					muted:
-						$flowStore.value.ws_error_handler_muted === undefined
-							? true
-							: !$flowStore.value.ws_error_handler_muted
-				}
-			})
-		} catch (error) {
-			sendUserToast(
-				`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
-				true
-			)
-			return
-		}
-		$flowStore.value.ws_error_handler_muted =
-			$flowStore.value.ws_error_handler_muted === undefined
-				? true
-				: !$flowStore.value.ws_error_handler_muted
-		sendUserToast(
-			$flowStore.value.ws_error_handler_muted === undefined ||
-				!$flowStore.value.ws_error_handler_muted
-				? 'Workspace error handler muted'
-				: 'Workspace error handler active',
-			false
-		)
 	}
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -147,19 +114,12 @@
 							</Label>
 
 							<div class="flex flex-row items-center gap-1">
-								<Button size="xs" on:click={toggleWorkspaceErrorHandler} color="light">
-									{#if $flowStore.value.ws_error_handler_muted === undefined || !$flowStore.value.ws_error_handler_muted}
-										<div class="flex flex-row items-center gap-1">
-											Mute
-											<Bell class="w-4" size={12} fill="currentcolor" />
-										</div>
-									{:else}
-										<div class="flex flex-row items-center">
-											Unmute
-											<BellOff class="w-4" size={12} fill="currentcolor" />
-										</div>
-									{/if}
-								</Button>
+								<ErrorHandlerToggleButton
+									kind="flow"
+									scriptOrFlowPath={$flowStore.path}
+									bind:errorHandlerMuted={$flowStore.ws_error_handler_muted}
+									iconOnly={false}
+								/>
 							</div>
 
 							<Slider text="How to trigger flows?">
