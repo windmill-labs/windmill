@@ -26,6 +26,7 @@
 
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import { tutorialInProgress } from '$lib/tutorialUtils'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -142,13 +143,11 @@
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
-		const svg = document.getElementsByClassName('driver-overlay driver-overlay-animated')
-
 		return (
 			$tutorialsToDo.includes(index) &&
 			name == tutorialName &&
-			svg.length === 0 &&
-			!$ignoredTutorials.includes(index)
+			!$ignoredTutorials.includes(index) &&
+			!tutorialInProgress()
 		)
 	}
 </script>

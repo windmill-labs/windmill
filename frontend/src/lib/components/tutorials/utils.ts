@@ -1,4 +1,6 @@
 import type { Flow, FlowModule } from '$lib/gen'
+import { findGridItem } from '../apps/editor/appUtils'
+import type { App } from '../apps/types'
 
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement
@@ -11,6 +13,15 @@ export function setInputBySelector(selector: string, value: string) {
 
 export function clickButtonBySelector(selector: string) {
 	const button = document.querySelector(selector) as HTMLButtonElement
+
+	if (button) {
+		button.click()
+	}
+}
+
+export function clickFirstButtonBySelector(selector: string) {
+	const buttons = document.querySelector(selector)
+	const button = buttons?.childNodes[0] as HTMLButtonElement
 
 	if (button) {
 		button.click()
@@ -48,6 +59,10 @@ export function isFlowTainted(flow: Flow) {
 	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
 }
 
+export function isAppTainted(app: App) {
+	return !(app.grid.length === 0 && app.hiddenInlineScripts.length === 0)
+}
+
 export function updateFlowModuleById(
 	flow: Flow,
 	id: string,
@@ -73,4 +88,77 @@ export function updateFlowModuleById(
 	dfs(flow.value.modules)
 
 	flow = flow
+}
+
+export function updateBackgroundRunnableCode(app: App, index: number, newCode: string) {
+	const script = app.hiddenInlineScripts[index]
+	if (script.type === 'runnableByName' && script.inlineScript) {
+		script.inlineScript.content = newCode
+	}
+
+	app = app
+}
+
+export function updateInlineRunnableCode(app: App, componentId: string, newCode: string) {
+	const gridItem = findGridItem(app, componentId)
+
+	if (gridItem?.data.componentInput?.type === 'runnable') {
+		if (
+			gridItem.data.componentInput.runnable?.type === 'runnableByName' &&
+			gridItem.data.componentInput.runnable.inlineScript
+		) {
+			gridItem.data.componentInput.runnable.inlineScript.content = newCode
+		}
+	}
+
+	app = app
+}
+
+export function connectComponentSourceToOutput(app: App, componentId: string, targetId: string) {
+	const gridItem = findGridItem(app, componentId)
+
+	if (gridItem) {
+		gridItem.data.componentInput = {
+			type: 'evalv2',
+			fieldType: 'object',
+
+			expr: `${targetId}.result`,
+			connections: [
+				{
+					componentId: targetId,
+					id: 'result'
+				}
+			]
+		}
+	}
+
+	app = app
+}
+
+export function connectInlineRunnableInputToComponentOutput(
+	app: App,
+	sourceComponentId: string,
+	sourceField: string,
+	targetComponentId: string,
+	targetField: string,
+	fieldType: string = 'text'
+) {
+	const gridItem = findGridItem(app, sourceComponentId)
+
+	if (gridItem?.data.componentInput?.type === 'runnable') {
+		// @ts-ignore
+		gridItem.data.componentInput.fields = {
+			[sourceField]: {
+				type: 'evalv2',
+				expr: `${targetComponentId}.${targetField}`,
+				fieldType: fieldType,
+				connections: [
+					{
+						componentId: targetComponentId,
+						id: targetField
+					}
+				]
+			}
+		}
+	}
 }

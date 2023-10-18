@@ -18,7 +18,9 @@
 		| 'powershell'
 		| undefined = undefined
 	export let icon: IconDefinition | undefined = undefined
+
 	export let iconColor: string | undefined = undefined
+	export let id: string | undefined = undefined
 
 	const enterpriseLangs = ['bigquery', 'snowflake']
 </script>
@@ -36,6 +38,7 @@
 			classes: iconColor
 		}}
 		disabled={disabled || (enterpriseLangs.includes(lang || '') && !$enterpriseLicense)}
+		{id}
 	>
 		<div class="flex justify-center flex-col items-center gap-2">
 			{#if lang}

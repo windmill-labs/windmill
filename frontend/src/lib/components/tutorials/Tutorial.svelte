@@ -9,10 +9,12 @@
 	export let name: string = 'action'
 	export let tainted: boolean = false
 
-	export let getSteps: (
-		driver: Driver,
-		indexToInsertAt?: number | undefined
-	) => DriveStep[] = () => []
+	type Options = {
+		indexToInsertAt?: number
+		skipStepsCount?: number
+	}
+
+	export let getSteps: (driver: Driver, options?: Options | undefined) => DriveStep[] = () => []
 
 	const dispatch = createEventDispatcher()
 
@@ -27,7 +29,7 @@
 		return button
 	}
 
-	export const runTutorial = (indexToInsertAt?: number | undefined) => {
+	export const runTutorial = (options?: Options | undefined) => {
 		if (tainted) {
 			dispatch('error', { detail: name })
 			return
@@ -70,7 +72,7 @@
 			}
 		})
 
-		tutorial.setSteps(getSteps(tutorial, indexToInsertAt))
+		tutorial.setSteps(getSteps(tutorial, options))
 		tutorial.drive()
 	}
 </script>

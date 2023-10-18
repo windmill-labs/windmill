@@ -1449,13 +1449,15 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         let mut hm = HashMap::new();
         hm.insert(
             "previous_result".to_string(),
-            module
-                .mock
-                .as_ref()
-                .unwrap()
-                .return_value
-                .clone()
-                .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
+            to_raw_value(
+                &module
+                    .mock
+                    .as_ref()
+                    .unwrap()
+                    .return_value
+                    .clone()
+                    .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
+            ),
         );
         Ok(hm)
     } else if let Some(id) = get_args_from_id {

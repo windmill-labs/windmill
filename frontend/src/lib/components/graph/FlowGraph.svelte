@@ -767,6 +767,7 @@
 
 <DarkModeObserver on:change={onThemeChange} />
 
+<!-- {JSON.stringify(flowModuleStates)} -->
 <div
 	bind:clientWidth={width}
 	class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}

@@ -396,6 +396,12 @@
 			existingElement.innerHTML = theme
 		}
 	}
+
+	let appEditorHeader: AppEditorHeader | undefined = undefined
+
+	export function triggerTutorial() {
+		appEditorHeader?.toggleTutorial()
+	}
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -404,7 +410,7 @@
 
 {#if !$userStore?.operator}
 	{#if $appStore}
-		<AppEditorHeader on:restore {versions} {policy} {fromHub} />
+		<AppEditorHeader on:restore {versions} {policy} {fromHub} bind:this={appEditorHeader} />
 
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
@@ -530,6 +536,7 @@
 												selectedTab = 'insert'
 											}
 										}}
+										id="app-editor-component-library-tab"
 									>
 										<div class="m-1 center-center">
 											<Plus size={18} />

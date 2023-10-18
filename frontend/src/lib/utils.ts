@@ -46,9 +46,9 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
-export function msToSec(ms: number | undefined): string {
+export function msToSec(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
-	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })
+	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: maximumFractionDigits ?? 3 })
 }
 
 export function getToday() {
@@ -66,6 +66,16 @@ export function truncateHash(hash: string): string {
 
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function addIfNotExists<T>(e: T, arr: Array<T> | undefined): Array<T> {
+	if (!arr) {
+		return [e]
+	} else if (arr.includes(e)) {
+		return arr
+	} else {
+		return arr.concat([e])
+	}
 }
 
 export function validatePassword(password: string): boolean {
