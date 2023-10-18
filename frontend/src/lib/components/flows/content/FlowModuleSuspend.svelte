@@ -5,8 +5,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import { GroupService, type FlowModule } from '$lib/gen'
-	import { emptySchema } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores.js'
+	import { emptySchema, emptyString } from '$lib/utils'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores.js'
 	import { SecondsInput } from '../../common'
 	import Multiselect from 'svelte-multiselect'
 
@@ -71,9 +71,10 @@
 	{#if flowModule.suspend}
 		<div class="flex flex-col gap-2">
 			<Toggle
+				disabled={emptyString($enterpriseLicense)}
 				checked={Boolean(flowModule.suspend.user_auth_required)}
 				options={{
-					right: 'Require approvers to be logged in'
+					right: '(ee only) Require approvers to be logged in'
 				}}
 				on:change={(e) => {
 					if (flowModule.suspend) {
@@ -83,10 +84,11 @@
 			/>
 
 			<span class="text-xs font-bold"
-				>Require approvers to be members of one of the following user groups (leave empty for any)
+				>(ee only) Require approvers to be members of one of the following user groups (leave empty
+				for any)
 			</span>
 			<Multiselect
-				disabled={!flowModule.suspend.user_auth_required}
+				disabled={emptyString($enterpriseLicense) || !flowModule.suspend.user_auth_required}
 				bind:selected={flowModule.suspend.user_groups_required}
 				options={allUserGroups}
 				selectedOptionsDraggable={false}
@@ -95,8 +97,6 @@
 			/>
 		</div>
 	{/if}
-
-	{#if flowModule.suspend}{/if}
 
 	{#if flowModule.suspend}
 		<div class="mt-4" />
