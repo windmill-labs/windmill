@@ -1,92 +1,145 @@
 <script lang="ts">
-	import { FlowStatusModule } from '$lib/gen'
-	import { Skeleton } from './common'
-	import type { GraphModuleState } from './graph'
+	import { debounce, displayDate, msToSec } from '$lib/utils'
+	import FlowTimelineBar from './FlowTimelineBar.svelte'
+	import { onDestroy } from 'svelte'
+	import { getDbClockNow } from '$lib/forLater'
+	import { Loader2 } from 'lucide-svelte'
 
-	export let flowModuleStates: Record<string, GraphModuleState> = {}
-
-	let items = flowModuleStates ? computeItems(flowModuleStates) : undefined
-
-	$: computeItems(flowModuleStates)
+	export let flowModules: string[]
+	export let durationStatuses: Record<
+		string,
+		Record<string, { started_at?: number; duration_ms?: number }>
+	>
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
-	function computeItems(flowModuleStates: Record<string, GraphModuleState>): any {
+	let total: number | undefined = undefined
+
+	let items:
+		| Record<string, Array<{ started_at?: number; duration_ms?: number; id: string }>>
+		| undefined = undefined
+
+	let debounced = debounce(() => computeItems(durationStatuses), 30)
+	$: durationStatuses && debounced()
+
+	export function reset() {
+		min = undefined
+		max = undefined
+		items = computeItems(durationStatuses)
+	}
+
+	function computeItems(
+		durationStatuses: Record<string, Record<string, { started_at?: number; duration_ms?: number }>>
+	): any {
 		let nmin: undefined | number = undefined
 		let nmax: undefined | number = undefined
 
 		let isStillRunning = false
-		Object.values(flowModuleStates).forEach((v) => {
-			if (v.started_at) {
-				if (!nmin) {
-					nmin = v.started_at
-				} else {
-					nmin = Math.min(nmin, v.started_at)
-				}
-			}
-			if (v.type == FlowStatusModule.type.IN_PROGRESS) {
-				isStillRunning = true
-			}
-			if (!isStillRunning) {
-				if (v.started_at && v.duration_ms) {
-					let lmax = v.started_at + v.duration_ms
-					if (!nmax) {
-						nmax = lmax
+
+		let cnt = 0
+		let nitems = {}
+		Object.entries(durationStatuses).forEach(([k, o]) => {
+			Object.values(o).forEach((v) => {
+				cnt++
+				if (v.started_at) {
+					if (!nmin) {
+						nmin = v.started_at
 					} else {
-						nmax = Math.max(nmax, lmax)
+						nmin = Math.min(nmin, v.started_at)
 					}
 				}
-			}
-		})
+				if (v.duration_ms == undefined) {
+					isStillRunning = true
+				}
+				if (!isStillRunning) {
+					if (v.started_at && v.duration_ms) {
+						let lmax = v.started_at + v.duration_ms
+						if (!nmax) {
+							nmax = lmax
+						} else {
+							nmax = Math.max(nmax, lmax)
+						}
+					}
+				}
+			})
+			let arr = Object.entries(o).map(([k, v]) => ({ ...v, id: k }))
+			arr.sort((x, y) => {
+				if (!x.started_at) {
+					return -1
+				} else if (!y.started_at) {
+					return 1
+				} else {
+					return x.started_at - y.started_at
+				}
+			})
 
-		let total = (isStillRunning || !nmax ? Date.now() : nmax) - (nmin ?? Date.now())
-
-		const nentries = Object.entries(flowModuleStates).map(([k, v]) => {
-			let started_at = v.started_at && nmin ? ((v.started_at - nmin) / total) * 100 : undefined
-			let len = 0
-			if (v.duration_ms) {
-				len = v.duration_ms
-			} else if (v.started_at) {
-				len = Date.now() - v.started_at
-			} else {
-				len = 0
-			}
-			if (total) {
-				len *= 100 / total
-			} else {
-				len = 0
-			}
-			return { name: k, started_at, len }
+			nitems[k] = arr
 		})
+		items = nitems
 		min = nmin
-		max = nmax
-		return nentries
+		max = isStillRunning || cnt < flowModules.length ? undefined : nmax
+		if (max && min) {
+			total = max - min
+		}
 	}
+
+	let now = getDbClockNow().getTime()
+
+	let i = 0
+	let interval = setInterval((x) => {
+		if (!max) {
+			i++
+			now = getDbClockNow().getTime()
+		}
+		if (min && (!max || total == undefined)) {
+			total = max ? max - min : Math.max(now - min, 2000)
+		}
+	}, 30)
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
+	})
 </script>
 
 {#if items}
-	<div class="border rounded-md divide-y">
+	<div class="divide-y">
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
 			><div />
-			<div class="col-span-11 pt-1 px-2 flex justify-between"><div>{min}</div><div>{max}</div></div>
-		</div>
-		{#each items as item}
-			<div class="px-2 py-2 grid grid-cols-12 w-full"
-				><div>{item.name}</div>
-				<div class="col-span-11 pt-1 px-2 flex"
-					><div style="width: {item.started_at}%" class="h-4" /><div
-						style="width: {item.len}%"
-						class="h-4 bg-blue-600 border center-center text-white text-xs"
-						>{Math.ceil(item.len) ?? 0}%</div
-					></div
+			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
+				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
+						class="hidden lg:block">{msToSec(max - min)}s</div
+					>
+				{/if}<div class="flex gap-1 items-center"
+					>{max ? displayDate(new Date(max), true) : ''}{#if !max && min}{#if now}
+							{msToSec(now - min)}s
+						{/if}<Loader2 size={14} class="animate-spin" />{/if}</div
 				></div
 			>
-		{/each}
+		</div>
+		{#key i}
+			{#each Object.values(flowModules) as k}
+				<div class="px-2 py-2 grid grid-cols-12 w-full"
+					><div>{k}</div>
+					<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
+						>{#if min && total}
+							<div class="flex flex-col gap-2 w-full">
+								{#each items?.[k] ?? [] as b}
+									<FlowTimelineBar
+										{total}
+										{now}
+										{min}
+										started_at={b?.started_at}
+										duration_ms={b?.duration_ms}
+										id={b?.id}
+									/>
+								{/each}
+							</div>
+						{/if}</div
+					></div
+				>
+			{/each}
+		{/key}
 	</div>
 {:else}
-	<div class="mt-4" />
-	<Skeleton layout={[[2], 1]} />
-	{#each new Array(6) as _}
-		<Skeleton layout={[[4], 0.5]} />
-	{/each}
+	<Loader2 class="animate-spin" />
 {/if}

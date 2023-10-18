@@ -11,6 +11,7 @@
 	export let disappearTimeout = 100
 	export let appearTimeout = 300
 	export let documentationLink: string | undefined = undefined
+	export let style: string | undefined = undefined
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -49,11 +50,18 @@
 
 {#if notClickable}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<span use:popperRef on:mouseenter={open} on:mouseleave={close} class={$$props.class}>
+	<span {style} use:popperRef on:mouseenter={open} on:mouseleave={close} class={$$props.class}>
 		<slot />
 	</span>
 {:else}
-	<button use:popperRef on:mouseenter={open} on:mouseleave={close} on:click class={$$props.class}>
+	<button
+		{style}
+		use:popperRef
+		on:mouseenter={open}
+		on:mouseleave={close}
+		on:click
+		class={$$props.class}
+	>
 		<slot />
 	</button>
 {/if}

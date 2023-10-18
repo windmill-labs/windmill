@@ -341,12 +341,12 @@ export function initialCode(
 			return DENO_INIT_CODE
 		}
 	} else if (language === 'python3') {
-		if (subkind === 'flow') {
+		if (kind === 'trigger') {
+			return PYTHON_INIT_CODE_TRIGGER
+		} else if (subkind === 'flow') {
 			return PYTHON_INIT_CODE_CLEAR
 		} else if (kind === 'failure') {
 			return PYTHON_FAILURE_MODULE_CODE
-		} else if (kind === 'trigger') {
-			return PYTHON_INIT_CODE_TRIGGER
 		} else {
 			return PYTHON_INIT_CODE
 		}

@@ -1,5 +1,7 @@
 import type { FlowStatusModule } from '$lib/gen'
+import type { Writable } from 'svelte/store'
 import type { UserNodeType } from './svelvet/types'
+import type { FlowState } from '../flows/flowState'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
 
@@ -25,6 +27,18 @@ export type Branch = {
 
 export type GraphItem = Node | Loop | Branch
 
+export type GraphModuleStates = {
+	job_id: string,
+	states: Record<string, GraphModuleState>
+}
+
+export type FlowStatusViewerContext = {
+	flowStateStore?: Writable<FlowState>,
+	flowModuleStates: Writable<Record<string, GraphModuleState>>
+	retryStatus: Writable<Record<string, number | undefined>>
+	suspendStatus: Writable<Record<string, number | undefined>>,
+	durationStatuses: Writable<Record<string, Record<string, {started_at?: number, duration_ms?: number}>>>
+}
 export type GraphModuleState = {
 	type: FlowStatusModule.type
 	args: any
@@ -37,6 +51,8 @@ export type GraphModuleState = {
 	retries?: number
 	duration_ms?: number
 	started_at?: number
+	suspend_count?: number
+	isListJob?: boolean
 }
 
 export type NestedNodes = GraphItem[]
