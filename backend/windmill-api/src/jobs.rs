@@ -1259,7 +1259,7 @@ fn conditionally_require_authed_user(
             "Only logged in users can approve this flow step".to_string(),
         ));
     }
-    if authed.is_some() {
+    if authed.is_some() && !authed.as_ref().unwrap().username.eq("admin") {
         let required_groups = raw_flow_module
             .suspend
             .as_ref()
