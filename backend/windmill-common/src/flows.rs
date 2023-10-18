@@ -172,6 +172,8 @@ pub struct Suspend {
     pub resume_form: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_auth_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_groups_required: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

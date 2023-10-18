@@ -1258,9 +1258,26 @@ fn conditionally_require_authed_user(
         return Err(Error::NotAuthorized(
             "Only logged in users can approve this flow step".to_string(),
         ));
-    } else {
-        Ok(())
     }
+    if authed.is_some() {
+        let required_groups = raw_flow_module
+            .suspend
+            .as_ref()
+            .map(|s| s.user_groups_required.clone())
+            .flatten();
+        let required_groups_or_empty = required_groups.unwrap_or_default();
+        if !required_groups_or_empty.is_empty() {
+            for required_group in required_groups_or_empty.iter() {
+                if authed.as_ref().unwrap().groups.contains(&required_group) {
+                    return Ok(());
+                }
+            }
+            let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
+                required_groups_or_empty.join(", "));
+            return Err(Error::PermissionDenied(error_msg));
+        }
+    }
+    Ok(())
 }
 
 pub async fn create_job_signature(

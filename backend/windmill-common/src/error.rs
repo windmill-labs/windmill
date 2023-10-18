@@ -37,6 +37,8 @@ pub enum Error {
     NotFound(String),
     #[error("Not authorized: {0}")]
     NotAuthorized(String),
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
     #[error("Require Admin privileges for {0}")]
     RequireAdmin(String),
     #[error("{0}")]
