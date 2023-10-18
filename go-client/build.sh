@@ -10,8 +10,10 @@ sed -z 's/                    enum: \[deno, python3, go, bash\]//' openapi/opena
 
 npx @redocly/openapi-cli@latest bundle openapi/openapi3.yaml --ext json > openapi-bundled.json
 
+cat openapi-bundled.json | jq 'del(.paths."/oauth/list_connects")' > openapi-bundled-cleaned.json
+
 rm -rf api/ || true
 mkdir -p api
-~/go/bin/oapi-codegen -old-config-style --package=windmill_api --generate=types,client  openapi-bundled.json > api/windmill_api.gen.go
+~/go/bin/oapi-codegen -old-config-style --package=windmill_api --generate=types,client  openapi-bundled-cleaned.json > api/windmill_api.gen.go
 rm -rf openapi/
 rm openapi*
