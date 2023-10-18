@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, msToSec } from '$lib/utils'
+	import { debounce, displayDate, msToSec } from '$lib/utils'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
@@ -18,7 +18,9 @@
 	let items:
 		| Record<string, Array<{ started_at?: number; duration_ms?: number; id: string }>>
 		| undefined = undefined
-	$: computeItems(durationStatuses)
+
+	let debounced = debounce(() => computeItems(durationStatuses), 30)
+	$: durationStatuses && debounced()
 
 	export function reset() {
 		min = undefined
@@ -92,7 +94,7 @@
 		if (min && (!max || total == undefined)) {
 			total = max ? max - min : Math.max(now - min, 2000)
 		}
-	}, 20)
+	}, 30)
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
