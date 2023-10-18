@@ -86,6 +86,7 @@
 	<TestJobLoader bind:job bind:watchJob on:done={onDone} />
 {/if}
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	on:mouseenter={instantOpen}
 	on:mouseleave={staggeredClose}
