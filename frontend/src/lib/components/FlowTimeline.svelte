@@ -85,10 +85,8 @@
 
 	let now = getDbClockNow().getTime()
 
-	let i = 0
 	let interval = setInterval((x) => {
 		if (!max) {
-			i++
 			now = getDbClockNow().getTime()
 		}
 		if (min && (!max || total == undefined)) {
@@ -116,29 +114,27 @@
 				></div
 			>
 		</div>
-		{#key i}
-			{#each Object.values(flowModules) as k}
-				<div class="px-2 py-2 grid grid-cols-12 w-full"
-					><div>{k}</div>
-					<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
-						>{#if min && total}
-							<div class="flex flex-col gap-2 w-full">
-								{#each items?.[k] ?? [] as b}
-									<FlowTimelineBar
-										{total}
-										{now}
-										{min}
-										started_at={b?.started_at}
-										duration_ms={b?.duration_ms}
-										id={b?.id}
-									/>
-								{/each}
-							</div>
-						{/if}</div
-					></div
-				>
-			{/each}
-		{/key}
+		{#each Object.values(flowModules) as k}
+			<div class="px-2 py-2 grid grid-cols-12 w-full"
+				><div>{k}</div>
+				<div class="col-span-11 pt-1 px-2 flex min-h-6 w-full"
+					>{#if min && total}
+						<div class="flex flex-col gap-2 w-full">
+							{#each items?.[k] ?? [] as b}
+								<FlowTimelineBar
+									{total}
+									{now}
+									{min}
+									started_at={b?.started_at}
+									duration_ms={b?.duration_ms}
+									id={b?.id}
+								/>
+							{/each}
+						</div>
+					{/if}</div
+				></div
+			>
+		{/each}
 	</div>
 {:else}
 	<Loader2 class="animate-spin" />
