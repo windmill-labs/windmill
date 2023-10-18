@@ -6669,6 +6669,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tinyvector"
 version = "0.1.0"
+source = "git+https://github.com/windmill-labs/tinyvector#20823b94c20f2b9093f318badd24026cf54dcc85"
 dependencies = [
  "anyhow",
  "bincode",
