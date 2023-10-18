@@ -7,12 +7,14 @@
 
 	export let label: string
 	export let index: number
+	export let disabled: boolean = false
 </script>
 
-<MenuItem on:click>
+<MenuItem on:click {disabled}>
 	<div
 		class={classNames(
-			'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+			'flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold',
+			disabled ? 'text-disabled' : 'text-primary'
 		)}
 	>
 		{#if $tutorialsToDo.includes(index)}
@@ -20,6 +22,9 @@
 		{:else}
 			<CheckCircle size={16} color="green" />
 		{/if}
-		{label}
+		<div class="flex flex-row justify-between items-center w-full">
+			{label}
+			<slot />
+		</div>
 	</div>
 </MenuItem>

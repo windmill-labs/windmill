@@ -252,6 +252,9 @@
 				{mainButtons}
 				menuItems={getMenuItems(flow)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
+				bind:errorHandlerMuted={flow.ws_error_handler_muted}
+				scriptOrFlowPath={flow.path}
+				errorHandlerKind="flow"
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="form">

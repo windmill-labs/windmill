@@ -2,10 +2,12 @@
 	import Star from '$lib/components/Star.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import RowIcon from './RowIcon.svelte'
+	import { BellOff } from 'lucide-svelte'
 
 	export let marked: string | undefined
 	export let starred: boolean
 	export let canFavorite: boolean = true
+	export let errorHandlerMuted: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -37,6 +39,11 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border
 			</div>
 		</div>
 	</a>
+
+	{#if errorHandlerMuted}
+		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
+	{/if}
+
 	{#if $$slots.badges}
 		<div class="hidden lg:flex flex-row gap-4 items-center">
 			<slot name="badges" />

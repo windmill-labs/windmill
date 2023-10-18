@@ -111,7 +111,8 @@
 						value: flow.value,
 						schema: flow.schema,
 						tag: flow.tag,
-						draft_only: true
+						draft_only: true,
+						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
 			}
@@ -157,7 +158,8 @@
 						summary: flow.summary,
 						description: flow.description ?? '',
 						value: flow.value,
-						schema: flow.schema
+						schema: flow.schema,
+						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
 				if (enabled) {
@@ -174,7 +176,8 @@
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
-						tag: flow.tag
+						tag: flow.tag,
+						ws_error_handler_muted: flow.ws_error_handler_muted
 					}
 				})
 				const scheduleExists = await ScheduleService.existsSchedule({

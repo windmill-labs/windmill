@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.183.0
+  version: 1.184.0
   title: Windmill API
 
   contact:
@@ -2949,6 +2949,33 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/scripts/toggle_workspace_error_handler/p/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given script
+      operationId: toggleWorkspaceErrorHandlerForScript
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                muted:
+                  type: boolean
+      responses:
+        "200":
+          description: error handler toggled
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /workers/custom_tags:
     get:
       summary: get all instance custom tags (tags are used to dispatch jobs to
@@ -3496,6 +3523,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
+    post:
+      summary: Toggle ON and OFF the workspace error handler for a given flow
+      operationId: toggleWorkspaceErrorHandlerForFlow
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Workspace error handler enabled
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                muted:
+                  type: boolean
+      responses:
+        "200":
+          description: error handler toggled
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flows/get/draft/{path}:
     get:
@@ -6441,6 +6495,8 @@ components:
           type: number
         dedicated_worker:
           type: boolean
+        ws_error_handler_muted:
+          type: boolean
       required:
         - hash
         - path
@@ -6517,6 +6573,8 @@ components:
         cache_ttl:
           type: number
         dedicated_worker:
+          type: boolean
+        ws_error_handler_muted:
           type: boolean
       required:
         - path
@@ -7763,6 +7821,8 @@ components:
           type: boolean
         tag:
           type: string
+        ws_error_handler_muted:
+          type: boolean
       required:
         - path
         - edited_by
@@ -7779,6 +7839,8 @@ components:
               type: string
             tag:
               type: string
+            ws_error_handler_muted:
+              type: boolean
           required:
             - path
 

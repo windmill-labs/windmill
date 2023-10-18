@@ -132,7 +132,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             &job_running,
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
-            &e,
+            e,
             None,
             rsmq.clone(),
         )
@@ -178,28 +178,30 @@ pub async fn cancel_job<'c: 'async_recursion>(
     Ok((tx, Some(id)))
 }
 
-#[derive(Serialize)]
-pub struct WrappedError<T: Serialize> {
-    pub error: T,
+#[derive(Serialize, Debug)]
+pub struct WrappedError {
+    pub error: serde_json::Value,
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error<
-    T: Serialize + Send + Sync,
-    R: rsmq_async::RsmqConnection + Clone + Send,
->(
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
     mem_peak: i32,
-    e: T,
+    e: serde_json::Value,
     metrics: Option<Metrics>,
     rsmq: Option<R>,
-) -> Result<WrappedError<T>, Error> {
+) -> Result<WrappedError, Error> {
     if *METRICS_ENABLED {
         metrics.map(|m| m.worker_execution_failed.inc());
     }
     let result = WrappedError { error: e };
+    tracing::error!(
+        "job {} did not succeed: {}",
+        queued_job.id,
+        serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
+    );
     let _ = add_completed_job(
         db,
         &queued_job,
@@ -589,16 +591,40 @@ pub async fn send_error_to_workspace_handler<
     .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
 
     if let Some(error_handler) = error_handler {
-        run_error_handler(
-            rsmq,
-            queued_job,
-            db,
-            result,
-            &error_handler.strip_prefix("script/").unwrap(),
-            error_handler_extra_args,
-            false,
-        )
-        .await?
+        let ws_error_handler_muted: Option<bool> = match queued_job.job_kind {
+            JobKind::Script => {
+                sqlx::query_scalar!(
+                "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
+                queued_job.workspace_id,
+                queued_job.script_hash.unwrap().0,
+            )
+                .fetch_optional(db)
+                .await?
+            }
+            JobKind::Flow => {
+                sqlx::query_scalar!(
+                    "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
+                    queued_job.workspace_id,
+                    queued_job.script_path.as_ref().unwrap(),
+                )
+                .fetch_optional(db)
+                .await?
+            }
+            _ => None,
+        };
+
+        if !ws_error_handler_muted.unwrap_or(false) {
+            run_error_handler(
+                rsmq,
+                queued_job,
+                db,
+                result,
+                &error_handler.strip_prefix("script/").unwrap(),
+                error_handler_extra_args,
+                false,
+            )
+            .await?
+        }
     }
 
     Ok(())
@@ -2064,7 +2090,9 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl)
+                flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, \
+                visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
+                flow_step_id, cache_ttl)
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29) \
          RETURNING id",
         workspace_id,

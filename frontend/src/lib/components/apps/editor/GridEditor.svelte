@@ -81,9 +81,9 @@
 	>
 		<div
 			class={twMerge(
-				!$focusedGrid && $mode !== 'preview' ? 'border-dashed' : '',
+				!$focusedGrid && $mode !== 'preview' ? 'outline-dashed' : '',
 				'subgrid',
-				'border-[#999999] dark:border-[#aaaaaa] border '
+				'outline-[#999999] dark:outline-[#aaaaaa] outline-dotted outline-offset-2 outline-1'
 			)}
 			style={`transform: scale(${$scale / 100})`}
 		>

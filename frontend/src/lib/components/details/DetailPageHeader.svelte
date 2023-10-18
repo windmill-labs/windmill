@@ -4,6 +4,7 @@
 	import Menu from '$lib/components/details/Menu.svelte'
 	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { classNames } from '$lib/utils'
+	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
 
 	type MainButton = {
 		label: string
@@ -22,6 +23,10 @@
 	export let mainButtons: MainButton[] = []
 	export let menuItems: MenuItemButton[] = []
 	export let title: string
+
+	export let errorHandlerKind: 'flow' | 'script'
+	export let scriptOrFlowPath: string
+	export let errorHandlerMuted: boolean | undefined
 </script>
 
 <div class="border-b p-2 shadow-md">
@@ -58,6 +63,11 @@
 						</svelte:fragment>
 					</Menu>
 				{/if}
+				<ErrorHandlerToggleButton
+					kind={errorHandlerKind}
+					{scriptOrFlowPath}
+					bind:errorHandlerMuted
+				/>
 				{#each mainButtons as btn}
 					<Button
 						{...btn.buttonProps}

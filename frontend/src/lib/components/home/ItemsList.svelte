@@ -399,6 +399,10 @@
 										marked={item.marked}
 										on:change={loadScripts}
 										script={item}
+										errorHandlerMuted={item.ws_error_handler_muted === undefined ||
+										item.ws_error_handler_muted === null
+											? false
+											: item.ws_error_handler_muted}
 										{shareModal}
 										{moveDrawer}
 										{deploymentDrawer}
@@ -410,6 +414,10 @@
 										marked={item.marked}
 										on:change={loadFlows}
 										flow={item}
+										errorHandlerMuted={item.ws_error_handler_muted === undefined ||
+										item.ws_error_handler_muted === null
+											? false
+											: item.ws_error_handler_muted}
 										{shareModal}
 										{moveDrawer}
 										{deploymentDrawer}

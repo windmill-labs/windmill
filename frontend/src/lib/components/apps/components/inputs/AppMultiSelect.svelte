@@ -152,6 +152,9 @@
 					options={Array.isArray(items) ? items : []}
 					placeholder={resolvedConfig.placeholder}
 					allowUserOptions={resolvedConfig.create}
+					on:change={() => {
+						outputs?.result.set([...(value ?? [])])
+					}}
 					on:open={() => {
 						$selectedComponent = [id]
 						open = true
@@ -159,20 +162,17 @@
 					on:close={() => {
 						open = false
 					}}
+					let:option
 				>
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
 					<div
-						slot="option"
-						let:option
+						class="w-full"
 						on:mouseup|stopPropagation
-						on:pointerdown={(e) => {
-							const nValue = [...(value ?? []), option]
-							value = [...new Set(nValue)]
-							outputs?.result.set([...(value ?? [])])
-						}}
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}>{option}</div
 					>
-						{option}
-					</div>
 				</MultiSelect>
 				<Portal>
 					<div use:floatingContent class="z5000" hidden={!open}>

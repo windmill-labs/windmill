@@ -1490,7 +1490,9 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             &job,
             logs.to_string(),
             mem_peak.to_owned(),
-            result,
+            serde_json::from_str(result.get()).unwrap_or_else(
+                |_| json!({"message": format!("Non serializable error: {}", result.get())}),
+            ),
             metrics.clone(),
             rsmq.clone(),
         )
@@ -1576,9 +1578,9 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         add_completed_job_error(
             db,
             job,
-            format!("Unexpected error during job execution:\n{err}"),
+            format!("Unexpected error during job execution:\n{err:#?}"),
             mem_peak,
-            &err,
+            err.clone(),
             metrics.clone(),
             rsmq_2,
         )
@@ -1596,7 +1598,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                 (job.id, Uuid::nil(), Some(update_job_future))
             };
 
-        let wrapped_error = WrappedError { error: json!(err) };
+        let wrapped_error = WrappedError { error: err.clone() };
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -1626,7 +1628,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             mem_peak,
-                            &e,
+                            e,
                             metrics.clone(),
                             rsmq,
                         )
@@ -1953,7 +1955,7 @@ async fn process_result(
                 Error::ExitStatus(i) => {
                     let res = read_result(job_dir).await.ok();
 
-                    if res.is_some() {
+                    if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
                         res.unwrap()
                     } else {
                         let last_10_log_lines = logs
